@@ -49,5 +49,10 @@ async def roll(ctx, number):
     logger.debug("%s rolled a %s", ctx.author.name, random_num)
     await ctx.send("%s rolled a %s" % (ctx.author.name, random_num))
     
+@bot.command()
+async def windows(ctx):
+    logger.debug("Someone asked about windows")
+    await ctx.send('Install linux coward)
+
 
 bot.run(discord_token)
