@@ -1,3 +1,5 @@
+import logging
+from logging.handlers import RotatingFileHandler
 import os
 import re
 import random
@@ -12,8 +14,21 @@ ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
 discord_token = os.environ['DISCORD_TOKEN']
 bot = commands.Bot(command_prefix='!')
 
+
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                              datefmt='%Y-%m-%d %H:%M:%S')
+logger.setLevel(logging.DEBUG)
+fh = RotatingFileHandler('/var/log/discord-bot/discord.log',
+                         backupCount=2,
+                         maxBytes=((2 ** 20) * 10))
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+logger.addHandler(fh)
+
 @bot.command()
 async def hello(ctx):
+    logger.debug("Sending message to %s", ctx.author.name)
     await ctx.send('Waddup %s' % ctx.author.name)
 
 @bot.command()
@@ -31,6 +46,7 @@ async def roll(ctx, number):
     if number < 2:
         await ctx.send("Invalid number given")
     random_num = random.randint(1, number)
+    logger.debug("%s rolled a %s", ctx.author.name, random_num)
     await ctx.send("%s rolled a %s" % (ctx.author.name, random_num))
     
 
