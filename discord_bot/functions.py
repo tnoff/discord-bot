@@ -29,7 +29,7 @@ def roll(ctx, logger, number):
     _log_message(ctx, logger, message)
     return True, message
     
-def windows(ctx):
+def windows(ctx, logger):
     message = 'Install linux coward'
     _log_message(ctx, logger, message)
     return True, message
