@@ -61,16 +61,25 @@ def main():
     # Bot commands
     @bot.command()
     async def hello(ctx):
+        '''
+        Say hello to the server
+        '''
         _, message = functions.hello(ctx, logger)
         await ctx.send(message)
 
     @bot.command()
     async def roll(ctx, number):
+        '''
+        Get a random number between 1 and number given
+        '''
         _status, message = functions.roll(ctx, logger, number)
         await ctx.send(message)
 
     @bot.command()
     async def windows(ctx):
+        '''
+        Get an inspirational note about your operating system
+        '''
         _, message = functions.windows(ctx, logger)
         await ctx.send(message)
 
