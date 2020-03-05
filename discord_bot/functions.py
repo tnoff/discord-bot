@@ -1,3 +1,6 @@
+import random
+import re
+
 ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
 
 def _log_message(ctx, logger, message):
