@@ -7,6 +7,15 @@ def _log_message(ctx, logger, message):
     logger.info('Server "%s", invoked with command "%s", by user "%s", sending message "%s"',
                 ctx.guild.name, ctx.command.name, ctx.author.name, message)
 
+def help(ctx, logger):
+    message = '''Possible commands
+    !hello - Say hello to the bot
+    !roll [d]?[number] - Get a random number between 1 and the number given
+    !windows - Get an inspirational note about your operating system
+    '''
+    _log_message(ctx, logger, message)
+    return True, message
+
 def hello(ctx, logger):
     message = 'Waddup %s' % ctx.author.name
     _log_message(ctx, logger, message)

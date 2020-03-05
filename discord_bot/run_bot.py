@@ -60,6 +60,11 @@ def main():
 
     # Bot commands
     @bot.command()
+    async def help(ctx):
+        _, message = functions.help(ctx, logger)
+        await ctx.send(message)
+
+    @bot.command()
     async def hello(ctx):
         _, message = functions.hello(ctx, logger)
         await ctx.send(message)
