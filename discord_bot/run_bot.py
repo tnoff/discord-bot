@@ -11,9 +11,7 @@ from discord.ext import commands
 ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
 
 
-discord_token = os.environ['DISCORD_TOKEN']
 bot = commands.Bot(command_prefix='!')
-
 
 logger = logging.getLogger(__name__)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
@@ -25,6 +23,7 @@ fh = RotatingFileHandler('/var/log/discord-bot/discord.log',
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
 logger.addHandler(fh)
+
 
 @bot.command()
 async def hello(ctx):
@@ -54,5 +53,6 @@ async def windows(ctx):
     logger.debug("Someone asked about windows")
     await ctx.send('Install linux coward')
 
-
-bot.run(discord_token)
+def main():
+    discord_token = os.environ['DISCORD_TOKEN']
+    bot.run(discord_token)
