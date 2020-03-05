@@ -1,5 +1,3 @@
-import logging
-from logging.handlers import RotatingFileHandler
 import os
 import re
 import random
@@ -7,22 +5,15 @@ import random
 import discord
 from discord.ext import commands
 
+from discord_bot.utils import get_logger
+
 
 ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
 
 
 bot = commands.Bot(command_prefix='!')
 
-logger = logging.getLogger(__name__)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                              datefmt='%Y-%m-%d %H:%M:%S')
-logger.setLevel(logging.DEBUG)
-fh = RotatingFileHandler('/var/log/discord-bot/discord.log',
-                         backupCount=2,
-                         maxBytes=((2 ** 20) * 10))
-fh.setLevel(logging.DEBUG)
-fh.setFormatter(formatter)
-logger.addHandler(fh)
+logger = get_logger(__name__, '/var/log/discord-bot/discord.log')
 
 
 @bot.command()
