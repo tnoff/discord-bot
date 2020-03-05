@@ -4,8 +4,8 @@ import re
 ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
 
 def _log_message(ctx, logger, message):
-    logger.info('Server %s, invoked with command %s, sending message "%s"',
-                ctx.guild.name, ctx.command.name, message)
+    logger.info('Server "%s", invoked with command "%s", by user "%s", sending message "%s"',
+                ctx.guild.name, ctx.command.name, ctx.author.name, message)
 
 def hello(ctx, logger):
     message = 'Waddup %s' % ctx.author.name
