@@ -66,7 +66,7 @@ def main():
 
     @bot.command()
     async def roll(ctx, number):
-        _status, message = fucntions.roll(ctx, logger, number)
+        _status, message = functions.roll(ctx, logger, number)
         await ctx.send(message)
 
     @bot.command()
