@@ -27,6 +27,7 @@ def roll(ctx, logger, number):
         message = 'Invalid number given %s' % number
         _log_message(ctx, logger, message)
         return False, message
+    logger.debug("Getting random number between 1 and %s", number)
     random_num = random.randint(1, number)
     message = '%s rolled a %s' % (ctx.author.name, random_num)
     _log_message(ctx, logger, message)
