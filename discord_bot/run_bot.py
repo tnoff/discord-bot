@@ -11,7 +11,6 @@ from discord_bot import functions
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger
 
-LOG_FILE_DEFAULT = '/var/log/discord-bot/discord.log'
 HOME_PATH = os.path.expanduser("~")
 CONFIG_PATH_DEFAULT = os.path.join(HOME_PATH, ".discord-bot.conf")
 
@@ -19,7 +18,7 @@ CONFIG_PATH_DEFAULT = os.path.join(HOME_PATH, ".discord-bot.conf")
 def parse_args():
     parser = argparse.ArgumentParser(description="Discord Bot Runner")
     parser.add_argument("--config-file", "-c", default=CONFIG_PATH_DEFAULT, help="Config file")
-    parser.add_argument("--log-file", "-l", default=LOG_FILE_DEFAULT,
+    parser.add_argument("--log-file", "-l",
                         help="Logging file")
     parser.add_argument("--discord-token", "-t", help="Discord token, defaults to DISCORD_TOKEN env arg")
     return parser.parse_args()
@@ -44,16 +43,16 @@ def read_config(config_file):
 
 def main():
     # First get cli args
-    args = parse_args()
+    args = vars(parse_args())
     # Load settings
-    settings = read_config(args.config_file)
+    settings = read_config(args.pop('config_file'))
     # Override settings if cli args passed
-    for key, item in vars(args):
-        settings[key] = item
-
+    for key, item in args.items():
+        if item is not None:
+            settings[key] = item
     # Check for token
     if settings['discord_token'] is None:
-        raise DiscordBotException("No discord token given")
+        raise DiscordBotException('No discord token given')
 
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
@@ -76,4 +75,4 @@ def main():
         await ctx.send(message)
 
     # Run bot
-    bot.run(args.discord_token)
+    bot.run(settings['discord_token'])
