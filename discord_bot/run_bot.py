@@ -6,8 +6,11 @@ import random
 
 import discord
 from discord.ext import commands
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from discord_bot import functions
+from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger
 
@@ -31,6 +34,9 @@ def read_config(config_file):
     mapping = {
         'log_file' : ['general', 'log_file'],
         'discord_token' : ['general', 'discord_token'],
+        'mysql_user' : ['mysql', 'user'],
+        'mysql_password' : ['mysql', 'password'],
+        'mysql_database' : ['mysql', 'database'],
     }
     return_data = dict()
     for key_name, args in mapping.items():
@@ -57,6 +63,14 @@ def main():
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
     bot = commands.Bot(command_prefix='!')
+    # Setup database
+    sql_statement = f'mysql+pymysql://{settings["mysql_user"]}:{settings["mysql_password"]}@localhost'
+    sql_statement += f'/{settings["mysql_database"]}?host=localhost?port=3306'
+    engine = create_engine(sql_statement, encoding='utf-8')
+    BASE.metadata.create_all(engine)
+    BASE.metadata.bind = engine
+    db_session = sessionmaker(bind=engine)()
+
 
     # Bot commands
     @bot.command()
@@ -81,6 +95,22 @@ def main():
         Get an inspirational note about your operating system
         '''
         _, message = functions.windows(ctx, logger)
+        await ctx.send(message)
+
+    @bot.group(pass_context=True)
+    async def planner(ctx):
+        '''
+        Planner functions
+        '''
+        if ctx.invoked_subcommand is None:
+            await ctx.send('Invalid sub command passed...')
+
+    @planner.command(pass_context=True)
+    async def register(ctx):
+        '''
+        Register yourself with planning service
+        '''
+        _, message = functions.planner_register(ctx, logger, db_session)
         await ctx.send(message)
 
     # Run bot

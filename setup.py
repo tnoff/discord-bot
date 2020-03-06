@@ -6,7 +6,10 @@ setuptools.setup(
     author='Tyler D. North',
     author_email='ty_north@yahoo.com',
     install_requires=[
-        'discord >= 1.0.1'
+        'discord >= 1.0.1',
+        'mysqlclient >= 1.4.6',
+        'PyMySQL >= 0.9.3',
+        'SQLAlchemy >= 1.3.13',
     ],
     entry_points={
         'console_scripts' : [
@@ -14,5 +17,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.0.12',
+    version='0.0.13',
 )
