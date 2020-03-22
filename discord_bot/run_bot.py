@@ -37,6 +37,7 @@ def read_config(config_file):
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],
         'mysql_database' : ['mysql', 'database'],
+        'mysql_host'     : ['mysql', 'host'],
     }
     return_data = dict()
     for key_name, args in mapping.items():
@@ -65,7 +66,7 @@ def main():
     bot = commands.Bot(command_prefix='!')
     # Setup database
     sql_statement = f'mysql+pymysql://{settings["mysql_user"]}:{settings["mysql_password"]}@localhost'
-    sql_statement += f'/{settings["mysql_database"]}?host=localhost?port=3306'
+    sql_statement += f'/{settings["mysql_database"]}?host={settings["mysql_host"]}?port=3306'
     engine = create_engine(sql_statement, encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
