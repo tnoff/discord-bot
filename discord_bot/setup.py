@@ -9,13 +9,15 @@ setuptools.setup(
         'discord >= 1.0.1',
         'mysqlclient >= 1.4.6',
         'PyMySQL >= 0.9.3',
+        'python-twitter >= 3.5',
         'SQLAlchemy >= 1.3.13',
     ],
     entry_points={
         'console_scripts' : [
-            'discord-bot = discord_bot.run_bot:main'
+            'discord-bot = discord_bot.run_bot:main',
+            'twitter-bot = discord_bot.twitter:main',
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.0.15',
+    version='0.1.0',
 )

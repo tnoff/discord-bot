@@ -3,6 +3,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from discord_bot.database import BASE
 
@@ -20,8 +21,8 @@ def get_logger(logger_name, log_file):
     return logger
 
 def get_database_session(mysql_user, mysql_password, mysql_database, mysql_host):
-    sql_statement = f'mysql+pymysql://{settings["mysql_user"]}:{settings["mysql_password"]}@localhost'
-    sql_statement += f'/{settings["mysql_database"]}?host={settings["mysql_host"]}?port=3306'
+    sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@localhost'
+    sql_statement += f'/{mysql_database}?host={mysql_host}?port=3306'
     engine = create_engine(sql_statement, encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
@@ -33,12 +34,19 @@ def read_config(config_file):
     parser = SafeConfigParser()
     parser.read(config_file)
     mapping = {
+        # General
         'log_file' : ['general', 'log_file'],
         'discord_token' : ['general', 'discord_token'],
+        # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],
         'mysql_database' : ['mysql', 'database'],
         'mysql_host'     : ['mysql', 'host'],
+        # Twitter
+        'twitter_api_key' : ['twitter', 'api_key'],
+        'twitter_api_key_secret' : ['twitter', 'api_key_secret'],
+        'twitter_access_token' : ['twitter', 'access_token'],
+        'twitter_access_token_secret' : ['twitter', 'access_token_secret'],
     }
     return_data = dict()
     for key_name, args in mapping.items():

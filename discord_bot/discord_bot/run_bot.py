@@ -1,18 +1,14 @@
 import argparse
-import os
 import re
 import random
 
 import discord
 from discord.ext import commands
-from sqlalchemy.orm import sessionmaker
 
 from discord_bot import functions
+from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, get_database_session, read_config
-
-HOME_PATH = os.path.expanduser("~")
-CONFIG_PATH_DEFAULT = os.path.join(HOME_PATH, ".discord-bot.conf")
 
 
 def parse_args():
