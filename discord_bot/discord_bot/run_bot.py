@@ -1,18 +1,15 @@
 import argparse
-from configparser import NoSectionError, NoOptionError, SafeConfigParser
 import os
 import re
 import random
 
 import discord
 from discord.ext import commands
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from discord_bot import functions
-from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException
-from discord_bot.utils import get_logger
+from discord_bot.utils import get_logger, get_database_session, read_config
 
 HOME_PATH = os.path.expanduser("~")
 CONFIG_PATH_DEFAULT = os.path.join(HOME_PATH, ".discord-bot.conf")
@@ -26,27 +23,6 @@ def parse_args():
     parser.add_argument("--discord-token", "-t", help="Discord token, defaults to DISCORD_TOKEN env arg")
     return parser.parse_args()
 
-def read_config(config_file):
-    if config_file is None:
-        return dict()
-    parser = SafeConfigParser()
-    parser.read(config_file)
-    mapping = {
-        'log_file' : ['general', 'log_file'],
-        'discord_token' : ['general', 'discord_token'],
-        'mysql_user' : ['mysql', 'user'],
-        'mysql_password' : ['mysql', 'password'],
-        'mysql_database' : ['mysql', 'database'],
-        'mysql_host'     : ['mysql', 'host'],
-    }
-    return_data = dict()
-    for key_name, args in mapping.items():
-        try:
-            value = parser.get(*args)
-        except (NoSectionError, NoOptionError):
-            value = None
-        return_data[key_name] = value
-    return return_data
 
 def main():
     # First get cli args
@@ -65,12 +41,10 @@ def main():
     logger = get_logger(__name__, settings['log_file'])
     bot = commands.Bot(command_prefix='!')
     # Setup database
-    sql_statement = f'mysql+pymysql://{settings["mysql_user"]}:{settings["mysql_password"]}@localhost'
-    sql_statement += f'/{settings["mysql_database"]}?host={settings["mysql_host"]}?port=3306'
-    engine = create_engine(sql_statement, encoding='utf-8')
-    BASE.metadata.create_all(engine)
-    BASE.metadata.bind = engine
-    db_session = sessionmaker(bind=engine)()
+    db_session = get_database_session(settings['mysql_user'],
+                                      settings['mysql_password'],
+                                      settings['mysql_database'],
+                                      settings['mysql_host'])
 
 
     # Bot commands
