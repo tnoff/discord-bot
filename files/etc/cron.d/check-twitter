@@ -1,0 +1,3 @@
+*/5 * * * * /usr/local/bin/twitter-bot -c /secret/discord.conf check-feed >> /logs/cron.log 2>&1
+
+

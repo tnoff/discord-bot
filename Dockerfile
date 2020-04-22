@@ -6,6 +6,7 @@ VOLUME ["/secret", "/logs"]
 # Insall packages
 RUN apt-get update
 RUN apt-get install -y \
+   cron \ 
    libmysqlclient-dev \
    python3-dev \
    python3-pip \
@@ -26,5 +27,10 @@ RUN /usr/bin/pip3 install /opt/discord_bot
 
 # Copy files
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY files/etc/cron.d/check-twitter /etc/cron.d/check-twitter
+
+# Setup cron log
+RUN touch /logs/cron.log
+
 # Start supervisord
 CMD /usr/bin/supervisord -n
