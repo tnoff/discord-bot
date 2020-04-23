@@ -29,8 +29,9 @@ RUN /usr/bin/pip3 install /opt/discord_bot
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY files/etc/cron.d/check-twitter /etc/cron.d/check-twitter
 
-# Setup cron log
+# Setup cron
 RUN touch /logs/cron.log
+RUN /usr/bin/crontab /etc/cron.d/check-twitter
 
 # Start supervisord
 CMD /usr/bin/supervisord -n
