@@ -6,7 +6,8 @@ VOLUME ["/secret", "/logs"]
 # Insall packages
 RUN apt-get update
 RUN apt-get install -y \
-   cron \ 
+   cron \
+   ffmpeg \
    libmysqlclient-dev \
    python3-dev \
    python3-pip \
