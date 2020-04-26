@@ -80,17 +80,15 @@ def main():
     ytdl = YoutubeDL(ytdlopts)
 
     # Music bot setup
-    '''
-    Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
-    '''
+    # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
     class YTDLSource(discord.PCMVolumeTransformer):
-
         def __init__(self, source, *, data, requester):
             super().__init__(source)
             self.requester = requester
 
             self.title = data.get('title')
             self.web_url = data.get('webpage_url')
+            logger.info(f'Music bot adding new source: {self.web_url}, requested by {self.requester}')
 
             # YTDL info dicts (data) have other useful information you might want
             # https://github.com/rg3/youtube-dl/blob/master/README.md
@@ -113,6 +111,7 @@ def main():
                 # take first item from a playlist
                 data = data['entries'][0]
 
+            logger.info(f'Music bot adding {data["title"]} to the queue')
             await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```', delete_after=15)
 
             if download:
@@ -148,6 +147,7 @@ def main():
         __slots__ = ('bot', '_guild', '_channel', '_cog', 'queue', 'next', 'current', 'np', 'volume')
 
         def __init__(self, ctx):
+            logger.info(f'Adding music bot to guild {ctx.guild}')
             self.bot = ctx.bot
             self._guild = ctx.guild
             self._channel = ctx.channel
@@ -171,9 +171,10 @@ def main():
 
                 try:
                     # Wait for the next song. If we timeout cancel the player and disconnect...
-                    async with timeout(300):  # 5 minutes...
+                    async with timeout(600):  # 10 minutes...
                         source = await self.queue.get()
                 except asyncio.TimeoutError:
+                    logger.error(f'Music bot reached timeout on queue')
                     return self.destroy(self._guild)
 
                 if not isinstance(source, YTDLSource):
@@ -190,6 +191,7 @@ def main():
                 self.current = source
 
                 self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
+                logger.info(f'Music bot now playing {source.title} requested by {source.requester}')
                 self.np = await self._channel.send(f'**Now Playing:** `{source.title}` requested by '
                                                    f'`{source.requester}`')
                 await self.next.wait()
@@ -283,13 +285,16 @@ def main():
                 if vc.channel.id == channel.id:
                     return
                 try:
+                    logger.info(f'Music bot moving to channel {channel.id}')
                     await vc.move_to(channel)
                 except asyncio.TimeoutError:
+                    logger.error(f'Moving to channel {channel.id} timed out')
                     raise VoiceConnectionError(f'Moving to channel: <{channel}> timed out.')
             else:
                 try:
                     await channel.connect()
                 except asyncio.TimeoutError:
+                    logger.error(f'Connecting to channel {channel.id} timed out')
                     raise VoiceConnectionError(f'Connecting to channel: <{channel}> timed out.')
 
             await ctx.send(f'Connected to: **{channel}**', delete_after=20)
