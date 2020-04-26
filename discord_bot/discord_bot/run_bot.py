@@ -101,7 +101,7 @@ def main():
             return self.__getattribute__(item)
 
         @classmethod
-        async def create_source(cls, ctx, search: str, *, loop, download=False):
+        async def create_source(cls, ctx, search: str, *, loop, download=True):
             loop = loop or asyncio.get_event_loop()
 
             to_run = partial(ytdl.extract_info, url=search, download=download)
@@ -129,7 +129,7 @@ def main():
             loop = loop or asyncio.get_event_loop()
             requester = data['requester']
 
-            to_run = partial(ytdl.extract_info, url=data['webpage_url'], download=False)
+            to_run = partial(ytdl.extract_info, url=data['webpage_url'], download=True)
             data = await loop.run_in_executor(None, to_run)
 
             return cls(discord.FFmpegPCMAudio(data['url']), data=data, requester=requester)
@@ -322,7 +322,7 @@ def main():
 
             # If download is False, source will be a dict which will be used later to regather the stream.
             # If download is True, source will be a discord.FFmpegPCMAudio with a VolumeTransformer.
-            source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=False)
+            source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=True)
 
             await player.queue.put(source)
 
