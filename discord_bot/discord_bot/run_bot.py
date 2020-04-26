@@ -111,8 +111,8 @@ def main():
                 # take first item from a playlist
                 data = data['entries'][0]
 
-            logger.info(f'Music bot adding {data["title"]} to the queue')
-            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue.]\n```', delete_after=15)
+            logger.info(f'Music bot adding {data["title"]} to the queue {data["web_url"]}')
+            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue {data["web_url"]}]\n```', delete_after=15)
 
             if download:
                 source = ytdl.prepare_filename(data)
@@ -191,9 +191,9 @@ def main():
                 self.current = source
 
                 self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
-                logger.info(f'Music bot now playing {source.title} requested by {source.requester}')
+                logger.info(f'Music bot now playing {source.title} requested by {source.requester}, url {source.web_url}')
                 self.np = await self._channel.send(f'**Now Playing:** `{source.title}` requested by '
-                                                   f'`{source.requester}`')
+                                                   f'`{source.requester}` `{source.web_url}`')
                 await self.next.wait()
 
                 # Make sure the FFmpeg process is cleaned up.
@@ -383,7 +383,7 @@ def main():
             # Grab up to 5 entries from the queue...
             upcoming = list(itertools.islice(player.queue._queue, 0, 5))
 
-            fmt = '\n'.join(f'**`{_["title"]}`**' for _ in upcoming)
+            fmt = '\n'.join(f'**`{_["title"] _["web_url"]}`**' for _ in upcoming)
             embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=fmt)
 
             await ctx.send(embed=embed)
@@ -406,8 +406,8 @@ def main():
             except discord.HTTPException:
                 pass
 
-            player.np = await ctx.send(f'**Now Playing:** `{vc.source.title}` '
-                                       f'requested by `{vc.source.requester}`')
+            player.np = await ctx.send(f'**Now Playing:** `{vc.source.title}`'
+                                       f'requested by `{vc.source.requester}` `{vc.source.web_url}`')
 
         @commands.command(name='volume', aliases=['vol'])
         async def change_volume(self, ctx, *, vol: float):
