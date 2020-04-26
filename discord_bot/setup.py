@@ -9,8 +9,10 @@ setuptools.setup(
         'discord >= 1.0.1',
         'mysqlclient >= 1.4.6',
         'PyMySQL >= 0.9.3',
+        'PyNaCl >= 1.3.0',
         'python-twitter >= 3.5',
         'SQLAlchemy >= 1.3.13',
+        'youtube-dl >= 2020.3.24',
     ],
     entry_points={
         'console_scripts' : [
@@ -19,5 +21,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.1.2',
+    version='0.2.0',
 )
