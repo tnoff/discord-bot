@@ -383,7 +383,7 @@ def main():
             # Grab up to 5 entries from the queue...
             upcoming = list(itertools.islice(player.queue._queue, 0, 5))
 
-            fmt = '\n'.join(f'**`{_["title"] _["web_url"]}`**' for _ in upcoming)
+            fmt = '\n'.join(f'**`{_["title"]}` `{_["web_url"]}`**' for _ in upcoming)
             embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=fmt)
 
             await ctx.send(embed=embed)
