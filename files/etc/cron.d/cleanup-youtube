@@ -1,0 +1,3 @@
+0 * * * * /usr/local/bin/cleanup-youtube.sh /logs/cron.log 2>&1
+
+
