@@ -1,0 +1,8 @@
+/logs/discord.log {
+  rotate 5
+  missingok
+  daily
+  compress
+  notifempty
+  copytruncate
+}

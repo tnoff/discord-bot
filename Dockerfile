@@ -9,6 +9,7 @@ RUN apt-get install -y \
    cron \
    ffmpeg \
    libmysqlclient-dev \
+   logrotate \
    python3-dev \
    python3-pip \
    supervisor \
@@ -30,7 +31,7 @@ COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervi
 COPY files/etc/cron.d/check-twitter /etc/cron.d/check-twitter
 COPY files/etc/cron.d/cleanup-youtube /etc/cron.d/cleanup-youtube
 COPY files/usr/local/bin/cleanup-youtube.sh /usr/local/bin/cleanup-youtube.sh
-
+COPY files/etc/logrotate.d/discord /etc/logrotate.d/discord
 # Chmod files
 RUN chmod +x /usr/local/bin/cleanup-youtube.sh
 
