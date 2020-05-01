@@ -28,17 +28,18 @@ COPY discord_bot /opt/discord_bot
 RUN /usr/bin/pip3 install /opt/discord_bot
 # Copy files
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY files/etc/cron.d/check-twitter /etc/cron.d/check-twitter
-COPY files/etc/cron.d/cleanup-youtube /etc/cron.d/cleanup-youtube
-COPY files/usr/local/bin/cleanup-youtube.sh /usr/local/bin/cleanup-youtube.sh
+COPY files/etc/cron.hourly/check-twitter /etc/cron.hourly/check-twitter
+COPY files/etc/cron.hourly/cleanup-youtube /etc/cron.hourly/cleanup-youtube
+COPY files/etc/cron.hourly/logrotate /etc/cron.hourly/logrotate
 COPY files/etc/logrotate.d/discord /etc/logrotate.d/discord
-# Chmod files
-RUN chmod +x /usr/local/bin/cleanup-youtube.sh
+
+# Chmod logrotate
+RUN chmod 0644 /etc/logrotate.d/discord
+# Fix logrotate file
+RUN sed -i 's/su root syslog/su root adm/' /etc/logrotate.conf
 
 # Setup cron
 RUN touch /logs/cron.log
-RUN /usr/bin/crontab /etc/cron.d/check-twitter
-RUN /usr/bin/crontab /etc/cron.d/cleanup-youtube
 
 # Start supervisord
 CMD /usr/bin/supervisord -n
