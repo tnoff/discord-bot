@@ -35,6 +35,10 @@ class InvalidVoiceChannel(VoiceConnectionError):
     """Exception for cases of invalid Voice Channels."""
 
 
+class MyQueue(asyncio.Queue):
+    def shuffle(self):
+        shuffle(self._queue)
+
 def main():
     # First get cli args
     args = vars(parse_args())
@@ -153,7 +157,7 @@ def main():
             self._channel = ctx.channel
             self._cog = ctx.cog
 
-            self.queue = asyncio.Queue()
+            self.queue = MyQueue()
             self.next = asyncio.Event()
 
             self.np = None  # Now playing message
@@ -367,6 +371,23 @@ def main():
 
             vc.stop()
             await ctx.send(f'**`{ctx.author}`**: Skipped the song!')
+
+
+        @commands.command(name='shuffle')
+        async def shuffle_(self, ctx):
+            """Shuffle song queue ."""
+            vc = ctx.voice_client
+
+            if not vc or not vc.is_connected():
+                return await ctx.send('I am not currently playing anything!', delete_after=20)
+
+            player = self.get_player(ctx)
+            if player.queue.empty():
+                return await ctx.send('There are currently no more queued songs.')
+            player.queue.shuffle()
+ 
+            await ctx.send(f'Queue shuffled')
+
 
         @commands.command(name='queue', aliases=['q', 'playlist'])
         async def queue_info(self, ctx):
