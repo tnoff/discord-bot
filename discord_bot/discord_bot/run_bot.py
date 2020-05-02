@@ -39,6 +39,7 @@ class MyQueue(asyncio.Queue):
     def shuffle(self):
         random.shuffle(self._queue)
 
+
 def main():
     # First get cli args
     args = vars(parse_args())
@@ -469,47 +470,52 @@ def main():
 
             await self.cleanup(ctx.guild)
 
-    # Bot commands
-    @bot.command()
-    async def hello(ctx):
-        '''
-        Say hello to the server
-        '''
-        _, message = functions.hello(ctx, logger)
-        await ctx.send(message)
 
-    @bot.command()
-    async def roll(ctx, number):
-        '''
-        Get a random number between 1 and number given
-        '''
-        _status, message = functions.roll(ctx, logger, number)
-        await ctx.send(message)
+    class General(commands.Cog):
+        @commands.command(name='hello')
+        async def hello(self, ctx):
+            '''
+            Say hello to the server
+            '''
+            _, message = functions.hello(ctx, logger)
+            await ctx.send(message)
 
-    @bot.command()
-    async def windows(ctx):
-        '''
-        Get an inspirational note about your operating system
-        '''
-        _, message = functions.windows(ctx, logger)
-        await ctx.send(message)
+        @commands.command(name='roll')
+        async def roll(self, ctx, number):
+            '''
+            Get a random number between 1 and number given
+            '''
+            _status, message = functions.roll(ctx, logger, number)
+            await ctx.send(message)
 
-    @bot.group(pass_context=True)
-    async def planner(ctx):
-        '''
-        Planner functions
-        '''
-        if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid sub command passed...')
+        @commands.command(name='windows')
+        async def windows(self, ctx):
+            '''
+            Get an inspirational note about your operating system
+            '''
+            _, message = functions.windows(ctx, logger)
+            await ctx.send(message)
 
-    @planner.command(pass_context=True)
-    async def register(ctx):
-        '''
-        Register yourself with planning service
-        '''
-        _, message = functions.planner_register(ctx, logger, db_session)
-        await ctx.send(message)
+
+    class Planner(commands.Cog):
+        @commands.group(name='planner', invoke_without_command=False)
+        async def planner(self, ctx):
+            '''
+            Planner functions
+            '''
+            if ctx.invoked_subcommand is None:
+                await ctx.send('Invalid sub command passed...')
+
+        @planner.command(name='register')
+        async def register(self, ctx):
+            '''
+            Register yourself with planning service
+            '''
+            _, message = functions.planner_register(ctx, logger, db_session)
+            await ctx.send(message)
 
     # Run bot
     bot.add_cog(Music(bot))
+    bot.add_cog(General(bot))
+    bot.add_cog(Planner(bot))
     bot.run(settings['discord_token'])
