@@ -3,7 +3,7 @@ import re
 
 from discord_bot.database import Server, User
 
-ROLL_REGEX = '^d?(?P<number>[0-9]+)$'
+ROLL_REGEX = '^(?P<rolls>\d+)?[dD](?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
 
 def _log_message(ctx, logger, message):
     logger.info('Server "%s", invoked with command "%s", by user "%s", sending message "%s"',
@@ -21,17 +21,33 @@ def roll(ctx, logger, number):
         message = 'Invalid number given %s' % number
         _log_message(ctx, logger, message)
         return False, message
-    # Then check if valid number
-    # If passes assume its a number
-    number = matcher.group('number')
-    number = int(number)
-    if number < 2:
-        message = 'Invalid number given %s' % number
+    try:
+        sides = int(matcher.group('sides'))
+        rolls = matcher.group('rolls')
+        modifier = matcher.group('modifier')
+        if rolls is None:
+            rolls = 1
+        else:
+            rolls = int(rolls)
+        if modifier is None:
+            modifier = 0
+        else:
+            modifier = int(modifier)
+    except ValueError:
+        message = 'Non integer value given'
         _log_message(ctx, logger, message)
         return False, message
-    logger.debug("Getting random number between 1 and %s", number)
-    random_num = random.randint(1, number)
-    message = '%s rolled a %s' % (ctx.author.name, random_num)
+
+    total = 0
+    for _ in range(rolls):
+        total += random.randint(1, sides)
+    if modifier:
+        if matcher.group('operator') == '-':
+            total = total - modifier
+        elif matcher.group('operator') == '+':
+            total = total + modifier
+
+    message = f'{ctx.author.name} rolled a {total}'
     _log_message(ctx, logger, message)
     return True, message
     

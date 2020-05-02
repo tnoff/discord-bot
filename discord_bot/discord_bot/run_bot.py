@@ -481,7 +481,7 @@ def main():
             await ctx.send(message)
 
         @commands.command(name='roll')
-        async def roll(self, ctx, number):
+        async def roll(self, ctx, *, number):
             '''
             Get a random number between 1 and number given
             '''
