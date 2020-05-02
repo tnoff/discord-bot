@@ -19,5 +19,5 @@ class TwitterSubscription(BASE):
     __tablename__ = 'twitter_subscription'
 
     twitter_user_id = Column(String(1024), primary_key=True)
-    webhook_url = Column(String(2048), null=False, empty=False)
+    webhook_url = Column(String(2048))
     last_post = Column(BigInteger)
