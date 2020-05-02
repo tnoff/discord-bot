@@ -37,7 +37,7 @@ class InvalidVoiceChannel(VoiceConnectionError):
 
 class MyQueue(asyncio.Queue):
     def shuffle(self):
-        shuffle(self._queue)
+        random.shuffle(self._queue)
 
 def main():
     # First get cli args
