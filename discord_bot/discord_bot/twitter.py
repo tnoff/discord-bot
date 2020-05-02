@@ -24,13 +24,14 @@ def parse_args():
 
     subscribe = sub_parser.add_parser('subscribe', help='Subscribe to new podcast')
     subscribe.add_argument('screen_name', help='Twitter username')
+    subscribe.add_argument('webhook_url', help='Discord webhook url')
 
     check_feed = sub_parser.add_parser('check-feed', help='Check feeds')
 
     return parser.parse_args()
 
 
-def subscribe(logger, db_session, twitter_api, screen_name):
+def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
     logger.debug(f'Attempting to subscribe to username: {screen_name}')
     try:
         user = twitter_api.GetUser(screen_name=screen_name)
@@ -52,7 +53,8 @@ def subscribe(logger, db_session, twitter_api, screen_name):
     # Create new subscription
     args = {
         'twitter_user_id': user.id,
-        'last_post': last_post
+        'last_post': last_post,
+        'webhook_url' : webhook_url,
     }
     logger.debug(f'Adding new subscription {args}')
     tw = TwitterSubscription(**args)
@@ -61,7 +63,7 @@ def subscribe(logger, db_session, twitter_api, screen_name):
     logger.info(f'Subscribed to screen name: {screen_name}')
 
 
-def check_feed(logger, db_session, twitter_api, webhook_urls):
+def check_feed(logger, db_session, twitter_api):
     logger.debug("Checking twitter feeds")
     subscriptions = db_session.query(TwitterSubscription).all()
     for subscription in subscriptions:
@@ -80,10 +82,11 @@ def check_feed(logger, db_session, twitter_api, webhook_urls):
                         'content' : f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
                     }
                     logger.info(f'Posting new post from user: {subscription.twitter_user_id}')
-                    for webhook in webhook_urls:
-                        req = requests.post(webhook, headers={'Content-Type':'application/json'}, data=json.dumps(post_params))
-                        if req.status_code != 204:
-                            logger.error('Issue posting web hook: {req.text}')
+                    req = requests.post(subscription.webhook_url,
+                                        headers={'Content-Type':'application/json'},
+                                        data=json.dumps(post_params))
+                    if req.status_code != 204:
+                        logger.error('Issue posting web hook: {req.text}')
                     if not has_new_first_post:
                         subscription.last_post = post.id
                         db_session.commit()
@@ -121,6 +124,6 @@ def main():
                       access_token_secret=settings['twitter_access_token_secret'])
 
     if args['command'] == 'subscribe':
-        subscribe(logger, db_session, twitter_api, args['screen_name'])
+        subscribe(logger, db_session, twitter_api, args['screen_name'], args['webhook_url'])
     elif args['command'] == 'check-feed':
-        check_feed(logger, db_session, twitter_api, settings['webhook_url'])
+        check_feed(logger, db_session, twitter_api)

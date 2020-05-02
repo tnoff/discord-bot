@@ -37,7 +37,6 @@ def read_config(config_file):
         # General
         'log_file' : ['general', 'log_file'],
         'discord_token' : ['general', 'discord_token'],
-        'webhook_url' : ['general', 'webhook_url'],
         # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],
@@ -56,7 +55,4 @@ def read_config(config_file):
         except (NoSectionError, NoOptionError):
             value = None
         return_data[key_name] = value
-    if return_data['webhook_url']:
-        return_data['webhook_url'] = return_data['webhook_url'].split(',')
-
     return return_data
