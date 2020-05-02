@@ -6,3 +6,30 @@
   notifempty
   copytruncate
 }
+
+/logs/cleanup-youtube.log {
+  rotate 5
+  missingok
+  daily
+  compress
+  notifempty
+  copytruncate
+}
+
+/logs/check-twitter.log {
+  rotate 5
+  missingok
+  daily
+  compress
+  notifempty
+  copytruncate
+}
+
+/logs/logrotate.log {
+  rotate 5
+  missingok
+  daily
+  compress
+  notifempty
+  copytruncate
+}
