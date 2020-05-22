@@ -6,6 +6,7 @@ setuptools.setup(
     author='Tyler D. North',
     author_email='ty_north@yahoo.com',
     install_requires=[
+        'cryptography >= 2.9.2',
         'discord >= 1.0.1',
         'mysqlclient >= 1.4.6',
         'PyMySQL >= 0.9.3',
@@ -21,5 +22,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.2.13',
+    version='0.2.14',
 )

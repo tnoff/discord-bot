@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, BigInteger, String
+from sqlalchemy import Column, Integer, ForeignKey, BigInteger, String
 from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
@@ -18,6 +18,7 @@ class User(BASE):
 class TwitterSubscription(BASE):
     __tablename__ = 'twitter_subscription'
 
-    twitter_user_id = Column(String(1024), primary_key=True)
+    id = Column(Integer, primary_key=True)
+    twitter_user_id = Column(String(1024))
     webhook_url = Column(String(2048))
     last_post = Column(BigInteger)

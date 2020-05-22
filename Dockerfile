@@ -3,6 +3,8 @@ FROM ubuntu:20.04
 # Setup volumes
 VOLUME ["/secret", "/logs"]
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Insall packages
 RUN apt-get update
 RUN apt-get install -y \

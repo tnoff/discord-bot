@@ -39,7 +39,7 @@ def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
         logger.exception(f'Exception getting user: {error}')
         return False
     # Then check if subscription exists
-    subscription = db_session.query(TwitterSubscription).get(user.id)
+    subscription = db_session.query(TwitterSubscription).filter(TwitterSubscription.twitter_user_id==user.id)
     if subscription:
         logger.warning(f'Already subscribed to user id: {user_id}')
         return True
