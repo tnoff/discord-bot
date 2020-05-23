@@ -82,7 +82,7 @@ def check_feed(logger, db_session, twitter_api):
                         'avatar_url' : '',
                         'content' : f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
                     }
-                    logger.info(f'Posting new post from user: {subscription.twitter_user_id}')
+                    logger.info(f'Posting new post {post.id} from user: {subscription.twitter_user_id}')
                     req = requests.post(subscription.webhook_url,
                                         headers={'Content-Type':'application/json'},
                                         data=json.dumps(post_params))
@@ -91,7 +91,7 @@ def check_feed(logger, db_session, twitter_api):
                     if not has_new_first_post:
                         subscription.last_post = post.id
                         db_session.commit()
-                        hastnew_first_post = True 
+                        has_new_first_post = True 
                 else:
                     exit_loop = True
                     break
