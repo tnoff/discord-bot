@@ -44,7 +44,7 @@ def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
         logger.warning(f'Already subscribed to user id: {user_id}')
         return True
 
-    timeline = twitter_api.GetUserTimeline(user_id=user.id, count=1, include_rts=False)
+    timeline = twitter_api.GetUserTimeline(user_id=user.id, count=1, include_rts=False, exclude_replies=True)
     if len(timeline) == 0:
         logger.error(f'No timeline found for user: {user.id}')
         return False
@@ -73,7 +73,8 @@ def check_feed(logger, db_session, twitter_api):
         has_new_first_post = False
         old_last_post = deepcopy(subscription.last_post)
         while True:
-            timeline = twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id, since_id=last_post, include_rts=False)
+            timeline = twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
+                                                   since_id=last_post, include_rts=False, exclude_replies=True)
             for post in timeline:
                 if post.id != old_last_post:
                     post_params = {
