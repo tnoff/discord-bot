@@ -3,6 +3,7 @@ import asyncio
 from async_timeout import timeout
 from functools import partial
 import itertools
+from prettytable import PrettyTable
 import re
 import random
 import sys
@@ -11,6 +12,7 @@ from youtube_dl import YoutubeDL
 
 import discord
 from discord.ext import commands
+
 
 from discord_bot import functions
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
@@ -387,7 +389,13 @@ def main():
                 return await ctx.send('There are currently no more queued songs.')
             player.queue.shuffle()
  
-            await ctx.send(f'Queue shuffled')
+            table = PrettyTable()
+            table.field_names = ["Queue Position", "Title"]
+
+            for (count, item) in enumerate(player.queue._queue):
+                table.add_row([count, item["title"])
+
+            await ctx.send(f'Queue Shuffled\n{table}')
 
 
         @commands.command(name='queue', aliases=['q', 'playlist'])
@@ -402,13 +410,14 @@ def main():
             if player.queue.empty():
                 return await ctx.send('There are currently no more queued songs.')
 
-            # Grab up to 5 entries from the queue...
-            upcoming = list(itertools.islice(player.queue._queue, 0, 5))
+            table = PrettyTable()
+            table.field_names = ["Queue Position", "Title"]
 
-            fmt = '\n'.join(f'**`{_["title"]}` `{_["webpage_url"]}`**' for _ in upcoming)
-            embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=fmt)
+            for (count, item) in enumerate(player.queue._queue):
+                table.add_row([count, item["title"])
 
-            await ctx.send(embed=embed)
+            await ctx.send(f'{table}')
+
 
         @commands.command(name='now_playing', aliases=['np', 'current', 'currentsong', 'playing'])
         async def now_playing_(self, ctx):

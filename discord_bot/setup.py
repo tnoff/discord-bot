@@ -9,6 +9,7 @@ setuptools.setup(
         'cryptography >= 2.9.2',
         'discord >= 1.0.1',
         'mysqlclient >= 1.4.6',
+        'prettytable>=0.7.2',
         'PyMySQL >= 0.9.3',
         'PyNaCl >= 1.3.0',
         'python-twitter >= 3.5',
@@ -22,5 +23,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.2.18',
+    version='0.2.19',
 )
