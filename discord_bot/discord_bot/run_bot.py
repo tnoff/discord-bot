@@ -42,6 +42,14 @@ class MyQueue(asyncio.Queue):
         random.shuffle(self._queue)
 
 
+def get_queue_string(queue):
+    table = PrettyTable()
+    table.field_names = ["Queue Order", "Title"]
+
+    for (count, item) in enumerate(queue):
+        table.add_row([count + 1, item["title"]])
+    return f'```\n{table.get_string()}\n```'
+
 def main():
     # First get cli args
     args = vars(parse_args())
@@ -389,13 +397,7 @@ def main():
                 return await ctx.send('There are currently no more queued songs.')
             player.queue.shuffle()
  
-            table = PrettyTable()
-            table.field_names = ["Queue Position", "Title"]
-
-            for (count, item) in enumerate(player.queue._queue):
-                table.add_row([count + 1, item["title"]])
-
-            await ctx.send(f'Queue Shuffled\n{table}')
+            await ctx.send(get_queue_string(player.queue._queue)
 
 
         @commands.command(name='queue', aliases=['q', 'playlist'])
@@ -410,13 +412,7 @@ def main():
             if player.queue.empty():
                 return await ctx.send('There are currently no more queued songs.')
 
-            table = PrettyTable()
-            table.field_names = ["Queue Position", "Title"]
-
-            for (count, item) in enumerate(player.queue._queue):
-                table.add_row([count + 1, item["title"]])
-
-            await ctx.send(f'{table}')
+            await ctx.send(get_queue_string(player.queue._queue)
 
 
         @commands.command(name='now_playing', aliases=['np', 'current', 'currentsong', 'playing'])
