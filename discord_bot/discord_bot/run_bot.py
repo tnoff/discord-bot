@@ -397,7 +397,7 @@ def main():
                 return await ctx.send('There are currently no more queued songs.')
             player.queue.shuffle()
  
-            await ctx.send(get_queue_string(player.queue._queue)
+            await ctx.send(get_queue_string(player.queue._queue))
 
 
         @commands.command(name='queue', aliases=['q', 'playlist'])
@@ -412,7 +412,7 @@ def main():
             if player.queue.empty():
                 return await ctx.send('There are currently no more queued songs.')
 
-            await ctx.send(get_queue_string(player.queue._queue)
+            await ctx.send(get_queue_string(player.queue._queue))
 
 
         @commands.command(name='now_playing', aliases=['np', 'current', 'currentsong', 'playing'])
