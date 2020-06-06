@@ -393,7 +393,7 @@ def main():
             table.field_names = ["Queue Position", "Title"]
 
             for (count, item) in enumerate(player.queue._queue):
-                table.add_row([count, item["title"])
+                table.add_row([count + 1, item["title"]])
 
             await ctx.send(f'Queue Shuffled\n{table}')
 
@@ -414,7 +414,7 @@ def main():
             table.field_names = ["Queue Position", "Title"]
 
             for (count, item) in enumerate(player.queue._queue):
-                table.add_row([count, item["title"])
+                table.add_row([count + 1, item["title"]])
 
             await ctx.send(f'{table}')
 
