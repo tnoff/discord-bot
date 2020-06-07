@@ -189,7 +189,7 @@ def main():
                     async with timeout(600):  # 10 minutes...
                         source = await self.queue.get()
                 except asyncio.TimeoutError:
-                    logger.error(f'Music bot reached timeout on queue')
+                    logger.error(f'Music bot reached timeout on queue in guild {self._guild')
                     return self.destroy(self._guild)
 
                 if not isinstance(source, YTDLSource):
