@@ -71,9 +71,9 @@ class MyQueue(asyncio.Queue):
             return None
         # Rotate right, remove top item
         # Then rotate back left
-        self._queue.rotate(n=(queue_index - 1))
+        self._queue.rotate(queue_index - 1)
         item = self._queue.pop()
-        self._queue.rotate(n=-1*(queue_index-1))
+        self._queue.rotate(-1*(queue_index-1))
         return item
 
 def get_queue_string(queue):
@@ -411,10 +411,13 @@ def main(): #pylint:disable=too-many-statements
 
             player = self.get_player(ctx)
 
+            if player.queue.full():
+                return await ctx.send('Queue is full, cannot add more songs')
+
             source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=True)
 
             try:
-                await player.queue.put_nowait(source)
+                player.queue.put_nowait(source)
             except asyncio.QueueFull:
                 await ctx.send('Queue is full, cannot add more songs')
 
@@ -521,6 +524,11 @@ def main(): #pylint:disable=too-many-statements
             if player.queue.empty():
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
+
+            try:
+                queue_index = int(queue_index)
+            except AttributeError:
+                return await ctx.send(f'Invalid queue index {queue_index}')
 
             item = player.queue.remove_item(queue_index)
             if item is None:
