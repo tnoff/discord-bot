@@ -61,7 +61,20 @@ class MyQueue(asyncio.Queue):
         Shuffle queue
         '''
         random.shuffle(self._queue)
+        return True
 
+    def remove_item(self, queue_index):
+        '''
+        Remove item from queue
+        '''
+        if queue_index < 1 or queue_index > self.qsize():
+            return None
+        # Rotate right, remove top item
+        # Then rotate back left
+        self._queue.rotate(n=(queue_index - 1))
+        item = self._queue.pop()
+        self._queue.rotate(n=-1*(queue_index-1))
+        return item
 
 def get_queue_string(queue):
     '''
@@ -208,7 +221,7 @@ def main(): #pylint:disable=too-many-statements
             self._channel = ctx.channel
             self._cog = ctx.cog
 
-            self.queue = MyQueue()
+            self.queue = MyQueue(maxsize=20)
             self.next = asyncio.Event()
 
             self.np = None  # Now playing message
@@ -400,7 +413,10 @@ def main(): #pylint:disable=too-many-statements
 
             source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=True)
 
-            await player.queue.put(source)
+            try:
+                await player.queue.put_nowait(source)
+            except asyncio.QueueFull:
+                await ctx.send('Queue is full, cannot add more songs')
 
         @commands.command(name='pause')
         async def pause_(self, ctx):
@@ -489,6 +505,27 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
 
             await ctx.send(get_queue_string(player.queue._queue)) #pylint:disable=protected-access
+
+        @commands.command(name='remove')
+        async def remove_item(self, ctx, queue_index):
+            '''
+            Remove item from queue
+            '''
+            vc = ctx.voice_client
+
+            if not vc or not vc.is_connected():
+                return await ctx.send('I am not currently connected to voice',
+                                      delete_after=DELETE_AFTER)
+
+            player = self.get_player(ctx)
+            if player.queue.empty():
+                return await ctx.send('There are currently no more queued songs.',
+                                      delete_after=DELETE_AFTER)
+
+            item = player.queue.remove_item(queue_index)
+            if item is None:
+                return ctx.send(f'Unable to remove queue index {queue_index}')
+            return await ctx.send(f'Removed song {item["title"]} from queue')
 
 
         @commands.command(name='now_playing')
