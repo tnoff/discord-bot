@@ -8,6 +8,9 @@ from sqlalchemy.orm import sessionmaker
 from discord_bot.database import BASE
 
 def get_logger(logger_name, log_file):
+    '''
+    Generic logger
+    '''
     logger = logging.getLogger(logger_name)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
                                   datefmt='%Y-%m-%d %H:%M:%S')
@@ -21,6 +24,9 @@ def get_logger(logger_name, log_file):
     return logger
 
 def get_database_session(mysql_user, mysql_password, mysql_database, mysql_host):
+    '''
+    Mysql database session
+    '''
     sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@localhost'
     sql_statement += f'/{mysql_database}?host={mysql_host}?port=3306'
     engine = create_engine(sql_statement, encoding='utf-8')
@@ -29,6 +35,9 @@ def get_database_session(mysql_user, mysql_password, mysql_database, mysql_host)
     return sessionmaker(bind=engine)()
 
 def read_config(config_file):
+    '''
+    Get values from config file
+    '''
     if config_file is None:
         return dict()
     parser = SafeConfigParser()

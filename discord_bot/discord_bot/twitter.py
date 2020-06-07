@@ -1,11 +1,8 @@
 import argparse
 from copy import deepcopy
 import json
-import os
 
-from discord.ext import commands
 import requests
-from sqlalchemy.orm import sessionmaker
 from twitter import Api
 from twitter.error import TwitterError
 
@@ -15,6 +12,9 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 
 
 def parse_args():
+    '''
+    Basic cli parser
+    '''
     parser = argparse.ArgumentParser(description="Discord Bot Runner")
     parser.add_argument("--config-file", "-c", default=CONFIG_PATH_DEFAULT, help="Config file")
     parser.add_argument("--log-file", "-l",
@@ -22,16 +22,19 @@ def parse_args():
 
     sub_parser = parser.add_subparsers(dest='command', help='Command')
 
-    subscribe = sub_parser.add_parser('subscribe', help='Subscribe to new podcast')
-    subscribe.add_argument('screen_name', help='Twitter username')
-    subscribe.add_argument('webhook_url', help='Discord webhook url')
+    subs = sub_parser.add_parser('subscribe', help='Subscribe to new podcast')
+    subs.add_argument('screen_name', help='Twitter username')
+    subs.add_argument('webhook_url', help='Discord webhook url')
 
-    check_feed = sub_parser.add_parser('check-feed', help='Check feeds')
+    sub_parser.add_parser('check-feed', help='Check feeds')
 
     return parser.parse_args()
 
 
 def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
+    '''
+    Subscribe to twitter feed
+    '''
     logger.debug(f'Attempting to subscribe to username: {screen_name}')
     try:
         user = twitter_api.GetUser(screen_name=screen_name)
@@ -39,12 +42,14 @@ def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
         logger.exception(f'Exception getting user: {error}')
         return False
     # Then check if subscription exists
-    subscription = db_session.query(TwitterSubscription).filter(TwitterSubscription.twitter_user_id==user.id)
+    subscription = db_session.query(TwitterSubscription).\
+                   filter(TwitterSubscription.twitter_user_id == user.id)
     if subscription:
-        logger.warning(f'Already subscribed to user id: {user_id}')
+        logger.warning(f'Already subscribed to user id: {user.id}')
         return True
 
-    timeline = twitter_api.GetUserTimeline(user_id=user.id, count=1, include_rts=False, exclude_replies=True)
+    timeline = twitter_api.GetUserTimeline(user_id=user.id, count=1,
+                                           include_rts=False, exclude_replies=True)
     if len(timeline) == 0:
         logger.error(f'No timeline found for user: {user.id}')
         return False
@@ -61,9 +66,12 @@ def subscribe(logger, db_session, twitter_api, screen_name, webhook_url):
     db_session.add(tw)
     db_session.commit()
     logger.info(f'Subscribed to screen name: {screen_name}')
-
+    return user.id
 
 def check_feed(logger, db_session, twitter_api):
+    '''
+    Check all subscribed twitter feed
+    '''
     logger.debug("Checking twitter feeds")
     subscriptions = db_session.query(TwitterSubscription).all()
     for subscription in subscriptions:
@@ -74,7 +82,8 @@ def check_feed(logger, db_session, twitter_api):
         old_last_post = deepcopy(subscription.last_post)
         while True:
             timeline = twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
-                                                   since_id=last_post, include_rts=False, exclude_replies=True)
+                                                   since_id=last_post, include_rts=False,
+                                                   exclude_replies=True)
             for post in timeline:
                 if post.id != old_last_post:
                     post_params = {
@@ -82,7 +91,8 @@ def check_feed(logger, db_session, twitter_api):
                         'avatar_url' : '',
                         'content' : f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
                     }
-                    logger.info(f'Posting new post {post.id} from user: {subscription.twitter_user_id}')
+                    logger.info(f'Posting new post {post.id} from user: '
+                                f'{subscription.twitter_user_id}')
                     req = requests.post(subscription.webhook_url,
                                         headers={'Content-Type':'application/json'},
                                         data=json.dumps(post_params))
@@ -91,7 +101,7 @@ def check_feed(logger, db_session, twitter_api):
                     if not has_new_first_post:
                         subscription.last_post = post.id
                         db_session.commit()
-                        has_new_first_post = True 
+                        has_new_first_post = True
                 else:
                     exit_loop = True
                     break
@@ -99,8 +109,10 @@ def check_feed(logger, db_session, twitter_api):
             if exit_loop:
                 break
 
-
 def main():
+    '''
+    Basic main page
+    '''
     # First get cli args
     args = vars(parse_args())
     # Load settings
@@ -112,7 +124,6 @@ def main():
 
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
-    bot = commands.Bot(command_prefix='!')
     # Setup database
     db_session = get_database_session(settings['mysql_user'],
                                       settings['mysql_password'],

@@ -3,3 +3,6 @@
 __pycache__/*
 secret/
 logs/
+.tox
+discord_bot/.tox
+discord_bot/discord_bot.egg-info/

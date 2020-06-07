@@ -1,17 +1,15 @@
 import argparse
 import asyncio
-from async_timeout import timeout
 from functools import partial
-import itertools
-from prettytable import PrettyTable
-import re
 import random
 import sys
 import traceback
-from youtube_dl import YoutubeDL
 
+from async_timeout import timeout
 import discord
 from discord.ext import commands
+from prettytable import PrettyTable
+from youtube_dl import YoutubeDL
 
 
 from discord_bot import functions
@@ -24,28 +22,48 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 DELETE_AFTER = 20
 
 def parse_args():
+    '''
+    Basic cli arg parser
+    '''
     parser = argparse.ArgumentParser(description="Discord Bot Runner")
-    parser.add_argument("--config-file", "-c", default=CONFIG_PATH_DEFAULT, help="Config file")
+    parser.add_argument("--config-file", "-c", default=CONFIG_PATH_DEFAULT,
+                        help="Config file")
     parser.add_argument("--log-file", "-l",
                         help="Logging file")
-    parser.add_argument("--discord-token", "-t", help="Discord token, defaults to DISCORD_TOKEN env arg")
+    parser.add_argument("--discord-token", "-t",
+                        help="Discord token, defaults to DISCORD_TOKEN env arg")
     return parser.parse_args()
 
 
 class VoiceConnectionError(commands.CommandError):
-    """Custom Exception class for connection errors."""
+    '''
+    Custom Exception class for connection errors.
+    '''
+    pass
 
 
 class InvalidVoiceChannel(VoiceConnectionError):
-    """Exception for cases of invalid Voice Channels."""
+    '''
+    Exception for cases of invalid Voice Channels.
+    '''
+    pass
 
 
 class MyQueue(asyncio.Queue):
+    '''
+    Custom implementation of asyncio Queue
+    '''
     def shuffle(self):
+        '''
+        Shuffle queue
+        '''
         random.shuffle(self._queue)
 
 
 def get_queue_string(queue):
+    '''
+    Common function for queue printing
+    '''
     table = PrettyTable()
     table.field_names = ["Queue Order", "Title"]
 
@@ -53,7 +71,10 @@ def get_queue_string(queue):
         table.add_row([count + 1, item["title"]])
     return f'```\n{table.get_string()}\n```'
 
-def main():
+def main(): #pylint:disable=too-many-statements
+    '''
+    Main loop
+    '''
     # First get cli args
     args = vars(parse_args())
     # Load settings
@@ -90,23 +111,23 @@ def main():
         'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
     }
 
-    ffmpegopts = {
-        'before_options': '-nostdin',
-        'options': '-vn'
-    }
 
     ytdl = YoutubeDL(ytdlopts)
 
     # Music bot setup
     # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
     class YTDLSource(discord.PCMVolumeTransformer):
+        '''
+        Youtube DL Source
+        '''
         def __init__(self, source, *, data, requester):
             super().__init__(source)
             self.requester = requester
 
             self.title = data.get('title')
             self.webpage_url = data.get('webpage_url')
-            logger.info(f'Music bot adding new source: {self.webpage_url}, requested by {self.requester}')
+            logger.info(f'Music bot adding new source: {self.webpage_url}, '
+                        f'requested by {self.requester}')
 
             # YTDL info dicts (data) have other useful information you might want
             # https://github.com/rg3/youtube-dl/blob/master/README.md
@@ -121,6 +142,9 @@ def main():
 
         @classmethod
         async def create_source(cls, ctx, search: str, *, loop, download=True):
+            '''
+            Create source from youtube search
+            '''
             loop = loop or asyncio.get_event_loop()
 
             to_run = partial(ytdl.extract_info, url=search, download=download)
@@ -131,12 +155,17 @@ def main():
                 data = data['entries'][0]
 
             logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
-            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue {data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
+            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue '
+                           f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
 
             if download:
                 source = ytdl.prepare_filename(data)
             else:
-                return {'webpage_url': data['webpage_url'], 'requester': ctx.author, 'title': data['title']}
+                return {
+                    'webpage_url': data['webpage_url'],
+                    'requester': ctx.author,
+                    'title': data['title']
+                }
 
             return cls(discord.FFmpegPCMAudio(source), data=data, requester=ctx.author)
 
@@ -160,13 +189,15 @@ def main():
         '''
         A class which is assigned to each guild using the bot for Music.
 
-        This class implements a queue and loop, which allows for different guilds to listen to different playlists
-        simultaneously.
+        This class implements a queue and loop, which allows for different guilds
+        to listen to different playlists simultaneously.
 
         When the bot disconnects from the Voice it's instance will be destroyed.
         '''
 
-        __slots__ = ('bot', '_guild', '_channel', '_cog', 'queue', 'next', 'current', 'np', 'volume')
+        __slots__ = ('bot', '_guild', '_channel',
+                     '_cog', 'queue', 'next',
+                     'current', 'np', 'volume')
 
         def __init__(self, ctx):
             logger.info(f'Adding music bot to guild {ctx.guild}')
@@ -198,7 +229,7 @@ def main():
                     async with timeout(600):  # 10 minutes...
                         source = await self.queue.get()
                 except asyncio.TimeoutError:
-                    logger.error(f'Music bot reached timeout on queue in guild {self._guild')
+                    logger.error(f'Music bot reached timeout on queue in guild {self._guild}')
                     return self.destroy(self._guild)
 
                 if not isinstance(source, YTDLSource):
@@ -214,9 +245,11 @@ def main():
                 source.volume = self.volume
                 self.current = source
 
-                self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set))
-                logger.info(f'Music bot now playing {source.title} requested by {source.requester}, url {source.webpage_url}')
-                message = f'```Now playing "{source.title}", requested by "{source.requester.name}"```'
+                self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
+                logger.info(f'Music bot now playing {source.title} requested '
+                            f'by {source.requester}, url {source.webpage_url}')
+                message = f'```Now playing "{source.title}" ' \
+                          f'requested by "{source.requester.name}"```'
                 self.np = await self._channel.send(message, delete_after=DELETE_AFTER)
 
                 await self.next.wait()
@@ -251,6 +284,9 @@ def main():
             self.players = {}
 
         async def cleanup(self, guild):
+            '''
+            Cleanup guild player
+            '''
             try:
                 await guild.voice_client.disconnect()
             except AttributeError:
@@ -298,15 +334,15 @@ def main():
             return player
 
         @commands.command(name='join')
-        async def connect_(self, ctx, *, channel: discord.VoiceChannel=None):
+        async def connect_(self, ctx, *, channel: discord.VoiceChannel=None): #pylint:disable=bad-whitespace
             '''
             Connect to voice.
 
             Parameters
             ------------
             channel: discord.VoiceChannel [Optional]
-                The channel to connect to. If a channel is not specified, an attempt to join the voice channel you are in
-                will be made.
+                The channel to connect to. If a channel is not specified, an attempt
+                to join the voice channel you are in will be made.
 
             This command also handles moving the bot to different channels.
             '''
@@ -314,7 +350,8 @@ def main():
                 try:
                     channel = ctx.author.voice.channel
                 except AttributeError:
-                    raise InvalidVoiceChannel('No channel to join. Please either specify a valid channel or join one.')
+                    raise InvalidVoiceChannel('No channel to join. Please either '
+                                              'specify a valid channel or join one.')
 
             vc = ctx.voice_client
 
@@ -347,7 +384,8 @@ def main():
             Parameters
             ------------
             search: str [Required]
-                The song to search and retrieve using YTDL. This could be a simple search, an ID or URL.
+                The song to search and retrieve using YTDL. This could be a
+                simple search, an ID or URL.
             '''
             await ctx.trigger_typing()
 
@@ -358,8 +396,6 @@ def main():
 
             player = self.get_player(ctx)
 
-            # If download is False, source will be a dict which will be used later to regather the stream.
-            # If download is True, source will be a discord.FFmpegPCMAudio with a VolumeTransformer.
             source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=True)
 
             await player.queue.put(source)
@@ -372,8 +408,9 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_playing():
-                return await ctx.send('I am not currently playing anything', delete_after=DELETE_AFTER)
-            elif vc.is_paused():
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
+            if vc.is_paused():
                 return
 
             vc.pause()
@@ -387,8 +424,9 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently playing anything', delete_after=DELETE_AFTER)
-            elif not vc.is_paused():
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
+            if not vc.is_paused():
                 return
 
             vc.resume()
@@ -402,11 +440,10 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently playing anything', delete_after=DELETE_AFTER)
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
 
-            if vc.is_paused():
-                pass
-            elif not vc.is_playing():
+            if not vc.is_paused() and not vc.is_playing():
                 return
 
             vc.stop()
@@ -421,14 +458,16 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently playing anything', delete_after=DELETE_AFTER)
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
 
             player = self.get_player(ctx)
             if player.queue.empty():
-                return await ctx.send('There are currently no more queued songs.', delete_after=DELETE_AFTER)
+                return await ctx.send('There are currently no more queued songs.',
+                                      delete_after=DELETE_AFTER)
             player.queue.shuffle()
- 
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER)
+
+            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER) #pylint:disable=protected-access
 
 
         @commands.command(name='queue')
@@ -439,13 +478,15 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently connected to voice', delete_after=DELETE_AFTER)
+                return await ctx.send('I am not currently connected to voice',
+                                      delete_after=DELETE_AFTER)
 
             player = self.get_player(ctx)
             if player.queue.empty():
-                return await ctx.send('There are currently no more queued songs.', delete_after=DELETE_AFTER)
+                return await ctx.send('There are currently no more queued songs.',
+                                      delete_after=DELETE_AFTER)
 
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER)
+            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER) #pylint:disable=protected-access
 
 
         @commands.command(name='now_playing')
@@ -456,11 +497,13 @@ def main():
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently connected to voice', delete_after=DELETE_AFTER)
+                return await ctx.send('I am not currently connected to voice',
+                                      delete_after=DELETE_AFTER)
 
             player = self.get_player(ctx)
             if not player.current:
-                return await ctx.send('I am not currently playing anything', delete_after=DELETE_AFTEr)
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
 
             try:
                 # Remove our previous now_playing message.
@@ -468,7 +511,9 @@ def main():
             except discord.HTTPException:
                 pass
 
-            player.np = await ctx.send(f'```Now Playing: "{vc.source.title}", requested by "{vc.source.requester.name}"```', delete_after=DELETE_AFTER)
+            player.np = await ctx.send(f'```Now Playing: "{vc.source.title}", '
+                                       f'requested by "{vc.source.requester.name}"```',
+                                       delete_after=DELETE_AFTER)
 
         @commands.command(name='stop')
         async def stop_(self, ctx):
@@ -476,17 +521,22 @@ def main():
             Stop the currently playing song and destroy the player.
 
             !Warning!
-                This will destroy the player assigned to your guild, also deleting any queued songs and settings.
+                This will destroy the player assigned to your guild,
+                also deleting any queued songs and settings.
             '''
             vc = ctx.voice_client
 
             if not vc or not vc.is_connected():
-                return await ctx.send('I am not currently playing anything!', delete_after=DELETE_AFTER)
+                return await ctx.send('I am not currently playing anything',
+                                      delete_after=DELETE_AFTER)
 
             await self.cleanup(ctx.guild)
 
 
     class General(commands.Cog):
+        '''
+        General use commands
+        '''
         @commands.command(name='hello')
         async def hello(self, ctx):
             '''
@@ -513,6 +563,9 @@ def main():
 
 
     class Planner(commands.Cog):
+        '''
+        Assistant for planning events
+        '''
         @commands.group(name='planner', invoke_without_command=False)
         async def planner(self, ctx):
             '''

@@ -10,11 +10,17 @@ def _log_message(ctx, logger, message):
                 ctx.guild.name, ctx.command.name, ctx.author.name, message)
 
 def hello(ctx, logger):
+    '''
+    Say wassup
+    '''
     message = 'Waddup %s' % ctx.author.name
     _log_message(ctx, logger, message)
     return True, message
 
 def roll(ctx, logger, number):
+    '''
+    Roll some dice
+    '''
     matcher = re.match(ROLL_REGEX, number)
     # First check if matches regex
     if not matcher:
@@ -50,13 +56,19 @@ def roll(ctx, logger, number):
     message = f'{ctx.author.name} rolled a {total}'
     _log_message(ctx, logger, message)
     return True, message
-    
+
 def windows(ctx, logger):
+    '''
+    Inspirational note about your os
+    '''
     message = 'Install linux coward'
     _log_message(ctx, logger, message)
     return True, message
 
 def planner_register(ctx, logger, db_session):
+    '''
+    Register for planning service
+    '''
     # First create server entry
     server = db_session.query(Server).get(ctx.guild.id)
     if server:
