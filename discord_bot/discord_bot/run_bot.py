@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 from functools import partial
+import os
 import random
 import sys
 import traceback
@@ -32,6 +33,8 @@ def parse_args():
                         help="Logging file")
     parser.add_argument("--discord-token", "-t",
                         help="Discord token, defaults to DISCORD_TOKEN env arg")
+    parser.add_argument("--download-dir", "-d", default="/tmp/",
+                        help="Directory for downloading youtube files")
     return parser.parse_args()
 
 
@@ -98,15 +101,14 @@ def main(): #pylint:disable=too-many-statements
 
     ytdlopts = {
         'format': 'bestaudio/best',
-        # TODO Allow arg for changing dir
-        'outtmpl': '/tmp/%(extractor)s-%(id)s-%(title)s.%(ext)s',
+        'outtmpl': os.path.join(args['download_dir'],
+                                '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
         'restrictfilenames': True,
         'noplaylist': True,
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'logtostderr': False,
-        'quiet': True,
-        'no_warnings': True,
+        'logger': logger,
         'default_search': 'auto',
         'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
     }
@@ -486,7 +488,7 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
 
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER) #pylint:disable=protected-access
+            await ctx.send(get_queue_string(player.queue._queue)) #pylint:disable=protected-access
 
 
         @commands.command(name='now_playing')
