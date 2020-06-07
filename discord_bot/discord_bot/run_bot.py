@@ -172,7 +172,7 @@ def main():
             self.next = asyncio.Event()
 
             self.np = None  # Now playing message
-            self.volume = .5
+            self.volume = .75
             self.current = None
 
             ctx.bot.loop.create_task(self.player_loop())
