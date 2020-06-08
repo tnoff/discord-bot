@@ -69,11 +69,12 @@ class MyQueue(asyncio.Queue):
         '''
         if queue_index < 1 or queue_index > self.qsize():
             return None
-        # Rotate right, remove top item
-        # Then rotate back left
-        self._queue.rotate(queue_index - 1)
-        item = self._queue.pop()
-        self._queue.rotate(-1*(queue_index-1))
+        # Rotate, remove top, then remove
+        for _ in range(1, queue_index):
+            self._queue.rotate(-1)
+        item = self._queue.popleft()
+        for _ in range(1, queue_index):
+            self._queue.rotate(1)
         return item
 
 def get_queue_string(queue):
