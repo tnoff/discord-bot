@@ -77,6 +77,21 @@ class MyQueue(asyncio.Queue):
             self._queue.rotate(1)
         return item
 
+    def bump_item(self, queue_index):
+        '''
+        Bump item to top of queue
+        '''
+        if queue_index < 1 or queue_index > self.qsize():
+            return None
+        # Rotate, remove top, then remove
+        for _ in range(1, queue_index):
+            self._queue.rotate(-1)
+        item = self._queue.popleft()
+        for _ in range(1, queue_index):
+            self._queue.rotate(1)
+        self._queue.appendleft(item)
+        return item
+
 def get_queue_string(queue):
     '''
     Common function for queue printing
@@ -534,7 +549,33 @@ def main(): #pylint:disable=too-many-statements
             item = player.queue.remove_item(queue_index)
             if item is None:
                 return ctx.send(f'Unable to remove queue index {queue_index}')
-            return await ctx.send(f'Removed song {item["title"]} from queue')
+            return await ctx.send(f'Removed item {item["title"]} from queue')
+
+        @commands.command(name='bump')
+        async def bump_item(self, ctx, queue_index):
+            '''
+            Bump item to top of queue
+            '''
+            vc = ctx.voice_client
+
+            if not vc or not vc.is_connected():
+                return await ctx.send('I am not currently connected to voice',
+                                      delete_after=DELETE_AFTER)
+
+            player = self.get_player(ctx)
+            if player.queue.empty():
+                return await ctx.send('There are currently no more queued songs.',
+                                      delete_after=DELETE_AFTER)
+
+            try:
+                queue_index = int(queue_index)
+            except AttributeError:
+                return await ctx.send(f'Invalid queue index {queue_index}')
+
+            item = player.queue.bump_item(queue_index)
+            if item is None:
+                return ctx.send(f'Unable to remove queue index {queue_index}')
+            return await ctx.send(f'Bumped item {item["title"]} to top of queue')
 
 
         @commands.command(name='now_playing')
