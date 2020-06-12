@@ -172,13 +172,13 @@ def main(): #pylint:disable=too-many-statements
             return self.__getattribute__(item)
 
         @classmethod
-        async def create_source(cls, ctx, search: str, *, loop, download=True):
+        async def create_source(cls, ctx, search: str, *, loop):
             '''
             Create source from youtube search
             '''
             loop = loop or asyncio.get_event_loop()
 
-            to_run = partial(ytdl.extract_info, url=search, download=download)
+            to_run = partial(ytdl.extract_info, url=search, download=True)
             data = await loop.run_in_executor(None, to_run)
 
             if 'entries' in data:
@@ -189,31 +189,8 @@ def main(): #pylint:disable=too-many-statements
             await ctx.send(f'```ini\n[Added {data["title"]} to the Queue '
                            f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
 
-            if download:
-                source = ytdl.prepare_filename(data)
-            else:
-                return {
-                    'webpage_url': data['webpage_url'],
-                    'requester': ctx.author,
-                    'title': data['title']
-                }
-
+            source = ytdl.prepare_filename(data)
             return cls(discord.FFmpegPCMAudio(source), data=data, requester=ctx.author)
-
-        @classmethod
-        async def regather_stream(cls, data, *, loop):
-            '''
-            Used for preparing a stream, instead of downloading.
-
-            Since Youtube Streaming links expire.
-            '''
-            loop = loop or asyncio.get_event_loop()
-            requester = data['requester']
-
-            to_run = partial(ytdl.extract_info, url=data['webpage_url'], download=True)
-            data = await loop.run_in_executor(None, to_run)
-
-            return cls(discord.FFmpegPCMAudio(data['url']), data=data, requester=requester)
 
 
     class MusicPlayer:
@@ -262,16 +239,6 @@ def main(): #pylint:disable=too-many-statements
                 except asyncio.TimeoutError:
                     logger.error(f'Music bot reached timeout on queue in guild {self._guild}')
                     return self.destroy(self._guild)
-
-                if not isinstance(source, YTDLSource):
-                    # Source was probably a stream (not downloaded)
-                    # So we should regather to prevent stream expiration
-                    try:
-                        source = await YTDLSource.regather_stream(source, loop=self.bot.loop)
-                    except Exception as e:
-                        await self._channel.send(f'There was an error processing your song.\n'
-                                                 f'```css\n[{e}]\n```')
-                        continue
 
                 source.volume = self.volume
                 self.current = source
@@ -430,7 +397,7 @@ def main(): #pylint:disable=too-many-statements
             if player.queue.full():
                 return await ctx.send('Queue is full, cannot add more songs')
 
-            source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop, download=True)
+            source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop)
 
             try:
                 player.queue.put_nowait(source)
