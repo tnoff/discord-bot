@@ -9,7 +9,7 @@ import traceback
 from async_timeout import timeout
 import discord
 from discord.ext import commands
-from moviepy.editor import VideoFileClip
+from moviepy.editor import AudioFileClip
 from numpy import sqrt
 from prettytable import PrettyTable
 from youtube_dl import YoutubeDL
@@ -156,9 +156,9 @@ def main(): #pylint:disable=too-many-statements
         '''
         # Basic logic adapted from http://zulko.github.io/blog/2014/07/04/automatic-soccer-highlights-compilations-with-python/ pylint:disable=line-too-long
         # First get an array of volume at each second of file
-        clip = VideoFileClip(video_file)
+        clip = AudioFileClip(video_file)
         total_length = clip.duration
-        cut = lambda i: clip.audio.subclip(i, i+1).to_soundarray(fps=1)
+        cut = lambda i: clip.subclip(i, i+1).to_soundarray(fps=1)
         volume = lambda array: sqrt(((1.0*array)**2).mean())
         volumes = [volume(cut(i)) for i in range(0, int(clip.duration-1))]
 
@@ -185,14 +185,16 @@ def main(): #pylint:disable=too-many-statements
 
         if start_index == 0 and end_index == total_length:
             logger.info('No dead audio at beginning or end of file, skipping')
-            return
+            return False, video_file
 
         logger.info(f'Trimming file to start {start_index} and end {end_index}')
         # Write file with changes, then overwrite
-        new_path = os.path.join(video_file, '.edited')
-        new_clip = clip.audio.subclip(t_start=start_index, end_index=end_index)
+        # Use mp3 by default for easier encoding
+        file_name, _ext = os.path.splitext(video_file)
+        new_path = f'{file_name}-edited.mp3'
+        new_clip = clip.subclip(t_start=start_index, t_end=end_index)
         new_clip.write_audiofile(new_path)
-        os.rename(new_path, video_file)
+        return True, new_path
 
     # Music bot setup
     # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
@@ -241,9 +243,10 @@ def main(): #pylint:disable=too-many-statements
             source = ytdl.prepare_filename(data)
             logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
             logger.info(f'Attempting to trim audio on {source}')
-            trim_audio(source)
-            logger.info(f'Trimmed audio on {source}')
-            return cls(discord.FFmpegPCMAudio(source), data=data, requester=ctx.author)
+            changed, file_name = trim_audio(source)
+            if changed:
+                logger.info(f'Trimmed audio on {file_name}')
+            return cls(discord.FFmpegPCMAudio(file_name), data=data, requester=ctx.author)
 
 
     class MusicPlayer:
