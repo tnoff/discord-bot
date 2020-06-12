@@ -8,7 +8,9 @@ setuptools.setup(
     install_requires=[
         'cryptography >= 2.9.2',
         'discord >= 1.0.1',
+        'moviepy >= 1.0.3',
         'mysqlclient >= 1.4.6',
+        'numpy >= 1.18.5',
         'prettytable>=0.7.2',
         'PyMySQL >= 0.9.3',
         'PyNaCl >= 1.3.0',
@@ -23,5 +25,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='0.3.5',
+    version='0.4.0',
 )

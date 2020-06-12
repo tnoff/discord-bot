@@ -9,6 +9,8 @@ import traceback
 from async_timeout import timeout
 import discord
 from discord.ext import commands
+from moviepy.editor import VideoFileClip
+from numpy import sqrt
 from prettytable import PrettyTable
 from youtube_dl import YoutubeDL
 
@@ -21,6 +23,7 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 
 # Delete messages after N seconds
 DELETE_AFTER = 20
+
 
 def parse_args():
     '''
@@ -145,6 +148,52 @@ def main(): #pylint:disable=too-many-statements
 
     ytdl = YoutubeDL(ytdlopts)
 
+
+    def trim_audio(video_file):
+        '''
+        Trim dead audio from beginning and end of file
+        video_file      :   Path to video file
+        '''
+        # Basic logic adapted from http://zulko.github.io/blog/2014/07/04/automatic-soccer-highlights-compilations-with-python/ pylint:disable=line-too-long
+        # First get an array of volume at each second of file
+        clip = VideoFileClip(video_file)
+        total_length = clip.duration
+        cut = lambda i: clip.audio.subclip(i, i+1).to_soundarray(fps=1)
+        volume = lambda array: sqrt(((1.0*array)**2).mean())
+        volumes = [volume(cut(i)) for i in range(0, int(clip.duration-1))]
+
+        # Get defaults
+        volume_length = len(volumes)
+        start_index = 0
+        end_index = volume_length - 1
+
+        # Remove all dead audio from front
+        for (index, vol) in enumerate(volumes):
+            if vol != 0:
+                start_index = index
+                break
+        # Remove dead audio from back
+        for (index, vol) in enumerate(reversed(volumes[start_index:])):
+            if vol != 0:
+                end_index = volume_length - index
+                break
+
+        # Remove one second from start, and add one to back, for safety
+        if start_index != 0:
+            start_index -= 1
+        end_index += 1
+
+        if start_index == 0 and end_index == total_length:
+            logger.info('No dead audio at beginning or end of file, skipping')
+            return
+
+        logger.info(f'Trimming file to start {start_index} and end {end_index}')
+        # Write file with changes, then overwrite
+        new_path = os.path.join(video_file, '.edited')
+        new_clip = clip.audio.subclip(t_start=start_index, end_index=end_index)
+        new_clip.write_audiofile(new_path)
+        os.rename(new_path, video_file)
+
     # Music bot setup
     # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
     class YTDLSource(discord.PCMVolumeTransformer):
@@ -190,6 +239,10 @@ def main(): #pylint:disable=too-many-statements
                            f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
 
             source = ytdl.prepare_filename(data)
+            logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
+            logger.info(f'Attempting to trim audio on {source}')
+            trim_audio(source)
+            logger.info(f'Trimmed audio on {source}')
             return cls(discord.FFmpegPCMAudio(source), data=data, requester=ctx.author)
 
 
