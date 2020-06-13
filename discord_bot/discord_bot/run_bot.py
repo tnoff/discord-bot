@@ -548,7 +548,7 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
 
-            await ctx.send(get_queue_string(player.queue._queue)) #pylint:disable=protected-access
+            await ctx.send(get_queue_string(player.queue._queue), delete_after=(DELETE_AFTER * 30)) #pylint:disable=protected-access
 
         @commands.command(name='remove')
         async def remove_item(self, ctx, queue_index):
@@ -573,8 +573,10 @@ def main(): #pylint:disable=too-many-statements
 
             item = player.queue.remove_item(queue_index)
             if item is None:
-                return ctx.send(f'Unable to remove queue index {queue_index}')
-            return await ctx.send(f'Removed item {item["title"]} from queue')
+                return ctx.send(f'Unable to remove queue index {queue_index}',
+                                delete_after=DELETE_AFTER)
+            return await ctx.send(f'Removed item {item["title"]} from queue',
+                                  delete_after=DELETE_AFTER)
 
         @commands.command(name='bump')
         async def bump_item(self, ctx, queue_index):
@@ -599,8 +601,10 @@ def main(): #pylint:disable=too-many-statements
 
             item = player.queue.bump_item(queue_index)
             if item is None:
-                return ctx.send(f'Unable to remove queue index {queue_index}')
-            return await ctx.send(f'Bumped item {item["title"]} to top of queue')
+                return ctx.send(f'Unable to remove queue index {queue_index}',
+                                delete_after=DELETE_AFTER)
+            return await ctx.send(f'Bumped item {item["title"]} to top of queue',
+                                  delete_after=DELETE_AFTER)
 
 
         @commands.command(name='now_playing')
