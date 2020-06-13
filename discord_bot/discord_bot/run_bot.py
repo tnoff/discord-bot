@@ -194,6 +194,8 @@ def main(): #pylint:disable=too-many-statements
         new_path = f'{file_name}-edited.mp3'
         new_clip = clip.subclip(t_start=start_index, t_end=end_index)
         new_clip.write_audiofile(new_path)
+        logger.info('Removing old file {video_file}')
+        os.remove(video_file)
         return True, new_path
 
     # Music bot setup
@@ -236,16 +238,16 @@ def main(): #pylint:disable=too-many-statements
                 # take first item from a playlist
                 data = data['entries'][0]
 
-            logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
-            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue '
-                           f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
-
+            logger.info(f'Starting download of video {data["title"]}, url {data["webpage_url"]}')
             source = ytdl.prepare_filename(data)
             logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
             logger.info(f'Attempting to trim audio on {source}')
             changed, file_name = trim_audio(source)
             if changed:
-                logger.info(f'Trimmed audio on {file_name}')
+                logger.info(f'Created trimmed audio file to {file_name}')
+            logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
+            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue '
+                           f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
             return cls(discord.FFmpegPCMAudio(file_name), data=data, requester=ctx.author)
 
 
