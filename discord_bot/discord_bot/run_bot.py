@@ -183,11 +183,12 @@ def main(): #pylint:disable=too-many-statements
             start_index -= 1
         end_index += 1
 
-        if start_index == 0 and end_index == total_length:
-            logger.info('No dead audio at beginning or end of file, skipping')
+        logger.debug(f'Audio trim: Total file length {total_length}, start {start_index}, end {end_index}')
+        if start_index < 10 and end_index > (int(total_length) - 10):
+            logger.info('Not enough dead audio at beginning or end of file, skipping audio trim')
             return False, video_file
 
-        logger.info(f'Trimming file to start {start_index} and end {end_index}')
+        logger.info(f'Trimming file to start at {start_index} and end at {end_index}')
         # Write file with changes, then overwrite
         # Use mp3 by default for easier encoding
         file_name, _ext = os.path.splitext(video_file)
