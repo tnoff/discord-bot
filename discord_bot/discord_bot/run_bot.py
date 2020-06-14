@@ -242,8 +242,8 @@ def main(): #pylint:disable=too-many-statements
             logger.info(f'Starting download of video {data["title"]}, url {data["webpage_url"]}')
             source = ytdl.prepare_filename(data)
             logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
-            logger.info(f'Attempting to trim audio on {source}')
-            changed, file_name = trim_audio(source)
+            to_run = partial(trim_audio, video_file=source)
+            changed, file_name = await loop.run_in_executor(None, to_run)
             if changed:
                 logger.info(f'Created trimmed audio file to {file_name}')
             logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
