@@ -307,7 +307,7 @@ def main(): #pylint:disable=too-many-statements
                             f'by {source.requester}, url {source.webpage_url}')
                 message = f'```Now playing "{source.title}" ' \
                           f'requested by "{source.requester.name}"```'
-                self.np = await self._channel.send(message, delete_after=DELETE_AFTER)
+                self.np = await self._channel.send(message)
 
                 await self.next.wait()
 
