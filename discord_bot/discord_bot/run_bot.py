@@ -477,7 +477,7 @@ def main(): #pylint:disable=too-many-statements
                 return
 
             vc.pause()
-            await ctx.send(f'```{ctx.author.name}`: Paused the song```')
+            await ctx.send(f'```"{ctx.author.name}": Paused the song```')
 
         @commands.command(name='resume')
         async def resume_(self, ctx):
@@ -493,7 +493,7 @@ def main(): #pylint:disable=too-many-statements
                 return
 
             vc.resume()
-            await ctx.send(f'```{ctx.author.name}`: Resumed the song')
+            await ctx.send(f'```"{ctx.author.name}": Resumed the song```')
 
         @commands.command(name='skip')
         async def skip_(self, ctx):
