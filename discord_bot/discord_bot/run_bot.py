@@ -510,7 +510,8 @@ def main(): #pylint:disable=too-many-statements
                 return
 
             vc.stop()
-            await ctx.send(f'```{ctx.author.name}```: Skipped the song', delete_after=DELETE_AFTER)
+            await ctx.send(f'```"{ctx.author.name}": Skipped the song```',
+                           delete_after=DELETE_AFTER)
 
 
         @commands.command(name='shuffle')
