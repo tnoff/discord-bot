@@ -3,6 +3,7 @@ import asyncio
 from functools import partial
 import os
 import random
+import re
 import sys
 import traceback
 
@@ -11,11 +12,13 @@ import discord
 from discord.ext import commands
 from moviepy.editor import AudioFileClip
 from numpy import sqrt
+from sqlalchemy.exc import IntegrityError
 from prettytable import PrettyTable
 from youtube_dl import YoutubeDL
 
 
 from discord_bot import functions
+from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, get_database_session, read_config
@@ -24,6 +27,7 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 # Delete messages after N seconds
 DELETE_AFTER = 20
 
+YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
 
 def parse_args():
     '''
@@ -226,6 +230,21 @@ def main(): #pylint:disable=too-many-statements
             return self.__getattribute__(item)
 
         @classmethod
+        async def run_search(cls, search: str, *, loop):
+            '''
+            Run search and return url
+            '''
+            loop = loop or asyncio.get_event_loop()
+
+            to_run = partial(ytdl.extract_info, url=search, download=False)
+            data = await loop.run_in_executor(None, to_run)
+
+            if 'entries' in data:
+                # take first item from a playlist
+                data = data['entries'][0]
+            return data['title'], data['webpage_url']
+
+        @classmethod
         async def create_source(cls, ctx, search: str, *, loop):
             '''
             Create source from youtube search
@@ -247,8 +266,6 @@ def main(): #pylint:disable=too-many-statements
             if changed:
                 logger.info(f'Created trimmed audio file to {file_name}')
             logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
-            await ctx.send(f'```ini\n[Added {data["title"]} to the Queue '
-                           f'{data["webpage_url"]}]\n```', delete_after=DELETE_AFTER)
             return cls(discord.FFmpegPCMAudio(file_name), data=data, requester=ctx.author)
 
 
@@ -454,14 +471,19 @@ def main(): #pylint:disable=too-many-statements
             player = self.get_player(ctx)
 
             if player.queue.full():
-                return await ctx.send('Queue is full, cannot add more songs')
+                return await ctx.send('Queue is full, cannot add more songs',
+                                      delete_after=DELETE_AFTER)
 
             source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop)
 
             try:
                 player.queue.put_nowait(source)
+                return await ctx.send(f'```ini\n[Added {source.title} to the Queue '
+                                      f'{source.webpage_url}\n```',
+                                      delete_after=DELETE_AFTER)
             except asyncio.QueueFull:
-                await ctx.send('Queue is full, cannot add more songs')
+                return await ctx.send('Queue is full, cannot add more songs',
+                                      delete_after=DELETE_AFTER)
 
         @commands.command(name='pause')
         async def pause_(self, ctx):
@@ -652,6 +674,140 @@ def main(): #pylint:disable=too-many-statements
 
             await self.cleanup(ctx.guild)
 
+        @commands.group(name='playlist', invoke_without_command=False)
+        async def playlist(self, ctx):
+            '''
+            Playlist functions
+            '''
+            if ctx.invoked_subcommand is None:
+                await ctx.send('Invalid sub command passed...', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='create')
+        async def playlist_create(self, ctx, *, name: str):
+            '''
+            Create new playlist
+            '''
+            playlist = [i for i in db_session.query(Playlist).\
+                filter(Playlist.name == name, Playlist.server_id == ctx.guild.id)]
+            if playlist:
+                return await ctx.send(f'Playlist with name already exists {playlist[0]}',
+                                      delete_after=DELETE_AFTER)
+            playlist = Playlist(name=name, server_id=ctx.guild.id)
+            db_session.add(playlist) #pylint:disable=no-member
+            db_session.commit() #pylint:disable=no-member
+            return await ctx.send(f'Created playlist {playlist.id}', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='list')
+        async def playlist_list(self, ctx):
+            '''
+            List playlists
+            '''
+            table = PrettyTable()
+            table.field_names = ['ID', 'Name']
+            for playlist in db_session.query(Playlist).\
+                filter(Playlist.server_id == ctx.guild.id): #pylint:disable=no-member
+                table.add_row([playlist.id, playlist.name])
+            return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='add')
+        async def playlist_add(self, ctx, playlist_index, *, search: str):
+            '''
+            Add item to playlist
+            '''
+            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            if not playlist:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                      delete_after=DELETE_AFTER)
+            if str(playlist.server_id) != str(ctx.guild.id):
+                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                                      delete_after=DELETE_AFTER)
+
+
+            title, url = await YTDLSource.run_search(search, loop=self.bot.loop)
+            playlist_item = [i for i in db_session.query(PlaylistItem).\
+                filter(PlaylistItem.web_url == url)]
+            if not playlist_item:
+                playlist_item = PlaylistItem(title=title, web_url=url)
+                db_session.add(playlist_item) #pylint:disable=no-member
+                db_session.commit() #pylint:disable=no-member
+
+            try:
+                playlist_membership = PlaylistMembership(playlist_id=playlist.id,
+                                                         playlist_item_id=playlist_item.id)
+                db_session.add(playlist_membership) #pylint:disable=no-member
+                db_session.commit() #pylint:disable=no-member
+                return await ctx.send(f'Added "{playlist_item.title}" '
+                                      f'to playlist "{playlist.name}"', delete_after=DELETE_AFTER)
+            except IntegrityError:
+                return await ctx.send(f'Unable to add "{playlist_item.title}" '
+                                      f'to playlist "{playlist.name}', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='show')
+        async def playlist_show(self, ctx, playlist_index):
+            '''
+            Show Items in playlist
+            '''
+            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            if not playlist:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                      delete_after=DELETE_AFTER)
+            if str(playlist.server_id) != str(ctx.guild.id):
+                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                                      delete_after=DELETE_AFTER)
+
+            table = PrettyTable()
+            table.field_names = ['Title']
+            query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
+            query = query.join(PlaylistMembership).\
+                filter(PlaylistMembership.playlist_id == playlist.id)
+            for item, _membership in query:
+                table.add_row([item.title])
+            return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='queue')
+        async def playlist_queue(self, ctx, playlist_index):
+            '''
+            Add playlist to queue
+            '''
+            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            if not playlist:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                      delete_after=DELETE_AFTER)
+            if str(playlist.server_id) != str(ctx.guild.id):
+                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                                      delete_after=DELETE_AFTER)
+
+            vc = ctx.voice_client
+
+            if not vc:
+                await ctx.invoke(self.connect_)
+
+            player = self.get_player(ctx)
+
+            query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
+            query = query.join(PlaylistMembership).\
+                filter(PlaylistMembership.playlist_id == playlist.id)
+            for item, _membership in query:
+                if player.queue.full():
+                    return await ctx.send('Queue is full, cannot add more songs',
+                                          delete_after=DELETE_AFTER)
+
+                match = re.match(YOUTUBE_URL_REGEX, item.web_url)
+                if not match:
+                    await ctx.send(f'Cannot add invalid url {item.web_url}',
+                                   delete_after=DELETE_AFTER)
+                    continue
+
+                source = await YTDLSource.create_source(ctx,
+                                                        f'{match.group("video_id")} {item.title}',
+                                                        loop=self.bot.loop)
+
+                try:
+                    player.queue.put_nowait(source)
+                    await ctx.send(f'```ini\n[Added {source.title} to the Queue '
+                                   f'{source.webpage_url}\n```', delete_after=DELETE_AFTER)
+                except asyncio.QueueFull:
+                    await ctx.send('Queue is full, cannot add more songs')
 
     class General(commands.Cog):
         '''
