@@ -756,12 +756,12 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
 
             table = PrettyTable()
-            table.field_names = ['Title']
+            table.field_names = ['Title', 'Url']
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
             query = query.join(PlaylistMembership).\
                 filter(PlaylistMembership.playlist_id == playlist.id)
             for item, _membership in query:
-                table.add_row([item.title])
+                table.add_row([item.title, item.web_url])
             return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
 
         @playlist.command(name='queue')
