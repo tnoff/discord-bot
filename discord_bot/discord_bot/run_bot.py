@@ -742,6 +742,7 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send(f'Added "{playlist_item.title}" '
                                       f'to playlist "{playlist.name}"', delete_after=DELETE_AFTER)
             except IntegrityError:
+                db_session.rollback() #pylint:disable=no-member
                 return await ctx.send(f'Unable to add "{playlist_item.title}" '
                                       f'to playlist "{playlist.name}', delete_after=DELETE_AFTER)
 
