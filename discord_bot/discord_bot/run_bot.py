@@ -731,9 +731,12 @@ def main(): #pylint:disable=too-many-statements
                 db_session.add(playlist_item) #pylint:disable=no-member
                 db_session.commit() #pylint:disable=no-member
 
+            else:
+                playlist_item = playlist_item[0]
+
             try:
                 playlist_membership = PlaylistMembership(playlist_id=playlist.id,
-                                                         playlist_item_id=playlist_item[0].id)
+                                                         playlist_item_id=playlist_item.id)
                 db_session.add(playlist_membership) #pylint:disable=no-member
                 db_session.commit() #pylint:disable=no-member
                 return await ctx.send(f'Added "{playlist_item.title}" '
