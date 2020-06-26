@@ -592,7 +592,7 @@ def main(): #pylint:disable=too-many-statements
 
             try:
                 queue_index = int(queue_index)
-            except AttributeError:
+            except ValueError:
                 return await ctx.send(f'Invalid queue index {queue_index}')
 
             item = player.queue.remove_item(queue_index)
@@ -620,7 +620,7 @@ def main(): #pylint:disable=too-many-statements
 
             try:
                 queue_index = int(queue_index)
-            except AttributeError:
+            except ValueError:
                 return await ctx.send(f'Invalid queue index {queue_index}')
 
             item = player.queue.bump_item(queue_index)
@@ -714,12 +714,16 @@ def main(): #pylint:disable=too-many-statements
             '''
             Add item to playlist
             '''
-            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            try:
+                index = int(playlist_index)
+            except ValueError:
+                logger.info(f'Invalid playlist index {playlist_index}')
+            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
             if not playlist:
-                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
             if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                return await ctx.send(f'Playlist {index} belongs to another server',
                                       delete_after=DELETE_AFTER)
 
 
@@ -751,12 +755,16 @@ def main(): #pylint:disable=too-many-statements
             '''
             Show Items in playlist
             '''
-            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            try:
+                index = int(playlist_index)
+            except ValueError:
+                logger.info(f'Invalid playlist index {playlist_index}')
+            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
             if not playlist:
-                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
             if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                return await ctx.send(f'Playlist {index} belongs to another server',
                                       delete_after=DELETE_AFTER)
 
             table = PrettyTable()
@@ -773,12 +781,16 @@ def main(): #pylint:disable=too-many-statements
             '''
             Add playlist to queue
             '''
-            playlist = db_session.query(Playlist).get(int(playlist_index)) #pylint:disable=no-member
+            try:
+                index = int(playlist_index)
+            except ValueError:
+                logger.info(f'Invalid playlist index {playlist_index}')
+            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
             if not playlist:
-                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
             if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {playlist_index} belongs to another server',
+                return await ctx.send(f'Playlist {index} belongs to another server',
                                       delete_after=DELETE_AFTER)
 
             vc = ctx.voice_client
