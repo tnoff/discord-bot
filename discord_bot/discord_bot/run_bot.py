@@ -26,7 +26,7 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 
 
 # Delete messages after N seconds
-DELETE_AFTER = 20
+DELETE_AFTER = 30
 # Max queue size
 QUEUE_MAX_SIZE = 35
 
@@ -576,7 +576,7 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
 
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=(DELETE_AFTER * 30)) #pylint:disable=protected-access
+            await ctx.send(get_queue_string(player.queue._queue), delete_after=(DELETE_AFTER * 6)) #pylint:disable=protected-access
 
         @commands.command(name='remove')
         async def remove_item(self, ctx, queue_index):
