@@ -27,6 +27,9 @@ from discord_bot.utils import get_logger, get_database_session, read_config
 
 # Delete messages after N seconds
 DELETE_AFTER = 20
+# Max queue size
+QUEUE_MAX_SIZE = 35
+
 
 YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
 
@@ -291,7 +294,7 @@ def main(): #pylint:disable=too-many-statements
             self._channel = ctx.channel
             self._cog = ctx.cog
 
-            self.queue = MyQueue(maxsize=20)
+            self.queue = MyQueue(maxsize=QUEUE_MAX_SIZE)
             self.next = asyncio.Event()
 
             self.np = None  # Now playing message
