@@ -26,11 +26,16 @@ class Playlist(BASE):
     Playlist
     '''
     __tablename__ = 'playlist'
-    __table_args__ = (UniqueConstraint('name', 'server_id',
-                                       name='_server_playlist'),)
+    __table_args__ = (
+        UniqueConstraint('name', 'server_id',
+                         name='_server_playlist'),
+        UniqueConstraint('server_id', 'server_index',
+                         name='_server_specific_index'),
+    )
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
     server_id = Column(String(256))
+    server_index = Column(Integer)
 
 class PlaylistItem(BASE):
     '''

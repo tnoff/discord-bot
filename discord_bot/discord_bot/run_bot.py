@@ -13,6 +13,7 @@ from discord.ext import commands
 from moviepy.editor import AudioFileClip
 from numpy import sqrt
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import NoResultFound
 from prettytable import PrettyTable
 from youtube_dl import YoutubeDL
 
@@ -692,7 +693,21 @@ def main(): #pylint:disable=too-many-statements
             if playlist:
                 return await ctx.send(f'Playlist with name already exists {playlist[0]}',
                                       delete_after=DELETE_AFTER)
-            playlist = Playlist(name=name, server_id=ctx.guild.id)
+            # Grab latest server_index that matches server_id
+            try:
+                query = db_session.query(Playlist) #pylint:disable=no-member
+                query = query.filter(Playlist.server_id == ctx.guild.id).\
+                            order_by(Playlist.server_index.desc()).one()
+                server_index = query.server_index + 1
+            except NoResultFound:
+                # If none found, assume 1 is fine
+                server_index = 1
+
+            playlist = Playlist(
+                name=name,
+                server_id=ctx.guild.id,
+                server_index=server_index,
+            )
             db_session.add(playlist) #pylint:disable=no-member
             db_session.commit() #pylint:disable=no-member
             return await ctx.send(f'Created playlist {playlist.id}', delete_after=DELETE_AFTER)
@@ -706,7 +721,7 @@ def main(): #pylint:disable=too-many-statements
             table.field_names = ['ID', 'Name']
             for playlist in db_session.query(Playlist).\
                 filter(Playlist.server_id == ctx.guild.id): #pylint:disable=no-member
-                table.add_row([playlist.id, playlist.name])
+                table.add_row([playlist.server_index, playlist.name])
             return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
 
         @playlist.command(name='add')
@@ -718,26 +733,25 @@ def main(): #pylint:disable=too-many-statements
                 index = int(playlist_index)
             except ValueError:
                 logger.info(f'Invalid playlist index {playlist_index}')
-            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
-            if not playlist:
                 return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
-            if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {index} belongs to another server',
+
+            try:
+                playlist = db_session.query(Playlist)# #pylint:disable=no-member
+                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
+                                filter(Playlist.server_index == index).one()
+            except NoResultFound:
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
 
-
             title, url = await YTDLSource.run_search(search, loop=self.bot.loop)
-            playlist_item = [i for i in db_session.query(PlaylistItem).\
-                filter(PlaylistItem.web_url == url)]
-            if not playlist_item:
+            try:
+                playlist_item = db_session.query(PlaylistItem) #pylint:disable=no-member
+                playlist_item = playlist_item.filter(PlaylistItem.web_url == url).one()
+            except NoResultFound:
                 playlist_item = PlaylistItem(title=title, web_url=url)
                 db_session.add(playlist_item) #pylint:disable=no-member
                 db_session.commit() #pylint:disable=no-member
-
-            else:
-                playlist_item = playlist_item[0]
-
             try:
                 playlist_membership = PlaylistMembership(playlist_id=playlist.id,
                                                          playlist_item_id=playlist_item.id)
@@ -759,12 +773,15 @@ def main(): #pylint:disable=too-many-statements
                 index = int(playlist_index)
             except ValueError:
                 logger.info(f'Invalid playlist index {playlist_index}')
-            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
-            if not playlist:
                 return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
-            if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {index} belongs to another server',
+
+            try:
+                playlist = db_session.query(Playlist) #pylint:disable=no-member
+                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
+                                filter(Playlist.server_index == index).one()
+            except NoResultFound:
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
 
             table = PrettyTable()
@@ -785,12 +802,15 @@ def main(): #pylint:disable=too-many-statements
                 index = int(playlist_index)
             except ValueError:
                 logger.info(f'Invalid playlist index {playlist_index}')
-            playlist = db_session.query(Playlist).get(index) #pylint:disable=no-member
-            if not playlist:
                 return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
-            if str(playlist.server_id) != str(ctx.guild.id):
-                return await ctx.send(f'Playlist {index} belongs to another server',
+
+            try:
+                playlist = db_session.query(Playlist) #pylint:disable=no-member
+                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
+                                filter(Playlist.server_index == index).one()
+            except NoResultFound:
+                return await ctx.send(f'Unable to find playlist {index}',
                                       delete_after=DELETE_AFTER)
 
             vc = ctx.voice_client
