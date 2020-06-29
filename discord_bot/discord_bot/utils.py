@@ -99,3 +99,16 @@ def read_config(config_file):
             value = None
         return_data[key_name] = value
     return return_data
+
+def load_args(args):
+    '''
+    Load args from config file and command line
+    '''
+    settings = read_config(args.pop('config_file'))
+    # Override settings if cli args passed
+    for key, item in args.items():
+        if key not in settings:
+            settings[key] = item
+        elif item is not None:
+            settings[key] = item
+    return settings
