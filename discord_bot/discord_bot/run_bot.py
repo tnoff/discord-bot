@@ -399,6 +399,19 @@ def main(): #pylint:disable=too-many-statements
             print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
             traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
+        def __get_playlist(self, playlist_index, guild_id): #pylint:disable=no-self-use
+            try:
+                index = int(playlist_index)
+            except ValueError:
+                return False, None
+            try:
+                playlist = db_session.query(Playlist)# #pylint:disable=no-member
+                playlist = playlist.filter(Playlist.server_id == guild_id).\
+                                filter(Playlist.server_index == index).one()
+            except NoResultFound:
+                return False, None
+            return True, playlist
+
         def get_player(self, ctx):
             '''
             Retrieve the guild player, or generate one.
@@ -691,9 +704,11 @@ def main(): #pylint:disable=too-many-statements
             '''
             Create new playlist
             '''
-            playlist = [i for i in db_session.query(Playlist).\
-                filter(Playlist.name == name, Playlist.server_id == ctx.guild.id)]
-            if playlist:
+            try:
+                playlist = db_session.query(Playlist) #pylint:disable=no-member
+                playlist = playlist.filter(Playlist.name == name,
+                                           Playlist.server_id == ctx.guild.id).one()
+            except NoResultFound:
                 return await ctx.send(f'Playlist with name already exists {playlist[0]}',
                                       delete_after=DELETE_AFTER)
             # Grab latest server_index that matches server_id
@@ -733,21 +748,10 @@ def main(): #pylint:disable=too-many-statements
             '''
             Add item to playlist
             '''
-            try:
-                index = int(playlist_index)
-            except ValueError:
-                logger.info(f'Invalid playlist index {playlist_index}')
-                return await ctx.send(f'Unable to find playlist {index}',
+            result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+            if not result:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
-
-            try:
-                playlist = db_session.query(Playlist)# #pylint:disable=no-member
-                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
-                                filter(Playlist.server_index == index).one()
-            except NoResultFound:
-                return await ctx.send(f'Unable to find playlist {index}',
-                                      delete_after=DELETE_AFTER)
-
             title, url = await YTDLSource.run_search(search, loop=self.bot.loop)
             try:
                 playlist_item = db_session.query(PlaylistItem) #pylint:disable=no-member
@@ -773,21 +777,10 @@ def main(): #pylint:disable=too-many-statements
             '''
             Show Items in playlist
             '''
-            try:
-                index = int(playlist_index)
-            except ValueError:
-                logger.info(f'Invalid playlist index {playlist_index}')
-                return await ctx.send(f'Unable to find playlist {index}',
+            result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+            if not result:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
-
-            try:
-                playlist = db_session.query(Playlist) #pylint:disable=no-member
-                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
-                                filter(Playlist.server_index == index).one()
-            except NoResultFound:
-                return await ctx.send(f'Unable to find playlist {index}',
-                                      delete_after=DELETE_AFTER)
-
             table = PrettyTable()
             table.field_names = ['Index', 'Title']
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
@@ -802,21 +795,10 @@ def main(): #pylint:disable=too-many-statements
             '''
             Add playlist to queue
             '''
-            try:
-                index = int(playlist_index)
-            except ValueError:
-                logger.info(f'Invalid playlist index {playlist_index}')
-                return await ctx.send(f'Unable to find playlist {index}',
+            result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+            if not result:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
-
-            try:
-                playlist = db_session.query(Playlist) #pylint:disable=no-member
-                playlist = playlist.filter(Playlist.server_id == ctx.guild.id).\
-                                filter(Playlist.server_index == index).one()
-            except NoResultFound:
-                return await ctx.send(f'Unable to find playlist {index}',
-                                      delete_after=DELETE_AFTER)
-
             vc = ctx.voice_client
 
             if not vc:
