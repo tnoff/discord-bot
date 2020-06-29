@@ -8,7 +8,7 @@ from twitter.error import TwitterError
 
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.database import TwitterSubscription
-from discord_bot.utils import get_logger, get_database_session, read_config
+from discord_bot.utils import get_logger, get_database_session, load_args
 
 
 def parse_args():
@@ -114,13 +114,7 @@ def main():
     Basic main page
     '''
     # First get cli args
-    args = vars(parse_args())
-    # Load settings
-    settings = read_config(args.pop('config_file'))
-    # Override settings if cli args passed
-    for key, item in args.items():
-        if item is not None:
-            settings[key] = item
+    settings = load_args(vars(parse_args()))
 
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
@@ -135,7 +129,8 @@ def main():
                       access_token_key=settings['twitter_access_token'],
                       access_token_secret=settings['twitter_access_token_secret'])
 
-    if args['command'] == 'subscribe':
-        subscribe(logger, db_session, twitter_api, args['screen_name'], args['webhook_url'])
-    elif args['command'] == 'check-feed':
+    if settings['command'] == 'subscribe':
+        subscribe(logger, db_session, twitter_api,
+                  settings['screen_name'], settings['webhook_url'])
+    elif settings['command'] == 'check-feed':
         check_feed(logger, db_session, twitter_api)

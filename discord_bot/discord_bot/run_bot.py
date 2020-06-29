@@ -22,7 +22,7 @@ from discord_bot import functions
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.exceptions import DiscordBotException
-from discord_bot.utils import get_logger, get_database_session, read_config
+from discord_bot.utils import get_logger, get_database_session, load_args
 
 
 # Delete messages after N seconds
@@ -118,14 +118,7 @@ def main(): #pylint:disable=too-many-statements
     '''
     Main loop
     '''
-    # First get cli args
-    args = vars(parse_args())
-    # Load settings
-    settings = read_config(args.pop('config_file'))
-    # Override settings if cli args passed
-    for key, item in args.items():
-        if item is not None:
-            settings[key] = item
+    settings = load_args(vars(parse_args()))
     # Check for token
     if settings['discord_token'] is None:
         raise DiscordBotException('No discord token given')
@@ -141,7 +134,7 @@ def main(): #pylint:disable=too-many-statements
 
     ytdlopts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(args['download_dir'],
+        'outtmpl': os.path.join(settings['download_dir'],
                                 '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
         'restrictfilenames': True,
         'noplaylist': True,
