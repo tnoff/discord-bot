@@ -713,7 +713,8 @@ def main(): #pylint:disable=too-many-statements
             )
             db_session.add(playlist) #pylint:disable=no-member
             db_session.commit() #pylint:disable=no-member
-            return await ctx.send(f'Created playlist {playlist.id}', delete_after=DELETE_AFTER)
+            return await ctx.send(f'Created playlist {playlist.server_index}',
+                                  delete_after=DELETE_AFTER)
 
         @playlist.command(name='list')
         async def playlist_list(self, ctx):
