@@ -829,7 +829,11 @@ def main(): #pylint:disable=too-many-statements
                     await ctx.send(f'```ini\n[Added {source.title} to the Queue '
                                    f'{source.webpage_url}\n```', delete_after=DELETE_AFTER)
                 except asyncio.QueueFull:
-                    await ctx.send('Queue is full, cannot add more songs')
+                    return await ctx.send('Queue is full, cannot add more songs')
+            return await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
+                                  delete_after=DELETE_AFTER)
+
+
 
     class General(commands.Cog):
         '''
