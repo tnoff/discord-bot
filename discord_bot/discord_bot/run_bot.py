@@ -111,16 +111,19 @@ def get_queue_string(queue, max_rows=10):
     current_index = 0
     table_strings = []
 
+    # Turn it into a list so you can call by index
+    proper_list = [item for item in queue]
+
     while True:
         table = PrettyTable()
         table.field_names = ["Queue Order", "Title"]
-        for (count, item) in enumerate(queue[current_index:]):
+        for (count, item) in enumerate(proper_list[current_index:]):
             table.add_row([current_index + count + 1, item['title']])
             if count >= max_rows - 1:
                 break
         table_strings.append(f'```\n{table.get_string()}\n```')
         current_index += max_rows
-        if current_index >= len(queue):
+        if current_index >= len(proper_list):
             break
     return table_strings
 
