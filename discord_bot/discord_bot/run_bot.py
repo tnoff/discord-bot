@@ -14,7 +14,6 @@ from moviepy.editor import AudioFileClip
 from numpy import sqrt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
-from prettytable import PrettyTable
 from youtube_dl import YoutubeDL
 
 
@@ -112,7 +111,7 @@ def clean_title(stringy, max_length=64):
         stringy = f'{stringy[0:max_length-3]}...'
     return stringy
 
-def get_table_view(items, columns, max_rows=10):
+def get_table_view(items, max_rows=10):
     '''
     Common function for queue printing
     max_rows    :   Only show max rows in a single print
@@ -120,15 +119,15 @@ def get_table_view(items, columns, max_rows=10):
     current_index = 0
     table_strings = []
 
-    # Turn it into a list so you can call by index
+    # Assume first column is short index name
+    # Second column is longer title name
     while True:
-        table = PrettyTable()
-        table.field_names = columns
+        table = ''
         for (count, item) in enumerate(items[current_index:]):
-            table.add_row([current_index + count + 1, item])
+            table = f'{table}\n{count + current_index + 1:3} || {item:64}'
             if count >= max_rows - 1:
                 break
-        table_strings.append(f'```\n{table.get_string()}\n```')
+        table_strings.append(f'```\n{table}\n```')
         current_index += max_rows
         if current_index >= len(items):
             break
@@ -590,7 +589,7 @@ def main(): #pylint:disable=too-many-statements
             logger.info(f'Queue shuffled by {ctx.author.name}')
 
             items = [clean_title(item['title']) for item in player.queue._queue] #pylint:disable=protected-access
-            table_strings = get_table_view(items, ["Queue Index", "Title"])
+            table_strings = get_table_view(items)
             for table in table_strings:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
@@ -613,7 +612,7 @@ def main(): #pylint:disable=too-many-statements
             logger.info(f'Queue called by {ctx.author.name}')
 
             items = [clean_title(item['title']) for item in player.queue._queue] #pylint:disable=protected-access
-            table_strings = get_table_view(items, ["Queue Index", "Title"])
+            table_strings = get_table_view(items)
             for table in table_strings:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
@@ -770,12 +769,11 @@ def main(): #pylint:disable=too-many-statements
             List playlists
             '''
             logger.info(f'Playlist list called for server {ctx.guild.id}')
-            table = PrettyTable()
-            table.field_names = ['ID', 'Name']
+            table = ''
             for playlist in db_session.query(Playlist).\
                 filter(Playlist.server_id == ctx.guild.id): #pylint:disable=no-member
-                table.add_row([playlist.server_index, playlist.name])
-            return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
+                table = f'{table}{playlist.server_index:3} || {clean_title(playlist.name):64}\n'
+            return await ctx.send(f'```\n{table}```', delete_after=DELETE_AFTER)
 
         @playlist.command(name='add')
         async def playlist_add(self, ctx, playlist_index, *, search: str):
@@ -860,7 +858,7 @@ def main(): #pylint:disable=too-many-statements
                 filter(PlaylistMembership.playlist_id == playlist.id)
             items = [clean_title(item.title) for (item, _membership) in query]
 
-            tables = get_table_view(items, ["Index", "Title"])
+            tables = get_table_view(items)
             for table in tables:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 

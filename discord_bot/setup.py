@@ -11,7 +11,6 @@ setuptools.setup(
         'moviepy >= 1.0.3',
         'mysqlclient >= 1.4.6',
         'numpy >= 1.18.5',
-        'prettytable>=0.7.2',
         'PyMySQL >= 0.9.3',
         'PyNaCl >= 1.3.0',
         'python-twitter >= 3.5',
