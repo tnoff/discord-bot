@@ -139,7 +139,7 @@ def get_playlist_items_string(proper_list, max_rows=10):
     while True:
         table = PrettyTable()
         table.field_names = ["Index", "Title"]
-        for (count, item) in enumerate(proper_list[current_index:]):
+        for (count, (item, _membership)) in enumerate(proper_list[current_index:]):
             table.add_row([current_index + count + 1, item.title])
             if count >= max_rows - 1:
                 break
@@ -816,6 +816,44 @@ def main(): #pylint:disable=too-many-statements
                 db_session.rollback() #pylint:disable=no-member
                 return await ctx.send(f'Unable to add "{playlist_item.title}" '
                                       f'to playlist "{playlist.name}', delete_after=DELETE_AFTER)
+
+        @playlist.command(name='item-remove')
+        async def playlist_item_remove(self, ctx, playlist_index, item_index):
+            '''
+            Add item to playlist
+            '''
+            result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+            if not result:
+                logger.info(f'Invalid playlist index {playlist_index} given')
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                      delete_after=DELETE_AFTER)
+            try:
+                item_index = int(item_index)
+            except ValueError:
+                return await ctx.send(f'Invalid item index {item_index}')
+            if item_index < 1:
+                return await ctx.send(f'Invalid item index {item_index}')
+
+            query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
+            query = query.join(PlaylistMembership).\
+                filter(PlaylistMembership.playlist_id == playlist.id)
+            query_results = [item for item in query]
+            try:
+                item, membership = query_results[item_index - 1]
+                title = item.title
+                db_session.delete(membership)
+                db_session.commit() #pylint:disable=no-member
+                # Check if any other playlists used item
+                try:
+                    check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
+                    check_query.filter(PlaylistMembership.playlist_item_id == item.id).one()
+                except NoResultFound:
+                    # Assume we can remove item
+                    db_session.delete(item)
+                    db_session.commit() #pylint:disable=no-member
+                return await ctx.send(f'Removed item {title} from playlist')
+            except IndexError:
+                return await ctx.send(f'Unable to find item {item_index}')
 
         @playlist.command(name='show')
         async def playlist_show(self, ctx, playlist_index):
