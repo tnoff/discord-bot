@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.query import Query as _Query
 
 
+from discord_bot.exceptions import DiscordBotException
 from discord_bot.database import BASE
 
 # https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
@@ -57,16 +58,26 @@ def get_logger(logger_name, log_file):
     logger.addHandler(fh)
     return logger
 
-def get_database_session(mysql_user, mysql_password, mysql_database, mysql_host):
+def get_mysql_database_session(mysql_user, mysql_password, mysql_database, mysql_host):
     '''
     Mysql database session
     '''
-    sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@localhost'
-    sql_statement += f'/{mysql_database}?host={mysql_host}?port=3306'
+    sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@localhost' \
+                    f'/{mysql_database}?host={mysql_host}?port=3306'
     engine = create_engine(sql_statement, encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
     return sessionmaker(bind=engine, query_cls=RetryingQuery)()
+
+def get_sqlite_database_session(sqlite_file):
+    '''
+    Return sqlite database session
+    '''
+    engine = create_engine(f'sqlite:///{sqlite_file}', encoding='utf-8')
+    BASE.metadata.create_all(engine)
+    BASE.metadata.bind = engine
+    return sessionmaker(bind=engine, query_cls=RetryingQuery)()
+
 
 def read_config(config_file):
     '''
@@ -80,11 +91,14 @@ def read_config(config_file):
         # General
         'log_file' : ['general', 'log_file'],
         'discord_token' : ['general', 'discord_token'],
+        'db_type' : ['general', 'db_type'],
         # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],
         'mysql_database' : ['mysql', 'database'],
         'mysql_host'     : ['mysql', 'host'],
+        # Sqlite settings
+        'sqlite_file' : ['sqlite', 'file'],
         # Twitter
         'twitter_api_key' : ['twitter', 'api_key'],
         'twitter_api_key_secret' : ['twitter', 'api_key_secret'],
@@ -100,6 +114,13 @@ def read_config(config_file):
         return_data[key_name] = value
     return return_data
 
+def validate_config(settings):
+    '''
+    Validate some settings are set properly
+    '''
+    if settings['db_type'] not in ['sqlite', 'mysql']:
+        raise DiscordBotException(f'Invalid db_type {settings["db_type"]}')
+
 def load_args(args):
     '''
     Load args from config file and command line
@@ -111,4 +132,5 @@ def load_args(args):
             settings[key] = item
         elif item is not None:
             settings[key] = item
+    validate_config(settings)
     return settings
