@@ -104,7 +104,15 @@ class MyQueue(asyncio.Queue):
         return item
 
 
-def get_queue_string(queue, max_rows=10):
+def clean_title(stringy, max_length=64):
+    '''
+    Make sure title is not longer than max string
+    '''
+    if len(stringy) > max_length:
+        stringy = f'{stringy[0:max_length-3]}...'
+    return stringy
+
+def get_table_view(items, columns, max_rows=10):
     '''
     Common function for queue printing
     max_rows    :   Only show max rows in a single print
@@ -113,42 +121,18 @@ def get_queue_string(queue, max_rows=10):
     table_strings = []
 
     # Turn it into a list so you can call by index
-    proper_list = [item for item in queue]
-
     while True:
         table = PrettyTable()
-        table.field_names = ["Queue Order", "Title"]
-        for (count, item) in enumerate(proper_list[current_index:]):
-            table.add_row([current_index + count + 1, item['title']])
+        table.field_names = columns
+        for (count, item) in enumerate(items[current_index:]):
+            table.add_row([current_index + count + 1, item])
             if count >= max_rows - 1:
                 break
         table_strings.append(f'```\n{table.get_string()}\n```')
         current_index += max_rows
-        if current_index >= len(proper_list):
+        if current_index >= len(items):
             break
     return table_strings
-
-def get_playlist_items_string(proper_list, max_rows=10):
-    '''
-    Playlist item show
-    max_rows    :   Only show max rows in a single print
-    '''
-    current_index = 0
-    table_strings = []
-
-    while True:
-        table = PrettyTable()
-        table.field_names = ["Index", "Title"]
-        for (count, (item, _membership)) in enumerate(proper_list[current_index:]):
-            table.add_row([current_index + count + 1, item.title])
-            if count >= max_rows - 1:
-                break
-        table_strings.append(f'```\n{table.get_string()}\n```')
-        current_index += max_rows
-        if current_index >= len(proper_list):
-            break
-    return table_strings
-
 
 def main(): #pylint:disable=too-many-statements
     '''
@@ -601,7 +585,9 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
             player.queue.shuffle()
             logger.info(f'Queue shuffled by {ctx.author.name}')
-            table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
+
+            items = [clean_title(item['title']) for item in player.queue._queue] #pylint:disable=protected-access
+            table_strings = get_table_view(items, ["Queue Index", "Title"])
             for table in table_strings:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
@@ -623,7 +609,8 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
             logger.info(f'Queue called by {ctx.author.name}')
 
-            table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
+            items = [clean_title(item['title']) for item in player.queue._queue] #pylint:disable=protected-access
+            table_strings = get_table_view(items, ["Queue Index", "Title"])
             for table in table_strings:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
@@ -868,7 +855,9 @@ def main(): #pylint:disable=too-many-statements
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
             query = query.join(PlaylistMembership).\
                 filter(PlaylistMembership.playlist_id == playlist.id)
-            tables = get_playlist_items_string(query)
+            items = [clean_title(item.title) for (item, _membership) in query]
+
+            tables = get_table_view(items, ["Index", "Title"])
             for table in tables:
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
