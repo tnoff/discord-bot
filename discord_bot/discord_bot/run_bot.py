@@ -28,6 +28,8 @@ from discord_bot.utils import get_mysql_database_session, get_sqlite_database_se
 DELETE_AFTER = 30
 # Max queue size
 QUEUE_MAX_SIZE = 35
+# Max title length for table views
+MAX_TITLE_LENGTH = 64
 
 
 YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
@@ -96,7 +98,7 @@ class MyQueue(asyncio.Queue):
         return item
 
 
-def clean_title(stringy, max_length=64):
+def clean_title(stringy, max_length=MAX_TITLE_LENGTH):
     '''
     Make sure title is not longer than max string
     '''
@@ -104,7 +106,7 @@ def clean_title(stringy, max_length=64):
         stringy = f'{stringy[0:max_length-3]}...'
     return stringy
 
-def get_table_view(items, max_rows=10):
+def get_table_view(items, max_rows=15):
     '''
     Common function for queue printing
     max_rows    :   Only show max rows in a single print
@@ -117,7 +119,7 @@ def get_table_view(items, max_rows=10):
     while True:
         table = ''
         for (count, item) in enumerate(items[current_index:]):
-            table = f'{table}\n{count + current_index + 1:3} || {item:64}'
+            table = f'{table}\n{count + current_index + 1:3} || {item:MAX_TITLE_LENGTH}'
             if count >= max_rows - 1:
                 break
         table_strings.append(f'```\n{table}\n```')
