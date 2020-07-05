@@ -103,6 +103,7 @@ class MyQueue(asyncio.Queue):
         self._queue.appendleft(item)
         return item
 
+
 def get_queue_string(queue, max_rows=10):
     '''
     Common function for queue printing
@@ -126,6 +127,28 @@ def get_queue_string(queue, max_rows=10):
         if current_index >= len(proper_list):
             break
     return table_strings
+
+def get_playlist_items_string(proper_list, max_rows=10):
+    '''
+    Playlist item show
+    max_rows    :   Only show max rows in a single print
+    '''
+    current_index = 0
+    table_strings = []
+
+    while True:
+        table = PrettyTable()
+        table.field_names = ["Index", "Title"]
+        for (count, item) in enumerate(proper_list[current_index:]):
+            table.add_row([current_index + count + 1, item.title])
+            if count >= max_rows - 1:
+                break
+        table_strings.append(f'```\n{table.get_string()}\n```')
+        current_index += max_rows
+        if current_index >= len(proper_list):
+            break
+    return table_strings
+
 
 def main(): #pylint:disable=too-many-statements
     '''
@@ -803,14 +826,13 @@ def main(): #pylint:disable=too-many-statements
             if not result:
                 return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
-            table = PrettyTable()
-            table.field_names = ['Index', 'Title']
+
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
             query = query.join(PlaylistMembership).\
                 filter(PlaylistMembership.playlist_id == playlist.id)
-            for (count, (item, _membership)) in enumerate(query):
-                table.add_row([count, item.title])
-            return await ctx.send(f'```\n{table.get_string()}\n```', delete_after=DELETE_AFTER)
+            tables = get_playlist_items_string(query)
+            for table in tables:
+                await ctx.send(table, delete_after=DELETE_AFTER)
 
         @playlist.command(name='queue')
         async def playlist_queue(self, ctx, playlist_index):
@@ -854,7 +876,6 @@ def main(): #pylint:disable=too-many-statements
                     return await ctx.send('Queue is full, cannot add more songs')
             return await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
                                   delete_after=DELETE_AFTER)
-
 
 
     class General(commands.Cog):
