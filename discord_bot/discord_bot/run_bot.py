@@ -103,16 +103,26 @@ class MyQueue(asyncio.Queue):
         self._queue.appendleft(item)
         return item
 
-def get_queue_string(queue):
+def get_queue_string(queue, max_rows=10):
     '''
     Common function for queue printing
+    max_rows    :   Only show max rows in a single print
     '''
-    table = PrettyTable()
-    table.field_names = ["Queue Order", "Title"]
+    current_index = 0
+    table_strings = []
 
-    for (count, item) in enumerate(queue):
-        table.add_row([count + 1, item["title"]])
-    return f'```\n{table.get_string()}\n```'
+    while True:
+        table = PrettyTable()
+        table.field_names = ["Queue Order", "Title"]
+        for (count, item) in enumerate(queue[current_index:]):
+            table.add_row([current_index + count + 1, item['title']])
+            if count >= max_rows - 1:
+                break
+        table_strings.append(f'```\n{table.get_string()}\n```')
+        current_index += max_rows
+        if current_index >= len(queue):
+            break
+    return table_strings
 
 def main(): #pylint:disable=too-many-statements
     '''
@@ -562,8 +572,9 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
             player.queue.shuffle()
-
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=DELETE_AFTER) #pylint:disable=protected-access
+            table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
+            for table in table_strings:
+                await ctx.send(table, delete_after=DELETE_AFTER)
 
 
         @commands.command(name='queue')
@@ -582,7 +593,9 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
 
-            await ctx.send(get_queue_string(player.queue._queue), delete_after=(DELETE_AFTER * 6)) #pylint:disable=protected-access
+            table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
+            for table in table_strings:
+                await ctx.send(table, delete_after=DELETE_AFTER)
 
         @commands.command(name='remove')
         async def remove_item(self, ctx, queue_index):
