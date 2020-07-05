@@ -91,14 +91,7 @@ class MyQueue(asyncio.Queue):
         '''
         Bump item to top of queue
         '''
-        if queue_index < 1 or queue_index > self.qsize():
-            return None
-        # Rotate, remove top, then remove
-        for _ in range(1, queue_index):
-            self._queue.rotate(-1)
-        item = self._queue.popleft()
-        for _ in range(1, queue_index):
-            self._queue.rotate(1)
+        item = self.remove_item(queue_index)
         self._queue.appendleft(item)
         return item
 
