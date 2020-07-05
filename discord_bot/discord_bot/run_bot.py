@@ -498,6 +498,7 @@ def main(): #pylint:disable=too-many-statements
 
             try:
                 player.queue.put_nowait(source)
+                logger.info(f'Adding {source.title} to queue')
                 return await ctx.send(f'```ini\n[Added {source.title} to the Queue '
                                       f'{source.webpage_url}\n```',
                                       delete_after=DELETE_AFTER)
@@ -517,6 +518,7 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
             if vc.is_paused():
                 return
+            logger.info(f'Song paused by {ctx.author.name}')
 
             vc.pause()
             await ctx.send(f'```"{ctx.author.name}": Paused the song```')
@@ -533,7 +535,7 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
             if not vc.is_paused():
                 return
-
+            logger.info(f'Song resumed by {ctx.author.name}')
             vc.resume()
             await ctx.send(f'```"{ctx.author.name}": Resumed the song```')
 
@@ -550,7 +552,7 @@ def main(): #pylint:disable=too-many-statements
 
             if not vc.is_paused() and not vc.is_playing():
                 return
-
+            logger.info(f'Song skipped by {ctx.author.name}')
             vc.stop()
             await ctx.send(f'```"{ctx.author.name}": Skipped the song```',
                            delete_after=DELETE_AFTER)
@@ -572,6 +574,7 @@ def main(): #pylint:disable=too-many-statements
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
             player.queue.shuffle()
+            logger.info(f'Queue shuffled by {ctx.author.name}')
             table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
             for table in table_strings:
                 await ctx.send(table, delete_after=DELETE_AFTER)
@@ -592,6 +595,7 @@ def main(): #pylint:disable=too-many-statements
             if player.queue.empty():
                 return await ctx.send('There are currently no more queued songs.',
                                       delete_after=DELETE_AFTER)
+            logger.info(f'Queue called by {ctx.author.name}')
 
             table_strings = get_queue_string(player.queue._queue) #pylint:disable=protected-access
             for table in table_strings:
