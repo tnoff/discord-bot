@@ -118,7 +118,7 @@ def get_table_view(items, max_rows=15):
     while True:
         table = ''
         for (count, item) in enumerate(items[current_index:]):
-            table = f'{table}\n{count + current_index + 1:3} || {item:MAX_TITLE_LENGTH}'
+            table = f'{table}\n{count + current_index + 1:3} || {item:64}'
             if count >= max_rows - 1:
                 break
         table_strings.append(f'```\n{table}\n```')
