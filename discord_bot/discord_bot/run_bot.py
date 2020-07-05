@@ -20,7 +20,6 @@ from youtube_dl import YoutubeDL
 from discord_bot import functions
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
-from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, load_args
 from discord_bot.utils import get_mysql_database_session, get_sqlite_database_session
 
@@ -133,9 +132,6 @@ def main(): #pylint:disable=too-many-statements
     Main loop
     '''
     settings = load_args(vars(parse_args()))
-    # Check for token
-    if settings['discord_token'] is None:
-        raise DiscordBotException('No discord token given')
 
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
@@ -162,8 +158,6 @@ def main(): #pylint:disable=too-many-statements
         'default_search': 'auto',
         'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
     }
-
-
     ytdl = YoutubeDL(ytdlopts)
 
 

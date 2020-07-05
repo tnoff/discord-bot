@@ -118,6 +118,8 @@ def validate_config(settings):
     '''
     Validate some settings are set properly
     '''
+    if settings['discord_token'] is None:
+        raise DiscordBotException('No discord token given')
     if settings['db_type'] not in ['sqlite', 'mysql']:
         raise DiscordBotException(f'Invalid db_type {settings["db_type"]}')
 
