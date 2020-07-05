@@ -623,12 +623,15 @@ def main(): #pylint:disable=too-many-statements
             try:
                 queue_index = int(queue_index)
             except ValueError:
+                logger.info(f'Queue entered was invalid {queue_index}')
                 return await ctx.send(f'Invalid queue index {queue_index}')
 
             item = player.queue.remove_item(queue_index)
             if item is None:
+                logger.info(f'Unable to remove queue index {queue_index}')
                 return ctx.send(f'Unable to remove queue index {queue_index}',
                                 delete_after=DELETE_AFTER)
+            logger.info(f'Removed item {item["title"]} from queue')
             return await ctx.send(f'Removed item {item["title"]} from queue',
                                   delete_after=DELETE_AFTER)
 
@@ -651,12 +654,15 @@ def main(): #pylint:disable=too-many-statements
             try:
                 queue_index = int(queue_index)
             except ValueError:
+                logger.info(f'Queue entered was invalid {queue_index}')
                 return await ctx.send(f'Invalid queue index {queue_index}')
 
             item = player.queue.bump_item(queue_index)
             if item is None:
-                return ctx.send(f'Unable to remove queue index {queue_index}',
+                logger.info(f'Unable to remove queue index {queue_index}')
+                return ctx.send(f'Unable to bump queue index {queue_index}',
                                 delete_after=DELETE_AFTER)
+            logger.info(f'Bumped item {item["title"]} to top of the queue')
             return await ctx.send(f'Bumped item {item["title"]} to top of queue',
                                   delete_after=DELETE_AFTER)
 
@@ -722,8 +728,8 @@ def main(): #pylint:disable=too-many-statements
                 playlist = playlist.filter(Playlist.name == name,
                                            Playlist.server_id == ctx.guild.id).one()
             except NoResultFound:
-                return await ctx.send(f'Playlist with name already exists {playlist[0]}',
-                                      delete_after=DELETE_AFTER)
+                logger.info(f'No playlist with name {name} in '
+                            f'server {ctx.guild.id} found, continuing')
             # Grab latest server_index that matches server_id
             try:
                 query = db_session.query(Playlist) #pylint:disable=no-member
@@ -741,6 +747,7 @@ def main(): #pylint:disable=too-many-statements
             )
             db_session.add(playlist) #pylint:disable=no-member
             db_session.commit() #pylint:disable=no-member
+            logger.info(f'Playlist created {playlist.id}')
             return await ctx.send(f'Created playlist {playlist.server_index}',
                                   delete_after=DELETE_AFTER)
 
@@ -749,6 +756,7 @@ def main(): #pylint:disable=too-many-statements
             '''
             List playlists
             '''
+            logger.info(f'Playlist list called for server {ctx.guild.id}')
             table = PrettyTable()
             table.field_names = ['ID', 'Name']
             for playlist in db_session.query(Playlist).\
@@ -763,6 +771,7 @@ def main(): #pylint:disable=too-many-statements
             '''
             result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
             if not result:
+                logger.info(f'Invalid playlist index {playlist_index} given')
                 return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
             title, url = await YTDLSource.run_search(search, loop=self.bot.loop)
