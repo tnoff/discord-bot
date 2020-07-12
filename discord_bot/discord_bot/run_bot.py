@@ -29,7 +29,8 @@ DELETE_AFTER = 60
 QUEUE_MAX_SIZE = 35
 # Max title length for table views
 MAX_TITLE_LENGTH = 64
-
+# Only trim audio if buffer exceeding in start or end
+AUDIO_BUFFER = 30
 
 YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
 
@@ -190,7 +191,7 @@ def main(): #pylint:disable=too-many-statements
         end_index += 1
 
         logger.debug(f'Audio trim: Total file length {total_length}, start {start_index}, end {end_index}')
-        if start_index < 10 and end_index > (int(total_length) - 10):
+        if start_index < AUDIO_BUFFER and end_index > (int(total_length) - AUDIO_BUFFER):
             logger.info('Not enough dead audio at beginning or end of file, skipping audio trim')
             return False, video_file
 
