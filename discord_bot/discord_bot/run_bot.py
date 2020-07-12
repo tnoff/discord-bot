@@ -6,6 +6,7 @@ import random
 import re
 import sys
 import traceback
+import typing
 
 from async_timeout import timeout
 import discord
@@ -845,25 +846,41 @@ def main(): #pylint:disable=too-many-statements
                 await ctx.send(table, delete_after=DELETE_AFTER)
 
         @playlist.command(name='queue')
-        async def playlist_queue(self, ctx, playlist_index):
+        async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''):
             '''
             Add playlist to queue
+
+            Sub commands - [shuffle]
+            shuffle - Shuffle playlist when entering it into queue
             '''
             result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
             if not result:
                 return await ctx.send(f'Unable to find playlist {playlist_index}',
                                       delete_after=DELETE_AFTER)
-            vc = ctx.voice_client
+            shuffle = False
+            # Make sure sub command is valid
+            if sub_command:
+                if sub_command.lower() == 'shuffle':
+                    shuffle = True
+                else:
+                    return await ctx.send(f'Invalid sub command {sub_command}')
 
+
+            vc = ctx.voice_client
             if not vc:
                 await ctx.invoke(self.connect_)
-
             player = self.get_player(ctx)
 
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
             query = query.join(PlaylistMembership).\
                 filter(PlaylistMembership.playlist_id == playlist.id)
-            for item, _membership in query:
+            playlist_items = [item for (item, _membership) in query]
+
+            if shuffle:
+                await ctx.send('Shuffling playlist items')
+                random.shuffle(playlist_items)
+
+            for item in playlist_items:
                 if player.queue.full():
                     return await ctx.send('Queue is full, cannot add more songs',
                                           delete_after=DELETE_AFTER)
