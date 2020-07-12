@@ -78,6 +78,16 @@ def get_sqlite_database_session(sqlite_file):
     BASE.metadata.bind = engine
     return sessionmaker(bind=engine, query_cls=RetryingQuery)()
 
+def get_db_session(settings):
+    '''
+    Use settings to return db_session
+    '''
+    if settings['db_type'] == 'mysql':
+        return get_mysql_database_session(settings['mysql_user'],
+                                          settings['mysql_password'],
+                                          settings['mysql_database'],
+                                          settings['mysql_host'])
+    return get_sqlite_database_session(settings['sqlite_file'])
 
 def read_config(config_file):
     '''

@@ -8,7 +8,7 @@ from twitter.error import TwitterError
 
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.database import TwitterSubscription
-from discord_bot.utils import get_logger, get_database_session, load_args
+from discord_bot.utils import get_logger, load_args, get_db_session
 
 
 def parse_args():
@@ -119,10 +119,7 @@ def main():
     # Setup vars
     logger = get_logger(__name__, settings['log_file'])
     # Setup database
-    db_session = get_database_session(settings['mysql_user'],
-                                      settings['mysql_password'],
-                                      settings['mysql_database'],
-                                      settings['mysql_host'])
+    db_session = get_db_session(settings)
     # Twitter client
     twitter_api = Api(consumer_key=settings['twitter_api_key'],
                       consumer_secret=settings['twitter_api_key_secret'],

@@ -20,8 +20,7 @@ from youtube_dl import YoutubeDL
 from discord_bot import functions
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
-from discord_bot.utils import get_logger, load_args
-from discord_bot.utils import get_mysql_database_session, get_sqlite_database_session
+from discord_bot.utils import get_logger, load_args, get_db_session
 
 # Delete messages after N seconds
 DELETE_AFTER = 30
@@ -137,13 +136,7 @@ def main(): #pylint:disable=too-many-statements
     logger = get_logger(__name__, settings['log_file'])
     bot = commands.Bot(command_prefix='!')
     # Setup database
-    if settings['db_type'] == 'mysql':
-        db_session = get_mysql_database_session(settings['mysql_user'],
-                                                settings['mysql_password'],
-                                                settings['mysql_database'],
-                                                settings['mysql_host'])
-    else:
-        db_session = get_sqlite_database_session(settings['sqlite_file'])
+    db_session = get_db_session(settings)
 
     ytdlopts = {
         'format': 'bestaudio/best',
