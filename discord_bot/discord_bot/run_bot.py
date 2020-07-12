@@ -726,12 +726,12 @@ def main(): #pylint:disable=too-many-statements
                 logger.info(f'No playlist with name {name} in '
                             f'server {ctx.guild.id} found, continuing')
             # Grab latest server_index that matches server_id
-            try:
-                query = db_session.query(Playlist) #pylint:disable=no-member
-                query = query.filter(Playlist.server_id == ctx.guild.id).\
-                            order_by(Playlist.server_index.desc()).first()
+            query = db_session.query(Playlist) #pylint:disable=no-member
+            query = query.filter(Playlist.server_id == ctx.guild.id).\
+                        order_by(Playlist.server_index.desc()).first()
+            if query:
                 server_index = query.server_index + 1
-            except NoResultFound:
+            else:
                 # If none found, assume 1 is fine
                 server_index = 1
 
@@ -815,10 +815,10 @@ def main(): #pylint:disable=too-many-statements
                 db_session.delete(membership)
                 db_session.commit() #pylint:disable=no-member
                 # Check if any other playlists used item
-                try:
-                    check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
-                    check_query.filter(PlaylistMembership.playlist_item_id == item.id).first()
-                except NoResultFound:
+                check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
+                check_query = check_query.filter(PlaylistMembership.playlist_item_id == item.id)
+                check_query = check_query.first()
+                if not check_query:
                     # Assume we can remove item
                     db_session.delete(item)
                     db_session.commit() #pylint:disable=no-member
