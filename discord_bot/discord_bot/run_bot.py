@@ -348,7 +348,7 @@ def main(): #pylint:disable=too-many-statements
             return self.bot.loop.create_task(self._cog.cleanup(guild))
 
 
-    class Music(commands.Cog):
+    class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         Music related commands
         '''
@@ -409,6 +409,23 @@ def main(): #pylint:disable=too-many-statements
             except NoResultFound:
                 return False, None
             return True, playlist
+
+        def __delete_playlist_item(self, membership, item):#pylint:disable=no-self-use
+            '''
+            Delete playlist membership, and check if playlist item is not
+            used anymore and should be removed
+            '''
+            db_session.delete(membership)
+            db_session.commit() #pylint:disable=no-member
+            check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
+            check_query = check_query.filter(PlaylistMembership.playlist_item_id == item.id)
+            check_query = check_query.first()
+            if not check_query:
+                # Assume we can remove item
+                db_session.delete(item)
+                db_session.commit() #pylint:disable=no-member
+                return True
+            return False
 
         def get_player(self, ctx):
             '''
@@ -819,16 +836,7 @@ def main(): #pylint:disable=too-many-statements
             try:
                 item, membership = query_results[item_index - 1]
                 title = item.title
-                db_session.delete(membership)
-                db_session.commit() #pylint:disable=no-member
-                # Check if any other playlists used item
-                check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
-                check_query = check_query.filter(PlaylistMembership.playlist_item_id == item.id)
-                check_query = check_query.first()
-                if not check_query:
-                    # Assume we can remove item
-                    db_session.delete(item)
-                    db_session.commit() #pylint:disable=no-member
+                self.__delete_playlist_item(membership, item)
                 return await ctx.send(f'Removed item {title} from playlist')
             except IndexError:
                 return await ctx.send(f'Unable to find item {item_index}')
@@ -854,6 +862,28 @@ def main(): #pylint:disable=too-many-statements
             tables = get_table_view(items)
             for table in tables:
                 await ctx.send(table, delete_after=DELETE_AFTER)
+
+        @playlist.command(name='delete')
+        async def playlist_delete(self, ctx, playlist_index):
+            '''
+            Delete playlist
+            '''
+            result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+            if not result:
+                return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                      delete_after=DELETE_AFTER)
+            playlist_name = playlist.name
+
+            logger.debug(f'Deleting all playlist items for {playlist.id}')
+            query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
+            query = query.join(PlaylistMembership).\
+                filter(PlaylistMembership.playlist_id == playlist.id)
+            for item, membership in query:
+                self.__delete_playlist_item(membership, item)
+            logger.info(f'Deleting playlist {playlist.id}')
+            db_session.delete(playlist)
+            db_session.commit()
+            return await ctx.send(f'Deleted playlist {playlist_name}')
 
         @playlist.command(name='queue')
         async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''):
