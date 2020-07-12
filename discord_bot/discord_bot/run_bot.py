@@ -728,7 +728,7 @@ def main(): #pylint:disable=too-many-statements
             try:
                 query = db_session.query(Playlist) #pylint:disable=no-member
                 query = query.filter(Playlist.server_id == ctx.guild.id).\
-                            order_by(Playlist.server_index.desc()).one()
+                            order_by(Playlist.server_index.desc()).first()
                 server_index = query.server_index + 1
             except NoResultFound:
                 # If none found, assume 1 is fine
@@ -816,7 +816,7 @@ def main(): #pylint:disable=too-many-statements
                 # Check if any other playlists used item
                 try:
                     check_query = db_session.query(PlaylistMembership) #pylint:disable=no-member
-                    check_query.filter(PlaylistMembership.playlist_item_id == item.id).one()
+                    check_query.filter(PlaylistMembership.playlist_item_id == item.id).first()
                 except NoResultFound:
                     # Assume we can remove item
                     db_session.delete(item)
