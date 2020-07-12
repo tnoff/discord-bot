@@ -24,7 +24,7 @@ from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
 
 # Delete messages after N seconds
-DELETE_AFTER = 30
+DELETE_AFTER = 60
 # Max queue size
 QUEUE_MAX_SIZE = 35
 # Max title length for table views
