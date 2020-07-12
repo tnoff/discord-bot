@@ -753,8 +753,15 @@ def main(): #pylint:disable=too-many-statements
             '''
             logger.info(f'Playlist list called for server {ctx.guild.id}')
             table = ''
-            for playlist in db_session.query(Playlist).\
-                filter(Playlist.server_id == ctx.guild.id): #pylint:disable=no-member
+            playlist_items = db_session.query(Playlist)
+            playlist_items = playlist_items.\
+                filter(Playlist.server_id == ctx.guild.id)
+            playlist_items = [p for p in playlist_items]
+
+            if not playlist_items:
+                return await ctx.send('No playlists in database')
+
+            for playlist in playlist_items:
                 table = f'{table}{playlist.server_index:3} || {clean_title(playlist.name):64}\n'
             return await ctx.send(f'```\n{table}```', delete_after=DELETE_AFTER)
 
@@ -840,6 +847,9 @@ def main(): #pylint:disable=too-many-statements
             query = query.join(PlaylistMembership).\
                 filter(PlaylistMembership.playlist_id == playlist.id)
             items = [clean_title(item.title) for (item, _membership) in query]
+
+            if not items:
+                return await ctx.send('No playlist items in database')
 
             tables = get_table_view(items)
             for table in tables:
