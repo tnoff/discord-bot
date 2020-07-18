@@ -24,7 +24,7 @@ from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
 
 # Delete messages after N seconds
-DELETE_AFTER = 60
+DELETE_AFTER = 120
 # Max queue size
 QUEUE_MAX_SIZE = 35
 # Max title length for table views
@@ -526,15 +526,22 @@ def main(): #pylint:disable=too-many-statements
             '''
             vc = ctx.voice_client
 
-            if not vc or not vc.is_playing():
+            player = self.get_player(ctx)
+            if not player.current or not vc or not vc.is_connected():
                 return await ctx.send('I am not currently playing anything',
                                       delete_after=DELETE_AFTER)
             if vc.is_paused():
                 return
             logger.info(f'Song paused by {ctx.author.name}')
-
             vc.pause()
-            await ctx.send(f'```"{ctx.author.name}": Paused the song```')
+            try:
+                # Remove our previous now_playing message.
+                await player.np.delete()
+            except discord.HTTPException:
+                pass
+
+            player.np = await ctx.send(f'```Song paused: "{vc.source.title}", '
+                                       f'requested by "{vc.source.requester.name}"```')
 
         @commands.command(name='resume')
         async def resume_(self, ctx):
@@ -543,14 +550,22 @@ def main(): #pylint:disable=too-many-statements
             '''
             vc = ctx.voice_client
 
-            if not vc or not vc.is_connected():
+            player = self.get_player(ctx)
+            if not player.current or not vc or not vc.is_connected():
                 return await ctx.send('I am not currently playing anything',
                                       delete_after=DELETE_AFTER)
             if not vc.is_paused():
                 return
             logger.info(f'Song resumed by {ctx.author.name}')
             vc.resume()
-            await ctx.send(f'```"{ctx.author.name}": Resumed the song```')
+            try:
+                # Remove our previous now_playing message.
+                await player.np.delete()
+            except discord.HTTPException:
+                pass
+
+            player.np = await ctx.send(f'```Now Playing: "{vc.source.title}", '
+                                       f'requested by "{vc.source.requester.name}"```')
 
         @commands.command(name='skip')
         async def skip_(self, ctx):
@@ -569,7 +584,6 @@ def main(): #pylint:disable=too-many-statements
             vc.stop()
             await ctx.send(f'```"{ctx.author.name}": Skipped the song```',
                            delete_after=DELETE_AFTER)
-
 
         @commands.command(name='shuffle')
         async def shuffle_(self, ctx):
@@ -637,7 +651,8 @@ def main(): #pylint:disable=too-many-statements
                 queue_index = int(queue_index)
             except ValueError:
                 logger.info(f'Queue entered was invalid {queue_index}')
-                return await ctx.send(f'Invalid queue index {queue_index}')
+                return await ctx.send(f'Invalid queue index {queue_index}',
+                                      delete_after=DELETE_AFTER)
 
             item = player.queue.remove_item(queue_index)
             if item is None:
@@ -668,7 +683,8 @@ def main(): #pylint:disable=too-many-statements
                 queue_index = int(queue_index)
             except ValueError:
                 logger.info(f'Queue entered was invalid {queue_index}')
-                return await ctx.send(f'Invalid queue index {queue_index}')
+                return await ctx.send(f'Invalid queue index {queue_index}',
+                                      delete_after=DELETE_AFTER)
 
             item = player.queue.bump_item(queue_index)
             if item is None:
@@ -703,8 +719,7 @@ def main(): #pylint:disable=too-many-statements
                 pass
 
             player.np = await ctx.send(f'```Now Playing: "{vc.source.title}", '
-                                       f'requested by "{vc.source.requester.name}"```',
-                                       delete_after=DELETE_AFTER)
+                                       f'requested by "{vc.source.requester.name}"```')
 
         @commands.command(name='stop')
         async def stop_(self, ctx):
@@ -777,7 +792,8 @@ def main(): #pylint:disable=too-many-statements
             playlist_items = [p for p in playlist_items]
 
             if not playlist_items:
-                return await ctx.send('No playlists in database')
+                return await ctx.send('No playlists in database',
+                                      delete_after=DELETE_AFTER)
 
             for playlist in playlist_items:
                 table = f'{table}{playlist.server_index:3} || {clean_title(playlist.name):64}\n'
@@ -826,9 +842,11 @@ def main(): #pylint:disable=too-many-statements
             try:
                 item_index = int(item_index)
             except ValueError:
-                return await ctx.send(f'Invalid item index {item_index}')
+                return await ctx.send(f'Invalid item index {item_index}',
+                                      delete_after=DELETE_AFTER)
             if item_index < 1:
-                return await ctx.send(f'Invalid item index {item_index}')
+                return await ctx.send(f'Invalid item index {item_index}',
+                                      delete_after=DELETE_AFTER)
 
             query = db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
             query = query.join(PlaylistMembership).\
@@ -838,9 +856,11 @@ def main(): #pylint:disable=too-many-statements
                 item, membership = query_results[item_index - 1]
                 title = item.title
                 self.__delete_playlist_item(membership, item)
-                return await ctx.send(f'Removed item {title} from playlist')
+                return await ctx.send(f'Removed item {title} from playlist',
+                                      delete_after=DELETE_AFTER)
             except IndexError:
-                return await ctx.send(f'Unable to find item {item_index}')
+                return await ctx.send(f'Unable to find item {item_index}',
+                                      delete_after=DELETE_AFTER)
 
         @playlist.command(name='show')
         async def playlist_show(self, ctx, playlist_index):
@@ -858,7 +878,8 @@ def main(): #pylint:disable=too-many-statements
             items = [clean_title(item.title) for (item, _membership) in query]
 
             if not items:
-                return await ctx.send('No playlist items in database')
+                return await ctx.send('No playlist items in database',
+                                      delete_after=DELETE_AFTER)
 
             tables = get_table_view(items)
             for table in tables:
@@ -884,7 +905,9 @@ def main(): #pylint:disable=too-many-statements
             logger.info(f'Deleting playlist {playlist.id}')
             db_session.delete(playlist)
             db_session.commit()
-            return await ctx.send(f'Deleted playlist {playlist_name}')
+            return await ctx.send(f'Deleted playlist {playlist_name}',
+                                  delete_after=DELETE_AFTER)
+
 
         @playlist.command(name='queue')
         async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''):
@@ -904,7 +927,9 @@ def main(): #pylint:disable=too-many-statements
                 if sub_command.lower() == 'shuffle':
                     shuffle = True
                 else:
-                    return await ctx.send(f'Invalid sub command {sub_command}')
+                    return await ctx.send(f'Invalid sub command {sub_command}',
+                                          delete_after=DELETE_AFTER)
+
 
 
             vc = ctx.voice_client
@@ -918,7 +943,8 @@ def main(): #pylint:disable=too-many-statements
             playlist_items = [item for (item, _membership) in query]
 
             if shuffle:
-                await ctx.send('Shuffling playlist items')
+                await ctx.send('Shuffling playlist items',
+                               delete_after=DELETE_AFTER)
                 random.shuffle(playlist_items)
 
             for item in playlist_items:
@@ -941,7 +967,9 @@ def main(): #pylint:disable=too-many-statements
                     await ctx.send(f'```ini\n[Added {source.title} to the Queue '
                                    f'{source.webpage_url}\n```', delete_after=DELETE_AFTER)
                 except asyncio.QueueFull:
-                    return await ctx.send('Queue is full, cannot add more songs')
+                    return await ctx.send('Queue is full, cannot add more songs',
+                                          delete_after=DELETE_AFTER)
+
             return await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
                                   delete_after=DELETE_AFTER)
 
