@@ -210,3 +210,33 @@ Add songs from playlist to the queue
 .. code::
 
     !playlist queue <playlist_index>
+
+-------------------
+Role Assignment Bot
+-------------------
+Easily assign roles users in server by having them add reaction emojis to a bot message.
+
+Run the roll assignment command
+
+..code::
+
+    !assign-roles
+
+A message will be sent to the channel prompting users to add an emoji if they want a given role.
+
+.. code::
+
+    For role @rocket-league reply with emoji :zero:
+
+Run the discord-cli command to automatically assign these roles to the users that responded.
+
+.. code::
+
+    /usr/local/bin/discord-cli -c /secret/discord.conf check-role-assignment
+
+The docker image automatically sets up a cronjob to run this every hour.
+
+A couple of notes
+
+- The bot will require permissions to add users to roles for this to work
+- The bot will only run assign roles with zero permissions. The thinking here is to use these roles as more of a type of mailing list.

@@ -10,6 +10,7 @@ RUN apt-get update
 RUN apt-get install -y \
    cron \
    ffmpeg \
+   git \
    libmysqlclient-dev \
    logrotate \
    python3-dev \
@@ -29,8 +30,13 @@ RUN mkdir -p /opt/discord_bot /usr/local/bin /logs/supervisor/
 COPY discord_bot /opt/discord_bot
 RUN /usr/bin/pip3 install /opt/discord_bot
 
+# Install the latest by hand until this is included https://github.com/Rapptz/discord.py/pull/5181
+RUN git clone https://github.com/Rapptz/discord.py.git /tmp/discord.py
+RUN /usr/bin/pip3 uninstall discord -y && /usr/bin/pip3 install /tmp/discord.py/
+
 # Copy files
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY files/etc/cron.hourly/check-assignment-messages /etc/cron.hourly/check-assignment-messages
 COPY files/etc/cron.hourly/check-twitter /etc/cron.hourly/check-twitter
 COPY files/etc/cron.hourly/cleanup-youtube /etc/cron.hourly/cleanup-youtube
 COPY files/etc/cron.hourly/logrotate /etc/cron.hourly/logrotate
@@ -44,7 +50,8 @@ RUN chmod 0644 /etc/logrotate.d/discord
 # Chmod cron files
 RUN chmod +x /etc/cron.hourly/check-twitter \
     /etc/cron.hourly/cleanup-youtube \
-    /etc/cron.hourly/logrotate
+    /etc/cron.hourly/logrotate \
+    /etc/cron.hourly/check-assignment-messages
 
 # Start supervisord
 CMD /usr/bin/supervisord -n

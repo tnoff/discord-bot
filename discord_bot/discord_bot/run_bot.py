@@ -19,6 +19,7 @@ from youtube_dl import YoutubeDL
 
 
 from discord_bot import functions
+from discord_bot.database import RoleAssignmentMessage, RoleAssignmentReaction
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
@@ -33,6 +34,21 @@ MAX_TITLE_LENGTH = 64
 AUDIO_BUFFER = 30
 
 YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
+
+NUMBER_DICT = {
+    1: 'one',
+    2: 'two',
+    3: 'three',
+    4: 'four',
+    5: 'five',
+    6: 'six',
+    7: 'seven',
+    8: 'eight',
+    9: 'nine',
+    0: 'zero',
+}
+
+
 
 def parse_args():
     '''
@@ -1002,6 +1018,50 @@ def main(): #pylint:disable=too-many-statements
             '''
             _, message = functions.windows(ctx, logger)
             await ctx.send(message)
+
+        @commands.command(name='assign-roles')
+        async def roles(self, ctx):
+            '''
+            Generate message with all roles. Users can reply to this message to add roles to themselves.
+            '''
+            logger.debug(f'Setting up message for role grants in server {ctx.guild.id}')
+            index = 0
+            message_strings = []
+            message_string = 'React with the following emojis to be automatically granted roles'
+            role_assign_list = []
+            for role in ctx.guild.roles:
+                # Ignore everyone role
+                if role.name == '@everyone':
+                    continue
+                # Only allow roles with no extra permissions
+                if role.permissions.value != 0:
+                    continue
+                emoji = f':{NUMBER_DICT[index]}:'
+                message_string = f'{message_string}\nFor role `@{role.name}` reply with emoji {emoji}'
+                role_assign_list.append({'role_id': role.id, 'emoji_name': emoji})
+                index += 1
+                # Only show 10 roles at a time, since we only have 10 emojis to works with
+                if index >= 9:
+                    index = 0
+                    message_strings.append(message_string)
+                    message_string = 'React with the following emojis to be automatically granted roles'
+
+            message_strings.append(message_string)
+            for message_string in message_strings:
+
+                message = await ctx.send(f'{message_string}')
+                new_message = RoleAssignmentMessage(message_id=message.id,
+                                                    channel_id=message.channel.id,
+                                                    guild_id=message.guild.id)
+                logger.info(f'Created new role assignment message {new_message.id}')
+                db_session.add(new_message)
+                db_session.commit()
+                for role_assign in role_assign_list:
+                    role_assign['role_assignment_message_id'] = new_message.id
+                    assignment = RoleAssignmentReaction(**role_assign)
+                    db_session.add(assignment)
+                    db_session.commit()
+                    logger.info(f'Created new role assignment reaction {assignment.id}')
 
 
     class Planner(commands.Cog):

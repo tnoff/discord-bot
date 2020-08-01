@@ -67,3 +67,23 @@ class TwitterSubscription(BASE):
     twitter_user_id = Column(String(1024), nullable=False)
     webhook_url = Column(String(2048), nullable=False)
     last_post = Column(BigInteger)
+
+class RoleAssignmentMessage(BASE):
+    '''
+    Message for role assignment
+    '''
+    __tablename__ = 'role_assignment_message'
+    id = Column(Integer, primary_key=True)
+    message_id = Column(BigInteger)
+    channel_id = Column(BigInteger)
+    guild_id = Column(BigInteger)
+
+class RoleAssignmentReaction(BASE):
+    '''
+    Emoji and Role Association
+    '''
+    __tablename__ = 'role_assignment_reaction'
+    id = Column(Integer, primary_key=True)
+    role_id = Column(BigInteger)
+    emoji_name = Column(BigInteger)
+    role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))
