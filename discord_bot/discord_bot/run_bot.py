@@ -156,6 +156,20 @@ def main(): #pylint:disable=too-many-statements
     ytdl = YoutubeDL(ytdlopts)
 
 
+    def prepare_file(search):
+        data = ytdl.extract_info(url=search, download=True)
+        if 'entries' in data:
+            # take first item from a playlist
+            data = data['entries'][0]
+        logger.info(f'Starting download of video {data["title"]}, url {data["webpage_url"]}')
+        source = ytdl.prepare_filename(data)
+        logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
+        changed, file_name = trim_audio(video_file=source)
+        if changed:
+            logger.info(f'Created trimmed audio file to {file_name}')
+        logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
+        return data, file_name
+
     def trim_audio(video_file):
         '''
         Trim dead audio from beginning and end of file
@@ -254,21 +268,8 @@ def main(): #pylint:disable=too-many-statements
             '''
             loop = loop or asyncio.get_event_loop()
 
-            to_run = partial(ytdl.extract_info, url=search, download=True)
-            data = await loop.run_in_executor(None, to_run)
-
-            if 'entries' in data:
-                # take first item from a playlist
-                data = data['entries'][0]
-
-            logger.info(f'Starting download of video {data["title"]}, url {data["webpage_url"]}')
-            source = ytdl.prepare_filename(data)
-            logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
-            to_run = partial(trim_audio, video_file=source)
-            changed, file_name = await loop.run_in_executor(None, to_run)
-            if changed:
-                logger.info(f'Created trimmed audio file to {file_name}')
-            logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
+            to_run = partial(prepare_file, search=search)
+            data, file_name = await loop.run_in_executor(None, to_run)
             return cls(discord.FFmpegPCMAudio(file_name), data=data, requester=ctx.author)
 
 
