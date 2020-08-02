@@ -16,7 +16,7 @@ from numpy import sqrt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
 from youtube_dl import YoutubeDL
-
+from youtube_dl.utils import DownloadError
 
 from discord_bot import functions
 from discord_bot.database import RoleAssignmentMessage, RoleAssignmentReaction
@@ -173,7 +173,11 @@ def main(): #pylint:disable=too-many-statements
 
 
     def prepare_file(search):
-        data = ytdl.extract_info(url=search, download=True)
+        try:
+            data = ytdl.extract_info(url=search, download=True)
+        except DownloadError:
+            logger.error(f'Error downloading youtube search {search}')
+            return None, None
         if 'entries' in data:
             # take first item from a playlist
             data = data['entries'][0]
@@ -286,6 +290,8 @@ def main(): #pylint:disable=too-many-statements
 
             to_run = partial(prepare_file, search=search)
             data, file_name = await loop.run_in_executor(None, to_run)
+            if data is None and file_name is None:
+                return None
             return cls(discord.FFmpegPCMAudio(file_name), data=data, requester=ctx.author)
 
 
@@ -525,6 +531,9 @@ def main(): #pylint:disable=too-many-statements
                                       delete_after=DELETE_AFTER)
 
             source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop)
+            if source is None:
+                return await ctx.send(f'Unable to find youtube source for "{search}"',
+                                      delete_after=DELETE_AFTER)
 
             try:
                 player.queue.put_nowait(source)
@@ -978,6 +987,9 @@ def main(): #pylint:disable=too-many-statements
                 source = await YTDLSource.create_source(ctx,
                                                         f'{match.group("video_id")} {item.title}',
                                                         loop=self.bot.loop)
+                if source is None:
+                    return await ctx.send(f'Unable to find youtube source for "{search}"',
+                                          delete_after=DELETE_AFTER)
 
                 try:
                     player.queue.put_nowait(source)
