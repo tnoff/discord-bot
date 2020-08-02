@@ -1022,7 +1022,8 @@ def main(): #pylint:disable=too-many-statements
         @commands.command(name='assign-roles')
         async def roles(self, ctx):
             '''
-            Generate message with all roles. Users can reply to this message to add roles to themselves.
+            Generate message with all roles.
+            Users can reply to this message to add roles to themselves.
             '''
             logger.debug(f'Setting up message for role grants in server {ctx.guild.id}')
             index = 0
@@ -1037,14 +1038,16 @@ def main(): #pylint:disable=too-many-statements
                 if role.permissions.value != 0:
                     continue
                 emoji = f':{NUMBER_DICT[index]}:'
-                message_string = f'{message_string}\nFor role `@{role.name}` reply with emoji {emoji}'
+                message_string = f'{message_string}\nFor role `@{role.name}`'
+                message_string = f'{message_string} reply with emoji {emoji}'
                 role_assign_list.append({'role_id': role.id, 'emoji_name': emoji})
                 index += 1
                 # Only show 10 roles at a time, since we only have 10 emojis to works with
                 if index >= 9:
                     index = 0
                     message_strings.append(message_string)
-                    message_string = 'React with the following emojis to be automatically granted roles'
+                    message_string = 'React with the following emojis to' \
+                                     'be automatically granted roles'
 
             message_strings.append(message_string)
             for message_string in message_strings:
@@ -1053,9 +1056,9 @@ def main(): #pylint:disable=too-many-statements
                 new_message = RoleAssignmentMessage(message_id=message.id,
                                                     channel_id=message.channel.id,
                                                     guild_id=message.guild.id)
-                logger.info(f'Created new role assignment message {new_message.id}')
                 db_session.add(new_message)
                 db_session.commit()
+                logger.info(f'Created new role assignment message {new_message.id}')
                 for role_assign in role_assign_list:
                     role_assign['role_assignment_message_id'] = new_message.id
                     assignment = RoleAssignmentReaction(**role_assign)

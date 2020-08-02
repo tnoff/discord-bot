@@ -36,7 +36,7 @@ RUN /usr/bin/pip3 uninstall discord -y && /usr/bin/pip3 install /tmp/discord.py/
 
 # Copy files
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY files/etc/cron.hourly/check-assignment-messages /etc/cron.hourly/check-assignment-messages
+COPY files/etc/cron.d/check-assignment-messages /etc/cron.d/check-assignment-messages
 COPY files/etc/cron.hourly/check-twitter /etc/cron.hourly/check-twitter
 COPY files/etc/cron.hourly/cleanup-youtube /etc/cron.hourly/cleanup-youtube
 COPY files/etc/cron.hourly/logrotate /etc/cron.hourly/logrotate
@@ -51,7 +51,10 @@ RUN chmod 0644 /etc/logrotate.d/discord
 RUN chmod +x /etc/cron.hourly/check-twitter \
     /etc/cron.hourly/cleanup-youtube \
     /etc/cron.hourly/logrotate \
-    /etc/cron.hourly/check-assignment-messages
+    /etc/cron.d/check-assignment-messages
+
+# Setup crontab on cron file
+RUN crontab /etc/cron.d/check-assignment-messages
 
 # Start supervisord
 CMD /usr/bin/supervisord -n

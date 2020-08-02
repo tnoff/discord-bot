@@ -85,5 +85,5 @@ class RoleAssignmentReaction(BASE):
     __tablename__ = 'role_assignment_reaction'
     id = Column(Integer, primary_key=True)
     role_id = Column(BigInteger)
-    emoji_name = Column(BigInteger)
+    emoji_name = Column(String(64))
     role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))

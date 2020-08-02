@@ -1,0 +1,3 @@
+*/5 * * * * /usr/local/bin/discord-cli -c /secret/discord.conf check-role-assignment >> /logs/cron.log 2>&1
+
+

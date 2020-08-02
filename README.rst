@@ -234,7 +234,7 @@ Run the discord-cli command to automatically assign these roles to the users tha
 
     /usr/local/bin/discord-cli -c /secret/discord.conf check-role-assignment
 
-The docker image automatically sets up a cronjob to run this every hour.
+The docker image automatically sets up a cronjob to run this every 5 minutes.
 
 A couple of notes
 
