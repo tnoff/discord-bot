@@ -1,0 +1,5 @@
+#!/bin/bash
+
+{
+    /usr/local/bin/discord-cli -c /secret/discord.conf check-role-assignment
+} >> /logs/twitter-bot.log 2>&1
