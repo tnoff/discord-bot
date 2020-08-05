@@ -287,6 +287,7 @@ def main(): #pylint:disable=too-many-statements
             Create source from youtube search
             '''
             loop = loop or asyncio.get_event_loop()
+            logger.info(f'{ctx.author} playing song with search {search}')
 
             to_run = partial(prepare_file, search=search)
             data, file_name = await loop.run_in_executor(None, to_run)
@@ -463,7 +464,7 @@ def main(): #pylint:disable=too-many-statements
 
             return player
 
-        @commands.command(name='join')
+        @commands.command(name='join', aliases=['awaken'])
         async def connect_(self, ctx, *, channel: discord.VoiceChannel=None): #pylint:disable=bad-whitespace
             '''
             Connect to voice.
@@ -1031,6 +1032,9 @@ def main(): #pylint:disable=too-many-statements
             _, message = functions.windows(ctx, logger)
             await ctx.send(message)
 
+
+    class RoleAssign(commands.Cog):
+
         @commands.command(name='assign-roles')
         async def roles(self, ctx):
             '''
@@ -1103,4 +1107,5 @@ def main(): #pylint:disable=too-many-statements
     bot.add_cog(Music(bot))
     bot.add_cog(General(bot))
     bot.add_cog(Planner(bot))
+    bot.add_cog(RoleAssign(bot))
     bot.run(settings['discord_token'])
