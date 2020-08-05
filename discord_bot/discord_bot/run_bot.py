@@ -35,6 +35,19 @@ AUDIO_BUFFER = 30
 
 YOUTUBE_URL_REGEX = r'https://www.youtube.com/watch[\?]v=(?P<video_id>.*)'
 
+EMOJI_MAPPING = {
+    '\u0030\ufe0f\u20e3': ':zero:',
+    '\u0031\ufe0f\u20e3': ':one:',
+    '\u0032\ufe0f\u20e3': ':two:',
+    '\u0033\ufe0f\u20e3': ':three:',
+    '\u0034\ufe0f\u20e3': ':four:',
+    '\u0035\ufe0f\u20e3': ':five:',
+    '\u0036\ufe0f\u20e3': ':six:',
+    '\u0037\ufe0f\u20e3': ':seven:',
+    '\u0038\ufe0f\u20e3': ':eight:',
+    '\u0039\ufe0f\u20e3': ':nine:',
+}
+
 NUMBER_DICT = {
     1: 'one',
     2: 'two',
@@ -989,7 +1002,8 @@ def main(): #pylint:disable=too-many-statements
                                                         f'{match.group("video_id")} {item.title}',
                                                         loop=self.bot.loop)
                 if source is None:
-                    return await ctx.send(f'Unable to find youtube source for "{search}"',
+                    return await ctx.send(f'Unable to find youtube source ' \
+                                          f'for "{match.group("video_id")} {item.title}"',
                                           delete_after=DELETE_AFTER)
 
                 try:
@@ -1034,6 +1048,57 @@ def main(): #pylint:disable=too-many-statements
 
 
     class RoleAssign(commands.Cog):
+        '''
+        Function to add message users can react to get assignment.
+        Also includes loop that will check for new role assignment messages every 5 minutes
+        '''
+        def __init__(self, bot):
+            self.bot = bot
+            self.bot.loop.create_task(self.player_loop())
+
+        async def player_loop(self):
+            '''
+            Our main player loop.
+            '''
+            await self.bot.wait_until_ready()
+
+            message_cache = {}
+            role_cache = {}
+
+
+            while not self.bot.is_closed():
+                for assignment_message in db_session.query(RoleAssignmentMessage).all():
+                    logger.info(f'Checking assignment message {assignment_message.id}')
+                    guild = self.bot.get_guild(assignment_message.guild_id)
+
+                    try:
+                        message = message_cache[assignment_message.message_id]
+                    except KeyError:
+                        channel = self.bot.get_channel(assignment_message.channel_id)
+                        message = await channel.fetch_message(assignment_message.message_id)
+                        message_cache[assignment_message.message_id] = message
+
+                    reaction_dict = {}
+                    for role_reaction in db_session.query(RoleAssignmentReaction).\
+                        filter(RoleAssignmentReaction.role_assignment_message_id == assignment_message.id): #pylint:disable=line-too-long
+                        reaction_dict[role_reaction.emoji_name] = role_reaction.role_id
+
+                    for reaction in message.reactions:
+                        logger.debug(f'Checking reaction {reaction} ' \
+                                     f'for message {assignment_message.id}')
+                        role_id = reaction_dict[EMOJI_MAPPING[reaction.emoji]]
+                        try:
+                            role = role_cache[role_id]
+                        except KeyError:
+                            role = guild.get_role(role_id)
+                            role_cache[role_id] = role
+
+                        async for user in reaction.users():
+                            member = guild.get_member(user.id)
+                            if role not in member.roles:
+                                await member.add_roles(role)
+                                logger.info(f'Adding role {role.name} to user {user.name}')
+                await asyncio.sleep(60)
 
         @commands.command(name='assign-roles')
         async def roles(self, ctx):
