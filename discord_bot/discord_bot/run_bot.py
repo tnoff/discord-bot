@@ -1002,9 +1002,9 @@ def main(): #pylint:disable=too-many-statements
                                                         f'{match.group("video_id")} {item.title}',
                                                         loop=self.bot.loop)
                 if source is None:
-                    return await ctx.send(f'Unable to find youtube source ' \
-                                          f'for "{match.group("video_id")} {item.title}"',
-                                          delete_after=DELETE_AFTER)
+                    await ctx.send(f'Unable to find youtube source ' \
+                                   f'for "{match.group("video_id")} {item.title}"',
+                                   delete_after=DELETE_AFTER)
 
                 try:
                     player.queue.put_nowait(source)
