@@ -1,9 +1,7 @@
 import random
 import re
 
-from discord_bot.database import Server, User
-
-ROLL_REGEX = '^(?P<rolls>\d+)?[dD](?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
+ROLL_REGEX = '^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
 
 def _log_message(ctx, logger, message):
     logger.info('Server "%s", invoked with command "%s", by user "%s", sending message "%s"',
@@ -62,41 +60,5 @@ def windows(ctx, logger):
     Inspirational note about your os
     '''
     message = 'Install linux coward'
-    _log_message(ctx, logger, message)
-    return True, message
-
-def planner_register(ctx, logger, db_session):
-    '''
-    Register for planning service
-    '''
-    # First create server entry
-    server = db_session.query(Server).get(ctx.guild.id)
-    if server:
-        logger.info(f'Found server matching id {server.id}')
-    else:
-        server_args = {
-            'id' : ctx.guild.id,
-            'name' : ctx.guild.name,
-        }
-        logger.debug(f'Attempting to create server with args {server_args}')
-        server_entry = Server(**server_args)
-        db_session.add(server_entry)
-        db_session.commit()
-        logger.info(f'Created server with id {server_entry.id}')
-    # Then check for user
-    user = db_session.query(User).get(ctx.author.id)
-    if user:
-        logger.info(f'Found user matching id {user.id}')
-    else:
-        user_args = {
-            'id' : ctx.author.id,
-            'name' : ctx.author.name,
-        }
-        logger.debug(f'Attempting to create user with args {user_args}')
-        user_entry = User(**user_args)
-        db_session.add(user_entry)
-        db_session.commit()
-        logger.info(f'Created user with id {user_entry.id}')
-    message = 'Successfully registered!'
     _log_message(ctx, logger, message)
     return True, message
