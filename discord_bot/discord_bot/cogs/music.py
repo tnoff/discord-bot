@@ -13,10 +13,6 @@ from sqlalchemy.orm.exc import NoResultFound
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
 from discord_bot.youtube import YTDLClient
 
-# Delete messages after N seconds
-DELETE_AFTER = 30
-# Max queue size
-QUEUE_MAX_SIZE = 35
 # Max title length for table views
 MAX_TITLE_LENGTH = 64
 
@@ -113,14 +109,15 @@ class MusicPlayer:
                  '_cog', 'queue', 'next',
                  'current', 'np', 'np_message', 'volume', 'logger')
 
-    def __init__(self, ctx, logger):
+    def __init__(self, ctx, logger, queue_max_size):
         self.bot = ctx.bot
         self.logger = logger
         self._guild = ctx.guild
         self._channel = ctx.channel
         self._cog = ctx.cog
 
-        self.queue = MyQueue(maxsize=QUEUE_MAX_SIZE)
+        self.logger.info(f'Max length for music queue in guild {self._guild} is {queue_max_size}')
+        self.queue = MyQueue(maxsize=queue_max_size)
         self.next = asyncio.Event()
 
         self.np = None  # Now playing message
@@ -184,14 +181,19 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     Music related commands
     '''
 
-    __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl')
+    __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl', 'delete_after',
+                 'queue_max_size')
 
-    def __init__(self, bot, db_session, logger, ytdl):
+    def __init__(self, bot, db_session, logger, ytdl,
+                 delete_after, queue_max_size):
         self.bot = bot
         self.db_session = db_session
         self.logger = logger
         self.ytdl = YTDLClient(ytdl, logger)
         self.players = {}
+        self.logger.info(f'Will delete all messages after {delete_after} seconds')
+        self.delete_after = delete_after # Delete messages after N seconds
+        self.queue_max_size = queue_max_size
 
     async def cleanup(self, guild):
         '''
@@ -268,7 +270,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             player = self.players[ctx.guild.id]
         except KeyError:
-            player = MusicPlayer(ctx, self.logger)
+            player = MusicPlayer(ctx, self.logger, queue_max_size=self.queue_max_size)
             self.players[ctx.guild.id] = player
 
         return player
@@ -311,7 +313,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                 self.logger.error(f'Connecting to channel {channel.id} timed out')
                 raise VoiceConnectionError(f'Connecting to channel: <{channel}> timed out.')
 
-        await ctx.send(f'Connected to: {channel}', delete_after=DELETE_AFTER)
+        await ctx.send(f'Connected to: {channel}', delete_after=self.delete_after)
 
     @commands.command(name='play')
     async def play_(self, ctx, *, search: str):
@@ -338,22 +340,22 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if player.queue.full():
             return await ctx.send('Queue is full, cannot add more songs',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop)
         if source_dict['source'] is None:
             return await ctx.send(f'Unable to find youtube source for "{search}"',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         try:
             player.queue.put_nowait(source_dict)
             self.logger.info(f'Adding {source_dict["data"]["title"]} to queue')
             return await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
                                   f'<{source_dict["data"]["webpage_url"]}>',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         except asyncio.QueueFull:
             return await ctx.send('Queue is full, cannot add more songs',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
     @commands.command(name='pause')
     async def pause_(self, ctx):
@@ -365,7 +367,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         player = self.get_player(ctx)
         if not player.current or not vc or not vc.is_connected():
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         if vc.is_paused():
             return
         vc.pause()
@@ -387,7 +389,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         player = self.get_player(ctx)
         if not player.current or not vc or not vc.is_connected():
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         if not vc.is_paused():
             return
         vc.resume()
@@ -408,13 +410,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         if not vc.is_paused() and not vc.is_playing():
             return
         vc.stop()
         await ctx.send('Skipping song',
-                       delete_after=DELETE_AFTER)
+                       delete_after=self.delete_after)
 
     @commands.command(name='shuffle')
     async def shuffle_(self, ctx):
@@ -425,18 +427,18 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         player = self.get_player(ctx)
         if player.queue.empty():
             return await ctx.send('There are currently no more queued songs.',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         player.queue.shuffle()
 
         items = [clean_title(item['data']['title']) for item in player.queue._queue] #pylint:disable=protected-access
         table_strings = get_table_view(items)
         for table in table_strings:
-            await ctx.send(table, delete_after=DELETE_AFTER)
+            await ctx.send(table, delete_after=self.delete_after)
 
 
     @commands.command(name='queue')
@@ -448,17 +450,17 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently connected to voice',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         player = self.get_player(ctx)
         if player.queue.empty():
             return await ctx.send('There are currently no more queued songs.',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         items = [clean_title(item['data']['title']) for item in player.queue._queue] #pylint:disable=protected-access
         table_strings = get_table_view(items)
         for table in table_strings:
-            await ctx.send(table, delete_after=DELETE_AFTER)
+            await ctx.send(table, delete_after=self.delete_after)
 
     @commands.command(name='remove')
     async def remove_item(self, ctx, queue_index):
@@ -469,27 +471,27 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently connected to voice',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         player = self.get_player(ctx)
         if player.queue.empty():
             return await ctx.send('There are currently no more queued songs.',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         try:
             queue_index = int(queue_index)
         except ValueError:
             self.logger.info(f'Queue entered was invalid {queue_index}')
             return await ctx.send(f'Invalid queue index {queue_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         item = player.queue.remove_item(queue_index)
         if item is None:
             self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to remove queue index {queue_index}',
-                            delete_after=DELETE_AFTER)
+                            delete_after=self.delete_after)
         return await ctx.send(f'Removed item {item["data"]["title"]} from queue',
-                              delete_after=DELETE_AFTER)
+                              delete_after=self.delete_after)
 
     @commands.command(name='bump')
     async def bump_item(self, ctx, queue_index):
@@ -500,27 +502,27 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently connected to voice',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         player = self.get_player(ctx)
         if player.queue.empty():
             return await ctx.send('There are currently no more queued songs.',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         try:
             queue_index = int(queue_index)
         except ValueError:
             self.logger.info(f'Queue entered was invalid {queue_index}')
             return await ctx.send(f'Invalid queue index {queue_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         item = player.queue.bump_item(queue_index)
         if item is None:
             self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to bump queue index {queue_index}',
-                            delete_after=DELETE_AFTER)
+                            delete_after=self.delete_after)
         return await ctx.send(f'Bumped item {item["data"]["title"]} to top of queue',
-                              delete_after=DELETE_AFTER)
+                              delete_after=self.delete_after)
 
 
     @commands.command(name='now_playing')
@@ -532,12 +534,12 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently connected to voice',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         player = self.get_player(ctx)
         if not player.current:
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         try:
             # Remove our previous now_playing message.
@@ -560,7 +562,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not vc or not vc.is_connected():
             return await ctx.send('I am not currently playing anything',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         await self.cleanup(ctx.guild)
 
@@ -570,7 +572,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         Playlist functions
         '''
         if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid sub command passed...', delete_after=DELETE_AFTER)
+            await ctx.send('Invalid sub command passed...', delete_after=self.delete_after)
 
     @playlist.command(name='create')
     async def playlist_create(self, ctx, *, name: str):
@@ -603,7 +605,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.db_session.commit() #pylint:disable=no-member
         self.logger.info(f'Playlist created {playlist.id}')
         return await ctx.send(f'Created playlist {playlist.server_index}',
-                              delete_after=DELETE_AFTER)
+                              delete_after=self.delete_after)
 
     @playlist.command(name='list')
     async def playlist_list(self, ctx):
@@ -618,11 +620,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not playlist_items:
             return await ctx.send('No playlists in database',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         table = ''
         for playlist in playlist_items:
             table = f'{table}{playlist.server_index:3} || {clean_title(playlist.name):64}\n'
-        return await ctx.send(f'```{table}```', delete_after=DELETE_AFTER)
+        return await ctx.send(f'```{table}```', delete_after=self.delete_after)
 
     @playlist.command(name='add')
     async def playlist_add(self, ctx, playlist_index, *, search: str):
@@ -633,7 +635,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         if not result:
             self.logger.info(f'Invalid playlist index {playlist_index} given')
             return await ctx.send(f'Unable to find playlist {playlist_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         title, video_id = await self.ytdl.run_search(search, loop=self.bot.loop)
         try:
             playlist_item = self.db_session.query(PlaylistItem) #pylint:disable=no-member
@@ -648,11 +650,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             self.db_session.add(playlist_membership) #pylint:disable=no-member
             self.db_session.commit() #pylint:disable=no-member
             return await ctx.send(f'Added "{playlist_item.title}" '
-                                  f'to playlist "{playlist.name}"', delete_after=DELETE_AFTER)
+                                  f'to playlist "{playlist.name}"', delete_after=self.delete_after)
         except IntegrityError:
             self.db_session.rollback() #pylint:disable=no-member
             return await ctx.send(f'Unable to add "{playlist_item.title}" '
-                                  f'to playlist "{playlist.name}', delete_after=DELETE_AFTER)
+                                  f'to playlist "{playlist.name}', delete_after=self.delete_after)
 
     @playlist.command(name='item-remove')
     async def playlist_item_remove(self, ctx, playlist_index, item_index):
@@ -663,15 +665,15 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         if not result:
             self.logger.info(f'Invalid playlist index {playlist_index} given')
             return await ctx.send(f'Unable to find playlist {playlist_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         try:
             item_index = int(item_index)
         except ValueError:
             return await ctx.send(f'Invalid item index {item_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         if item_index < 1:
             return await ctx.send(f'Invalid item index {item_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         query = self.db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
         query = query.join(PlaylistMembership).\
@@ -682,10 +684,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             title = item.title
             self.__delete_playlist_item(membership, item)
             return await ctx.send(f'Removed item {title} from playlist',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         except IndexError:
             return await ctx.send(f'Unable to find item {item_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
     @playlist.command(name='show')
     async def playlist_show(self, ctx, playlist_index):
@@ -695,7 +697,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         query = self.db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
         query = query.join(PlaylistMembership).\
@@ -704,11 +706,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if not items:
             return await ctx.send('No playlist items in database',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
 
         tables = get_table_view(items)
         for table in tables:
-            await ctx.send(table, delete_after=DELETE_AFTER)
+            await ctx.send(table, delete_after=self.delete_after)
 
     @playlist.command(name='delete')
     async def playlist_delete(self, ctx, playlist_index):
@@ -718,7 +720,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         playlist_name = playlist.name
 
         self.logger.debug(f'Deleting all playlist items for {playlist.id}')
@@ -731,7 +733,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.db_session.delete(playlist)
         self.db_session.commit()
         return await ctx.send(f'Deleted playlist {playlist_name}',
-                              delete_after=DELETE_AFTER)
+                              delete_after=self.delete_after)
 
 
     @playlist.command(name='queue')
@@ -745,7 +747,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
-                                  delete_after=DELETE_AFTER)
+                                  delete_after=self.delete_after)
         shuffle = False
         # Make sure sub command is valid
         if sub_command:
@@ -753,7 +755,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                 shuffle = True
             else:
                 return await ctx.send(f'Invalid sub command {sub_command}',
-                                      delete_after=DELETE_AFTER)
+                                      delete_after=self.delete_after)
 
         vc = ctx.voice_client
         if not vc:
@@ -767,13 +769,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         if shuffle:
             await ctx.send('Shuffling playlist items',
-                           delete_after=DELETE_AFTER)
+                           delete_after=self.delete_after)
             random.shuffle(playlist_items)
 
         for item in playlist_items:
             if player.queue.full():
                 return await ctx.send('Queue is full, cannot add more songs',
-                                      delete_after=DELETE_AFTER)
+                                      delete_after=self.delete_after)
 
             source_dict = await self.ytdl.create_source(ctx,
                                                         f'{item.web_url} {item.title}',
@@ -781,16 +783,16 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             if source_dict is None:
                 await ctx.send(f'Unable to find youtube source ' \
                                f'for "{item.web_url} {item.title}"',
-                               delete_after=DELETE_AFTER)
+                               delete_after=self.delete_after)
 
             try:
                 player.queue.put_nowait(source_dict)
                 await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
                                f'<{source_dict["data"]["webpage_url"]}>',
-                               delete_after=DELETE_AFTER)
+                               delete_after=self.delete_after)
             except asyncio.QueueFull:
                 return await ctx.send('Queue is full, cannot add more songs',
-                                      delete_after=DELETE_AFTER)
+                                      delete_after=self.delete_after)
 
         return await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
-                              delete_after=DELETE_AFTER)
+                              delete_after=self.delete_after)

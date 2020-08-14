@@ -102,6 +102,9 @@ def read_config(config_file):
         'log_file' : ['general', 'log_file'],
         'discord_token' : ['general', 'discord_token'],
         'db_type' : ['general', 'db_type'],
+        'download_dir': ['general', 'download_dir'],
+        'message_delete_after': ['general', 'message_delete_after'],
+        'queue_max_size': ['general', 'queue_max_size'],
         # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],

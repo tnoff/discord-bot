@@ -9,6 +9,7 @@ from discord_bot.cogs.general import General
 from discord_bot.cogs.planner import Planner
 from discord_bot.cogs.role import RoleAssign
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
+from discord_bot.defaults import DELETE_AFTER_DEFAULT, QUEUE_MAX_SIZE_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
 
 def parse_args():
@@ -53,8 +54,12 @@ def main():
     }
     ytdl = YoutubeDL(ytdlopts)
 
+    settings['message_delete_after'] = settings['message_delete_after'] or DELETE_AFTER_DEFAULT
+    settings['queue_max_size'] = settings['queue_max_size'] or QUEUE_MAX_SIZE_DEFAULT
+
     # Run bot
-    bot.add_cog(Music(bot, db_session, logger, ytdl))
+    bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
+                      settings['queue_max_size']))
     bot.add_cog(RoleAssign(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
     bot.add_cog(General(bot, logger))

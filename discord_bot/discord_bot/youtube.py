@@ -4,7 +4,7 @@ import os
 
 import discord
 from moviepy.editor import AudioFileClip
-from moviepy.audio.fx.all import audio_normalize
+from moviepy.audio.fx.all import audio_normalize #pylint:disable=no-name-in-module
 from numpy import sqrt
 from youtube_dl.utils import DownloadError
 
