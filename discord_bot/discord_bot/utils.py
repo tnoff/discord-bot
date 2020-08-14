@@ -136,6 +136,19 @@ def validate_config(settings):
     if settings['db_type'] not in ['sqlite', 'mysql']:
         raise DiscordBotException(f'Invalid db_type {settings["db_type"]}')
 
+    if settings['message_delete_after']:
+        try:
+            settings['message_delete_after'] = int(settings['message_delete_after'])
+        except Exception:
+            raise DiscordBotException(f'Invalid message after '
+                                      f'type {settings["message_delete_after"]}')
+
+    if settings['queue_max_size']:
+        try:
+            settings['queue_max_size'] = int(settings['queue_max_size'])
+        except Exception:
+            raise DiscordBotException(f'Invalid message after type {settings["queue_max_size"]}')
+
 def load_args(args):
     '''
     Load args from config file and command line
