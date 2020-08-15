@@ -32,7 +32,6 @@ RUN /usr/bin/pip3 install /opt/discord_bot
 
 # Copy files
 COPY files/etc/supervisor/conf.d/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY files/etc/cron.hourly/check-twitter /etc/cron.hourly/check-twitter
 COPY files/etc/cron.hourly/cleanup-youtube /etc/cron.hourly/cleanup-youtube
 COPY files/etc/cron.hourly/logrotate /etc/cron.hourly/logrotate
 COPY files/etc/logrotate.d/discord /etc/logrotate.d/discord
@@ -43,8 +42,7 @@ COPY files/etc/logrotate.d/discord /etc/logrotate.d/discord
 RUN sed -i 's/su root syslog/su root adm/' /etc/logrotate.conf
 RUN chmod 0644 /etc/logrotate.d/discord
 # Chmod cron files
-RUN chmod +x /etc/cron.hourly/check-twitter \
-    /etc/cron.hourly/cleanup-youtube \
+RUN chmod +x /etc/cron.hourly/cleanup-youtube \
     /etc/cron.hourly/logrotate
 
 # Start supervisord

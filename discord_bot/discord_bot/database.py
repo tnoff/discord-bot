@@ -65,8 +65,8 @@ class TwitterSubscription(BASE):
 
     id = Column(Integer, primary_key=True)
     twitter_user_id = Column(String(1024), nullable=False)
-    webhook_url = Column(String(2048), nullable=False)
     last_post = Column(BigInteger)
+    channel_id = Column(BigInteger)
 
 class RoleAssignmentMessage(BASE):
     '''

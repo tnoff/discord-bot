@@ -2,12 +2,14 @@ import argparse
 import os
 
 from discord.ext import commands
+from twitter import Api
 from youtube_dl import YoutubeDL
 
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.general import General
 from discord_bot.cogs.planner import Planner
 from discord_bot.cogs.role import RoleAssign
+from discord_bot.cogs.twitter import Twitter
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.defaults import DELETE_AFTER_DEFAULT, QUEUE_MAX_SIZE_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
@@ -57,10 +59,16 @@ def main():
     settings['message_delete_after'] = settings['message_delete_after'] or DELETE_AFTER_DEFAULT
     settings['queue_max_size'] = settings['queue_max_size'] or QUEUE_MAX_SIZE_DEFAULT
 
+    twitter_api = Api(consumer_key=settings['twitter_api_key'],
+                      consumer_secret=settings['twitter_api_key_secret'],
+                      access_token_key=settings['twitter_access_token'],
+                      access_token_secret=settings['twitter_access_token_secret'])
+
     # Run bot
     bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
                       settings['queue_max_size']))
     bot.add_cog(RoleAssign(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
+    bot.add_cog(Twitter(bot, db_session, logger, twitter_api))
     bot.add_cog(General(bot, logger))
     bot.run(settings['discord_token'])

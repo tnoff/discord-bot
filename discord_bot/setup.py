@@ -21,9 +21,8 @@ setuptools.setup(
     entry_points={
         'console_scripts' : [
             'discord-bot = discord_bot.run_bot:main',
-            'twitter-bot = discord_bot.twitter:main',
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='1.2.4',
+    version='1.3.0',
 )
