@@ -639,9 +639,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         title, video_id = await self.ytdl.run_search(search, loop=self.bot.loop)
         try:
             playlist_item = self.db_session.query(PlaylistItem) #pylint:disable=no-member
-            playlist_item = playlist_item.filter(PlaylistItem.web_url == video_id).one()
+            playlist_item = playlist_item.filter(PlaylistItem.video_id == video_id).one()
         except NoResultFound:
-            playlist_item = PlaylistItem(title=title, web_url=video_id)
+            playlist_item = PlaylistItem(title=title, video_id=video_id)
             self.db_session.add(playlist_item) #pylint:disable=no-member
             self.db_session.commit() #pylint:disable=no-member
         try:
@@ -778,11 +778,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                       delete_after=self.delete_after)
 
             source_dict = await self.ytdl.create_source(ctx,
-                                                        f'{item.web_url} {item.title}',
+                                                        f'{item.video_id} {item.title}',
                                                         loop=self.bot.loop, exact_match=True)
             if source_dict is None:
                 await ctx.send(f'Unable to find youtube source ' \
-                               f'for "{item.web_url} {item.title}"',
+                               f'for "{item.video_id} {item.title}"',
                                delete_after=self.delete_after)
 
             try:

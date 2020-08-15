@@ -44,7 +44,7 @@ class PlaylistItem(BASE):
     __tablename__ = 'playlist_item'
     id = Column(Integer, primary_key=True)
     title = Column(String(256))
-    web_url = Column(String(256), unique=True)
+    video_id = Column(String(32), unique=True)
 
 class PlaylistMembership(BASE):
     '''
