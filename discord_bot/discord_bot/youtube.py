@@ -4,7 +4,6 @@ import os
 
 import discord
 from moviepy.editor import AudioFileClip
-from moviepy.audio.fx.all import audio_normalize #pylint:disable=no-name-in-module
 from numpy import sqrt
 from youtube_dl.utils import DownloadError
 
@@ -124,13 +123,16 @@ class YTDLClient():
         end_index += 1
 
         self.logger.debug(f'Audio trim: Total file length {total_length}, start {start_index}, end {end_index}')
+        if start_index < AUDIO_BUFFER and end_index > (int(total_length) - AUDIO_BUFFER):
+            self.logger.info('Not enough dead audio at beginning or end of file, skipping audio trim')
+            return False, video_file
 
+        self.logger.info(f'Trimming file to start at {start_index} and end at {end_index}')
         # Write file with changes, then overwrite
         # Use mp3 by default for easier encoding
         file_name, _ext = os.path.splitext(video_file)
         new_path = f'{file_name}-edited.mp3'
-        # Normalize audio so videos dont have widly different volumes
-        new_clip = clip.subclip(t_start=start_index, t_end=end_index).fx(audio_normalize)
+        new_clip = clip.subclip(t_start=start_index, t_end=end_index)
         new_clip.write_audiofile(new_path)
         self.logger.info('Removing old file {video_file}')
         os.remove(video_file)
