@@ -736,6 +736,18 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         return await ctx.send(f'Deleted playlist {playlist_name}',
                               delete_after=self.delete_after)
 
+    @playlist.command(name='rename')
+    async def playlist_rename(self, ctx, playlist_index, *, playlist_name: str):
+        '''
+        Rename playlist to new name
+        '''
+        result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
+        if not result:
+            return await ctx.send(f'Unable to find playlist {playlist_index}',
+                                  delete_after=self.delete_after)
+        playlist.name = playlist_name
+        self.db_session.commit()
+        return await ctx.send(f'Renamed playlist {playlist_index} to name {playlist_name}')
 
     @playlist.command(name='queue')
     async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''):
