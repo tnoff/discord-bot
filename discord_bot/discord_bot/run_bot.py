@@ -59,10 +59,13 @@ def main():
     settings['message_delete_after'] = settings['message_delete_after'] or DELETE_AFTER_DEFAULT
     settings['queue_max_size'] = settings['queue_max_size'] or QUEUE_MAX_SIZE_DEFAULT
 
-    twitter_api = Api(consumer_key=settings['twitter_api_key'],
-                      consumer_secret=settings['twitter_api_key_secret'],
-                      access_token_key=settings['twitter_access_token'],
-                      access_token_secret=settings['twitter_access_token_secret'])
+    try:
+        twitter_api = Api(consumer_key=settings['twitter_api_key'],
+                          consumer_secret=settings['twitter_api_key_secret'],
+                          access_token_key=settings['twitter_access_token'],
+                          access_token_secret=settings['twitter_access_token_secret'])
+    except KeyError:
+        twitter_api = None
 
     # Run bot
     bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
