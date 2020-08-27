@@ -7,6 +7,7 @@ import typing
 from async_timeout import timeout
 import discord
 from discord.ext import commands
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
 
@@ -581,7 +582,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         try:
             playlist = self.db_session.query(Playlist) #pylint:disable=no-member
-            playlist = playlist.filter(Playlist.name == name,
+            playlist = playlist.filter(func.lower(Playlist.name) == func.lower(name),
                                        Playlist.server_id == ctx.guild.id).one()
         except NoResultFound:
             self.logger.info(f'No playlist with name {name} in '
