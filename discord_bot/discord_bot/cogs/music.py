@@ -813,11 +813,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                       delete_after=self.delete_after)
 
             source_dict = await self.ytdl.create_source(ctx,
-                                                        f'{item.video_id} {item.title}',
+                                                        f'{item.video_id}',
                                                         loop=self.bot.loop, exact_match=True)
             if source_dict is None:
                 await ctx.send(f'Unable to find youtube source ' \
-                               f'for "{item.video_id} {item.title}"',
+                               f'for "{item.video_id}"',
                                delete_after=self.delete_after)
 
             try:
