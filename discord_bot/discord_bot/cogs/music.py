@@ -279,10 +279,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @commands.command(name='join', aliases=['awaken'])
     async def connect_(self, ctx, *, channel: discord.VoiceChannel=None): #pylint:disable=bad-whitespace
         '''
-        Connect to voice.
+        Connect to voice channel.
 
-        Parameters
-        ------------
         channel: discord.VoiceChannel [Optional]
             The channel to connect to. If a channel is not specified, an attempt
             to join the voice channel you are in will be made.
@@ -321,14 +319,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         Request a song and add it to the queue.
 
-        This command attempts to join a valid voice channel if the bot is not already in one.
-        Uses YTDL to automatically search and retrieve a song.
-
-        Parameters
-        ------------
         search: str [Required]
-            The song to search and retrieve using YTDL. This could be a
-            simple search, an ID or URL.
+            The song to search and retrieve from youtube.
+            This could be a simple search, an ID or URL.
         '''
         await ctx.trigger_typing()
 
@@ -422,7 +415,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @commands.command(name='shuffle')
     async def shuffle_(self, ctx):
         '''
-        Shuffle song queue
+        Shuffle song queue.
         '''
         vc = ctx.voice_client
 
@@ -466,7 +459,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @commands.command(name='remove')
     async def remove_item(self, ctx, queue_index):
         '''
-        Remove item from queue
+        Remove item from queue.
+
+        queue_index: integer [Required]
+            Position in queue of song that will be removed.
         '''
         vc = ctx.voice_client
 
@@ -498,6 +494,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     async def bump_item(self, ctx, queue_index):
         '''
         Bump item to top of queue
+
+        queue_index: integer [Required]
+            Position in queue of song that will be removed.
         '''
         vc = ctx.voice_client
 
@@ -553,11 +552,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @commands.command(name='stop')
     async def stop_(self, ctx):
         '''
-        Stop the currently playing song and destroy the player.
-
-        !Warning!
-            This will destroy the player assigned to your guild,
-            also deleting any queued songs and settings.
+        Stop the currently playing song and disconnect bot from voice chat.
         '''
         vc = ctx.voice_client
 
@@ -570,7 +565,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @commands.group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
         '''
-        Playlist functions
+        Playlist functions.
         '''
         if ctx.invoked_subcommand is None:
             await ctx.send('Invalid sub command passed...', delete_after=self.delete_after)
@@ -578,7 +573,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @playlist.command(name='create')
     async def playlist_create(self, ctx, *, name: str):
         '''
-        Create new playlist
+        Create new playlist.
+
+        name: str [Required]
+            Name of new playlist to create
         '''
         try:
             playlist = self.db_session.query(Playlist) #pylint:disable=no-member
@@ -611,7 +609,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @playlist.command(name='list')
     async def playlist_list(self, ctx):
         '''
-        List playlists
+        List playlists.
         '''
         self.logger.info(f'Playlist list called for server {ctx.guild.id}')
         playlist_items = self.db_session.query(Playlist)
@@ -630,7 +628,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     @playlist.command(name='add')
     async def playlist_add(self, ctx, playlist_index, *, search: str):
         '''
-        Add item to playlist
+        Add item to playlist.
+
+        playlist_index: integer [Required]
+            ID of playlist
+        search: str [Required]
+            The song to search and retrieve from youtube.
+            This could be a simple search, an ID or URL.
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
@@ -658,9 +662,14 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                   f'to playlist "{playlist.name}', delete_after=self.delete_after)
 
     @playlist.command(name='item-remove')
-    async def playlist_item_remove(self, ctx, playlist_index, item_index):
+    async def playlist_item_remove(self, ctx, playlist_index, song_index):
         '''
         Add item to playlist
+
+        playlist_index: integer [Required]
+            ID of playlist
+        song_index: integer [Required]
+            ID of song to remove
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
@@ -668,12 +677,12 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return await ctx.send(f'Unable to find playlist {playlist_index}',
                                   delete_after=self.delete_after)
         try:
-            item_index = int(item_index)
+            song_index = int(song_index)
         except ValueError:
-            return await ctx.send(f'Invalid item index {item_index}',
+            return await ctx.send(f'Invalid item index {song_index}',
                                   delete_after=self.delete_after)
-        if item_index < 1:
-            return await ctx.send(f'Invalid item index {item_index}',
+        if song_index < 1:
+            return await ctx.send(f'Invalid item index {song_index}',
                                   delete_after=self.delete_after)
 
         query = self.db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
@@ -681,19 +690,22 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             filter(PlaylistMembership.playlist_id == playlist.id)
         query_results = [item for item in query]
         try:
-            item, membership = query_results[item_index - 1]
+            item, membership = query_results[song_index - 1]
             title = item.title
             self.__delete_playlist_item(membership, item)
             return await ctx.send(f'Removed item {title} from playlist',
                                   delete_after=self.delete_after)
         except IndexError:
-            return await ctx.send(f'Unable to find item {item_index}',
+            return await ctx.send(f'Unable to find item {song_index}',
                                   delete_after=self.delete_after)
 
     @playlist.command(name='show')
     async def playlist_show(self, ctx, playlist_index):
         '''
         Show Items in playlist
+
+        playlist_index: integer [Required]
+            ID of playlist
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
@@ -717,6 +729,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     async def playlist_delete(self, ctx, playlist_index):
         '''
         Delete playlist
+
+        playlist_index: integer [Required]
+            ID of playlist
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
@@ -740,6 +755,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     async def playlist_rename(self, ctx, playlist_index, *, playlist_name: str):
         '''
         Rename playlist to new name
+
+        playlist_index: integer [Required]
+            ID of playlist
+        playlist_name: str [Required]
+            New name of playlist
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
@@ -754,8 +774,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         Add playlist to queue
 
+        playlist_index: integer [Required]
+            ID of playlist
         Sub commands - [shuffle]
-        shuffle - Shuffle playlist when entering it into queue
+            shuffle - Shuffle playlist when entering it into queue
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
