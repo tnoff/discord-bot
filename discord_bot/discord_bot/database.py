@@ -3,24 +3,6 @@ from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
 
-class Server(BASE):
-    '''
-    Discord Guild Server
-    '''
-    __tablename__ = 'discord_server'
-
-    id = Column(BigInteger, primary_key=True)
-    name = Column(String(1024), nullable=False)
-
-class User(BASE):
-    '''
-    Discord user
-    '''
-    __tablename__ = 'discord_user'
-
-    id = Column(BigInteger, primary_key=True)
-    name = Column(String(1024), nullable=False)
-
 class Playlist(BASE):
     '''
     Playlist
