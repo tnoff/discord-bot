@@ -751,6 +751,19 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         for table in tables:
             await ctx.send(table, delete_after=self.delete_after)
 
+    def __playlist_update_server_indexes(self, server_id):
+        '''
+        Once playlist is deleted, update server indexes so that values
+        are now incremental
+        '''
+        playlists = self.db_session.query(Playlist)
+        playlists = playlists.filter(Playlist.server_id == server_id).\
+                    order_by(Playlist.server_index)
+        for (current_index, playlist) in enumerate(playlists):
+            if (current_index + 1) != playlist.server_index:
+                playlist.server_index = current_index + 1
+                self.db_session.commit()
+
     @playlist.command(name='delete')
     async def playlist_delete(self, ctx, playlist_index):
         '''
@@ -764,7 +777,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return await ctx.send(f'Unable to find playlist {playlist_index}',
                                   delete_after=self.delete_after)
         playlist_name = playlist.name
-
+        old_server_id = playlist.server_id
         self.logger.debug(f'Deleting all playlist items for {playlist.id}')
         query = self.db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
         query = query.join(PlaylistMembership).\
@@ -774,6 +787,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.logger.info(f'Deleting playlist {playlist.id}')
         self.db_session.delete(playlist)
         self.db_session.commit()
+        self.__playlist_update_server_indexes(old_server_id)
         return await ctx.send(f'Deleted playlist {playlist_name}',
                               delete_after=self.delete_after)
 
