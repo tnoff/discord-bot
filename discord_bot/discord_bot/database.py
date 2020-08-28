@@ -16,7 +16,7 @@ class Playlist(BASE):
     )
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
-    server_id = Column(String(256))
+    server_id = Column(BigInteger)
     server_index = Column(Integer)
 
 class PlaylistItem(BASE):
