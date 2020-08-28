@@ -53,7 +53,7 @@ class RoleAssign(CogHelper):
         while not self.bot.is_closed():
             for assignment_message in self.db_session.query(RoleAssignmentMessage).all():
                 self.logger.info(f'Checking assignment message {assignment_message.id}')
-                guild = self.bot.get_guild(assignment_message.guild_id)
+                guild = self.bot.get_guild(assignment_message.server_id)
 
                 try:
                     message = message_cache[assignment_message.message_id]
@@ -120,7 +120,7 @@ class RoleAssign(CogHelper):
             message = await ctx.send(f'{message_string}')
             new_message = RoleAssignmentMessage(message_id=message.id,
                                                 channel_id=message.channel.id,
-                                                guild_id=message.guild.id)
+                                                server_id=message.guild.id)
             self.db_session.add(new_message)
             self.db_session.commit()
             self.logger.info(f'Created new role assignment message {new_message.id}')

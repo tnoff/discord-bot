@@ -76,7 +76,7 @@ class RoleAssignmentMessage(BASE):
     id = Column(Integer, primary_key=True)
     message_id = Column(BigInteger)
     channel_id = Column(BigInteger)
-    guild_id = Column(BigInteger)
+    server_id = Column(BigInteger)
 
 class RoleAssignmentReaction(BASE):
     '''
