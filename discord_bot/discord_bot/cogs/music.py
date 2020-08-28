@@ -43,6 +43,13 @@ class MyQueue(asyncio.Queue):
         random.shuffle(self._queue)
         return True
 
+    def clear(self):
+        '''
+        Remove all items from queue
+        '''
+        while self.qsize():
+            self._queue.popleft()
+
     def remove_item(self, queue_index):
         '''
         Remove item from queue
@@ -411,6 +418,25 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         vc.stop()
         await ctx.send('Skipping song',
                        delete_after=self.delete_after)
+
+    @commands.command(name='clear')
+    async def clear(self, ctx):
+        '''
+        Clear all items from queue
+        '''
+        vc = ctx.voice_client
+
+        if not vc or not vc.is_connected():
+            return await ctx.send('I am not currently playing anything',
+                                  delete_after=self.delete_after)
+
+        player = self.get_player(ctx)
+        if player.queue.empty():
+            return await ctx.send('There are currently no more queued songs.',
+                                  delete_after=self.delete_after)
+        player.queue.clear()
+        return await ctx.send('Cleared all items from queue',
+                              delete_after=self.delete_after)
 
     @commands.command(name='shuffle')
     async def shuffle_(self, ctx):
