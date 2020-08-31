@@ -857,9 +857,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                                         loop=self.bot.loop, exact_match=True)
             if source_dict is None:
                 await ctx.send(f'Unable to find youtube source ' \
-                               f'for "{item.video_id}"',
+                               f'for "{item.title}", "{item.video_id}"',
                                delete_after=self.delete_after)
-
+                continue
             try:
                 player.queue.put_nowait(source_dict)
                 await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
