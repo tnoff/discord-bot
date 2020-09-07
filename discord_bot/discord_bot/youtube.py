@@ -37,13 +37,17 @@ class YTDLClient():
         search = f'{search}'
 
         to_run = partial(self.ytdl.extract_info, url=search, download=False)
-        data = await loop.run_in_executor(None, to_run)
-
+        try:
+            data = await loop.run_in_executor(None, to_run)
+        except DownloadError:
+            self.logger.error(f'Error downloading youtube search {search}')
+            return None
         if 'entries' in data:
             data = data['entries'][0]
-        return data['title'], data['id']
+        return data
 
-    async def create_source(self, ctx, search: str, *, loop, exact_match=False):
+    async def create_source(self, ctx, search: str, *, loop, exact_match=False,
+                            max_song_length=None):
         '''
         Create source from youtube search
         '''
@@ -55,17 +59,18 @@ class YTDLClient():
         if not exact_match:
             search = f'{search}'
 
-        to_run = partial(self.prepare_file, search=search)
+        to_run = partial(self.prepare_file, search=search, max_song_length=max_song_length)
         data, file_name = await loop.run_in_executor(None, to_run)
-        if data is None and file_name is None:
-            return None
+        source = None
+        if file_name is not None:
+            source = discord.FFmpegPCMAudio(file_name)
         return {
-            'source': discord.FFmpegPCMAudio(file_name),
+            'source': source,
             'data': data,
             'requester': ctx.author,
         }
 
-    def prepare_file(self, search):
+    def prepare_file(self, search, max_song_length=None):
         '''
         Prepare file from youtube search
         Includes download and audio trim
@@ -78,13 +83,17 @@ class YTDLClient():
         if 'entries' in data:
             # take first item from a playlist
             data = data['entries'][0]
+        if max_song_length:
+            if data['duration'] > max_song_length:
+                return data, None
         self.logger.info(f'Starting download of video {data["title"]}, '
                          f'url {data["webpage_url"]}')
         source = self.ytdl.prepare_filename(data)
         self.logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
-        changed, file_name = self.trim_audio(video_file=source)
+        changed, file_name, length = self.trim_audio(video_file=source)
         if changed:
             self.logger.info(f'Created trimmed audio file to {file_name}')
+            data['duraton'] = length
         self.logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
         return data, file_name
 
@@ -125,7 +134,7 @@ class YTDLClient():
         self.logger.debug(f'Audio trim: Total file length {total_length}, start {start_index}, end {end_index}')
         if start_index < AUDIO_BUFFER and end_index > (int(total_length) - AUDIO_BUFFER):
             self.logger.info('Not enough dead audio at beginning or end of file, skipping audio trim')
-            return False, video_file
+            return False, video_file, volume_length
 
         self.logger.info(f'Trimming file to start at {start_index} and end at {end_index}')
         # Write file with changes, then overwrite
@@ -136,4 +145,4 @@ class YTDLClient():
         new_clip.write_audiofile(new_path)
         self.logger.info('Removing old file {video_file}')
         os.remove(video_file)
-        return True, new_path
+        return True, new_path, end_index - start_index

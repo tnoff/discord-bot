@@ -105,6 +105,7 @@ def read_config(config_file):
         'download_dir': ['general', 'download_dir'],
         'message_delete_after': ['general', 'message_delete_after'],
         'queue_max_size': ['general', 'queue_max_size'],
+        'max_song_length': ['general', 'max_song_length'],
         # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],
@@ -139,15 +140,16 @@ def validate_config(settings):
     if settings['message_delete_after']:
         try:
             settings['message_delete_after'] = int(settings['message_delete_after'])
-        except Exception:
+        except Exception as e:
             raise DiscordBotException(f'Invalid message after '
-                                      f'type {settings["message_delete_after"]}')
+                                      f'type {settings["message_delete_after"]}') from e
 
     if settings['queue_max_size']:
         try:
             settings['queue_max_size'] = int(settings['queue_max_size'])
-        except Exception:
-            raise DiscordBotException(f'Invalid message after type {settings["queue_max_size"]}')
+        except Exception as e:
+            raise DiscordBotException(f'Invalid message after type '
+                                      f'{settings["queue_max_size"]}') from e
 
 def load_args(args):
     '''

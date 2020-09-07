@@ -12,6 +12,7 @@ from discord_bot.cogs.role import RoleAssign
 from discord_bot.cogs.twitter import Twitter
 from discord_bot.defaults import CONFIG_PATH_DEFAULT
 from discord_bot.defaults import DELETE_AFTER_DEFAULT, QUEUE_MAX_SIZE_DEFAULT
+from discord_bot.defaults import MAX_SONG_LENGTH_DEFAULT
 from discord_bot.utils import get_logger, load_args, get_db_session
 
 def parse_args():
@@ -58,6 +59,7 @@ def main():
 
     settings['message_delete_after'] = settings['message_delete_after'] or DELETE_AFTER_DEFAULT
     settings['queue_max_size'] = settings['queue_max_size'] or QUEUE_MAX_SIZE_DEFAULT
+    settings['max_song_length'] = settings['max_song_length'] or MAX_SONG_LENGTH_DEFAULT
 
     try:
         twitter_api = Api(consumer_key=settings['twitter_api_key'],
@@ -69,7 +71,7 @@ def main():
 
     # Run bot
     bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
-                      settings['queue_max_size']))
+                      settings['queue_max_size'], settings['max_song_length']))
     bot.add_cog(RoleAssign(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
     bot.add_cog(Twitter(bot, db_session, logger, twitter_api))

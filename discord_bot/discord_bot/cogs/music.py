@@ -115,9 +115,10 @@ class MusicPlayer:
 
     __slots__ = ('bot', '_guild', '_channel',
                  '_cog', 'queue', 'next',
-                 'current', 'np', 'np_message', 'volume', 'logger')
+                 'current', 'np', 'np_message',
+                 'volume', 'logger', 'max_song_length')
 
-    def __init__(self, ctx, logger, queue_max_size):
+    def __init__(self, ctx, logger, queue_max_size, max_song_length):
         self.bot = ctx.bot
         self.logger = logger
         self._guild = ctx.guild
@@ -132,6 +133,8 @@ class MusicPlayer:
         self.np_message = None # Keep np message here in case we pause
         self.volume = .75
         self.current = None
+        # Max song length in seconds
+        self.max_song_length = max_song_length
 
         ctx.bot.loop.create_task(self.player_loop())
 
@@ -190,10 +193,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     '''
 
     __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl', 'delete_after',
-                 'queue_max_size')
+                 'queue_max_size', 'max_song_length')
 
     def __init__(self, bot, db_session, logger, ytdl,
-                 delete_after, queue_max_size):
+                 delete_after, queue_max_size, max_song_length):
         self.bot = bot
         self.db_session = db_session
         self.logger = logger
@@ -202,6 +205,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.logger.info(f'Will delete all messages after {delete_after} seconds')
         self.delete_after = delete_after # Delete messages after N seconds
         self.queue_max_size = queue_max_size
+        self.max_song_length = max_song_length
 
     async def cleanup(self, guild):
         '''
@@ -278,13 +282,14 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             player = self.players[ctx.guild.id]
         except KeyError:
-            player = MusicPlayer(ctx, self.logger, queue_max_size=self.queue_max_size)
+            player = MusicPlayer(ctx, self.logger, queue_max_size=self.queue_max_size,
+                                 max_song_length=self.max_song_length)
             self.players[ctx.guild.id] = player
 
         return player
 
     @commands.command(name='join', aliases=['awaken'])
-    async def connect_(self, ctx, *, channel: discord.VoiceChannel=None): #pylint:disable=bad-whitespace
+    async def connect_(self, ctx, *, channel: discord.VoiceChannel=None):
         '''
         Connect to voice channel.
 
@@ -297,9 +302,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         if not channel:
             try:
                 channel = ctx.author.voice.channel
-            except AttributeError:
+            except AttributeError as e:
                 raise InvalidVoiceChannel('No channel to join. Please either '
-                                          'specify a valid channel or join one.')
+                                          'specify a valid channel or join one.') from e
 
         vc = ctx.voice_client
 
@@ -309,15 +314,15 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             try:
                 self.logger.info(f'Music bot moving to channel {channel.id}')
                 await vc.move_to(channel)
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
                 self.logger.error(f'Moving to channel {channel.id} timed out')
-                raise VoiceConnectionError(f'Moving to channel: <{channel}> timed out.')
+                raise VoiceConnectionError(f'Moving to channel: <{channel}> timed out.') from e
         else:
             try:
                 await channel.connect()
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
                 self.logger.error(f'Connecting to channel {channel.id} timed out')
-                raise VoiceConnectionError(f'Connecting to channel: <{channel}> timed out.')
+                raise VoiceConnectionError(f'Connecting to channel: <{channel}> timed out.') from e
 
         await ctx.send(f'Connected to: {channel}', delete_after=self.delete_after)
 
@@ -343,10 +348,18 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return await ctx.send('Queue is full, cannot add more songs',
                                   delete_after=self.delete_after)
 
-        source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop)
-        if source_dict['source'] is None:
-            return await ctx.send(f'Unable to find youtube source for "{search}"',
-                                  delete_after=self.delete_after)
+        source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop,
+                                                    max_song_length=self.max_song_length)
+        try:
+            if source_dict['data']['duration'] > self.max_song_length:
+                return await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
+                                      f' to queue, exceeded max length '
+                                      f'{self.max_song_length} seconds')
+        except TypeError:
+            # Data likely is None
+            if source_dict['source'] is None:
+                return await ctx.send(f'Unable to find youtube source for "{search}"',
+                                      delete_after=self.delete_after)
 
         try:
             player.queue.put_nowait(source_dict)
@@ -667,12 +680,18 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             self.logger.info(f'Invalid playlist index {playlist_index} given')
             return await ctx.send(f'Unable to find playlist {playlist_index}',
                                   delete_after=self.delete_after)
-        title, video_id = await self.ytdl.run_search(search, loop=self.bot.loop)
+        data = await self.ytdl.run_search(search, loop=self.bot.loop)
+        if data is None:
+            return await ctx.send(f'Unable to find video for search {search}')
+        if data['duration'] > self.max_song_length:
+            return await ctx.send(f'Unable to add <{data["webpage_url"]}>'
+                                  f' to queue, exceeded max length '
+                                  f'{self.max_song_length} seconds')
         try:
             playlist_item = self.db_session.query(PlaylistItem) #pylint:disable=no-member
-            playlist_item = playlist_item.filter(PlaylistItem.video_id == video_id).one()
+            playlist_item = playlist_item.filter(PlaylistItem.video_id == data['id']).one()
         except NoResultFound:
-            playlist_item = PlaylistItem(title=title, video_id=video_id)
+            playlist_item = PlaylistItem(title=data['title'], video_id=data['id'])
             self.db_session.add(playlist_item) #pylint:disable=no-member
             self.db_session.commit() #pylint:disable=no-member
         try:
@@ -754,7 +773,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     def __playlist_update_server_indexes(self, server_id):
         '''
         Once playlist is deleted, update server indexes so that values
-        are now incremental
+        re now incremental
         '''
         playlists = self.db_session.query(Playlist)
         playlists = playlists.filter(Playlist.server_id == server_id).\
@@ -854,12 +873,21 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
             source_dict = await self.ytdl.create_source(ctx,
                                                         f'{item.video_id}',
-                                                        loop=self.bot.loop, exact_match=True)
-            if source_dict is None:
-                await ctx.send(f'Unable to find youtube source ' \
-                               f'for "{item.title}", "{item.video_id}"',
-                               delete_after=self.delete_after)
-                continue
+                                                        loop=self.bot.loop, exact_match=True,
+                                                        max_song_length=self.max_song_length)
+            try:
+                if source_dict['data']['duration'] > self.max_song_length:
+                    await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
+                                   f' to queue, exceeded max length '
+                                   f'{self.max_song_length} seconds')
+                    continue
+            except TypeError:
+                # Data dict is likely none
+                if source_dict['source'] is None:
+                    await ctx.send(f'Unable to find youtube source ' \
+                                   f'for "{item.title}", "{item.video_id}"',
+                                   delete_after=self.delete_after)
+                    continue
             try:
                 player.queue.put_nowait(source_dict)
                 await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
