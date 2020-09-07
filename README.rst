@@ -100,24 +100,30 @@ Commands
 .. code::
 
     General:
-      hello       Say hello to the server
-      roll        Get a random number between 1 and number given
-      windows     Get an inspirational note about your operating system
+      hello        Say hello to the server
+      roll         Get a random number between 1 and number given
+      windows      Get an inspirational note about your operating system
     Music:
-      bump        Bump item to top of queue
-      join        Connect to voice.
-      now_playing Display information about the currently playing song.
-      pause       Pause the currently playing song.
-      play        Request a song and add it to the queue.
-      playlist    Playlist functions
-      queue       Show the queue of upcoming songs.
-      remove      Remove item from queue
-      resume      Resume the currently paused song.
-      shuffle     Shuffle song queue
-      skip        Skip the song.
-      stop        Stop the currently playing song and destroy the player.
+      bump         Bump item to top of queue
+      clear        Clear all items from queue
+      join         Connect to voice channel.
+      now_playing  Display information about the currently playing song.
+      pause        Pause the currently playing song.
+      play         Request a song and add it to the queue.
+      playlist     Playlist functions.
+      queue        Show the queue of upcoming songs.
+      remove       Remove item from queue.
+      resume       Resume the currently paused song.
+      shuffle      Shuffle song queue.
+      skip         Skip the song.
+      stop         Stop the currently playing song and disconnect bot from voice ...
     Planner:
-      planner     Planner functions
+      planner      Planner functions
+    RoleAssign:
+      assign-roles Generate message with all roles.
+    Twitter:
+      twitter      Planner functions
+
 
 ===============
 Music functions
@@ -228,15 +234,33 @@ A message will be sent to the channel prompting users to add an emoji if they wa
 
     For role @rocket-league reply with emoji :zero:
 
-Run the discord-cli command to automatically assign these roles to the users that responded.
-
-.. code::
-
-    /usr/local/bin/discord-cli -c /secret/discord.conf check-role-assignment
-
-The docker image automatically sets up a cronjob to run this every 5 minutes.
+The bot will check every minute or so to see if any new roles should be added.
 
 A couple of notes
 
 - The bot will require permissions to add users to roles for this to work
 - The bot will only run assign roles with zero permissions. The thinking here is to use these roles as more of a type of mailing list.
+
+-------
+Twitter
+-------
+With twitter api credentials specified in the config file, subscribe channels to twitter feeds. The bot will check every few minutes for new posts,
+and then add a message in the channel for each new post.
+
+Subscribe to a given twitter feed ( is specified to the channel where this command is run )
+
+..code::
+
+    !twitter subscribe ootthursday
+
+List channel subscriptions
+
+..code::
+
+    !twitter list-subscriptions
+
+Unsubscribe from a twitter feed
+
+.. code::
+
+    !twitter unsubscribe
