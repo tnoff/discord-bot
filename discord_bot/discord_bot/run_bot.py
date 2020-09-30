@@ -5,6 +5,7 @@ from discord.ext import commands
 from twitter import Api
 from youtube_dl import YoutubeDL
 
+from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.general import General
 from discord_bot.cogs.planner import Planner
@@ -60,6 +61,7 @@ def main():
     settings['message_delete_after'] = settings['message_delete_after'] or DELETE_AFTER_DEFAULT
     settings['queue_max_size'] = settings['queue_max_size'] or QUEUE_MAX_SIZE_DEFAULT
     settings['max_song_length'] = settings['max_song_length'] or MAX_SONG_LENGTH_DEFAULT
+    settings['trim_audio'] = settings['trim_audio'] or False
 
     try:
         twitter_api = Api(consumer_key=settings['twitter_api_key'],
@@ -70,8 +72,10 @@ def main():
         twitter_api = None
 
     # Run bot
+    bot.add_cog(CommandErrorHandler(bot, logger))
     bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
-                      settings['queue_max_size'], settings['max_song_length']))
+                      settings['queue_max_size'], settings['max_song_length'],
+                      settings['trim_audio']))
     bot.add_cog(RoleAssign(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
     bot.add_cog(Twitter(bot, db_session, logger, twitter_api))

@@ -106,6 +106,7 @@ def read_config(config_file):
         'message_delete_after': ['general', 'message_delete_after'],
         'queue_max_size': ['general', 'queue_max_size'],
         'max_song_length': ['general', 'max_song_length'],
+        'trim_audio': ['general', 'trim_audio'],
         # Mysql
         'mysql_user' : ['mysql', 'user'],
         'mysql_password' : ['mysql', 'password'],

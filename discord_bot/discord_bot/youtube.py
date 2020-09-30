@@ -47,7 +47,7 @@ class YTDLClient():
         return data
 
     async def create_source(self, ctx, search: str, *, loop, exact_match=False,
-                            max_song_length=None):
+                            max_song_length=None, trim_audio=False):
         '''
         Create source from youtube search
         '''
@@ -59,7 +59,8 @@ class YTDLClient():
         if not exact_match:
             search = f'{search}'
 
-        to_run = partial(self.prepare_file, search=search, max_song_length=max_song_length)
+        to_run = partial(self.prepare_file, search=search, max_song_length=max_song_length,
+                         trim_audio=trim_audio)
         data, file_name = await loop.run_in_executor(None, to_run)
         source = None
         if file_name is not None:
@@ -70,7 +71,7 @@ class YTDLClient():
             'requester': ctx.author,
         }
 
-    def prepare_file(self, search, max_song_length=None):
+    def prepare_file(self, search, max_song_length=None, trim_audio=False):
         '''
         Prepare file from youtube search
         Includes download and audio trim
@@ -88,12 +89,13 @@ class YTDLClient():
                 return data, None
         self.logger.info(f'Starting download of video {data["title"]}, '
                          f'url {data["webpage_url"]}')
-        source = self.ytdl.prepare_filename(data)
-        self.logger.info(f'Downloaded file {source} from youtube url {data["webpage_url"]}')
-        changed, file_name, length = self.trim_audio(video_file=source)
-        if changed:
-            self.logger.info(f'Created trimmed audio file to {file_name}')
-            data['duraton'] = length
+        file_name = self.ytdl.prepare_filename(data)
+        self.logger.info(f'Downloaded file {file_name} from youtube url {data["webpage_url"]}')
+        if trim_audio:
+            changed, file_name, length = self.trim_audio(video_file=file_name)
+            if changed:
+                self.logger.info(f'Created trimmed audio file to {file_name}')
+                data['duraton'] = length
         self.logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
         return data, file_name
 

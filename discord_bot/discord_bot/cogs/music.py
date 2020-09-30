@@ -157,8 +157,11 @@ class MusicPlayer:
 
             source_dict['source'].volume = self.volume
             self.current = source_dict['source']
-
-            self._guild.voice_client.play(source_dict['source'], after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
+            try:
+                self._guild.voice_client.play(source_dict['source'], after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
+            except AttributeError:
+                self.logger.info('No voice client found, disconnecting')
+                return self.destroy(self._guild)
             self.logger.info(f'Music bot now playing {source_dict["data"]["title"]} requested '
                              f'by {source_dict["requester"]}, url '
                              f'{source_dict["data"]["webpage_url"]}')
@@ -193,10 +196,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     '''
 
     __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl', 'delete_after',
-                 'queue_max_size', 'max_song_length')
+                 'queue_max_size', 'max_song_length', 'trim_audio')
 
     def __init__(self, bot, db_session, logger, ytdl,
-                 delete_after, queue_max_size, max_song_length):
+                 delete_after, queue_max_size, max_song_length, trim_audio):
         self.bot = bot
         self.db_session = db_session
         self.logger = logger
@@ -206,6 +209,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.delete_after = delete_after # Delete messages after N seconds
         self.queue_max_size = queue_max_size
         self.max_song_length = max_song_length
+        self.trim_audio = trim_audio
 
     async def cleanup(self, guild):
         '''
@@ -349,7 +353,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                   delete_after=self.delete_after)
 
         source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop,
-                                                    max_song_length=self.max_song_length)
+                                                    max_song_length=self.max_song_length,
+                                                    trim_audio=self.trim_audio)
         try:
             if source_dict['data']['duration'] > self.max_song_length:
                 return await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
@@ -874,7 +879,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             source_dict = await self.ytdl.create_source(ctx,
                                                         f'{item.video_id}',
                                                         loop=self.bot.loop, exact_match=True,
-                                                        max_song_length=self.max_song_length)
+                                                        max_song_length=self.max_song_length,
+                                                        trim_audio=self.trim_audio)
             try:
                 if source_dict['data']['duration'] > self.max_song_length:
                     await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
