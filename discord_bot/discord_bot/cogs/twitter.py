@@ -25,9 +25,14 @@ class Twitter(CogHelper):
         has_new_first_post = False
         old_last_post = deepcopy(subscription.last_post)
         while not exit_loop:
-            timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
-                                                        since_id=last_post, include_rts=False,
-                                                        exclude_replies=True)
+            try:
+                timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
+                                                            since_id=last_post, include_rts=False,
+                                                            exclude_replies=True)
+            except TwitterError as error:
+                self.logger.exception(f'Exception getting user: {error}')
+                return
+
             for post in timeline:
                 if post.id != old_last_post:
                     channel = self.bot.get_channel(subscription.channel_id)
@@ -85,8 +90,13 @@ class Twitter(CogHelper):
         if subscription:
             return await ctx.send(f'Already subscribed to user {twitter_account}')
 
-        timeline = self.twitter_api.GetUserTimeline(user_id=user.id, count=1,
-                                                    include_rts=False, exclude_replies=True)
+        try:
+            timeline = self.twitter_api.GetUserTimeline(user_id=user.id, count=1,
+                                                        include_rts=False, exclude_replies=True)
+        except TwitterError as error:
+            self.logger.exception(f'Exception getting user: {error}')
+            return await ctx.send('Error getting timeline from twitter')
+
         if len(timeline) == 0:
             return await ctx.send(f'No timeline found for user: {twitter_account}')
 
@@ -140,5 +150,6 @@ class Twitter(CogHelper):
                 screen_names.append(user.screen_name)
             except TwitterError as error:
                 self.logger.exception(f'Exception getting user: {error}')
+                return await ctx.send('Error getting twitter names')
         message = '\n'.join(name for name in screen_names)
         return await ctx.send(f'```Subscribed to \n{message}```')
