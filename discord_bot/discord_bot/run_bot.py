@@ -3,7 +3,7 @@ import os
 
 from discord.ext import commands
 from twitter import Api
-from youtube_dl import YoutubeDL
+from youtube_dlc import YoutubeDL
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.music import Music
