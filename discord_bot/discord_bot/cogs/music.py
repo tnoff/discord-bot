@@ -89,6 +89,9 @@ def get_table_view(items, max_rows=15):
     current_index = 0
     table_strings = []
 
+    if not items:
+        return None
+
     # Assume first column is short index name
     # Second column is longer title name
     while True:
@@ -103,6 +106,16 @@ def get_table_view(items, max_rows=15):
             break
     return table_strings
 
+def get_queue_message(queue):
+    '''
+    Get full queue message
+    '''
+    items = [clean_title(item['data']['title']) for item in queue._queue] #pylint:disable=protected-access
+    table_strings = get_table_view(items)
+    if table_strings is None:
+        return None
+    return ['Queue:'] + table_strings
+
 class MusicPlayer:
     '''
     A class which is assigned to each guild using the bot for Music.
@@ -115,7 +128,7 @@ class MusicPlayer:
 
     __slots__ = ('bot', '_guild', '_channel',
                  '_cog', 'queue', 'next',
-                 'current', 'np', 'np_message',
+                 'current', 'np', 'np_string', 'queue_messages', 'queue_string',
                  'volume', 'logger', 'max_song_length')
 
     def __init__(self, ctx, logger, queue_max_size, max_song_length):
@@ -130,7 +143,9 @@ class MusicPlayer:
         self.next = asyncio.Event()
 
         self.np = None  # Now playing message
-        self.np_message = None # Keep np message here in case we pause
+        self.queue_messages = [] # Show current queue
+        self.np_string = None # Keep np message here in case we pause
+        self.queue_string = None # Keep string here in case we pause
         self.volume = .75
         self.current = None
         # Max song length in seconds
@@ -167,8 +182,14 @@ class MusicPlayer:
                              f'{source_dict["data"]["webpage_url"]}')
             message = f'Now playing {source_dict["data"]["webpage_url"]} ' \
                       f'requested by {source_dict["requester"].name}'
-            self.np_message = message
+            self.np_string = message
             self.np = await self._channel.send(message)
+
+            self.queue_messages = []
+            self.queue_string = get_queue_message(self.queue)
+            if self.queue_string is not None:
+                for table in self.queue_string:
+                    self.queue_messages.append(await self._channel.send(table))
 
             await self.next.wait()
 
@@ -179,6 +200,8 @@ class MusicPlayer:
             try:
                 # We are no longer playing this song...
                 await self.np.delete()
+                for queue_message in self.queue_messages:
+                    await queue_message.delete()
             except discord.HTTPException:
                 pass
 
@@ -369,12 +392,25 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             player.queue.put_nowait(source_dict)
             self.logger.info(f'Adding {source_dict["data"]["title"]} to queue')
-            return await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
-                                  f'<{source_dict["data"]["webpage_url"]}>',
-                                  delete_after=self.delete_after)
+            await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
+                           f'<{source_dict["data"]["webpage_url"]}>',
+                           delete_after=self.delete_after)
         except asyncio.QueueFull:
-            return await ctx.send('Queue is full, cannot add more songs',
-                                  delete_after=self.delete_after)
+            await ctx.send('Queue is full, cannot add more songs',
+                           delete_after=self.delete_after)
+
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            try:
+                await queue_message.delete()
+            except discord.HTTPException:
+                pass
+
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
 
     @commands.command(name='pause')
     async def pause_(self, ctx):
@@ -393,10 +429,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             # Remove our previous now_playing message.
             await player.np.delete()
+            for queue_message in player.queue_messages:
+                await queue_message.delete()
         except discord.HTTPException:
             pass
 
-        player.np = await ctx.send('Song paused')
+        player.np = await ctx.send('Player paused')
+        player.queue_messages = []
 
     @commands.command(name='resume')
     async def resume_(self, ctx):
@@ -415,10 +454,14 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             # Remove our previous now_playing message.
             await player.np.delete()
+            for queue_message in player.queue_messages:
+                await queue_message.delete()
         except discord.HTTPException:
             pass
 
-        player.np = await ctx.send(player.np_message)
+        player.np = await ctx.send(player.np_string)
+        if player.queue_string is not None:
+            player.queue_message = await ctx.send(player.queue_string)
 
     @commands.command(name='skip')
     async def skip_(self, ctx):
@@ -437,6 +480,20 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         await ctx.send('Skipping song',
                        delete_after=self.delete_after)
 
+        player = self.get_player(ctx)
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            try:
+                await queue_message.delete()
+            except discord.HTTPException:
+                pass
+
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
+
     @commands.command(name='clear')
     async def clear(self, ctx):
         '''
@@ -453,8 +510,12 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return await ctx.send('There are currently no more queued songs.',
                                   delete_after=self.delete_after)
         player.queue.clear()
-        return await ctx.send('Cleared all items from queue',
-                              delete_after=self.delete_after)
+        await ctx.send('Cleared all items from queue',
+                       delete_after=self.delete_after)
+
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            await queue_message.delete()
 
     @commands.command(name='shuffle')
     async def shuffle_(self, ctx):
@@ -473,32 +534,15 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                   delete_after=self.delete_after)
         player.queue.shuffle()
 
-        items = [clean_title(item['data']['title']) for item in player.queue._queue] #pylint:disable=protected-access
-        table_strings = get_table_view(items)
-        for table in table_strings:
-            await ctx.send(table, delete_after=self.delete_after)
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            await queue_message.delete()
 
-
-    @commands.command(name='queue')
-    async def queue_info(self, ctx):
-        '''
-        Show the queue of upcoming songs.
-        '''
-        vc = ctx.voice_client
-
-        if not vc or not vc.is_connected():
-            return await ctx.send('I am not currently connected to voice',
-                                  delete_after=self.delete_after)
-
-        player = self.get_player(ctx)
-        if player.queue.empty():
-            return await ctx.send('There are currently no more queued songs.',
-                                  delete_after=self.delete_after)
-
-        items = [clean_title(item['data']['title']) for item in player.queue._queue] #pylint:disable=protected-access
-        table_strings = get_table_view(items)
-        for table in table_strings:
-            await ctx.send(table, delete_after=self.delete_after)
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
 
     @commands.command(name='remove')
     async def remove_item(self, ctx, queue_index):
@@ -531,8 +575,21 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to remove queue index {queue_index}',
                             delete_after=self.delete_after)
-        return await ctx.send(f'Removed item {item["data"]["title"]} from queue',
-                              delete_after=self.delete_after)
+        await ctx.send(f'Removed item {item["data"]["title"]} from queue',
+                       delete_after=self.delete_after)
+
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            try:
+                await queue_message.delete()
+            except discord.HTTPException:
+                pass
+
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
 
     @commands.command(name='bump')
     async def bump_item(self, ctx, queue_index):
@@ -565,8 +622,21 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to bump queue index {queue_index}',
                             delete_after=self.delete_after)
-        return await ctx.send(f'Bumped item {item["data"]["title"]} to top of queue',
-                              delete_after=self.delete_after)
+        await ctx.send(f'Bumped item {item["data"]["title"]} to top of queue',
+                       delete_after=self.delete_after)
+
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            try:
+                await queue_message.delete()
+            except discord.HTTPException:
+                pass
+
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
 
 
     @commands.command(name='now_playing')
@@ -588,10 +658,15 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             # Remove our previous now_playing message.
             await player.np.delete()
+            for queue_message in player.queue_messages:
+                await queue_message.delete()
         except discord.HTTPException:
             pass
 
-        player.np = await ctx.send(player.np_message)
+        player.np = await ctx.send(player.np_string)
+        player.queue_messages = []
+        for table in player.queue_string:
+            player.queue_messages.append(await ctx.send(table))
 
     @commands.command(name='stop')
     async def stop_(self, ctx):
@@ -834,7 +909,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         return await ctx.send(f'Renamed playlist {playlist_index} to name {playlist_name}')
 
     @playlist.command(name='queue')
-    async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''):
+    async def playlist_queue(self, ctx, playlist_index, sub_command: typing.Optional[str] = ''): #pylint:disable=too-many-branches
         '''
         Add playlist to queue
 
@@ -900,8 +975,22 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                f'<{source_dict["data"]["webpage_url"]}>',
                                delete_after=self.delete_after)
             except asyncio.QueueFull:
-                return await ctx.send('Queue is full, cannot add more songs',
-                                      delete_after=self.delete_after)
+                await ctx.send('Queue is full, cannot add more songs',
+                               delete_after=self.delete_after)
+                break
 
-        return await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
-                              delete_after=self.delete_after)
+        await ctx.send(f'Added all songs in playlist {playlist.name} to Queue',
+                       delete_after=self.delete_after)
+
+        # Reset queue messages
+        for queue_message in player.queue_messages:
+            try:
+                await queue_message.delete()
+            except discord.HTTPException:
+                pass
+
+        player.queue_string = get_queue_message(player.queue)
+        player.queue_messages = []
+        if player.queue_string is not None:
+            for table in player.queue_string:
+                player.queue_messages.append(await ctx.send(table))
