@@ -5,7 +5,7 @@ import os
 import discord
 from moviepy.editor import AudioFileClip
 from numpy import sqrt
-from youtube_dlc.utils import DownloadError
+from youtube_dl.utils import DownloadError
 
 # Only trim audio if buffer exceeding in start or end
 AUDIO_BUFFER = 30
