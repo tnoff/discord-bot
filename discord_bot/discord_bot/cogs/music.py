@@ -114,7 +114,7 @@ def get_queue_message(queue):
     table_strings = get_table_view(items)
     if table_strings is None:
         return None
-    return ['Queue:'] + table_strings
+    return table_strings
 
 class MusicPlayer:
     '''
