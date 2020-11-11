@@ -540,11 +540,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         if player.queue.empty():
             return await ctx.send('There are currently no more queued songs.',
                                   delete_after=self.delete_after)
+        exit_early = False
         if sub_command:
             if sub_command.lower() == 'on':
                 player.sticky_queue = True
             elif sub_command.lower() == 'off':
                 player.sticky_queue = False
+                exit_early = True
             else:
                 return await ctx.send(f'Invalid sub_command {sub_command}',
                                       delete_after=self.delete_after)
@@ -553,6 +555,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         for queue_message in player.queue_messages:
             await queue_message.delete()
         player.queue_messages = []
+
+        # If you turned the queue off, exit now
+        if exit_early:
+            return
 
         player.queue_strings = get_queue_message(player.queue)
         if player.queue_strings is not None:
