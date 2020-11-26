@@ -592,9 +592,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         player.queue_strings = get_queue_message(player.queue)
         player.queue_messages = []
-        if player.queue_strings is not None and player.sticky_queue:
-            for table in player.queue_strings:
-                player.queue_messages.append(await ctx.send(table))
+        if player.queue_strings is not None:
+            if player.sticky_queue:
+                for table in player.queue_strings:
+                    player.queue_messages.append(await ctx.send(table))
+            else:
+                for table in player.queue_strings:
+                    await ctx.send(f'{table}', delete_after=self.delete_after)
 
     @commands.command(name='remove')
     async def remove_item(self, ctx, queue_index):
