@@ -1,4 +1,5 @@
-from sqlalchemy import Column, ForeignKey, Integer, BigInteger, String, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
@@ -69,3 +70,40 @@ class RoleAssignmentReaction(BASE):
     role_id = Column(BigInteger)
     emoji_name = Column(String(64))
     role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))
+
+class MarkovChannel(BASE):
+    '''
+    Markov channel
+    '''
+    __tablename__ = 'markov_channel'
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'server_id',
+                         name='_unique_markov_channel'),
+    )
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(BigInteger)
+    server_id = Column(BigInteger)
+    last_message_id = Column(BigInteger)
+
+class MarkovWord(BASE):
+    '''
+    Markov word
+    '''
+    __tablename__ = 'markov_word'
+    id = Column(Integer, primary_key=True)
+    word = Column(String(1024))
+    channel_id = Column(Integer, ForeignKey('markov_channel.id'))
+
+class MarkovRelation(BASE):
+    '''
+    Markov Relation
+    '''
+    __tablename__ = 'markov_relation'
+    __table_args__ = (
+        UniqueConstraint('leader_id', 'follower_id',
+                         name='_unique_markov_relation'),
+    )
+    id = Column(Integer, primary_key=True)
+    leader_id = Column(Integer, ForeignKey('markov_word.id'))
+    follower_id = Column(Integer, ForeignKey('markov_word.id'))
+    count = Column(Integer)

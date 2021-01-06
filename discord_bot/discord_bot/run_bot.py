@@ -8,6 +8,7 @@ from youtube_dl import YoutubeDL
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.general import General
+from discord_bot.cogs.markov import Markov
 from discord_bot.cogs.planner import Planner
 from discord_bot.cogs.role import RoleAssign
 from discord_bot.cogs.twitter import Twitter
@@ -77,6 +78,7 @@ def main():
                       settings['queue_max_size'], settings['max_song_length'],
                       settings['trim_audio']))
     bot.add_cog(RoleAssign(bot, db_session, logger))
+    bot.add_cog(Markov(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
     bot.add_cog(Twitter(bot, db_session, logger, twitter_api))
     bot.add_cog(General(bot, logger))
