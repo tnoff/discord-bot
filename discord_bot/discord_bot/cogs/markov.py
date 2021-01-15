@@ -96,13 +96,17 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             for markov_channel in self.db_session.query(MarkovChannel).all():
                 channel = await self.bot.fetch_channel(markov_channel.channel_id)
+                # Start at the beginning of channel history, slowly make your way make to current day
                 if not markov_channel.last_message_id:
-                    messages = await channel.history(limit=100).flatten()
+                    messages = await channel.history(limit=100, oldest_first=True).flatten()
                 else:
                     last_message = await channel.fetch_message(markov_channel.last_message_id)
-                    messages = await channel.history(after=last_message).flatten()
+                    messages = await channel.history(after=last_message, limit=100).flatten()
 
                 for message in messages:
+                    # If no content continue
+                    if not message.content:
+                        continue
                     # Skip messages that @ someone
                     if message.mentions or message.role_mentions or message.channel_mentions:
                         continue
@@ -123,7 +127,7 @@ class Markov(CogHelper):
                     markov_channel.last_message_id = message.id
                     self.db_session.commit()
 
-            await asyncio.sleep(300)
+            await asyncio.sleep(180)
 
     @commands.group(name='markov', invoke_without_command=False)
     async def markov(self, ctx):
