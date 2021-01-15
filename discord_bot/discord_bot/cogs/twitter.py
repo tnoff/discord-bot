@@ -86,7 +86,7 @@ class Twitter(CogHelper):
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
-                            filter(TwitterSubscription.channel_id == ctx.channel.id).first()
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
         if subscription:
             return await ctx.send(f'Already subscribed to user {twitter_account}')
 
@@ -106,7 +106,7 @@ class Twitter(CogHelper):
         args = {
             'twitter_user_id': user.id,
             'last_post': last_post,
-            'channel_id': ctx.channel.id,
+            'channel_id': str(ctx.channel.id),
         }
         self.logger.debug(f'Adding new subscription {args}')
         tw = TwitterSubscription(**args)
@@ -129,7 +129,7 @@ class Twitter(CogHelper):
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
-                            filter(TwitterSubscription.channel_id == ctx.channel.id).first()
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
         if subscription:
             self.db_session.delete(subscription)
             self.db_session.commit()
@@ -142,7 +142,7 @@ class Twitter(CogHelper):
         List channel subscriptions
         '''
         subscriptions = self.db_session.query(TwitterSubscription).\
-                            filter(TwitterSubscription.channel_id == ctx.channel.id)
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id))
         screen_names = []
         for subs in subscriptions:
             try:

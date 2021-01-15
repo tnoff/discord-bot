@@ -280,7 +280,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return False, None
         try:
             playlist = self.db_session.query(Playlist)#pylint:disable=no-member
-            playlist = playlist.filter(Playlist.server_id == guild_id).\
+            playlist = playlist.filter(Playlist.server_id == str(guild_id)).\
                             filter(Playlist.server_index == index).one()
         except NoResultFound:
             return False, None
@@ -726,13 +726,13 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             playlist = self.db_session.query(Playlist) #pylint:disable=no-member
             playlist = playlist.filter(func.lower(Playlist.name) == func.lower(name),
-                                       Playlist.server_id == ctx.guild.id).one()
+                                       Playlist.server_id == str(ctx.guild.id)).one()
         except NoResultFound:
             self.logger.info(f'No playlist with name {name} in '
                              f'server {ctx.guild.id} found, continuing')
         # Grab latest server_index that matches server_id
         query = self.db_session.query(Playlist) #pylint:disable=no-member
-        query = query.filter(Playlist.server_id == ctx.guild.id).\
+        query = query.filter(Playlist.server_id == str(ctx.guild.id)).\
                     order_by(Playlist.server_index.desc()).first()
         if query:
             server_index = query.server_index + 1
@@ -742,7 +742,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         playlist = Playlist(
             name=name,
-            server_id=ctx.guild.id,
+            server_id=str(ctx.guild.id),
             server_index=server_index,
         )
         self.db_session.add(playlist) #pylint:disable=no-member
@@ -759,7 +759,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.logger.info(f'Playlist list called for server {ctx.guild.id}')
         playlist_items = self.db_session.query(Playlist)
         playlist_items = playlist_items.\
-            filter(Playlist.server_id == ctx.guild.id)
+            filter(Playlist.server_id == str(ctx.guild.id))
         playlist_items = [p for p in playlist_items]
 
         if not playlist_items:
@@ -882,7 +882,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         re now incremental
         '''
         playlists = self.db_session.query(Playlist)
-        playlists = playlists.filter(Playlist.server_id == server_id).\
+        playlists = playlists.filter(Playlist.server_id == str(server_id)).\
                     order_by(Playlist.server_index)
         for (current_index, playlist) in enumerate(playlists):
             if (current_index + 1) != playlist.server_index:

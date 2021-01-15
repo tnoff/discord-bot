@@ -17,7 +17,7 @@ class Playlist(BASE):
     )
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
-    server_id = Column(BigInteger)
+    server_id = Column(String(128))
     server_index = Column(Integer)
 
 class PlaylistItem(BASE):
@@ -47,9 +47,9 @@ class TwitterSubscription(BASE):
     __tablename__ = 'twitter_subscription'
 
     id = Column(Integer, primary_key=True)
-    twitter_user_id = Column(String(1024), nullable=False)
+    twitter_user_id = Column(String(128), nullable=False)
     last_post = Column(BigInteger)
-    channel_id = Column(BigInteger)
+    channel_id = Column(String(128))
 
 class RoleAssignmentMessage(BASE):
     '''
@@ -57,9 +57,9 @@ class RoleAssignmentMessage(BASE):
     '''
     __tablename__ = 'role_assignment_message'
     id = Column(Integer, primary_key=True)
-    message_id = Column(BigInteger)
-    channel_id = Column(BigInteger)
-    server_id = Column(BigInteger)
+    message_id = Column(String(128))
+    channel_id = Column(String(128))
+    server_id = Column(String(128))
 
 class RoleAssignmentReaction(BASE):
     '''
@@ -67,7 +67,7 @@ class RoleAssignmentReaction(BASE):
     '''
     __tablename__ = 'role_assignment_reaction'
     id = Column(Integer, primary_key=True)
-    role_id = Column(BigInteger)
+    role_id = Column(String(128))
     emoji_name = Column(String(64))
     role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))
 
@@ -81,9 +81,9 @@ class MarkovChannel(BASE):
                          name='_unique_markov_channel'),
     )
     id = Column(Integer, primary_key=True)
-    channel_id = Column(BigInteger)
-    server_id = Column(BigInteger)
-    last_message_id = Column(BigInteger)
+    channel_id = Column(String(128))
+    server_id = Column(String(128))
+    last_message_id = Column(String(128))
 
 class MarkovWord(BASE):
     '''
@@ -91,7 +91,7 @@ class MarkovWord(BASE):
     '''
     __tablename__ = 'markov_word'
     id = Column(Integer, primary_key=True)
-    word = Column(String(1024))
+    word = Column(String(128))
     channel_id = Column(Integer, ForeignKey('markov_channel.id'))
 
 class MarkovRelation(BASE):

@@ -47,13 +47,13 @@ class Markov(CogHelper):
     def __ensure_word(self, word, channel):
         markov_word = self.db_session.query(MarkovWord).\
                 filter(MarkovWord.word == word).\
-                filter(MarkovWord.channel_id == channel.id).first()
+                filter(MarkovWord.channel_id == str(channel.id)).first()
         if markov_word:
             return markov_word
         if len(word) > 1024:
             self.logger.warning(f'Cannot add word "{word}", is too long')
             return None
-        new_word = MarkovWord(word=word, channel_id=channel.id)
+        new_word = MarkovWord(word=word, channel_id=str(channel.id))
         self.db_session.add(new_word)
         self.db_session.commit()
         self.db_session.flush()
@@ -140,8 +140,8 @@ class Markov(CogHelper):
         '''
         # Ensure channel not already on
         markov = self.db_session.query(MarkovChannel).\
-            filter(MarkovChannel.channel_id == ctx.channel.id).\
-            filter(MarkovChannel.server_id == ctx.guild.id).first()
+            filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
+            filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
 
         if markov:
             return await ctx.send('Channel already has markov turned on')
@@ -150,8 +150,8 @@ class Markov(CogHelper):
         if not isinstance(channel, TextChannel):
             await ctx.send('Channel is not text channel, cannot turn on markov')
 
-        new_markov = MarkovChannel(channel_id=ctx.channel.id,
-                                   server_id=ctx.guild.id,
+        new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
+                                   server_id=str(ctx.guild.id),
                                    last_message_id=None)
         self.db_session.add(new_markov)
         self.db_session.commit()
@@ -165,8 +165,8 @@ class Markov(CogHelper):
         '''
         # Ensure channel not already on
         markov = self.db_session.query(MarkovChannel).\
-            filter(MarkovChannel.channel_id == ctx.channel.id).\
-            filter(MarkovChannel.server_id == ctx.guild.id).first()
+            filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
+            filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
 
         if not markov:
             return await ctx.send('Channel does not have markov turned on')

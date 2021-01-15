@@ -4,7 +4,7 @@ from logging.handlers import RotatingFileHandler
 from time import sleep
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError, StatementError
+from sqlalchemy.exc import InvalidRequestError, OperationalError, StatementError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.query import Query as _Query
 
@@ -40,6 +40,9 @@ class RetryingQuery(_Query):
             except StatementError as ex:
                 if "reconnect until invalid transaction is rolled back" not in str(ex):
                     raise
+                self.session.rollback()
+            except InvalidRequestError as ex:
+                logging.error(f'Invalid request error {str(ex)}')
                 self.session.rollback()
 
 def get_logger(logger_name, log_file):

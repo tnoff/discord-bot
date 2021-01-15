@@ -54,7 +54,6 @@ class RoleAssign(CogHelper):
             for assignment_message in self.db_session.query(RoleAssignmentMessage).all():
                 self.logger.info(f'Checking assignment message {assignment_message.id}')
                 guild = self.bot.get_guild(assignment_message.server_id)
-
                 try:
                     message = message_cache[assignment_message.message_id]
                 except KeyError:
@@ -79,6 +78,10 @@ class RoleAssign(CogHelper):
 
                     async for user in reaction.users():
                         member = guild.get_member(user.id)
+                        if not member:
+                            self.logger.error(f'Unable to read member for user {user.id} '\
+                                              f'in guild {guild.id}, likely a permissions issue')
+                            continue
                         if role not in member.roles:
                             await member.add_roles(role)
                             self.logger.info(f'Adding role {role.name} to user {user.name}')
@@ -118,9 +121,9 @@ class RoleAssign(CogHelper):
         for message_string in message_strings:
 
             message = await ctx.send(f'{message_string}')
-            new_message = RoleAssignmentMessage(message_id=message.id,
-                                                channel_id=message.channel.id,
-                                                server_id=message.guild.id)
+            new_message = RoleAssignmentMessage(message_id=str(message.id),
+                                                channel_id=str(message.channel.id),
+                                                server_id=str(message.guild.id))
             self.db_session.add(new_message)
             self.db_session.commit()
             self.logger.info(f'Created new role assignment message {new_message.id}')
