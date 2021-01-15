@@ -103,7 +103,9 @@ class Markov(CogHelper):
                     last_message = await channel.fetch_message(markov_channel.last_message_id)
                     messages = await channel.history(after=last_message, limit=100).flatten()
 
+
                 for message in messages:
+                    markov_channel.last_message_id = message.id
                     # If no content continue
                     if not message.content:
                         continue
@@ -124,8 +126,9 @@ class Markov(CogHelper):
                     message_text = message_text.lower()
                     self.__build_and_save_relations(message_text, markov_channel)
 
-                    markov_channel.last_message_id = message.id
                     self.db_session.commit()
+                # Commit at the end in case the last message was skipped
+                self.db_session.commit()
 
             await asyncio.sleep(180)
 
