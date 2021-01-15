@@ -96,6 +96,7 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             for markov_channel in self.db_session.query(MarkovChannel).all():
                 channel = await self.bot.fetch_channel(markov_channel.channel_id)
+                self.logger.info(f'Gathering markov messages for channel {markov_channel.channel_id}')
                 # Start at the beginning of channel history, slowly make your way make to current day
                 if not markov_channel.last_message_id:
                     messages = await channel.history(limit=100, oldest_first=True).flatten()
@@ -105,25 +106,23 @@ class Markov(CogHelper):
 
 
                 for message in messages:
+                    self.logger.debug(f'Gathering message {message.id} for channel {markov_channel.channel_id}')
                     markov_channel.last_message_id = message.id
-                    # If no content continue
-                    if not message.content:
-                        continue
-                    # Skip messages that @ someone
-                    if message.mentions or message.role_mentions or message.channel_mentions:
-                        continue
-                    if message.author.bot:
+                    # If no content continue or from a bot skip
+                    if not message.content or message.author.bot:
                         continue
                     # If message begins with '!', assume it was a bot command
                     if message.content[0] == '!':
                         continue
-                    # Remove links from message text
-                    message_text = re.sub(r'^https?:\/\/.*[\r\n]*', '',
+                    # Remove web links and mentions from text
+                    message_text = re.sub(r'(http?\://|https?\://|www|\<\@!\d+)\S+', '',
                                           message.content, flags=re.MULTILINE)
                     if not message_text:
                         continue
                     # Use lower() so we can re-use words better
                     message_text = message_text.lower()
+                    self.logger.info(f'Attempting to add message_text "{message_text}" '
+                                     f'to channel {markov_channel.channel_id}')
                     self.__build_and_save_relations(message_text, markov_channel)
 
                     self.db_session.commit()
