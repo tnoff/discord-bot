@@ -44,16 +44,16 @@ class Markov(CogHelper):
         super().__init__(bot, db_session, logger)
         self.bot.loop.create_task(self.wait_loop())
 
-    def __ensure_word(self, word, channel):
+    def __ensure_word(self, word, markov_channel):
         markov_word = self.db_session.query(MarkovWord).\
                 filter(MarkovWord.word == word).\
-                filter(MarkovWord.channel_id == str(channel.id)).first()
+                filter(MarkovWord.channel_id == markov_channel.id).first()
         if markov_word:
             return markov_word
         if len(word) > 1024:
             self.logger.warning(f'Cannot add word "{word}", is too long')
             return None
-        new_word = MarkovWord(word=word, channel_id=str(channel.id))
+        new_word = MarkovWord(word=word, channel_id=markov_channel.id)
         self.db_session.add(new_word)
         self.db_session.commit()
         self.db_session.flush()
@@ -73,14 +73,14 @@ class Markov(CogHelper):
         self.db_session.flush()
         return new_relation
 
-    def __build_and_save_relations(self, message, channel):
+    def __build_and_save_relations(self, message, markov_channel):
         transitions = build_transition_matrix(message)
         for leader, followers in transitions.items():
-            leader_word = self.__ensure_word(leader, channel)
+            leader_word = self.__ensure_word(leader, markov_channel)
             if leader_word is None:
                 continue
             for follower in followers:
-                follower_word = self.__ensure_word(follower, channel)
+                follower_word = self.__ensure_word(follower, markov_channel)
                 if follower_word is None:
                     continue
                 relation = self.__ensure_relation(leader_word, follower_word)
@@ -118,7 +118,7 @@ class Markov(CogHelper):
                         continue
                     # Use lower() so we can re-use words better
                     message_text = message_text.lower()
-                    self.__build_and_save_relations(message_text, channel)
+                    self.__build_and_save_relations(message_text, markov_channel)
 
                     markov_channel.last_message_id = message.id
                     self.db_session.commit()
