@@ -35,8 +35,9 @@ class Twitter(CogHelper):
 
             for post in timeline:
                 if post.id != old_last_post:
-                    channel = self.bot.get_channel(subscription.channel_id)
+                    channel = self.bot.get_channel(int(subscription.channel_id))
                     message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
+                    self.logger.info(f'Posting twitter message "{message}" to channel {channel.id}')
                     await channel.send(message)
                     if not has_new_first_post:
                         subscription.last_post = post.id

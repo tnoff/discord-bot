@@ -1,6 +1,7 @@
 import asyncio
 
 from discord.ext import commands
+from discord.errors import NotFound
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import RoleAssignmentMessage, RoleAssignmentReaction
@@ -50,34 +51,52 @@ class RoleAssign(CogHelper):
         role_cache = {}
 
 
+        # TODO delete messages after some amount of time
+
+
         while not self.bot.is_closed():
+            # Go through each saved message in database
+            # Save any you should delete
+            will_delete = []
             for assignment_message in self.db_session.query(RoleAssignmentMessage).all():
                 self.logger.info(f'Checking assignment message {assignment_message.id}')
-                guild = self.bot.get_guild(assignment_message.server_id)
+                guild = await self.bot.fetch_guild(int(assignment_message.server_id))
                 try:
                     message = message_cache[assignment_message.message_id]
                 except KeyError:
-                    channel = self.bot.get_channel(assignment_message.channel_id)
-                    message = await channel.fetch_message(assignment_message.message_id)
-                    message_cache[assignment_message.message_id] = message
+                    channel = self.bot.get_channel(int(assignment_message.channel_id))
+                    try:
+                        message = await channel.fetch_message(int(assignment_message.message_id))
+                        message_cache[assignment_message.message_id] = message
+                    except NotFound:
+                        self.logger.error(f'Unable to find message {assignment_message.id}'
+                                          ' going to delete db entry')
+                        will_delete.append(assignment_message)
+                        continue
 
+                # Get mapping of what reactions should go with which role
                 reaction_dict = {}
                 for role_reaction in self.db_session.query(RoleAssignmentReaction).\
                     filter(RoleAssignmentReaction.role_assignment_message_id == assignment_message.id): #pylint:disable=line-too-long
                     reaction_dict[role_reaction.emoji_name] = role_reaction.role_id
 
+
+                # Find reactions to the mssage
                 for reaction in message.reactions:
                     self.logger.debug(f'Checking reaction {reaction} ' \
                                  f'for message {assignment_message.id}')
+
+                    # Get role reaction mapping
                     role_id = reaction_dict[EMOJI_MAPPING[reaction.emoji]]
                     try:
                         role = role_cache[role_id]
                     except KeyError:
-                        role = guild.get_role(role_id)
+                        role = guild.get_role(int(role_id))
                         role_cache[role_id] = role
 
+                    # Check for users in reaction
                     async for user in reaction.users():
-                        member = guild.get_member(user.id)
+                        member = await guild.fetch_member(int(user.id))
                         if not member:
                             self.logger.error(f'Unable to read member for user {user.id} '\
                                               f'in guild {guild.id}, likely a permissions issue')
@@ -85,7 +104,16 @@ class RoleAssign(CogHelper):
                         if role not in member.roles:
                             await member.add_roles(role)
                             self.logger.info(f'Adding role {role.name} to user {user.name}')
-            await asyncio.sleep(60)
+
+            # Delete all messages we could not find earlier
+            for assignment_message in will_delete:
+                # Delete reactions first
+                self.db_session.query(RoleAssignmentReaction).\
+                    filter(RoleAssignmentReaction.role_assignment_message_id == assignment_message.id).\
+                    delete()
+                assignment_message.delete()
+                self.db_session.commit()
+            await asyncio.sleep(300)
 
     @commands.command(name='assign-roles')
     async def roles(self, ctx):
