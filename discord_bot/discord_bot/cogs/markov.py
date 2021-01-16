@@ -115,7 +115,7 @@ class Markov(CogHelper):
                     if message.content[0] == '!':
                         continue
                     # Remove web links and mentions from text
-                    message_text = re.sub(r'(http?\://|https?\://|www|\<\@!\d+)\S+', '',
+                    message_text = re.sub(r'(https?\://|\<\@)\S+', '',
                                           message.content, flags=re.MULTILINE)
                     if not message_text:
                         continue
