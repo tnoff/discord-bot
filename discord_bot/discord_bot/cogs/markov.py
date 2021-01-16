@@ -128,10 +128,10 @@ class Markov(CogHelper):
                     # Doesnt remove @here or @everyone
                     message_text = message_text.replace('@here', '')
                     message_text = message_text.replace('@everyone', '')
-                    if not message_text:
-                        continue
                     # Use lower() so we can re-use words better
                     message_text = message_text.lower().strip()
+                    if not message_text:
+                        continue
                     self.logger.info(f'Attempting to add message_text "{message_text}" '
                                      f'to channel {markov_channel.channel_id}')
                     self.__build_and_save_relations(message_text, markov_channel)
