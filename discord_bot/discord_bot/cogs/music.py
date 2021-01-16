@@ -176,11 +176,11 @@ class MusicPlayer:
             try:
                 self._guild.voice_client.play(source_dict['source'], after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
             except AttributeError:
-                self.logger.info('No voice client found, disconnecting')
+                self.logger.info('No voice client found, disconnecting from guild {self._guild}')
                 return self.destroy(self._guild)
             self.logger.info(f'Music bot now playing {source_dict["data"]["title"]} requested '
-                             f'by {source_dict["requester"]}, url '
-                             f'{source_dict["data"]["webpage_url"]}')
+                             f'by {source_dict["requester"]} in guild {self._guild}, url '
+                             f'"{source_dict["data"]["webpage_url"]}"')
             message = f'Now playing {source_dict["data"]["webpage_url"]} ' \
                       f'requested by {source_dict["requester"].name}'
             self.np_string = message
@@ -340,7 +340,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             if vc.channel.id == channel.id:
                 return
             try:
-                self.logger.info(f'Music bot moving to channel {channel.id}')
+                self.logger.info(f'Music bot moving to channel {channel.id} '
+                                 f'in guild {ctx.guild.id}')
                 await vc.move_to(channel)
             except asyncio.TimeoutError as e:
                 self.logger.error(f'Moving to channel {channel.id} timed out')
@@ -392,7 +393,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
 
         try:
             player.queue.put_nowait(source_dict)
-            self.logger.info(f'Adding {source_dict["data"]["title"]} to queue')
+            self.logger.info(f'Adding {source_dict["data"]["title"]} '
+                             f'to queue in guild {ctx.guild.id}')
             await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
                            f'<{source_dict["data"]["webpage_url"]}>',
                            delete_after=self.delete_after)
@@ -622,13 +624,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             queue_index = int(queue_index)
         except ValueError:
-            self.logger.info(f'Queue entered was invalid {queue_index}')
             return await ctx.send(f'Invalid queue index {queue_index}',
                                   delete_after=self.delete_after)
 
         item = player.queue.remove_item(queue_index)
         if item is None:
-            self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to remove queue index {queue_index}',
                             delete_after=self.delete_after)
         await ctx.send(f'Removed item {item["data"]["title"]} from queue',
@@ -669,13 +669,11 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         try:
             queue_index = int(queue_index)
         except ValueError:
-            self.logger.info(f'Queue entered was invalid {queue_index}')
             return await ctx.send(f'Invalid queue index {queue_index}',
                                   delete_after=self.delete_after)
 
         item = player.queue.bump_item(queue_index)
         if item is None:
-            self.logger.info(f'Unable to remove queue index {queue_index}')
             return ctx.send(f'Unable to bump queue index {queue_index}',
                             delete_after=self.delete_after)
         await ctx.send(f'Bumped item {item["data"]["title"]} to top of queue',
@@ -728,8 +726,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             playlist = playlist.filter(func.lower(Playlist.name) == func.lower(name),
                                        Playlist.server_id == str(ctx.guild.id)).one()
         except NoResultFound:
-            self.logger.info(f'No playlist with name {name} in '
-                             f'server {ctx.guild.id} found, continuing')
+            # Name not in use, continuing
+            pass
         # Grab latest server_index that matches server_id
         query = self.db_session.query(Playlist) #pylint:disable=no-member
         query = query.filter(Playlist.server_id == str(ctx.guild.id)).\
@@ -747,7 +745,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         )
         self.db_session.add(playlist) #pylint:disable=no-member
         self.db_session.commit() #pylint:disable=no-member
-        self.logger.info(f'Playlist created {playlist.id}')
+        self.logger.info(f'Playlist created {playlist.id} in guild {ctx.guild.id}')
         return await ctx.send(f'Created playlist {playlist.server_index}',
                               delete_after=self.delete_after)
 
@@ -756,7 +754,6 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
-        self.logger.info(f'Playlist list called for server {ctx.guild.id}')
         playlist_items = self.db_session.query(Playlist)
         playlist_items = playlist_items.\
             filter(Playlist.server_id == str(ctx.guild.id))
@@ -783,7 +780,6 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
-            self.logger.info(f'Invalid playlist index {playlist_index} given')
             return await ctx.send(f'Unable to find playlist {playlist_index}',
                                   delete_after=self.delete_after)
         data = await self.ytdl.run_search(search, loop=self.bot.loop)
@@ -793,6 +789,9 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             return await ctx.send(f'Unable to add <{data["webpage_url"]}>'
                                   f' to queue, exceeded max length '
                                   f'{self.max_song_length} seconds')
+
+        self.logger.info(f'Adding video_id {data["id"]} to playlist {playlist.id} '
+                         f' in guild {ctx.guild.id}')
         try:
             playlist_item = self.db_session.query(PlaylistItem) #pylint:disable=no-member
             playlist_item = playlist_item.filter(PlaylistItem.video_id == data['id']).one()
@@ -824,7 +823,6 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
-            self.logger.info(f'Invalid playlist index {playlist_index} given')
             return await ctx.send(f'Unable to find playlist {playlist_index}',
                                   delete_after=self.delete_after)
         try:
@@ -903,7 +901,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                   delete_after=self.delete_after)
         playlist_name = playlist.name
         old_server_id = playlist.server_id
-        self.logger.debug(f'Deleting all playlist items for {playlist.id}')
+        self.logger.info(f'Deleting all playlist items for {playlist.id}')
         query = self.db_session.query(PlaylistItem, PlaylistMembership)#pylint:disable=no-member
         query = query.join(PlaylistMembership).\
             filter(PlaylistMembership.playlist_id == playlist.id)
