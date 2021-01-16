@@ -109,8 +109,7 @@ class RoleAssign(CogHelper):
             for assignment_message in will_delete:
                 # Delete reactions first
                 self.db_session.query(RoleAssignmentReaction).\
-                    filter(RoleAssignmentReaction.role_assignment_message_id == assignment_message.id).\
-                    delete()
+                    filter(RoleAssignmentReaction.role_assignment_message_id == assignment_message.id).delete() #pylint:disable=line-too-long
                 assignment_message.delete()
                 self.db_session.commit()
             await asyncio.sleep(300)

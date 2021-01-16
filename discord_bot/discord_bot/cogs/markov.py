@@ -96,8 +96,10 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             for markov_channel in self.db_session.query(MarkovChannel).all():
                 channel = await self.bot.fetch_channel(markov_channel.channel_id)
-                self.logger.info(f'Gathering markov messages for channel {markov_channel.channel_id}')
-                # Start at the beginning of channel history, slowly make your way make to current day
+                self.logger.info('Gathering markov messages for '
+                                 f'channel {markov_channel.channel_id}')
+                # Start at the beginning of channel history,
+                # slowly make your way make to current day
                 if not markov_channel.last_message_id:
                     messages = await channel.history(limit=100, oldest_first=True).flatten()
                 else:
@@ -106,7 +108,8 @@ class Markov(CogHelper):
 
 
                 for message in messages:
-                    self.logger.debug(f'Gathering message {message.id} for channel {markov_channel.channel_id}')
+                    self.logger.debug(f'Gathering message {message.id} '
+                                      f'for channel {markov_channel.channel_id}')
                     markov_channel.last_message_id = message.id
                     # If no content continue or from a bot skip
                     if not message.content or message.author.bot:
