@@ -63,7 +63,7 @@ class Twitter(CogHelper):
             subscriptions = self.db_session.query(TwitterSubscription).all()
             for subscription in subscriptions:
                 await self._check_subscription(subscription)
-            await asyncio.sleep(60)
+            await asyncio.sleep(300)
 
     @commands.group(name='twitter', invoke_without_command=False)
     async def twitter(self, ctx):
