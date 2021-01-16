@@ -125,6 +125,9 @@ class Markov(CogHelper):
                     # Remove web links and mentions from text
                     message_text = re.sub(r'(https?\://|\<\@)\S+', '',
                                           message.content, flags=re.MULTILINE)
+                    # Doesnt remove @here or @everyone
+                    message_text = message_text.replace('@here', '')
+                    message_text = message_text.replace('@everyone', '')
                     if not message_text:
                         continue
                     # Use lower() so we can re-use words better
