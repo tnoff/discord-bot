@@ -14,7 +14,7 @@ setuptools.setup(
         'PyNaCl >= 1.4.0',
         'python-twitter >= 3.5',
         'SQLAlchemy >= 1.3.13',
-        'youtube-dl >= 2020.11.21.1',
+        'youtube-dl >= 2021.1.16',
     ],
     entry_points={
         'console_scripts' : [
@@ -22,5 +22,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='1.5.5',
+    version='1.5.6',
 )
