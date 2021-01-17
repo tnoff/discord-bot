@@ -11,8 +11,6 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel
 from discord_bot.database import MarkovRelation, MarkovWord
 
-BURN_IN = 1000
-
 # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
 def build_transition_matrix(corpus):
     '''
@@ -230,7 +228,7 @@ class Markov(CogHelper):
 
         # Save a cache layer to reduce db calls
         follower_cache = {}
-        for count in range(BURN_IN + sentence_length + 1):
+        for count in range(sentence_length + 1):
             try:
                 follower_choices = follower_cache[word.id]['choices']
                 follower_weights = follower_cache[word.id]['weights']
@@ -248,7 +246,6 @@ class Markov(CogHelper):
                 }
 
             word = random.choices(follower_choices, weights=follower_weights, k=1)[0]
-            if count > BURN_IN:
-                all_words.append(word)
+            all_words.append(word)
 
         return await ctx.send(' '.join(markov_word.word for markov_word in all_words))
