@@ -234,7 +234,7 @@ class Markov(CogHelper):
 
         # Save a cache layer to reduce db calls
         follower_cache = {}
-        for count in range(sentence_length + 1):
+        for _ in range(sentence_length + 1):
             try:
                 follower_choices = follower_cache[word.id]['choices']
                 follower_weights = follower_cache[word.id]['weights']
