@@ -179,14 +179,23 @@ class Markov(CogHelper):
         Turn markov off for channel
         '''
         # Ensure channel not already on
-        markov = self.db_session.query(MarkovChannel).\
+        markov_channel = self.db_session.query(MarkovChannel).\
             filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
             filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
 
-        if not markov:
+        if not markov_channel:
             return await ctx.send('Channel does not have markov turned on')
 
-        self.db_session.delete(markov)
+        markov_words = self.db_session.query(MarkovWord.id).\
+                        filter(MarkovWord.channel_id == markov_channel.id)
+        self.db_session.query(MarkovRelation).\
+            filter(MarkovRelation.leader_id.in_(markov_words.subquery())).\
+            delete(synchronize_session=False)
+        self.db_session.commit()
+        self.db_session.query(MarkovWord).\
+            filter(MarkovWord.channel_id == markov_channel.id).delete()
+        self.db_session.commit()
+        self.db_session.delete(markov_channel)
         self.db_session.commit()
 
         return await ctx.send('Markov turned off for channel')
@@ -222,9 +231,6 @@ class Markov(CogHelper):
             word = self.db_session.query(MarkovWord).get(first_word_id.id)
         all_words = [word]
 
-
-        # Do a "burn in" which just does the loop first a bunch
-        # Before we actually start going
 
         # Save a cache layer to reduce db calls
         follower_cache = {}
