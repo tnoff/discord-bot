@@ -2,6 +2,8 @@ import asyncio
 from copy import deepcopy
 
 from discord.ext import commands
+from requests.exceptions import ConnectionError as requests_connection_error
+from twitter import Api
 from twitter.error import TwitterError
 
 from discord_bot.cogs.common import CogHelper
@@ -11,11 +13,20 @@ class Twitter(CogHelper):
     '''
     Subscribe to twitter accounts and post messages in channel
     '''
-    def __init__(self, bot, db_session, logger, twitter_api):
+    def __init__(self, bot, db_session, logger, twitter_settings):
         super().__init__(bot, db_session, logger)
-        self.twitter_api = twitter_api
+        self.twitter_settings = twitter_settings
+        self.twitter_api = None
+        self._restart_client()
         self.bot.loop.create_task(self.wait_loop())
 
+    def _restart_client(self):
+        self.logger.debug('Reloading twitter client')
+        self.twitter_api = Api(
+               consumer_key=self.twitter_settings['consumer_key'],
+               consumer_secret=self.twitter_settings['consumer_secret'],
+               access_token_key=self.twitter_settings['access_token_key'],
+               access_token_secret=self.twitter_settings['access_token_secret'])
 
     async def _check_subscription(self, subscription):
         self.logger.debug(f'Checking users twitter feed for '
@@ -29,8 +40,9 @@ class Twitter(CogHelper):
                 timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
                                                             since_id=last_post, include_rts=False,
                                                             exclude_replies=True)
-            except TwitterError as error:
+            except (TwitterError, requests_connection_error) as error:
                 self.logger.exception(f'Exception getting user: {error}')
+                self._restart_client()
                 return
 
             for post in timeline:
@@ -81,8 +93,9 @@ class Twitter(CogHelper):
         self.logger.debug(f'Attempting to subscribe to username: {twitter_account}')
         try:
             user = self.twitter_api.GetUser(screen_name=twitter_account)
-        except TwitterError as error:
+        except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
             return False
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
@@ -94,8 +107,9 @@ class Twitter(CogHelper):
         try:
             timeline = self.twitter_api.GetUserTimeline(user_id=user.id, count=1,
                                                         include_rts=False, exclude_replies=True)
-        except TwitterError as error:
+        except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
             return await ctx.send('Error getting timeline from twitter')
 
         if len(timeline) == 0:
@@ -124,8 +138,9 @@ class Twitter(CogHelper):
                           f'and channel id {ctx.channel.id}')
         try:
             user = self.twitter_api.GetUser(screen_name=twitter_account)
-        except TwitterError as error:
+        except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
             return False
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
@@ -149,8 +164,9 @@ class Twitter(CogHelper):
             try:
                 user = self.twitter_api.GetUser(user_id=subs.twitter_user_id)
                 screen_names.append(user.screen_name)
-            except TwitterError as error:
+            except (TwitterError, requests_connection_error) as error:
                 self.logger.exception(f'Exception getting user: {error}')
+                self._restart_client()
                 return await ctx.send('Error getting twitter names')
         message = '\n'.join(name for name in screen_names)
         return await ctx.send(f'```Subscribed to \n{message}```')

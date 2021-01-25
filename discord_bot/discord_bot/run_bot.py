@@ -2,7 +2,6 @@ import argparse
 import os
 
 from discord.ext import commands
-from twitter import Api
 from youtube_dl import YoutubeDL
 
 from discord_bot.cogs.error import CommandErrorHandler
@@ -65,12 +64,14 @@ def main():
     settings['trim_audio'] = settings['trim_audio'] or False
 
     try:
-        twitter_api = Api(consumer_key=settings['twitter_api_key'],
-                          consumer_secret=settings['twitter_api_key_secret'],
-                          access_token_key=settings['twitter_access_token'],
-                          access_token_secret=settings['twitter_access_token_secret'])
+        twitter_settings = {
+            'consumer_key': settings['twitter_api_key'],
+            'consumer_secret': settings['twitter_api_key_secret'],
+            'access_token_key': settings['twitter_access_token'],
+            'access_token_secret': settings['twitter_access_token_secret'],
+        }
     except KeyError:
-        twitter_api = None
+        twitter_settings = None
 
     # Run bot
     bot.add_cog(CommandErrorHandler(bot, logger))
@@ -80,6 +81,7 @@ def main():
     bot.add_cog(RoleAssign(bot, db_session, logger))
     bot.add_cog(Markov(bot, db_session, logger))
     bot.add_cog(Planner(bot, db_session, logger))
-    bot.add_cog(Twitter(bot, db_session, logger, twitter_api))
+    if twitter_settings:
+        bot.add_cog(Twitter(bot, db_session, logger, twitter_settings))
     bot.add_cog(General(bot, logger))
     bot.run(settings['discord_token'])
