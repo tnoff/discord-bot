@@ -5,6 +5,7 @@ import typing
 
 from discord import TextChannel
 from discord.ext import commands
+from sqlalchemy.orm import aliased
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel
@@ -245,36 +246,31 @@ class Markov(CogHelper):
         follower_cache = {}
         for _ in range(sentence_length + 1):
             try:
-                follower_choices = follower_cache[word]['choices']
-                follower_weights = follower_cache[word]['weights']
+                _follower_choices = follower_cache[word]['choices']
+                _follower_weights = follower_cache[word]['weights']
             except KeyError:
-                follower_mapping = {}
-                # For a markov word that matches the string, that belongs to
-                # any markov channel that is in your current server
-                for _channel, channel_word in self.db_session.query(MarkovChannel, MarkovWord).\
-                            join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                            filter(MarkovChannel.server_id == str(ctx.guild.id)).\
-                            filter(MarkovWord.word == word):
-                    # Grab the relation and follower word for that word
-                    # Add it to a mapping so we match like followers across channels
-                    for relation, follower_word in \
-                                        self.db_session.query(MarkovRelation, MarkovWord).\
-                                        join(MarkovWord,
-                                             MarkovRelation.follower_id == MarkovWord.id).\
-                                        filter(MarkovRelation.leader_id == channel_word.id):
-                        follower_mapping.setdefault(follower_word.word, 0)
-                        follower_mapping[follower_word.word] += relation.count
+                follower_cache[word] = {'choices' : [], 'weights': []}
 
-                # Setup cache so we now the choices and weights to use in random
-                follower_cache[word] = {'choices': [], 'weights': []}
-                for follower_word, relation_count in follower_mapping.items():
-                    follower_cache[word]['choices'].append(follower_word)
-                    follower_cache[word]['weights'].append(relation_count)
-                follower_choices = follower_cache[word]['choices']
-                follower_weights = follower_cache[word]['weights']
+                # Use aliased so you can two separate joins
+                leader_word = aliased(MarkovWord)
+                follower_word = aliased(MarkovWord)
 
+                # Get server channels
+                # Then join on leader word, get all words for channels
+                # Filter to make sure word matches current word
+                # Join relation and follower word
+                for _channel, _lead_word, relation, follower in \
+                        self.db_session.query(MarkovChannel, leader_word, MarkovRelation, follower_word).\
+                        filter(MarkovChannel.server_id == str(ctx.guild.id)).\
+                        join(leader_word, MarkovChannel.id == leader_word.channel_id).\
+                        filter(leader_word.word == word).\
+                        join(MarkovRelation, leader_word.id == MarkovRelation.leader_id).\
+                        join(MarkovWord, MarkovRelation.follower_id == follower_word.id):
+                    follower_cache[word]['choices'].append(follower.word)
+                    follower_cache[word]['weights'].append(relation.count)
 
-            word = random.choices(follower_choices, weights=follower_weights, k=1)[0]
+            word = random.choices(follower_cache[word]['choices'],
+                                  weights=follower_cache[word]['weights'],
+                                  k=1)[0]
             all_words.append(word)
-
         return await ctx.send(' '.join(markov_word for markov_word in all_words))
