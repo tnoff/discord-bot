@@ -5,6 +5,7 @@ import typing
 
 from discord import TextChannel
 from discord.ext import commands
+from discord.errors import NotFound
 from sqlalchemy.orm import aliased
 
 from discord_bot.cogs.common import CogHelper
@@ -90,6 +91,18 @@ class Markov(CogHelper):
                 relation.count += 1
                 self.db_session.commit()
 
+    def _delete_channel_words(self, channel_id):
+        markov_words = self.db_session.query(MarkovWord.id).\
+                        filter(MarkovWord.channel_id == channel_id)
+        self.db_session.query(MarkovRelation).\
+            filter(MarkovRelation.leader_id.in_(markov_words.subquery())).\
+            delete(synchronize_session=False)
+        self.db_session.commit()
+        self.db_session.query(MarkovWord).\
+            filter(MarkovWord.channel_id == channel_id).delete()
+        self.db_session.commit()
+
+
     async def wait_loop(self):
         '''
         Our main loop.
@@ -104,11 +117,21 @@ class Markov(CogHelper):
                 # Start at the beginning of channel history,
                 # slowly make your way make to current day
                 if not markov_channel.last_message_id:
-                    messages = await channel.history(limit=100, oldest_first=True).flatten()
+                    messages = await channel.history(limit=128, oldest_first=True).flatten()
                 else:
-                    last_message = await channel.fetch_message(markov_channel.last_message_id)
-                    messages = await channel.history(after=last_message, limit=100).flatten()
-
+                    try:
+                        last_message = await channel.fetch_message(markov_channel.last_message_id)
+                        messages = await channel.history(after=last_message, limit=128).flatten()
+                    except NotFound:
+                        self.logger.error(f'Unable to find message {markov_channel.last_message_id}'
+                                          f' in channel {markov_channel.id}')
+                        # Last message on record not found
+                        # If this happens, wipe the channel clean and restart
+                        self._delete_channel_words(markov_channel.id)
+                        markov_channel.last_message_id = None
+                        self.db_session.commit()
+                        # Skip this channel for now
+                        continue
 
                 for message in messages:
                     self.logger.debug(f'Gathering message {message.id} '
@@ -170,6 +193,7 @@ class Markov(CogHelper):
                                    last_message_id=None)
         self.db_session.add(new_markov)
         self.db_session.commit()
+        self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
         return await ctx.send('Markov turned on for channel')
 
@@ -185,16 +209,9 @@ class Markov(CogHelper):
 
         if not markov_channel:
             return await ctx.send('Channel does not have markov turned on')
+        self.logger.info(f'Turning off markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
-        markov_words = self.db_session.query(MarkovWord.id).\
-                        filter(MarkovWord.channel_id == markov_channel.id)
-        self.db_session.query(MarkovRelation).\
-            filter(MarkovRelation.leader_id.in_(markov_words.subquery())).\
-            delete(synchronize_session=False)
-        self.db_session.commit()
-        self.db_session.query(MarkovWord).\
-            filter(MarkovWord.channel_id == markov_channel.id).delete()
-        self.db_session.commit()
+        self._delete_channel_words(markov_channel.id)
         self.db_session.delete(markov_channel)
         self.db_session.commit()
 
@@ -212,35 +229,23 @@ class Markov(CogHelper):
         first_word  :   First word for markov string, if not given will be random
         sentence_length :   Length of sentence
         '''
-        # Ensure channel not already on
-        markov_channel = self.db_session.query(MarkovChannel).\
-            filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
 
-        if not markov_channel:
-            return await ctx.send('Channel does not have markov turned on')
-
+        possible_words = []
+        query = self.db_session.query(MarkovChannel, MarkovWord).\
+                    join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
+                    filter(MarkovChannel.server_id == str(ctx.guild.id)).\
+                    filter(MarkovWord.word == first_word.lower())
         if first_word:
-            possible_words = []
-            for _channel, word in self.db_session.query(MarkovChannel, MarkovWord).\
-                        join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                        filter(MarkovChannel.server_id == str(ctx.guild.id)).\
-                        filter(MarkovWord.word == first_word.lower()):
-                possible_words.append(word)
-            word = random.choice(possible_words)
-            if not word:
-                return await ctx.send(f'Unable to find word "{first_word}"')
-        else:
-            # Make sure you grab a random word from the proper server
-            # Not sure how to get the random to work on looking up multiple tables
-            possible_words = []
-            for _channel, word in self.db_session.query(MarkovChannel, MarkovWord).\
-                        join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                        filter(MarkovChannel.server_id == str(ctx.guild.id)):
-                possible_words.append(word)
-            word = random.choice(possible_words)
+            query = query.filter(MarkovWord.word == first_word.lower())
 
-        # Make sure you only get actual word
-        word = word.word
+        for _channel, word in query:
+            possible_words.append(word.word)
+
+        if len(possible_words) == 0:
+            return await ctx.send('No markov words to pick from')
+        word = random.choice(possible_words)
+
+
         all_words = [word]
         # Save a cache layer to reduce db calls
         follower_cache = {}
@@ -260,7 +265,8 @@ class Markov(CogHelper):
                 # Filter to make sure word matches current word
                 # Join relation and follower word
                 for _channel, _lead_word, relation, follower in \
-                        self.db_session.query(MarkovChannel, leader_word, MarkovRelation, follower_word).\
+                        self.db_session.query(MarkovChannel, leader_word,
+                                              MarkovRelation, follower_word).\
                         filter(MarkovChannel.server_id == str(ctx.guild.id)).\
                         join(leader_word, MarkovChannel.id == leader_word.channel_id).\
                         filter(leader_word.word == word).\
