@@ -232,8 +232,7 @@ class Markov(CogHelper):
         possible_words = []
         query = self.db_session.query(MarkovChannel, MarkovWord).\
                     join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                    filter(MarkovChannel.server_id == str(ctx.guild.id)).\
-                    filter(MarkovWord.word == first_word.lower())
+                    filter(MarkovChannel.server_id == str(ctx.guild.id))
         if first_word:
             query = query.filter(MarkovWord.word == first_word.lower())
 
