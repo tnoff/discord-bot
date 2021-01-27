@@ -88,7 +88,6 @@ class Markov(CogHelper):
                     continue
                 relation = self.__ensure_relation(leader_word, follower_word)
                 relation.count += 1
-                self.db_session.commit()
 
     def _delete_channel_words(self, channel_id):
         markov_words = self.db_session.query(MarkovWord.id).\
@@ -96,10 +95,8 @@ class Markov(CogHelper):
         self.db_session.query(MarkovRelation).\
             filter(MarkovRelation.leader_id.in_(markov_words.subquery())).\
             delete(synchronize_session=False)
-        self.db_session.commit()
         self.db_session.query(MarkovWord).\
             filter(MarkovWord.channel_id == channel_id).delete()
-        self.db_session.commit()
 
 
     async def wait_loop(self):
@@ -155,8 +152,6 @@ class Markov(CogHelper):
                     self.logger.info(f'Attempting to add message_text "{message_text}" '
                                      f'to channel {markov_channel.channel_id}')
                     self.__build_and_save_relations(message_text, markov_channel)
-
-                    self.db_session.commit()
                 # Commit at the end in case the last message was skipped
                 self.db_session.commit()
 
