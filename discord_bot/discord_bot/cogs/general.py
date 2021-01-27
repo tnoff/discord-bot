@@ -36,3 +36,13 @@ class General(commands.Cog):
         '''
         _, message = functions.windows(ctx, self.logger)
         await ctx.send(message)
+
+    @commands.command(name='meta')
+    async def meta(self, ctx):
+        '''
+        Get meta information for channel and server
+        '''
+        message = f'Server id: {ctx.guild.id}\n'\
+                  f'Channel id: {ctx.channel.id}\n'\
+                  f'User id: {ctx.user.id}'
+        await ctx.send(message)
