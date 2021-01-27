@@ -42,7 +42,7 @@ class General(commands.Cog):
         '''
         Get meta information for channel and server
         '''
-        message = f'Server id: {ctx.guild.id}\n'\
+        message = f'```Server id: {ctx.guild.id}\n'\
                   f'Channel id: {ctx.channel.id}\n'\
-                  f'User id: {ctx.user.id}'
+                  f'User id: {ctx.author.id}```'
         await ctx.send(message)
