@@ -240,10 +240,12 @@ class Markov(CogHelper):
             possible_words.append(word.word)
 
         if len(possible_words) == 0:
+            if first_word:
+                return await ctx.send(f'No markov word matching "{first_word}"')
             return await ctx.send('No markov words to pick from')
+
+
         word = random.choice(possible_words)
-
-
         all_words = [word]
         # Save a cache layer to reduce db calls
         follower_cache = {}
