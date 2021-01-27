@@ -6,7 +6,6 @@ import typing
 from discord import TextChannel
 from discord.ext import commands
 from discord.errors import NotFound
-from sqlalchemy.orm import aliased
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel
@@ -256,22 +255,16 @@ class Markov(CogHelper):
             except KeyError:
                 follower_cache[word] = {'choices' : [], 'weights': []}
 
-                # Use aliased so you can two separate joins
-                leader_word = aliased(MarkovWord)
-                follower_word = aliased(MarkovWord)
-
-                # Get server channels
-                # Then join on leader word, get all words for channels
-                # Filter to make sure word matches current word
-                # Join relation and follower word
-                for _channel, _lead_word, relation, follower in \
-                        self.db_session.query(MarkovChannel, leader_word,
-                                              MarkovRelation, follower_word).\
+				# Get all leader ids first so you can pass it in
+                leader_ids = self.db_session.query(MarkovWord.id).\
+                        join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
                         filter(MarkovChannel.server_id == str(ctx.guild.id)).\
-                        join(leader_word, MarkovChannel.id == leader_word.channel_id).\
-                        filter(leader_word.word == word).\
-                        join(MarkovRelation, leader_word.id == MarkovRelation.leader_id).\
-                        join(MarkovWord, MarkovRelation.follower_id == follower_word.id):
+                        filter(MarkovWord.word == word)
+
+				# Pass leader ids as subquery, get relation and followers
+                for relation, follower in self.db_session.query(MarkovRelation, MarkovWord).\
+                        filter(MarkovRelation.leader_id.in_(leader_ids.subquery())).\
+                        join(MarkovWord, MarkovRelation.follower_id == MarkovWord.id):
                     follower_cache[word]['choices'].append(follower.word)
                     follower_cache[word]['weights'].append(relation.count)
 
