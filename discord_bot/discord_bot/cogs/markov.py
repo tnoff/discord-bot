@@ -25,7 +25,6 @@ def build_transition_matrix(corpus):
         "friend.": ["hello"],
     }
     '''
-    corpus = corpus.split(' ')
     transitions = {}
     for (k, word) in enumerate(corpus):
         if k != len(corpus) - 1: # Deal with last word
@@ -38,6 +37,37 @@ def build_transition_matrix(corpus):
 
         transitions[word].append(next_word)
     return transitions
+
+def clean_message(content, emoji_ids):
+    '''
+    Clean channel message
+    content :   Full message content to clean
+    emojis  :   List of server emoji ids, so we can remove any not from server
+
+    Returns "corpus", list of cleaned words
+    '''
+    # Remove web links and mentions from text
+    message_text = re.sub(r'(https?\://|\<\@)\S+', '',
+                          content, flags=re.MULTILINE)
+    # Doesnt remove @here or @everyone
+    message_text = message_text.replace('@here', '')
+    message_text = message_text.replace('@everyone', '')
+    # Strip blank ends
+    message_text = message_text.strip()
+    corpus = []
+    for word in message_text.split(' '):
+        # Check for emojis in message
+        # If emoji, check if belongs to list, if not, disregard it
+        # Emojis can be case sensitive so do not lower them
+        # Custom emojis usually have <:emoji:id> format
+        # Ex: <:fail:1231031923091032910390>
+        match = re.match('^\ *<(?P<emoji>:\w+:)(?P<id>\d+)>\ *$', word)
+        if match:
+            if int(match.group('id')) in emoji_ids:
+                corpus.append(word)
+            continue
+        corpus.append(word.lower())
+    return corpus
 
 class Markov(CogHelper):
     '''
@@ -108,6 +138,8 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             for markov_channel in self.db_session.query(MarkovChannel).all():
                 channel = await self.bot.fetch_channel(markov_channel.channel_id)
+                server = await self.bot.fetch_guild(markov_channel.server_id)
+                emoji_ids = [emoji.id for emoji in await server.fetch_emojis()]
                 self.logger.info('Gathering markov messages for '
                                  f'channel {markov_channel.channel_id}')
                 # Start at the beginning of channel history,
@@ -139,19 +171,12 @@ class Markov(CogHelper):
                     # If message begins with '!', assume it was a bot command
                     if message.content[0] == '!':
                         continue
-                    # Remove web links and mentions from text
-                    message_text = re.sub(r'(https?\://|\<\@)\S+', '',
-                                          message.content, flags=re.MULTILINE)
-                    # Doesnt remove @here or @everyone
-                    message_text = message_text.replace('@here', '')
-                    message_text = message_text.replace('@everyone', '')
-                    # Use lower() so we can re-use words better
-                    message_text = message_text.lower().strip()
-                    if not message_text:
+                    corpus = clean_message(message.content, emoji_ids)
+                    if not corpus:
                         continue
-                    self.logger.info(f'Attempting to add message_text "{message_text}" '
+                    self.logger.info(f'Attempting to add corpus "{corpus}" '
                                      f'to channel {markov_channel.channel_id}')
-                    self.__build_and_save_relations(message_text, markov_channel)
+                    self.__build_and_save_relations(corpus, markov_channel)
                 # Commit at the end in case the last message was skipped
                 self.db_session.commit()
 
