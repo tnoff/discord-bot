@@ -11,32 +11,6 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel
 from discord_bot.database import MarkovRelation, MarkovWord
 
-# https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
-def build_transition_matrix(corpus):
-    '''
-    corpus  :   Input message
-
-    Returns dictionary of each word, and words following that word
-    Ex:
-    {
-        "hello": ["there", "my"],
-        "my": ["friend."],
-        "there": ["my"],
-        "friend.": ["hello"],
-    }
-    '''
-    transitions = {}
-    for (k, word) in enumerate(corpus):
-        if k != len(corpus) - 1: # Deal with last word
-            next_word = corpus[k+1]
-        else:
-            next_word = corpus[0] # To loop back to the beginning
-
-        if word not in transitions:
-            transitions[word] = []
-
-        transitions[word].append(next_word)
-    return transitions
 
 def clean_message(content, emoji_ids):
     '''
@@ -106,18 +80,22 @@ class Markov(CogHelper):
         self.db_session.flush()
         return new_relation
 
-    def __build_and_save_relations(self, message, markov_channel):
-        transitions = build_transition_matrix(message)
-        for leader, followers in transitions.items():
-            leader_word = self.__ensure_word(leader, markov_channel)
+    # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
+    def __build_and_save_relations(self, corpus, markov_channel):
+        for (k, word) in enumerate(corpus):
+            if k != len(corpus) - 1: # Deal with last word
+                next_word = corpus[k+1]
+            else:
+                next_word = corpus[0] # To loop back to the beginning
+
+            leader_word = self.__ensure_word(word, markov_channel)
             if leader_word is None:
                 continue
-            for follower in followers:
-                follower_word = self.__ensure_word(follower, markov_channel)
-                if follower_word is None:
-                    continue
-                relation = self.__ensure_relation(leader_word, follower_word)
-                relation.count += 1
+            follower_word = self.__ensure_word(next_word, markov_channel)
+            if follower_word is None:
+                continue
+            relation = self.__ensure_relation(leader_word, follower_word)
+            relation.count += 1
 
     def _delete_channel_words(self, channel_id):
         markov_words = self.db_session.query(MarkovWord.id).\
