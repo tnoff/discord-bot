@@ -223,16 +223,27 @@ class Markov(CogHelper):
 
         Note that this uses all markov channels setup for the server
 
-        first_word  :   First word for markov string, if not given will be random
+        first_word  :   First word for markov string, if not given will be random.
         sentence_length :   Length of sentence
+
+        Note that for first_word, multiple words can be given, but they must be in quotes
+        Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
 
+        all_words = []
         possible_words = []
         query = self.db_session.query(MarkovChannel, MarkovWord).\
                     join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
                     filter(MarkovChannel.server_id == str(ctx.guild.id))
         if first_word:
-            query = query.filter(MarkovWord.word == first_word.lower())
+            # Allow for multiple words to be given
+            # If so, just grab last word
+            starting_words = first_word.split(' ')
+            # Make sure to add to all words here
+            for start_words in starting_words[:-1]:
+                all_words.append(start_words.lower())
+            first = starting_words[-1].lower()
+            query = query.filter(MarkovWord.word == first)
 
         for _channel, word in query:
             possible_words.append(word.word)
@@ -244,7 +255,7 @@ class Markov(CogHelper):
 
 
         word = random.choice(possible_words)
-        all_words = [word]
+        all_words.append(word)
         # Save a cache layer to reduce db calls
         follower_cache = {}
         for _ in range(sentence_length + 1):

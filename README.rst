@@ -273,6 +273,4 @@ TODOs
 Markov
 ------
 
-- Allow multiple words to be passed into speak
--- Bot would then start sequence at last word given by user
 - Add "private" option to channels
