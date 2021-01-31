@@ -30,6 +30,8 @@ def clean_message(content, emoji_ids):
     message_text = message_text.strip()
     corpus = []
     for word in message_text.split(' '):
+        if word == '' or word == ' ':
+            continue
         # Check for emojis in message
         # If emoji, check if belongs to list, if not, disregard it
         # Emojis can be case sensitive so do not lower them
