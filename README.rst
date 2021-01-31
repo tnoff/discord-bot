@@ -99,30 +99,34 @@ Commands
 
 .. code::
 
-    General:
-      hello        Say hello to the server
-      roll         Get a random number between 1 and number given
-      windows      Get an inspirational note about your operating system
-    Music:
-      bump         Bump item to top of queue
-      clear        Clear all items from queue
-      join         Connect to voice channel.
-      now_playing  Display information about the currently playing song.
-      pause        Pause the currently playing song.
-      play         Request a song and add it to the queue.
-      playlist     Playlist functions.
-      queue        Show the queue of upcoming songs.
-      remove       Remove item from queue.
-      resume       Resume the currently paused song.
-      shuffle      Shuffle song queue.
-      skip         Skip the song.
-      stop         Stop the currently playing song and disconnect bot from voice ...
-    Planner:
-      planner      Planner functions
-    RoleAssign:
-      assign-roles Generate message with all roles.
-    Twitter:
-      twitter      Planner functions
+	General:
+	  hello        Say hello to the server
+	  meta         Get meta information for channel and server
+	  roll         Get a random number between 1 and number given
+	  windows      Get an inspirational note about your operating system
+	Markov:
+	  markov       Markov functions
+	Music:
+	  bump         Bump item to top of queue
+	  clear        Clear all items from queue
+	  join         Connect to voice channel.
+	  pause        Pause the currently playing song.
+	  play         Request a song and add it to the queue.
+	  playlist     Playlist functions.
+	  queue        Show current song queue
+	  remove       Remove item from queue.
+	  resume       Resume the currently paused song.
+	  shuffle      Shuffle song queue.
+	  skip         Skip the song.
+	  stop         Stop the currently playing song and disconnect bot from voice ...
+	Planner:
+	  planner      Planner functions
+	RoleAssign:
+	  assign-roles Generate message with all roles.
+	Twitter:
+	  twitter      Planner functions
+	No Category:
+	  help         Shows this message
 
 
 ===============
@@ -264,6 +268,45 @@ Unsubscribe from a twitter feed
 .. code::
 
     !twitter unsubscribe
+
+------
+Markov
+------
+Very basic implementation of a Markov Chain of chat history. Turn markov on for a channel and the bot will read all the chat history from the channel, after which is can generate text.
+
+Markov channels are aggregated across the server, meaning that the chat of all channels on a server are used to generate the markov speak commands.
+
+
+Turn on markov for a channel
+
+.. code::
+
+    !markov on
+
+
+Turn off markov for a channel
+
+.. code::
+
+    !markov off
+
+Have markov generate random text
+
+.. code::
+
+    !markov speak
+
+Have markov generate random text starting with a given word
+
+.. code::
+
+    !markov speak first_word
+
+Have markov generate text 64 words long starting with a given phrase
+
+.. code::
+
+    !markov speak "starting phrase" 64
 
 =====
 TODOs
