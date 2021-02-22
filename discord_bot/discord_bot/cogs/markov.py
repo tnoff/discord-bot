@@ -141,6 +141,10 @@ class Markov(CogHelper):
                         # Skip this channel for now
                         continue
 
+                if len(messages) == 0:
+                    self.logger.debug(f'No new messages for channel {markov_channel.channel_id}')
+                    continue
+
                 for message in messages:
                     self.logger.debug(f'Gathering message {message.id} '
                                       f'for channel {markov_channel.channel_id}')
