@@ -36,5 +36,5 @@ class CommandErrorHandler(commands.Cog):
         if isinstance(error, commands.CommandNotFound):
             return await ctx.send('Unknown command, use !help to show all commands')
 
-        self.logger.info('Ignoring exception in command {}:'.format(ctx.command))
+        self.logger.exception(f'Exception on command "{ctx.command.name}", exception {str(error)}')
         traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
