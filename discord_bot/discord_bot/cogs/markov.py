@@ -30,7 +30,7 @@ def clean_message(content, emoji_ids):
     message_text = message_text.strip()
     corpus = []
     for word in message_text.split(' '):
-        if word == '' or word == ' ':
+        if word in ('', ' '):
             continue
         # Check for emojis in message
         # If emoji, check if belongs to list, if not, disregard it
@@ -171,16 +171,25 @@ class Markov(CogHelper):
             await ctx.send('Invalid sub command passed...')
 
     @markov.command(name='on')
-    async def on(self, ctx):
+    async def on(self, ctx, channel_type: typing.Optional[str] = 'public'):
         '''
         Turn markov on for channel
+        channel_type    :   Either "private" or "public", will be "public" by default
         '''
+        if channel_type.lower() not in ['public', 'private']:
+            return await ctx.send(f'Invalid channel type "{channel_type}"')
+        is_private = channel_type.lower() == 'private'
+
         # Ensure channel not already on
         markov = self.db_session.query(MarkovChannel).\
             filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
             filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
 
         if markov:
+            if is_private != markov.is_private:
+                markov.is_private = is_private
+                self.db_session.commit()
+                return await ctx.send(f'Updating channel type to {channel_type.lower()}')
             return await ctx.send('Channel already has markov turned on')
 
         channel = await self.bot.fetch_channel(ctx.channel.id)
@@ -189,7 +198,8 @@ class Markov(CogHelper):
 
         new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
                                    server_id=str(ctx.guild.id),
-                                   last_message_id=None)
+                                   last_message_id=None,
+                                   is_private=is_private)
         self.db_session.add(new_markov)
         self.db_session.commit()
         self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
@@ -232,11 +242,27 @@ class Markov(CogHelper):
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
 
+        # First check is channel is private
+        markov_channel = self.db_session.query(MarkovChannel).\
+            filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
+            filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
         all_words = []
-        possible_words = []
-        query = self.db_session.query(MarkovChannel, MarkovWord).\
+
+        # Find first word, first get query of either all channels in server, or just
+        # single channel
+
+        # First get results from all public channels
+        query = self.db_session.query(MarkovWord.id).\
                     join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                    filter(MarkovChannel.server_id == str(ctx.guild.id))
+                    filter(MarkovChannel.server_id == str(ctx.guild.id)).\
+                    filter(MarkovChannel.is_private == False)
+        # If within a private channel, add this channels results to query
+        if markov_channel and markov_channel.is_private:
+            # Results either come from this private channel
+            # or from another public channel within server
+            query = query.union(self.db_session.query(MarkovWord.id).\
+                        join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
+                        filter(MarkovWord.channel_id == markov_channel.id))
         if first_word:
             # Allow for multiple words to be given
             # If so, just grab last word
@@ -247,17 +273,15 @@ class Markov(CogHelper):
             first = starting_words[-1].lower()
             query = query.filter(MarkovWord.word == first)
 
-        for _channel, word in query:
-            possible_words.append(word.word)
+        possible_word_ids = [word[0] for word in query]
 
-        if len(possible_words) == 0:
+        if len(possible_word_ids) == 0:
             if first_word:
                 return await ctx.send(f'No markov word matching "{first_word}"')
             return await ctx.send('No markov words to pick from')
-
-
-        word = random.choice(possible_words)
+        word = self.db_session.query(MarkovWord).get(random.choice(possible_word_ids)).word
         all_words.append(word)
+
         # Save a cache layer to reduce db calls
         follower_cache = {}
         for _ in range(sentence_length + 1):
@@ -267,19 +291,28 @@ class Markov(CogHelper):
             except KeyError:
                 follower_cache[word] = {'choices' : [], 'weights': []}
 
-				# Get all leader ids first so you can pass it in
+                # Get all leader ids first so you can pass it in
+                # First get all leader ids from public channels
                 leader_ids = self.db_session.query(MarkovWord.id).\
                         join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
                         filter(MarkovChannel.server_id == str(ctx.guild.id)).\
+                        filter(MarkovChannel.is_private == False).\
                         filter(MarkovWord.word == word)
+                # If current channel is private, add this channels results to query
+                if markov_channel and markov_channel.is_private:
+                    # Results either come from this private channel
+                    # or from another public channel within server
+                    leader_ids = leader_ids.union(self.db_session.query(MarkovWord.id).\
+                        filter(MarkovWord.channel_id == markov_channel.id).\
+                        filter(MarkovChannel.server_id == str(ctx.guild.id)).\
+                        filter(MarkovWord.word == word))
 
-				# Pass leader ids as subquery, get relation and followers
+                # Pass leader ids as subquery, get relation and followers
                 for relation, follower in self.db_session.query(MarkovRelation, MarkovWord).\
                         filter(MarkovRelation.leader_id.in_(leader_ids.subquery())).\
                         join(MarkovWord, MarkovRelation.follower_id == MarkovWord.id):
                     follower_cache[word]['choices'].append(follower.word)
                     follower_cache[word]['weights'].append(relation.count)
-
             word = random.choices(follower_cache[word]['choices'],
                                   weights=follower_cache[word]['weights'],
                                   k=1)[0]

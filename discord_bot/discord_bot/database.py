@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String
+from sqlalchemy import Boolean, Column, Integer, BigInteger, String
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -84,6 +84,7 @@ class MarkovChannel(BASE):
     channel_id = Column(String(128))
     server_id = Column(String(128))
     last_message_id = Column(String(128))
+    is_private = Column(Boolean)
 
 class MarkovWord(BASE):
     '''
