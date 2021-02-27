@@ -246,11 +246,21 @@ class Markov(CogHelper):
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
 
+        all_words = []
+        first = None
+        if first_word:
+            # Allow for multiple words to be given
+            # If so, just grab last word
+            starting_words = first_word.split(' ')
+            # Make sure to add to all words here
+            for start_words in starting_words[:-1]:
+                all_words.append(start_words.lower())
+            first = starting_words[-1].lower()
+
         # First check is channel is private
         markov_channel = self.db_session.query(MarkovChannel).\
             filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
             filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
-        all_words = []
 
         # Find first word, first get query of either all channels in server, or just
         # single channel
@@ -260,22 +270,19 @@ class Markov(CogHelper):
                     join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
                     filter(MarkovChannel.server_id == str(ctx.guild.id)).\
                     filter(MarkovChannel.is_private == False)
+        if first:
+            query = query.filter(MarkovWord.word == first)
+
         # If within a private channel, add this channels results to query
         if markov_channel and markov_channel.is_private:
             # Results either come from this private channel
             # or from another public channel within server
-            query = query.union(self.db_session.query(MarkovWord.id).\
-                        join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
-                        filter(MarkovWord.channel_id == markov_channel.id))
-        if first_word:
-            # Allow for multiple words to be given
-            # If so, just grab last word
-            starting_words = first_word.split(' ')
-            # Make sure to add to all words here
-            for start_words in starting_words[:-1]:
-                all_words.append(start_words.lower())
-            first = starting_words[-1].lower()
-            query = query.filter(MarkovWord.word == first)
+            second_query = self.db_session.query(MarkovWord.id).\
+                            join(MarkovChannel, MarkovChannel.id == MarkovWord.channel_id).\
+                            filter(MarkovWord.channel_id == markov_channel.id)
+            if first:
+                second_query = second_query.filter(MarkovWord.word == first)
+            query = query.union(second_query)
 
         possible_word_ids = [word[0] for word in query]
 
