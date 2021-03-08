@@ -50,6 +50,7 @@ class TwitterSubscription(BASE):
     twitter_user_id = Column(String(128), nullable=False)
     last_post = Column(BigInteger)
     channel_id = Column(String(128))
+    show_all_posts = Column(Boolean)
 
 class RoleAssignmentMessage(BASE):
     '''

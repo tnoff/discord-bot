@@ -1,5 +1,6 @@
 import asyncio
 from copy import deepcopy
+import typing
 
 from discord.ext import commands
 from requests.exceptions import ConnectionError as requests_connection_error
@@ -38,8 +39,9 @@ class Twitter(CogHelper):
         while not exit_loop:
             try:
                 timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
-                                                            since_id=last_post, include_rts=False,
-                                                            exclude_replies=True)
+                                                            since_id=last_post,
+                                                            include_rts=subscription.show_all_posts,
+                                                            exclude_replies=not subscription.show_all_posts)
             except (TwitterError, requests_connection_error) as error:
                 self.logger.exception(f'Exception getting user: {error}')
                 self._restart_client()
@@ -86,10 +88,15 @@ class Twitter(CogHelper):
             await ctx.send('Invalid sub command passed...')
 
     @twitter.command(name='subscribe')
-    async def subscribe(self, ctx, twitter_account):
+    async def subscribe(self, ctx, twitter_account, show_all_posts: typing.Optional[str] = ''):
         '''
         Subscribe to twitter account, and post updates in channel
+
+        twitter_account :   Twitter account name to subscribe to
+        show_all_posts  :   To show all posts, including retweets and replies use "show-all"
         '''
+        # Strip twitter.com lead from string
+        twitter_account = twitter_account.replace('https://twitter.com/', '')
         self.logger.debug(f'Attempting to subscribe to username: {twitter_account}')
         try:
             user = self.twitter_api.GetUser(screen_name=twitter_account)
@@ -104,9 +111,10 @@ class Twitter(CogHelper):
         if subscription:
             return await ctx.send(f'Already subscribed to user {twitter_account}')
 
+        show_posts = show_all_posts.strip().lower() == 'show-all'
         try:
             timeline = self.twitter_api.GetUserTimeline(user_id=user.id, count=1,
-                                                        include_rts=False, exclude_replies=True)
+                                                        include_rts=show_posts, exclude_replies=not show_posts)
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
@@ -122,6 +130,7 @@ class Twitter(CogHelper):
             'twitter_user_id': user.id,
             'last_post': last_post,
             'channel_id': str(ctx.channel.id),
+            'show_all_posts': show_posts,
         }
         self.logger.debug(f'Adding new subscription {args}')
         tw = TwitterSubscription(**args)
