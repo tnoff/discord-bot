@@ -47,7 +47,8 @@ class Twitter(CogHelper):
                 self._restart_client()
                 return
 
-            for post in timeline:
+            # Iterate through the list backwards so that the oldest tweets are first
+            for post in timeline[::-1]:
                 if post.id != old_last_post:
                     channel = self.bot.get_channel(int(subscription.channel_id))
                     message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
