@@ -13,7 +13,7 @@ from discord_bot.exceptions import DiscordBotException
 from discord_bot.database import BASE
 
 # https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
-class RetryingQuery(_Query):
+class RetryingQuery(_Query): #pylint:disable=too-many-ancestors
     '''
     Retry logic for sqlalchemy
     '''
