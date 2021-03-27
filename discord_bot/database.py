@@ -4,6 +4,10 @@ from sqlalchemy.ext.declarative import declarative_base
 
 BASE = declarative_base()
 
+#
+# Music Tables
+#
+
 class Playlist(BASE):
     '''
     Playlist
@@ -40,6 +44,10 @@ class PlaylistMembership(BASE):
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     playlist_item_id = Column(Integer, ForeignKey('playlist_item.id'))
 
+#
+# Twitter Tables
+#
+
 class TwitterSubscription(BASE):
     '''
     Twitter Subscription
@@ -51,6 +59,20 @@ class TwitterSubscription(BASE):
     last_post = Column(BigInteger)
     channel_id = Column(String(128))
     show_all_posts = Column(Boolean)
+
+class TwitterSubscriptionFilter(BASE):
+    '''
+    Twitter Subscription Filter
+    '''
+    __tablename__ = 'twitter_subscription_filter'
+
+    id = Column(Integer, primary_key=True)
+    twitter_subscription_id = Column(Integer, ForeignKey('twitter_subscription.id'))
+    regex_filter = Column(String(256))
+
+#
+# Role Assignment Tables
+#
 
 class RoleAssignmentMessage(BASE):
     '''
@@ -71,6 +93,10 @@ class RoleAssignmentReaction(BASE):
     role_id = Column(String(128))
     emoji_name = Column(String(64))
     role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))
+
+#
+# Markov Tables
+#
 
 class MarkovChannel(BASE):
     '''

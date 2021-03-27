@@ -1,5 +1,6 @@
 import asyncio
 from copy import deepcopy
+import re
 import typing
 
 from discord.ext import commands
@@ -8,7 +9,7 @@ from twitter import Api
 from twitter.error import TwitterError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import TwitterSubscription
+from discord_bot.database import TwitterSubscription, TwitterSubscriptionFilter
 
 class Twitter(CogHelper):
     '''
@@ -29,13 +30,14 @@ class Twitter(CogHelper):
                access_token_key=self.twitter_settings['access_token_key'],
                access_token_secret=self.twitter_settings['access_token_secret'])
 
-    async def _check_subscription(self, subscription):
+    async def _check_subscription(self, subscription, subscription_filters):
         self.logger.debug(f'Checking users twitter feed for '
                           f'new posts: {subscription.twitter_user_id}')
         last_post = None
         exit_loop = False
         has_new_first_post = False
         old_last_post = deepcopy(subscription.last_post)
+        channel = self.bot.get_channel(int(subscription.channel_id))
         while not exit_loop:
             try:
                 timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
@@ -50,14 +52,24 @@ class Twitter(CogHelper):
             # Iterate through the list backwards so that the oldest tweets are first
             for post in timeline[::-1]:
                 if post.id != old_last_post:
-                    channel = self.bot.get_channel(int(subscription.channel_id))
-                    message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
-                    self.logger.info(f'Posting twitter message "{message}" to channel {channel.id}')
-                    await channel.send(message)
+                    self.logger.debug(f'Checking post {post.id} from subscription "{subscription.id}"')
                     if not has_new_first_post:
                         subscription.last_post = post.id
                         self.db_session.commit()
                         has_new_first_post = True
+
+                    # Check if post doesn't match any filters
+                    exclude_message = False
+                    for sub_filter in subscription_filters:
+                        if not re.match(sub_filter, post.text):
+                            self.logger.info(f'Exlcuding post {post.id} because text "{post.text}" does not match regex filter "{sub_filter}"')
+                            exclude_message = True
+                            break
+
+                    if not exclude_message:
+                        message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
+                        self.logger.info(f'Posting twitter message "{message}" to channel {channel.id}')
+                        await channel.send(message)
                 else:
                     exit_loop = True
                     break
@@ -77,7 +89,9 @@ class Twitter(CogHelper):
             self.logger.debug("Checking twitter feeds")
             subscriptions = self.db_session.query(TwitterSubscription).all()
             for subscription in subscriptions:
-                await self._check_subscription(subscription)
+                subscription_filters = self.db_session.query(TwitterSubscriptionFilter).\
+                                            filter(TwitterSubscriptionFilter.twitter_subscription_id == subscription.id)
+                await self._check_subscription(subscription, subscription_filters)
             await asyncio.sleep(300)
 
     @commands.group(name='twitter', invoke_without_command=False)
@@ -157,6 +171,9 @@ class Twitter(CogHelper):
                             filter(TwitterSubscription.twitter_user_id == user.id).\
                             filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
         if subscription:
+            # Remove any filters from subscription
+            self.db_session.query(TwitterSubscriptionFilter).\
+                filter(TwitterSubscriptionFilter.twitter_subscription_id == subscription.id).delete()
             self.db_session.delete(subscription)
             self.db_session.commit()
             return await ctx.send(f'Unsubscribed to user {twitter_account}')
@@ -180,3 +197,76 @@ class Twitter(CogHelper):
                 return await ctx.send('Error getting twitter names')
         message = '\n'.join(name for name in screen_names)
         return await ctx.send(f'```Subscribed to \n{message}```')
+
+
+    @twitter.command(name='add-filter')
+    async def add_filter(self, ctx, twitter_account, regex_filter):
+        '''
+        Add filter to account subscription
+
+        twitter_account :   Twitter account name to add filter to, must already be subscribed
+        regex_filter    :   Python regex filter, only posts that match filter will be shown
+        '''
+        # Strip twitter.com lead from string
+        twitter_account = twitter_account.replace('https://twitter.com/', '')
+        self.logger.debug(f'Attempting to add filter "{regex_filter}" to subscription "{twitter_account}"')
+        try:
+            user = self.twitter_api.GetUser(screen_name=twitter_account)
+        except (TwitterError, requests_connection_error) as error:
+            self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
+            return False
+        # Then check if subscription exists
+        subscription = self.db_session.query(TwitterSubscription).\
+                            filter(TwitterSubscription.twitter_user_id == user.id).\
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
+        if not subscription:
+            self.logger.error(f'Unable to find subscription for twitter account "{twitter_account}"')
+            return await ctx.send(f'Unable to find subscription for twitter account "{twitter_account}"')
+
+        # Attempt to compile filter
+        try:
+            re.compile(regex_filter)
+        except re.error:
+            self.logger.error(f'Invalid regex filter given "{regex_filter}"')
+            return await ctx.send(f'Invalid regex filter given "{regex_filter}"')
+
+
+        subscription_filter = TwitterSubscriptionFilter(
+            twitter_subscription_id = subscription.id,
+            regex_filter=regex_filter,
+        )
+        self.db_session.add(subscription_filter)
+        self.db_session.commit()
+
+        return await ctx.send(f'Filter "{regex_filter}" added to subscription "{twitter_account}"')
+
+    @twitter.command(name='remove-filter')
+    async def remove_filter(self, ctx, twitter_account, regex_filter):
+        '''
+        Remove filter from account subscription
+
+        twitter_account :   Twitter account name to remove filter from, must already be subscribed
+        regex_filter    :   Python regex filter
+        '''
+        # Strip twitter.com lead from string
+        twitter_account = twitter_account.replace('https://twitter.com/', '')
+        self.logger.debug(f'Attempting to remote filter "{regex_filter}" to subscription "{twitter_account}"')
+        try:
+            user = self.twitter_api.GetUser(screen_name=twitter_account)
+        except (TwitterError, requests_connection_error) as error:
+            self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
+            return False
+        # Then check if subscription exists
+        subscription = self.db_session.query(TwitterSubscription).\
+                            filter(TwitterSubscription.twitter_user_id == user.id).\
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
+        if not subscription:
+            self.logger.error(f'Unable to find subscription for twitter account "{twitter_account}"')
+            return await ctx.send(f'Unable to find subscription for twitter account "{twitter_account}"')
+
+        self.db_session.query(TwitterSubscriptionFilter).\
+            filter(TwitterSubscriptionFilter.twitter_subscription_id == subscription.id).\
+            filter(TwitterSubscriptionFilter.regex_filter == regex_filter).delete()
+        return await ctx.send(f'Removed all filters matching "{regex_filter}" from subscription "{twitter_account}"')
