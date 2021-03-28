@@ -1,5 +1,4 @@
 import asyncio
-from copy import deepcopy
 import re
 import typing
 
@@ -32,52 +31,47 @@ class Twitter(CogHelper):
 
     async def _check_subscription(self, subscription, subscription_filters):
         self.logger.debug(f'Checking users twitter feed for '
-                          f'new posts: {subscription.twitter_user_id}')
-        last_post = None
-        exit_loop = False
-        has_new_first_post = False
-        old_last_post = deepcopy(subscription.last_post)
+                          f'new posts for user "{subscription.twitter_user_id}" since last post "{subscription.last_post}"')
         channel = self.bot.get_channel(int(subscription.channel_id))
-        while not exit_loop:
-            try:
-                timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
-                                                            since_id=last_post,
-                                                            include_rts=subscription.show_all_posts,
-                                                            exclude_replies=not subscription.show_all_posts)
-            except (TwitterError, requests_connection_error) as error:
-                self.logger.exception(f'Exception getting user: {error}')
-                self._restart_client()
-                return
+        try:
+            timeline = self.twitter_api.GetUserTimeline(user_id=subscription.twitter_user_id,
+                                                        since_id=subscription.last_post,
+                                                        include_rts=subscription.show_all_posts,
+                                                        exclude_replies=not subscription.show_all_posts)
+        except (TwitterError, requests_connection_error) as error:
+            self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
+            return
 
-            # Iterate through the list backwards so that the oldest tweets are first
-            for post in timeline[::-1]:
-                if post.id != old_last_post:
-                    self.logger.debug(f'Checking post {post.id} from subscription "{subscription.id}"')
-                    if not has_new_first_post:
-                        subscription.last_post = post.id
-                        self.db_session.commit()
-                        has_new_first_post = True
+        try:
+            timeline[-1].id
+        except IndexError:
+            self.logger.error(f'Timeline empty for user {subscription.twitter_user_id}')
+            return
 
-                    # Check if post doesn't match any filters
-                    exclude_message = False
-                    for sub_filter in subscription_filters:
-                        if not re.match(sub_filter, post.text):
-                            self.logger.info(f'Exlcuding post {post.id} because text "{post.text}" does not match regex filter "{sub_filter}"')
-                            exclude_message = True
-                            break
+        # Iterate through the list backwards so that the oldest tweets are first
+        for post in timeline[::-1]:
+            self.logger.debug(f'Checking post {post.id} from subscription "{subscription.id}"')
+            if post.id == subscription.last_post:
+                self.logger.debug(f'Reached last known post "{subscription.last_post}"')
+                break
 
-                    if not exclude_message:
-                        message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
-                        self.logger.info(f'Posting twitter message "{message}" to channel {channel.id}')
-                        await channel.send(message)
-                else:
-                    exit_loop = True
+            # Check if post doesn't match any filters
+            exclude_message = False
+            for sub_filter in subscription_filters:
+                if not re.match(sub_filter.regex_filter, post.text):
+                    self.logger.info(f'Exlcuding post {post.id} because text "{post.text}" does not match regex filter "{sub_filter.regex_filter}"')
+                    exclude_message = True
                     break
-            try:
-                last_post = timeline[-1].id
-            except IndexError:
-                self.logger.error(f'Timeline empty for user {subscription.twitter_user_id}')
-                exit_loop = True
+
+            if not exclude_message:
+                message = f'https://twitter.com/{post.user.screen_name}/status/{post.id}'
+                self.logger.info(f'Posting twitter message "{message}" to channel {channel.id}')
+                await channel.send(message)
+
+        # Oldest post will be first returned
+        subscription.last_post = timeline[0].id
+        self.db_session.commit()
 
     async def wait_loop(self):
         '''
@@ -273,3 +267,33 @@ class Twitter(CogHelper):
             filter(TwitterSubscriptionFilter.twitter_subscription_id == subscription.id).\
             filter(TwitterSubscriptionFilter.regex_filter == regex_filter).delete()
         return await ctx.send(f'Removed all filters matching "{regex_filter}" from subscription "{twitter_account}"')
+
+    @twitter.command(name='list-filters')
+    async def list_filters(self, ctx, twitter_account):
+        '''
+        List filter on account subscription
+
+        twitter_account :   Twitter account name to list filters for, must already be subscribed
+        '''
+        # Strip twitter.com lead from string
+        twitter_account = twitter_account.replace('https://twitter.com/', '')
+        try:
+            user = self.twitter_api.GetUser(screen_name=twitter_account)
+        except (TwitterError, requests_connection_error) as error:
+            self.logger.exception(f'Exception getting user: {error}')
+            self._restart_client()
+            return await ctx.send(f'Error from twitter api "{error}"')
+        # Then check if subscription exists
+        subscription = self.db_session.query(TwitterSubscription).\
+                            filter(TwitterSubscription.twitter_user_id == user.id).\
+                            filter(TwitterSubscription.channel_id == str(ctx.channel.id)).first()
+        if not subscription:
+            self.logger.error(f'Unable to find subscription for twitter account "{twitter_account}"')
+            return await ctx.send(f'Unable to find subscription for twitter account "{twitter_account}"')
+
+
+        filters = self.db_session.query(TwitterSubscriptionFilter).\
+                    filter(TwitterSubscriptionFilter.twitter_subscription_id == subscription.id)
+
+        filter_message = '\n'.join(f.regex_filter for f in filters)
+        return await ctx.send(f'```Filters\n{filter_message}```')
