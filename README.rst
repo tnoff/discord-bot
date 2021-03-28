@@ -28,21 +28,6 @@ To run via the python cli, simply point at a config file.
 
     discord-bot -c /path/to/config/file
 
-------------
-Docker Setup
-------------
-The docker image will install the python package and place in a supervisord job to run automatically.
-
-You'll want to setup two volumes for the docker, one for secrets and one for logs.
-
-The startup script will assume your config is located at `/secret/discord.conf` within the container.
-
-To startup, use something like
-
-.. code::
-
-    docker run -d -v /var/secret/discord:/secret /var/log/discord:/logs/ <image id>
-
 ------
 Config
 ------
