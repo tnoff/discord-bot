@@ -112,13 +112,14 @@ class Twitter(CogHelper):
         '''
         # Strip twitter.com lead from string
         twitter_account = twitter_account.replace('https://twitter.com/', '')
+        twitter_account = twitter_account.rstrip('/')
         self.logger.debug(f'Attempting to subscribe to username: {twitter_account}')
         try:
             user = self.twitter_api.GetUser(screen_name=twitter_account)
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
-            return False
+            return await ctx.send(f'Error from twitter api "{error}"')
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
@@ -133,7 +134,7 @@ class Twitter(CogHelper):
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
-            return await ctx.send('Error getting timeline from twitter')
+            return await ctx.send(f'Error from twitter api "{error}"')
 
         if len(timeline) == 0:
             return await ctx.send(f'No timeline found for user: {twitter_account}')
@@ -158,6 +159,8 @@ class Twitter(CogHelper):
         '''
         Unsubscribe channel from twitter account
         '''
+        twitter_account = twitter_account.replace('https://twitter.com/', '')
+        twitter_account = twitter_account.rstrip('/')
         self.logger.debug(f'Attempting to unsubscribe from username: {twitter_account} '
                           f'and channel id {ctx.channel.id}')
         try:
@@ -165,7 +168,7 @@ class Twitter(CogHelper):
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
-            return False
+            return await ctx.send(f'Error from twitter api "{error}"')
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
@@ -215,7 +218,7 @@ class Twitter(CogHelper):
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
-            return False
+            return await ctx.send(f'Error from twitter api "{error}"')
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
@@ -257,7 +260,7 @@ class Twitter(CogHelper):
         except (TwitterError, requests_connection_error) as error:
             self.logger.exception(f'Exception getting user: {error}')
             self._restart_client()
-            return False
+            return await ctx.send(f'Error from twitter api "{error}"')
         # Then check if subscription exists
         subscription = self.db_session.query(TwitterSubscription).\
                             filter(TwitterSubscription.twitter_user_id == user.id).\
