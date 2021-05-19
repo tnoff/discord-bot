@@ -273,6 +273,15 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
         traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
+    async def __check_database_session(self, ctx):
+        '''
+        Check if database session is in use
+        '''
+        if not self.db_session:
+            await ctx.send('Functionality not available, database is not enabled')
+            return False
+        return True
+
     def __get_playlist(self, playlist_index, guild_id): #pylint:disable=no-self-use
         try:
             index = int(playlist_index)
@@ -721,6 +730,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
+        if not self.__check_database_session(ctx):
+            return None
         try:
             playlist = self.db_session.query(Playlist) #pylint:disable=no-member
             playlist = playlist.filter(func.lower(Playlist.name) == func.lower(name),
@@ -754,6 +765,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
+        if not self.__check_database_session(ctx):
+            return None
         playlist_items = self.db_session.query(Playlist)
         playlist_items = playlist_items.\
             filter(Playlist.server_id == str(ctx.guild.id))
@@ -778,6 +791,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             The song to search and retrieve from youtube.
             This could be a simple search, an ID or URL.
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
@@ -821,6 +836,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         song_index: integer [Required]
             ID of song to remove
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
@@ -856,6 +873,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
@@ -895,6 +914,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
@@ -924,6 +945,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         playlist_name: str [Required]
             New name of playlist
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',
@@ -942,6 +965,8 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         Sub commands - [shuffle]
             shuffle - Shuffle playlist when entering it into queue
         '''
+        if not self.__check_database_session(ctx):
+            return None
         result, playlist = self.__get_playlist(playlist_index, ctx.guild.id)
         if not result:
             return await ctx.send(f'Unable to find playlist {playlist_index}',

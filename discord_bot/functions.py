@@ -1,7 +1,7 @@
 import random
 import re
 
-ROLL_REGEX = '^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
+ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
 
 def _log_message(ctx, logger, message):
     logger.info('Server "%s", invoked with command "%s", by user "%s", sending message "%s"',
