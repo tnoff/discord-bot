@@ -1,6 +1,9 @@
+import random
+import re
+
 from discord.ext import commands
 
-from discord_bot import functions
+ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
 
 class General(commands.Cog):
     '''
@@ -18,15 +21,45 @@ class General(commands.Cog):
         '''
         Say hello to the server
         '''
-        _, message = functions.hello(ctx, self.logger)
-        await ctx.send(message)
+        await ctx.send(f'Waddup {ctx.author.name}')
 
     @commands.command(name='roll')
     async def roll(self, ctx, *, number):
         '''
         Get a random number between 1 and number given
         '''
-        _status, message = functions.roll(ctx, self.logger, number)
+        matcher = re.match(ROLL_REGEX, number)
+        # First check if matches regex
+        if not matcher:
+            message = 'Invalid number given %s' % number
+            return False, message
+        try:
+            sides = int(matcher.group('sides'))
+            rolls = matcher.group('rolls')
+            modifier = matcher.group('modifier')
+            if rolls is None:
+                rolls = 1
+            else:
+                rolls = int(rolls)
+            if modifier is None:
+                modifier = 0
+            else:
+                modifier = int(modifier)
+        except ValueError:
+            message = 'Non integer value given'
+            return False, message
+
+        total = 0
+        for _ in range(rolls):
+            total += random.randint(1, sides)
+        if modifier:
+            if matcher.group('operator') == '-':
+                total = total - modifier
+            elif matcher.group('operator') == '+':
+                total = total + modifier
+
+        message = f'{ctx.author.name} rolled a {total}'
+
         await ctx.send(message)
 
     @commands.command(name='windows')
@@ -34,8 +67,7 @@ class General(commands.Cog):
         '''
         Get an inspirational note about your operating system
         '''
-        _, message = functions.windows(ctx, self.logger)
-        await ctx.send(message)
+        await ctx.send('Install linux coward')
 
     @commands.command(name='meta')
     async def meta(self, ctx):

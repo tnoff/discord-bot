@@ -6,3 +6,4 @@ logs/
 .tox
 discord_bot/.tox
 discord_bot.egg-info/
+.vs/
