@@ -11,6 +11,8 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel
 from discord_bot.database import MarkovRelation, MarkovWord
 
+# Get this number of random items to keep in memory when running markov speak
+MARKOV_RANDOM_SPLIT = 10
 
 def clean_message(content, emoji_ids):
     '''
@@ -318,12 +320,40 @@ class Markov(CogHelper):
                         filter(MarkovChannel.server_id == str(ctx.guild.id)).\
                         filter(MarkovWord.word == word))
 
-                # Pass leader ids as subquery, get relation and followers
-                for relation, follower in self.db_session.query(MarkovRelation, MarkovWord).\
+                # Get total amount of leader and followers
+                total_followers = self.db_session.query(MarkovRelation, MarkovWord).\
                         filter(MarkovRelation.leader_id.in_(leader_ids.subquery())).\
-                        join(MarkovWord, MarkovRelation.follower_id == MarkovWord.id):
+                        join(MarkovWord, MarkovRelation.follower_id == MarkovWord.id).count()
+
+                # Instead of gathering every possible outcome, which can lead to thousands of entries in memory
+                # .. grab a random value from a portion from every Nth split ( set by MARKOV_RANDOM_SPLIT ) portion of the list, sorted
+                # .. by relation count
+                # For example, if you had 100 entries and a split of 10, grab a random value from every 10th portion
+                # Random value from 0 --> 9 position
+                # Random value from 10 --> 19 position
+                # Random value from 20 --> 29 position
+                # etc..
+
+                # First generate basic ordered query to get the offsets from
+                follower_relation_query = self.db_session.query(MarkovRelation, MarkovWord).\
+                        filter(MarkovRelation.leader_id.in_(leader_ids.subquery())).\
+                        join(MarkovWord, MarkovRelation.follower_id == MarkovWord.id).\
+                        order_by(MarkovRelation.count.asc())
+
+                # Then grab each value from the Nth positions
+                current_index = 0
+                while current_index < total_followers:
+                    max_range = current_index + (int(total_followers / MARKOV_RANDOM_SPLIT) or 1)
+                    random_offset = random.randint(current_index, max_range - 1)
+                    # Usually typeerror here means we ran out of results
+                    try:
+                        relation, follower = follower_relation_query.offset(random_offset).first()
+                    except TypeError:
+                        self.logger.warning(f'Type Error on sql query, offset {random_offset}, leader word {word}')
+                        break
                     follower_cache[word]['choices'].append(follower.word)
                     follower_cache[word]['weights'].append(relation.count)
+                    current_index = max_range
             word = random.choices(follower_cache[word]['choices'],
                                   weights=follower_cache[word]['weights'],
                                   k=1)[0]
