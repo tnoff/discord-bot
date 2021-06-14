@@ -63,8 +63,7 @@ def get_mysql_database_session(mysql_user, mysql_password, mysql_database, mysql
     '''
     Mysql database session
     '''
-    sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@localhost' \
-                    f'/{mysql_database}?host={mysql_host}?port=3306'
+    sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}/{mysql_database}'
     engine = create_engine(sql_statement, encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine

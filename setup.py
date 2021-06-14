@@ -10,10 +10,10 @@ setuptools.setup(
         'discord >= 1.0.1',
         'moviepy >= 1.0.3',
         'numpy >= 1.18.5',
-        'PyMySQL >= 0.9.3',
+        'PyMySQL >= 1.0.2',
         'PyNaCl >= 1.4.0',
         'python-twitter >= 3.5',
-        'SQLAlchemy >= 1.3.13',
+        'SQLAlchemy >= 1.4.18',
         'youtube-dl >= 2021.2.22',
     ],
     entry_points={
@@ -22,5 +22,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='1.7.6',
+    version='1.7.7',
 )
