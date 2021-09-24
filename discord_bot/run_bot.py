@@ -10,7 +10,6 @@ from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.general import General
 from discord_bot.cogs.markov import Markov
-from discord_bot.cogs.planner import Planner
 from discord_bot.cogs.role import RoleAssign
 from discord_bot.cogs.twitter import Twitter
 from discord_bot.defaults import DELETE_AFTER_DEFAULT, QUEUE_MAX_SIZE_DEFAULT
@@ -73,7 +72,7 @@ def read_config(config_file):
     Get values from config file
     '''
     if config_file is None:
-        return dict()
+        return {}
     parser = SafeConfigParser()
     parser.read(config_file)
 
@@ -188,7 +187,6 @@ def main():
     if db_session:
         bot.add_cog(RoleAssign(bot, db_session, logger))
         bot.add_cog(Markov(bot, db_session, logger))
-        bot.add_cog(Planner(bot, db_session, logger))
         if twitter_settings:
             bot.add_cog(Twitter(bot, db_session, logger, twitter_settings))
     bot.run(settings['discord_token'])

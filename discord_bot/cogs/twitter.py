@@ -89,7 +89,7 @@ class Twitter(CogHelper):
             await asyncio.sleep(300)
 
     @commands.group(name='twitter', invoke_without_command=False)
-    async def twitter(self, ctx):
+    async def twitter(self, ctx): #pylint:disable=no-self-use
         '''
         Planner functions
         '''

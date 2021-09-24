@@ -1,7 +1,5 @@
 import asyncio
 import random
-import sys
-import traceback
 import typing
 
 from async_timeout import timeout
@@ -176,7 +174,7 @@ class MusicPlayer:
             try:
                 self._guild.voice_client.play(source_dict['source'], after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
             except AttributeError:
-                self.logger.info('No voice client found, disconnecting from guild {self._guild}')
+                self.logger.info(f'No voice client found, disconnecting from guild {self._guild}')
                 return self.destroy(self._guild)
             self.logger.info(f'Music bot now playing {source_dict["data"]["title"]} requested '
                              f'by {source_dict["requester"]} in guild {self._guild}, url '
@@ -220,10 +218,10 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
     '''
 
     __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl', 'delete_after',
-                 'queue_max_size', 'max_song_length', 'trim_audio')
+                 'queue_max_size', 'max_song_length')
 
     def __init__(self, bot, db_session, logger, ytdl,
-                 delete_after, queue_max_size, max_song_length, trim_audio):
+                 delete_after, queue_max_size, max_song_length):
         self.bot = bot
         self.db_session = db_session
         self.logger = logger
@@ -233,7 +231,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
         self.delete_after = delete_after # Delete messages after N seconds
         self.queue_max_size = queue_max_size
         self.max_song_length = max_song_length
-        self.trim_audio = trim_audio
+
 
     async def cleanup(self, guild):
         '''
@@ -248,30 +246,6 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             del self.players[guild.id]
         except KeyError:
             pass
-
-    async def __local_check(self, ctx):
-        '''
-        A local check which applies to all commands in this cog.
-        '''
-        if not ctx.guild:
-            raise commands.NoPrivateMessage
-        return True
-
-    async def __error(self, ctx, error):
-        '''
-        A local error handler for all errors arising from commands in this cog.
-        '''
-        if isinstance(error, commands.NoPrivateMessage):
-            try:
-                return await ctx.send('This command can not be used in Private Messages.')
-            except discord.HTTPException:
-                pass
-        elif isinstance(error, InvalidVoiceChannel):
-            await ctx.send('Error connecting to Voice Channel. '
-                           'Please make sure you are in a valid channel or provide me with one')
-
-        print('Ignoring exception in command {}:'.format(ctx.command), file=sys.stderr)
-        traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
     async def __check_database_session(self, ctx):
         '''
@@ -387,8 +361,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
                                   delete_after=self.delete_after)
 
         source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop,
-                                                    max_song_length=self.max_song_length,
-                                                    trim_audio=self.trim_audio)
+                                                    max_song_length=self.max_song_length)
         try:
             if source_dict['data']['duration'] > self.max_song_length:
                 return await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
@@ -1003,8 +976,7 @@ class Music(commands.Cog): #pylint:disable=too-many-public-methods
             source_dict = await self.ytdl.create_source(ctx,
                                                         f'{item.video_id}',
                                                         loop=self.bot.loop, exact_match=True,
-                                                        max_song_length=self.max_song_length,
-                                                        trim_audio=self.trim_audio)
+                                                        max_song_length=self.max_song_length)
             try:
                 if source_dict['data']['duration'] > self.max_song_length:
                     await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'

@@ -17,21 +17,21 @@ class General(commands.Cog):
         self.logger = logger
 
     @commands.command(name='hello')
-    async def hello(self, ctx):
+    async def hello(self, ctx): #pylint:disable=no-self-use
         '''
         Say hello to the server
         '''
         await ctx.send(f'Waddup {ctx.author.name}')
 
     @commands.command(name='roll')
-    async def roll(self, ctx, *, number):
+    async def roll(self, ctx, *, number): #pylint:disable=no-self-use
         '''
         Get a random number between 1 and number given
         '''
         matcher = re.match(ROLL_REGEX, number)
         # First check if matches regex
         if not matcher:
-            message = 'Invalid number given %s' % number
+            message = f'Invalid number given {number}'
             return False, message
         try:
             sides = int(matcher.group('sides'))
@@ -63,14 +63,14 @@ class General(commands.Cog):
         await ctx.send(message)
 
     @commands.command(name='windows')
-    async def windows(self, ctx):
+    async def windows(self, ctx): #pylint:disable=no-self-use
         '''
         Get an inspirational note about your operating system
         '''
         await ctx.send('Install linux coward')
 
     @commands.command(name='meta')
-    async def meta(self, ctx):
+    async def meta(self, ctx): #pylint:disable=no-self-use
         '''
         Get meta information for channel and server
         '''

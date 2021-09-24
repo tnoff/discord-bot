@@ -169,7 +169,7 @@ class Markov(CogHelper):
             await asyncio.sleep(180)
 
     @commands.group(name='markov', invoke_without_command=False)
-    async def markov(self, ctx):
+    async def markov(self, ctx): #pylint:disable=no-self-use
         '''
         Markov functions
         '''
