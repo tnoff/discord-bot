@@ -163,11 +163,9 @@ def main():
     bot.add_cog(CommandErrorHandler(bot, db_session, logger))
     bot.add_cog(General(bot, db_session, logger))
     bot.add_cog(Music(bot, db_session, logger, settings['download_dir'], settings['message_delete_after'],
-                      settings['queue_max_size'], settings['max_song_length'],
-                      settings['trim_audio']))
-    if db_session:
-        bot.add_cog(RoleAssign(bot, db_session, logger))
-        bot.add_cog(Markov(bot, db_session, logger))
-        if twitter_settings:
-            bot.add_cog(Twitter(bot, db_session, logger, twitter_settings))
+                      settings['queue_max_size'], settings['max_song_length']))
+    bot.add_cog(RoleAssign(bot, db_session, logger))
+    bot.add_cog(Markov(bot, db_session, logger))
+    if twitter_settings:
+        bot.add_cog(Twitter(bot, db_session, logger, twitter_settings))
     bot.run(settings['discord_token'])
