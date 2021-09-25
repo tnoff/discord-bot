@@ -295,16 +295,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     Music related commands
     '''
 
-    def __init__(self, bot, db_session, logger, settings):
-        super().__init__(bot, db_session, logger, settings)
+    def __init__(self, bot, db_session, logger, download_dir,
+                 delete_after, queue_max_size, max_song_length):
+        super().__init__(bot, db_session, logger)
         self.players = {}
-        self.delete_after = settings.get('message_delete_after', DELETE_AFTER_DEFAULT)
-        self.queue_max_size = settings.get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
-        self.max_song_length = settings.get('max_song_length', MAX_SONG_LENGTH_DEFAULT)
-        self.download_dir = settings.get('download_dir', None)
+        self.db_session = db_session
+        self.delete_after = delete_after # Delete messages after N seconds
+        self.queue_max_size = queue_max_size
+        self.max_song_length = max_song_length
+        self.download_dir = download_dir
 
         if self.download_dir is not None:
-            self.download_dir = Path(self.download_dir)
+            self.download_dir = Path(download_dir)
         else:
             # TODO should add an option so this will delete
             self.download_dir = Path(tempfile.TemporaryDirectory().name) #pylint:disable=consider-using-with

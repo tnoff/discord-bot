@@ -20,5 +20,13 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
+<<<<<<< HEAD
     version='1.7.10',
+=======
+<<<<<<< HEAD
+    version='1.7.9',
+=======
+    version='1.7.8',
+>>>>>>> 15067b2... Move youtube logic into cogs completely
+>>>>>>> dd76ea4... Move youtube logic into cogs completely
 )
