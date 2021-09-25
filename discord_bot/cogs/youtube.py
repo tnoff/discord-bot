@@ -2,17 +2,16 @@ import asyncio
 from functools import partial
 
 import discord
-from youtube_dl.utils import DownloadError
 
-# Only trim audio if buffer exceeding in start or end
-AUDIO_BUFFER = 30
+from youtube_dl import YoutubeDL
+from youtube_dl.utils import DownloadError
 
 class YTDLClient():
     '''
     Youtube DL Source
     '''
-    def __init__(self, ytdl, logger):
-        self.ytdl = ytdl
+    def __init__(self, ytdl_options, logger):
+        self.ytdl = YoutubeDL(ytdl_options)
         self.logger = logger
 
     def __getitem__(self, item: str):

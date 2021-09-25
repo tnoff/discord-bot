@@ -1,5 +1,7 @@
 import asyncio
+from pathlib import Path
 import random
+import tempfile
 import typing
 
 from async_timeout import timeout
@@ -9,8 +11,9 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
 
+from discord_bot.cogs.common import CogHelper
 from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
-from discord_bot.youtube import YTDLClient
+from discord_bot.cogs.youtube import YTDLClient
 
 # Max title length for table views
 MAX_TITLE_LENGTH = 64
@@ -212,26 +215,40 @@ class MusicPlayer:
         return self.bot.loop.create_task(self._cog.cleanup(guild))
 
 
-class Music(commands.Cog): #pylint:disable=too-many-public-methods
+class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
 
-    __slots__ = ('bot', 'players', 'db_session', 'logger', 'ytdl', 'delete_after',
-                 'queue_max_size', 'max_song_length')
-
-    def __init__(self, bot, db_session, logger, ytdl,
+    def __init__(self, bot, db_session, logger, download_dir,
                  delete_after, queue_max_size, max_song_length):
-        self.bot = bot
-        self.db_session = db_session
-        self.logger = logger
-        self.ytdl = YTDLClient(ytdl, logger)
+        super().__init__(bot, db_session, logger)
         self.players = {}
-        self.logger.info(f'Will delete all messages after {delete_after} seconds')
+        self.db_session = db_session
         self.delete_after = delete_after # Delete messages after N seconds
         self.queue_max_size = queue_max_size
         self.max_song_length = max_song_length
+        self.download_dir = download_dir
 
+        if self.download_dir is not None:
+            self.download_dir = Path(download_dir)
+        else:
+            # TODO should add an option so this will delete
+            self.download_dir = Path(tempfile.TemporaryDirectory().name) #pylint:disable=consider-using-with
+
+        ytdlopts = {
+            'format': 'bestaudio/best',
+            'outtmpl': self.download_dir / '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+            'restrictfilenames': True,
+            'noplaylist': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'logtostderr': False,
+            'logger': logger,
+            'default_search': 'auto',
+            'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
+        }
+        self.ytdl = YTDLClient(ytdlopts, logger)
 
     async def cleanup(self, guild):
         '''

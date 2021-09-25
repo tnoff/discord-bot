@@ -1,9 +1,7 @@
 import argparse
 from configparser import NoSectionError, NoOptionError, SafeConfigParser
-import os
 
 from discord.ext import commands
-from youtube_dl import YoutubeDL
 
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.cogs.error import CommandErrorHandler
@@ -150,23 +148,6 @@ def main():
     logger = get_logger(__name__, settings['log_file'])
     db_session = get_db_session(settings)
 
-    # Youtube enabled by default
-    ytdlopts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(settings['download_dir'],
-                                '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
-        'restrictfilenames': True,
-        'noplaylist': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'logtostderr': False,
-        'logger': logger,
-        'default_search': 'auto',
-        'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
-    }
-    ytdl = YoutubeDL(ytdlopts)
-
-
     # Check if twitter is enabled
     try:
         twitter_settings = {
@@ -179,9 +160,9 @@ def main():
         twitter_settings = None
 
     # Run bot
-    bot.add_cog(CommandErrorHandler(bot, logger))
-    bot.add_cog(General(bot, logger))
-    bot.add_cog(Music(bot, db_session, logger, ytdl, settings['message_delete_after'],
+    bot.add_cog(CommandErrorHandler(bot, db_session, logger))
+    bot.add_cog(General(bot, db_session, logger))
+    bot.add_cog(Music(bot, db_session, logger, settings['download_dir'], settings['message_delete_after'],
                       settings['queue_max_size'], settings['max_song_length'],
                       settings['trim_audio']))
     if db_session:
