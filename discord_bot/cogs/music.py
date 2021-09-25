@@ -238,7 +238,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         ytdlopts = {
             'format': 'bestaudio/best',
-            'outtmpl': self.download_dir / '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+            'outtmpl': str(self.download_dir / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
             'restrictfilenames': True,
             'noplaylist': True,
             'nocheckcertificate': True,
