@@ -9,13 +9,15 @@ from async_timeout import timeout
 from discord import HTTPException, FFmpegPCMAudio, VoiceChannel
 from discord.ext import commands
 from sqlalchemy import func
+from sqlalchemy import Column, Integer, String
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
 from youtube_dl import YoutubeDL
 from youtube_dl.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import Playlist, PlaylistItem, PlaylistMembership
+from discord_bot.database import BASE
 
 # Max title length for table views
 MAX_TITLE_LENGTH = 64
@@ -28,6 +30,47 @@ QUEUE_MAX_SIZE_DEFAULT = 35
 
 # Max song length
 MAX_SONG_LENGTH_DEFAULT = 60 * 15
+
+
+#
+# Music Tables
+#
+
+class Playlist(BASE):
+    '''
+    Playlist
+    '''
+    __tablename__ = 'playlist'
+    __table_args__ = (
+        UniqueConstraint('name', 'server_id',
+                         name='_server_playlist'),
+        UniqueConstraint('server_id', 'server_index',
+                         name='_server_specific_index'),
+    )
+    id = Column(Integer, primary_key=True)
+    name = Column(String(256))
+    server_id = Column(String(128))
+    server_index = Column(Integer)
+
+class PlaylistItem(BASE):
+    '''
+    Playlist Item
+    '''
+    __tablename__ = 'playlist_item'
+    id = Column(Integer, primary_key=True)
+    title = Column(String(256))
+    video_id = Column(String(32), unique=True)
+
+class PlaylistMembership(BASE):
+    '''
+    Playlist membership
+    '''
+    __tablename__ = 'playlist_membership'
+    __table_args__ = (UniqueConstraint('playlist_id', 'playlist_item_id',
+                                       name='_playlist_member'),)
+    id = Column(Integer, primary_key=True)
+    playlist_id = Column(Integer, ForeignKey('playlist.id'))
+    playlist_item_id = Column(Integer, ForeignKey('playlist_item.id'))
 
 
 # Music bot setup
@@ -310,6 +353,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.download_dir = Path(tempfile.TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         ytdlopts = {
+            'format': 'bestaudio',
             'outtmpl': str(self.download_dir / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
             'restrictfilenames': True,
             'noplaylist': True,

@@ -1,16 +1,16 @@
 import argparse
 from configparser import NoSectionError, NoOptionError, SafeConfigParser
+import importlib
+import pathlib
 
 from discord.ext import commands
+from discord.ext.commands.cog import CogMeta
 
-from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.cogs.error import CommandErrorHandler
-from discord_bot.cogs.music import Music
 from discord_bot.cogs.general import General
-from discord_bot.cogs.markov import Markov
-from discord_bot.cogs.role import RoleAssign
-from discord_bot.cogs.twitter import Twitter
+from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.utils import get_logger, get_db_session
+
 
 
 REQUIRED_GENERAL_SETTINGS = [
@@ -94,15 +94,37 @@ def main():
     logger = get_logger(__name__, settings['log_file'])
     db_session = get_db_session(settings)
 
-    # Run bot
+    # Add error and general handler first
     bot.add_cog(CommandErrorHandler(bot, logger))
     bot.add_cog(General(bot, db_session, logger, settings))
-    bot.add_cog(Music(bot, db_session, logger, settings))
-    bot.add_cog(RoleAssign(bot, db_session, logger, settings))
-    bot.add_cog(Markov(bot, db_session, logger, settings))
-    # Add twitter is settings given
-    try:
-        bot.add_cog(Twitter(bot, db_session, logger, settings))
-    except CogMissingRequiredArg:
-        logger.warning('Unable to add twitter cog')
+
+    absolute_path = pathlib.Path(__file__)
+    # check plugin path for relevant py files
+    plugin_path = absolute_path.parent / 'cogs' / 'plugins'
+    for file_path in plugin_path.rglob('*.py'):
+        # Ignore init file
+        if file_path.name == '__init__.py':
+            continue
+        # Remove file suffixes
+        # Ex: cogs/plugins/general.py
+        proper_file = file_path.relative_to(absolute_path.parent.parent)
+        proper_path = proper_file.parent / proper_file.stem
+        # Make a proper import string
+        # Ex: cogs.plugins.general
+        import_name = str(proper_path).replace(pathlib.os.sep, '.')
+        # Import, and then get "Cog" object
+        logger.debug(f'Attempting to import cog from "{import_name}"')
+        module = importlib.import_module(import_name)
+        # Find all classes with 'Cog' in name, avoid 'CogHelper'
+        for key, value in module.__dict__.items():
+            if key == 'CogHelper':
+                continue
+            if isinstance(value, CogMeta):
+                imported_cog = getattr(module, key)
+                # Add cog to bot
+                try:
+                    bot.add_cog(imported_cog(bot, db_session, logger, settings))
+                except CogMissingRequiredArg:
+                    logger.warning(f'Unable to add cog "{import_name}"')
+
     bot.run(settings['discord_token'])

@@ -4,11 +4,13 @@ import typing
 
 from discord.ext import commands
 from requests.exceptions import ConnectionError as requests_connection_error
+from sqlalchemy import Boolean, Column, Integer, BigInteger, String
+from sqlalchemy import ForeignKey
 from twitter import Api
 from twitter.error import TwitterError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import TwitterSubscription, TwitterSubscriptionFilter
+from discord_bot.database import BASE
 from discord_bot.exceptions import CogMissingRequiredArg
 
 REQUIRED_ARGS = [
@@ -17,6 +19,32 @@ REQUIRED_ARGS = [
     'twitter_access_token_key',
     'twitter_access_token_secret'
 ]
+
+#
+# Twitter Tables
+#
+
+class TwitterSubscription(BASE):
+    '''
+    Twitter Subscription
+    '''
+    __tablename__ = 'twitter_subscription'
+
+    id = Column(Integer, primary_key=True)
+    twitter_user_id = Column(String(128), nullable=False)
+    last_post = Column(BigInteger)
+    channel_id = Column(String(128))
+    show_all_posts = Column(Boolean)
+
+class TwitterSubscriptionFilter(BASE):
+    '''
+    Twitter Subscription Filter
+    '''
+    __tablename__ = 'twitter_subscription_filter'
+
+    id = Column(Integer, primary_key=True)
+    twitter_subscription_id = Column(Integer, ForeignKey('twitter_subscription.id'))
+    regex_filter = Column(String(256))
 
 class Twitter(CogHelper):
     '''

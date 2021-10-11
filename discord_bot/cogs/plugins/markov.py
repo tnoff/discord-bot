@@ -6,10 +6,11 @@ import typing
 from discord import TextChannel
 from discord.ext import commands
 from discord.errors import NotFound
+from sqlalchemy import Boolean, Column, Integer, String
+from sqlalchemy import ForeignKey, UniqueConstraint
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import MarkovChannel
-from discord_bot.database import MarkovRelation, MarkovWord
+from discord_bot.database import BASE
 
 # Get this number of random items to keep in memory when running markov speak
 MARKOV_RANDOM_SPLIT = 10
@@ -46,6 +47,49 @@ def clean_message(content, emoji_ids):
             continue
         corpus.append(word.lower())
     return corpus
+
+#
+# Markov Tables
+#
+
+class MarkovChannel(BASE):
+    '''
+    Markov channel
+    '''
+    __tablename__ = 'markov_channel'
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'server_id',
+                         name='_unique_markov_channel'),
+    )
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(String(128))
+    server_id = Column(String(128))
+    last_message_id = Column(String(128))
+    is_private = Column(Boolean)
+
+class MarkovWord(BASE):
+    '''
+    Markov word
+    '''
+    __tablename__ = 'markov_word'
+    id = Column(Integer, primary_key=True)
+    word = Column(String(128))
+    channel_id = Column(Integer, ForeignKey('markov_channel.id'))
+
+class MarkovRelation(BASE):
+    '''
+    Markov Relation
+    '''
+    __tablename__ = 'markov_relation'
+    __table_args__ = (
+        UniqueConstraint('leader_id', 'follower_id',
+                         name='_unique_markov_relation'),
+    )
+    id = Column(Integer, primary_key=True)
+    leader_id = Column(Integer, ForeignKey('markov_word.id'))
+    follower_id = Column(Integer, ForeignKey('markov_word.id'))
+    count = Column(Integer)
+
 
 class Markov(CogHelper):
     '''

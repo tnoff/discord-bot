@@ -27,8 +27,6 @@ discord_token=blah-blah-blah-discord-token
 log_file=/logs/discord.log
 ```
 
-
-
 h2. Database
 The music playlist, twitter, and markov functions all use a database. Sqlite3 and mysql databases are current supported.
 
@@ -58,220 +56,33 @@ database=discord
 host=172.19.0.2
 ```
 
+h2. Additional Settings
 
-h2. Twitter
+Additional settings can be added for plugins. The settings will be available in the `settings` variable passed into the plugin, and will be available under the key of the config section, then an underscore, then the option name.
 
-For twitter functions, you'll need the following config
-
-```
-[twitter]
-api_key=super-secret
-api_key_secret=super-secret
-access_token=super-secret
-access_token_secret=super-secret
-```
-
-h1. Commands
+For example:
 
 ```
-General:
-    hello        Say hello to the server
-    meta         Get meta information for channel and server
-    roll         Get a random number between 1 and number given
-    windows      Get an inspirational note about your operating system
-Markov:
-    markov       Markov functions
-Music:
-    bump         Bump item to top of queue
-    clear        Clear all items from queue
-    join         Connect to voice channel.
-    pause        Pause the currently playing song.
-    play         Request a song and add it to the queue.
-    playlist     Playlist functions.
-    queue        Show current song queue
-    remove       Remove item from queue.
-    resume       Resume the currently paused song.
-    shuffle      Shuffle song queue.
-    skip         Skip the song.
-    stop         Stop the currently playing song and disconnect bot from voice ...
-Planner:
-    planner      Planner functions
-RoleAssign:
-    assign-roles Generate message with all roles.
-Twitter:
-    twitter      Planner functions
-No Category:
-    help         Shows this message
+[test]
+foo=bar
 ```
 
-h2. Music Functions
-Use the bot for basic music functions, with a queue to track requested songs.
-
-The main functions:
-
-Have bot join requested channel
+Will have the following settings value
 
 ```
-!join <channel>
+{
+    "test_foo": "bar"
+}
 ```
 
-Have bot add requested song to the queue
+If the setting is "true" or "false" ( lower or upper case), it will be converted to a boolean value. Settings will also try to be converted to a number value if possible.
 
-```
-!play <search input>
-```
+h1. Usage
 
-```
-!skip
-```
+To check the available functions, use `!help` command.
 
-Show the current song queue
+h1. Plugins
 
-```
-!queue
-```
+You can add custom plugins in the `cogs/plugins` directly, that will be loaded automatically. The Cogs must use the `discord.ext.commands.cog.CogMeta` class, and take the arguments `bot`, `db_session`, `logger`, and `settings` as arguments. The easiest way to do this is to inherit the `CogHelper` object from the common cogs file.
 
-Shuffle the queue
-
-```
-!shuffle
-```
-
-Bump item to top of queue
-
-```
-!bump <queue_index>
-```
-
-Remove item from queue
-
-```
-!remove <queue_index>
-```
-
-Bot will stop and disconnect from server
-
-```
-!stop
-```
-
-h2. Playlist functions
-
-Bot allows saving songs to a playlist to use later
-
-The main functions:
-
-List all playlists
-
-```
-!playlist list
-````
-
-Create new playlist
-
-```
-!playlist create <name>
-```
-
-Add item to playlist
-
-```
-!playlist add <playlist_index> <item>
-```
-
-Show songs in a playlist
-
-```
-!playlist show <playlist_index>
-```
-
-Add songs from playlist to the queue
-
-````
-!playlist queue <playlist_index>
-```
-
-h2. Role Assignment Bot
-
-Easily assign roles users in server by having them add reaction emojis to a bot message.
-
-Run the roll assignment command
-
-```
-!assign-roles
-```
-
-A message will be sent to the channel prompting users to add an emoji if they want a given role.
-
-```
-For role @rocket-league reply with emoji :zero:
-```
-
-The bot will check every minute or so to see if any new roles should be added.
-
-A couple of notes
-
-- The bot will require permissions to add users to roles for this to work
-- The bot will only run assign roles with zero permissions. The thinking here is to use these roles as more of a type of mailing list.
-
-
-h2. Twitter
-
-With twitter api credentials specified in the config file, subscribe channels to twitter feeds. The bot will check every few minutes for new posts,
-and then add a message in the channel for each new post.
-
-Subscribe to a given twitter feed ( is specified to the channel where this command is run )
-
-```
-!twitter subscribe YakuzaFriday
-```
-
-List channel subscriptions
-
-```
-!twitter list-subscriptions
-```
-
-Unsubscribe from a twitter feed
-
-```
-!twitter unsubscribe
-```
-
-
-h2. Markov
-
-Very basic implementation of a Markov Chain of chat history. Turn markov on for a channel and the bot will read all the chat history from the channel, after which is can generate text.
-
-Markov channels are aggregated across the server, meaning that the chat of all channels on a server are used to generate the markov speak commands.
-
-
-Turn on markov for a channel
-
-```
-!markov on
-```
-
-Turn off markov for a channel
-
-```
-!markov off
-```
-
-Have markov generate random text
-
-```
-!markov speak
-```
-
-Have markov generate random text starting with a given word
-
-```
-!markov speak first_word
-```
-
-Have markov generate text 64 words long starting with a given phrase
-
-```
-!markov speak "starting phrase" 64
-```
+You can also use the `BASE` declarative base from the database file in any plugin file, in order to create database tables.

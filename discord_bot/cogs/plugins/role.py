@@ -2,9 +2,11 @@ import asyncio
 
 from discord.ext import commands
 from discord.errors import NotFound
+from sqlalchemy import Column, Integer, String
+from sqlalchemy import ForeignKey
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import RoleAssignmentMessage, RoleAssignmentReaction
+from discord_bot.database import BASE
 
 EMOJI_MAPPING = {
     '\u0030\ufe0f\u20e3': ':zero:',
@@ -32,7 +34,31 @@ NUMBER_DICT = {
     0: 'zero',
 }
 
-class RoleAssign(CogHelper):
+#
+# Role Assignment Tables
+#
+
+class RoleAssignmentMessage(BASE):
+    '''
+    Message for role assignment
+    '''
+    __tablename__ = 'role_assignment_message'
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String(128))
+    channel_id = Column(String(128))
+    server_id = Column(String(128))
+
+class RoleAssignmentReaction(BASE):
+    '''
+    Emoji and Role Association
+    '''
+    __tablename__ = 'role_assignment_reaction'
+    id = Column(Integer, primary_key=True)
+    role_id = Column(String(128))
+    emoji_name = Column(String(64))
+    role_assignment_message_id = Column(Integer, ForeignKey('role_assignment_message.id'))
+
+class RoleAssignment(CogHelper):
     '''
     Function to add message users can react to get assignment.
     Also includes loop that will check for new role assignment messages every 5 minutes
