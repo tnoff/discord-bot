@@ -51,8 +51,8 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    def __init__(self, bot, db_session, logger):
-        super().__init__(bot, db_session, logger)
+    def __init__(self, bot, db_session, logger, settings):
+        super().__init__(bot, db_session, logger, settings)
         self.bot.loop.create_task(self.wait_loop())
 
     def __ensure_word(self, word, markov_channel):

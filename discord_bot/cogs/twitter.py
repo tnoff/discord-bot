@@ -9,14 +9,24 @@ from twitter.error import TwitterError
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import TwitterSubscription, TwitterSubscriptionFilter
+from discord_bot.exceptions import CogMissingRequiredArg
+
+REQUIRED_ARGS = [
+    'twitter_consumer_key',
+    'twitter_consumer_secret',
+    'twitter_access_token_key',
+    'twitter_access_token_secret'
+]
 
 class Twitter(CogHelper):
     '''
     Subscribe to twitter accounts and post messages in channel
     '''
-    def __init__(self, bot, db_session, logger, twitter_settings):
-        super().__init__(bot, db_session, logger)
-        self.twitter_settings = twitter_settings
+    def __init__(self, bot, db_session, logger, settings):
+        super().__init__(bot, db_session, logger, settings)
+        for key in REQUIRED_ARGS:
+            if key not in settings:
+                raise CogMissingRequiredArg(f'Twitter cog missing required key {key}')
         self.twitter_api = None
         self._restart_client()
         self.bot.loop.create_task(self.wait_loop())
@@ -24,10 +34,10 @@ class Twitter(CogHelper):
     def _restart_client(self):
         self.logger.debug('Reloading twitter client')
         self.twitter_api = Api(
-               consumer_key=self.twitter_settings['consumer_key'],
-               consumer_secret=self.twitter_settings['consumer_secret'],
-               access_token_key=self.twitter_settings['access_token_key'],
-               access_token_secret=self.twitter_settings['access_token_secret'])
+               consumer_key=self.settings['twitter_consumer_key'],
+               consumer_secret=self.settings['twitter_consumer_secret'],
+               access_token_key=self.settings['twitter_access_token_key'],
+               access_token_secret=self.settings['twitter_access_token_secret'])
 
     async def _check_subscription(self, subscription, subscription_filters):
         self.logger.debug(f'Checking users twitter feed for '

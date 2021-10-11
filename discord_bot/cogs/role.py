@@ -37,8 +37,8 @@ class RoleAssign(CogHelper):
     Function to add message users can react to get assignment.
     Also includes loop that will check for new role assignment messages every 5 minutes
     '''
-    def __init__(self, bot, db_session, logger):
-        super().__init__(bot, db_session, logger)
+    def __init__(self, bot, db_session, logger, settings):
+        super().__init__(bot, db_session, logger, settings)
         self.bot.loop.create_task(self.player_loop())
 
     async def player_loop(self):

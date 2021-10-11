@@ -3,18 +3,14 @@ import re
 
 from discord.ext import commands
 
+from discord_bot.cogs.common import CogHelper
+
 ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
 
-class General(commands.Cog):
+class General(CogHelper):
     '''
     General use commands
     '''
-
-    __slots__ = ('bot', 'logger')
-
-    def __init__(self, bot, logger):
-        self.bot = bot
-        self.logger = logger
 
     @commands.command(name='hello')
     async def hello(self, ctx): #pylint:disable=no-self-use
