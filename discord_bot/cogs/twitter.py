@@ -46,7 +46,7 @@ class Twitter(CogHelper):
         try:
             timeline[-1].id
         except IndexError:
-            self.logger.error(f'Timeline empty for user {subscription.twitter_user_id}')
+            self.logger.warning(f'Timeline empty for user {subscription.twitter_user_id}')
             return
 
         # Iterate through the list backwards so that the oldest tweets are first
