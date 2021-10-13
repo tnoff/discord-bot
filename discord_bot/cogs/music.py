@@ -129,16 +129,6 @@ def get_queue_message(queue):
         return None
     return table_strings
 
-async def regather_stream(ytdl, data, loop):
-    '''
-    Regather data source so it does not expire
-    '''
-    loop = loop or asyncio.get_event_loop()
-
-    to_run = partial(ytdl.extract_info, url=data['url'], download=False)
-    data = await loop.run_in_executor(None, to_run)
-    return {'source': FFmpegPCMAudio(data['url']), 'data': data}
-
 
 class YTDLClient():
     '''
@@ -213,13 +203,13 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    def __init__(self, ctx, logger, ytdl, max_song_length, queue_max_size):
+    def __init__(self, ctx, logger, ytdl_options, max_song_length, queue_max_size):
         self.bot = ctx.bot
         self.logger = logger
         self._guild = ctx.guild
         self._channel = ctx.channel
         self._cog = ctx.cog
-        self.ytdl = ytdl
+        self.ytdl_options = ytdl_options
 
         self.logger.info(f'Max length for music queue in guild {self._guild} is {queue_max_size}')
         self.queue = MyQueue(maxsize=queue_max_size)
@@ -252,19 +242,23 @@ class MusicPlayer:
                 self.logger.error(f'Music bot reached timeout on queue in guild {self._guild}')
                 return self.destroy(self._guild)
 
-            source_dict = await regather_stream(self.ytdl, source_dict, self.bot.loop)
+            # Regather stream so we get the latest url to use
+            ytdl = YoutubeDL(self.ytdl_options)
+            to_run = partial(ytdl.extract_info, url=source_dict['url'], download=False)
+            data = await self.bot.loop.run_in_executor(None, to_run)
+            source = FFmpegPCMAudio(data['url'])
 
-            source_dict['source'].volume = self.volume
-            self.current = source_dict['source']
+            source.volume = self.volume
+            self.current = source
             try:
-                self._guild.voice_client.play(source_dict['source'], after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
+                self._guild.voice_client.play(source, after=lambda _: self.bot.loop.call_soon_threadsafe(self.next.set)) #pylint:disable=line-too-long
             except AttributeError:
                 self.logger.info(f'No voice client found, disconnecting from guild {self._guild}')
                 return self.destroy(self._guild)
-            self.logger.info(f'Music bot now playing {source_dict["data"]["title"]} requested '
-                             f'by {source_dict["data"]["requester"]} in guild {self._guild}, url '
-                             f'"{source_dict["data"]["webpage_url"]}"')
-            message = f'Now playing {source_dict["data"]["webpage_url"]} requested by {source_dict["data"]["requester"].name}'
+            self.logger.info(f'Music bot now playing {source_dict["title"]} requested '
+                             f'by {source_dict["requester"]} in guild {self._guild}, url '
+                             f'"{source_dict["webpage_url"]}"')
+            message = f'Now playing {source_dict["webpage_url"]} requested by {source_dict["requester"].name}'
             self.np_string = message
             self.np = await self._channel.send(message)
 
@@ -277,7 +271,7 @@ class MusicPlayer:
             await self.next.wait()
 
             # Make sure the FFmpeg process is cleaned up.
-            source_dict['source'].cleanup()
+            source.cleanup()
             self.current = None
 
             try:
@@ -328,6 +322,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'source_address': '0.0.0.0'  # ipv6 addresses cause issues sometimes
         }
         self.ytdl = YTDLClient(ytdlopts, logger)
+        self.ytdl_options = ytdlopts
 
     async def cleanup(self, guild):
         '''
@@ -389,7 +384,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             player = self.players[ctx.guild.id]
         except KeyError:
-            player = MusicPlayer(ctx, self.logger, self.ytdl, self.max_song_length, queue_max_size=self.queue_max_size)
+            player = MusicPlayer(ctx, self.logger, self.ytdl_options, self.max_song_length, queue_max_size=self.queue_max_size)
             self.players[ctx.guild.id] = player
 
         return player
