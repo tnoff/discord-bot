@@ -310,7 +310,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.download_dir = Path(tempfile.TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         ytdlopts = {
-            'format': 'bestaudio/best',
             'outtmpl': str(self.download_dir / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
             'restrictfilenames': True,
             'noplaylist': True,
