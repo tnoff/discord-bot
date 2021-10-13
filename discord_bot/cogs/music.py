@@ -179,24 +179,23 @@ class YTDLClient():
         if not exact_match:
             search = f'{search}'
 
-        to_run = partial(self.prepare_file, search=search, max_song_length=max_song_length)
-        data, file_name = await loop.run_in_executor(None, to_run)
+        to_run = partial(self.prepare_data_source, search=search, max_song_length=max_song_length)
+        data = await loop.run_in_executor(None, to_run)
         source = None
-        if file_name is not None:
-            source = FFmpegPCMAudio(file_name)
+        if data is not None:
+            source = FFmpegPCMAudio(data['url'])
         return {
             'source': source,
             'data': data,
             'requester': ctx.author,
         }
 
-    def prepare_file(self, search, max_song_length=None):
+    def prepare_data_source(self, search, max_song_length=None):
         '''
-        Prepare file from youtube search
-        Includes download and audio trim
+        Prepare source from youtube url
         '''
         try:
-            data = self.ytdl.extract_info(url=search, download=True)
+            data = self.ytdl.extract_info(url=search, download=False)
         except DownloadError:
             self.logger.error(f'Error downloading youtube search {search}')
             return None, None
@@ -205,13 +204,8 @@ class YTDLClient():
             data = data['entries'][0]
         if max_song_length:
             if data['duration'] > max_song_length:
-                return data, None
-        self.logger.info(f'Starting download of video {data["title"]}, '
-                         f'url {data["webpage_url"]}')
-        file_name = self.ytdl.prepare_filename(data)
-        self.logger.info(f'Downloaded file {file_name} from youtube url {data["webpage_url"]}')
-        self.logger.info(f'Music bot adding {data["title"]} to the queue {data["webpage_url"]}')
-        return data, file_name
+                return None
+        return data
 
 
 class MusicPlayer:
