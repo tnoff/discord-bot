@@ -129,6 +129,16 @@ def get_queue_message(queue):
         return None
     return table_strings
 
+async def regather_stream(ytdl, data, loop):
+    '''
+    Regather data source so it does not expire
+    '''
+    loop = loop or asyncio.get_event_loop()
+
+    to_run = partial(ytdl.extract_info, url=data['url'], download=False)
+    data = await loop.run_in_executor(None, to_run)
+    return {'source': FFmpegPCMAudio(data['url']), 'data': data}
+
 
 class YTDLClient():
     '''
@@ -166,31 +176,19 @@ class YTDLClient():
             data = data['entries'][0]
         return data
 
-    async def create_source(self, ctx, search: str, *, loop, exact_match=False,
-                            max_song_length=None):
+    async def create_source(self, ctx, search: str, *, loop):
         '''
         Create source from youtube search
         '''
         loop = loop or asyncio.get_event_loop()
         self.logger.info(f'{ctx.author} playing song with search {search}')
 
-        # All official youtube music has this in the description
-        # Add to the search to get better results
-        if not exact_match:
-            search = f'{search}'
-
-        to_run = partial(self.prepare_data_source, search=search, max_song_length=max_song_length)
+        to_run = partial(self.prepare_data_source, search=search)
         data = await loop.run_in_executor(None, to_run)
-        source = None
-        if data is not None:
-            source = FFmpegPCMAudio(data['url'])
-        return {
-            'source': source,
-            'data': data,
-            'requester': ctx.author,
-        }
+        data['requester'] = ctx.author
+        return data
 
-    def prepare_data_source(self, search, max_song_length=None):
+    def prepare_data_source(self, search):
         '''
         Prepare source from youtube url
         '''
@@ -202,9 +200,6 @@ class YTDLClient():
         if 'entries' in data:
             # take first item from a playlist
             data = data['entries'][0]
-        if max_song_length:
-            if data['duration'] > max_song_length:
-                return None
         return data
 
 
@@ -218,17 +213,13 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    __slots__ = ('bot', '_guild', '_channel',
-                 '_cog', 'queue', 'next',
-                 'current', 'np', 'np_string', 'queue_messages', 'queue_strings',
-                 'volume', 'logger', 'max_song_length', 'sticky_queue')
-
-    def __init__(self, ctx, logger, queue_max_size, max_song_length):
+    def __init__(self, ctx, logger, ytdl, max_song_length, queue_max_size):
         self.bot = ctx.bot
         self.logger = logger
         self._guild = ctx.guild
         self._channel = ctx.channel
         self._cog = ctx.cog
+        self.ytdl = ytdl
 
         self.logger.info(f'Max length for music queue in guild {self._guild} is {queue_max_size}')
         self.queue = MyQueue(maxsize=queue_max_size)
@@ -239,11 +230,9 @@ class MusicPlayer:
         self.np_string = None # Keep np message here in case we pause
         self.queue_strings = None # Keep string here in case we pause
         self.sticky_queue = False # Continually show queue as music plays
-        self.volume = .75
-        self.current = None
-        # Max song length in seconds
+        self.volume = 1
         self.max_song_length = max_song_length
-
+        self.current = None
         ctx.bot.loop.create_task(self.player_loop())
 
     async def player_loop(self):
@@ -257,11 +246,13 @@ class MusicPlayer:
 
             try:
                 # Wait for the next song. If we timeout cancel the player and disconnect...
-                async with timeout(600):  # 10 minutes...
+                async with timeout(self.max_song_length + 60): # Max song length + 1 min
                     source_dict = await self.queue.get()
             except asyncio.TimeoutError:
                 self.logger.error(f'Music bot reached timeout on queue in guild {self._guild}')
                 return self.destroy(self._guild)
+
+            source_dict = await regather_stream(self.ytdl, source_dict, self.bot.loop)
 
             source_dict['source'].volume = self.volume
             self.current = source_dict['source']
@@ -271,10 +262,9 @@ class MusicPlayer:
                 self.logger.info(f'No voice client found, disconnecting from guild {self._guild}')
                 return self.destroy(self._guild)
             self.logger.info(f'Music bot now playing {source_dict["data"]["title"]} requested '
-                             f'by {source_dict["requester"]} in guild {self._guild}, url '
+                             f'by {source_dict["data"]["requester"]} in guild {self._guild}, url '
                              f'"{source_dict["data"]["webpage_url"]}"')
-            message = f'Now playing {source_dict["data"]["webpage_url"]} ' \
-                      f'requested by {source_dict["requester"].name}'
+            message = f'Now playing {source_dict["data"]["webpage_url"]} requested by {source_dict["data"]["requester"].name}'
             self.np_string = message
             self.np = await self._channel.send(message)
 
@@ -399,8 +389,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             player = self.players[ctx.guild.id]
         except KeyError:
-            player = MusicPlayer(ctx, self.logger, queue_max_size=self.queue_max_size,
-                                 max_song_length=self.max_song_length)
+            player = MusicPlayer(ctx, self.logger, self.ytdl, self.max_song_length, queue_max_size=self.queue_max_size)
             self.players[ctx.guild.id] = player
 
         return player
@@ -466,25 +455,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return await ctx.send('Queue is full, cannot add more songs',
                                   delete_after=self.delete_after)
 
-        source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop,
-                                                    max_song_length=self.max_song_length)
-        try:
-            if source_dict['data']['duration'] > self.max_song_length:
-                return await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
-                                      f' to queue, exceeded max length '
-                                      f'{self.max_song_length} seconds')
-        except TypeError:
-            # Data likely is None
-            if source_dict['source'] is None:
-                return await ctx.send(f'Unable to find youtube source for "{search}"',
-                                      delete_after=self.delete_after)
+        source_dict = await self.ytdl.create_source(ctx, search, loop=self.bot.loop)
+        if source_dict is None:
+            return await ctx.send(f'Unable to find youtube source for "{search}"',
+                                    delete_after=self.delete_after)
+        if source_dict['duration'] > self.max_song_length:
+            return await ctx.send(f'Unable to add <{source_dict["webpage_url"]}>'
+                                    f' to queue, exceeded max length '
+                                    f'{self.max_song_length} seconds')
 
         try:
             player.queue.put_nowait(source_dict)
-            self.logger.info(f'Adding {source_dict["data"]["title"]} '
+            self.logger.info(f'Adding {source_dict["title"]} '
                              f'to queue in guild {ctx.guild.id}')
-            await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
-                           f'<{source_dict["data"]["webpage_url"]}>',
+            await ctx.send(f'Added "{source_dict["title"]}" to queue. '
+                           f'<{source_dict["webpage_url"]}>',
                            delete_after=self.delete_after)
         except asyncio.QueueFull:
             await ctx.send('Queue is full, cannot add more songs',
@@ -1079,27 +1064,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return await ctx.send('Queue is full, cannot add more songs',
                                       delete_after=self.delete_after)
 
-            source_dict = await self.ytdl.create_source(ctx,
-                                                        f'{item.video_id}',
-                                                        loop=self.bot.loop, exact_match=True,
-                                                        max_song_length=self.max_song_length)
-            try:
-                if source_dict['data']['duration'] > self.max_song_length:
-                    await ctx.send(f'Unable to add <{source_dict["data"]["webpage_url"]}>'
-                                   f' to queue, exceeded max length '
-                                   f'{self.max_song_length} seconds')
-                    continue
-            except TypeError:
-                # Data dict is likely none
-                if source_dict['source'] is None:
-                    await ctx.send(f'Unable to find youtube source ' \
-                                   f'for "{item.title}", "{item.video_id}"',
-                                   delete_after=self.delete_after)
-                    continue
+            source_dict = await self.ytdl.create_source(ctx, f'{item.video_id}',
+                                                        loop=self.bot.loop)
+            if source_dict is None:
+                await ctx.send(f'Unable to find youtube source ' \
+                                f'for "{item.title}", "{item.video_id}"',
+                                delete_after=self.delete_after)
+                continue
+            if source_dict['duration'] > self.max_song_length:
+                await ctx.send(f'Unable to add <{source_dict["webpage_url"]}>'
+                                f' to queue, exceeded max length '
+                                f'{self.max_song_length} seconds')
+                continue
             try:
                 player.queue.put_nowait(source_dict)
-                await ctx.send(f'Added "{source_dict["data"]["title"]}" to queue. '
-                               f'<{source_dict["data"]["webpage_url"]}>',
+                await ctx.send(f'Added "{source_dict["title"]}" to queue. '
+                               f'<{source_dict["webpage_url"]}>',
                                delete_after=self.delete_after)
             except asyncio.QueueFull:
                 await ctx.send('Queue is full, cannot add more songs',
