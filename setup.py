@@ -15,7 +15,7 @@ setuptools.setup(
         'python-twitter >= 3.5',
         'pathlib >= 1.0.1',
         'SQLAlchemy >= 1.4.18',
-        'youtube-dl >= 2021.2.22',
+        'yt-dlp >= 2021.10.10',
     ],
     entry_points={
         'console_scripts' : [
@@ -23,5 +23,5 @@ setuptools.setup(
         ]
     },
     packages=setuptools.find_packages(exclude=['tests']),
-    version='1.8.0',
+    version='1.8.1',
 )

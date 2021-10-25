@@ -13,8 +13,8 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
-from youtube_dl import YoutubeDL
-from youtube_dl.utils import DownloadError
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import BASE
