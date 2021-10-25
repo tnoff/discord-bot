@@ -71,6 +71,8 @@ def validate_config(settings):
     '''
     # Guess type
     for key in settings:
+        if settings[key] is None:
+            continue
         try:
             settings[key] = int(settings[key])
             continue
