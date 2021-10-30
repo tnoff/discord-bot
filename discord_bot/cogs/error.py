@@ -1,6 +1,3 @@
-import sys
-import traceback
-
 from discord.ext import commands
 
 # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
@@ -36,5 +33,4 @@ class CommandErrorHandler(commands.Cog):
         if isinstance(error, commands.CommandNotFound):
             return await ctx.send('Unknown command, use !help to show all commands')
 
-        self.logger.exception(f'Exception on command "{ctx.command.name}", exception {str(error)}')
-        traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
+        self.logger.exception(f'Exception on command "{ctx.command.name}", exception {error}', exc_info=True)
