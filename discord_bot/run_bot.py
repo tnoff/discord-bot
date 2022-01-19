@@ -9,7 +9,7 @@ from discord.ext.commands.cog import CogMeta
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
-from discord_bot.utils import get_logger, get_db_session
+from discord_bot.utils import get_logger, get_db_engine
 
 
 
@@ -94,11 +94,11 @@ def main():
     # Setup vars
     bot = commands.Bot(command_prefix='!')
     logger = get_logger(__name__, settings['log_file'])
-    db_session = get_db_session(settings)
+    db_engine = get_db_engine(settings)
 
     # Add error and general handler first
     bot.add_cog(CommandErrorHandler(bot, logger))
-    bot.add_cog(General(bot, db_session, logger, settings))
+    bot.add_cog(General(bot, db_engine, logger, settings))
 
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
@@ -125,7 +125,7 @@ def main():
                 imported_cog = getattr(module, key)
                 # Add cog to bot
                 try:
-                    bot.add_cog(imported_cog(bot, db_session, logger, settings))
+                    bot.add_cog(imported_cog(bot, db_engine, logger, settings))
                 except CogMissingRequiredArg:
                     logger.warning(f'Unable to add cog "{import_name}"')
 

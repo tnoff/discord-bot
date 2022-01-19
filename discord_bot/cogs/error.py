@@ -28,9 +28,8 @@ class CommandErrorHandler(commands.Cog):
             if cog._get_overridden_method(cog.cog_command_error) is not None: #pylint:disable=protected-access
                 return
 
-        error = getattr(error, 'original', error)
+        error_type = getattr(error, 'original', error)
 
-        if isinstance(error, commands.CommandNotFound):
+        if isinstance(error_type, commands.CommandNotFound):
             return await ctx.send('Unknown command, use !help to show all commands')
-
         self.logger.exception(f'Exception on command "{ctx.command.name}", exception {error}', exc_info=True)

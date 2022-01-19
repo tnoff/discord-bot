@@ -5,7 +5,6 @@ from time import sleep
 
 from sqlalchemy import create_engine
 from sqlalchemy.exc import InvalidRequestError, OperationalError, StatementError
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.query import Query as _Query
 
 from discord_bot.database import BASE
@@ -59,7 +58,7 @@ def get_logger(logger_name, log_file):
     logger.addHandler(fh)
     return logger
 
-def get_mysql_database_session(mysql_user, mysql_password, mysql_database, mysql_host):
+def get_mysql_database_engine(mysql_user, mysql_password, mysql_database, mysql_host):
     '''
     Mysql database session
     '''
@@ -67,26 +66,26 @@ def get_mysql_database_session(mysql_user, mysql_password, mysql_database, mysql
     engine = create_engine(sql_statement, encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
-    return sessionmaker(bind=engine, query_cls=RetryingQuery)()
+    return engine
 
-def get_sqlite_database_session(sqlite_file):
+def get_sqlite_database_engine(sqlite_file):
     '''
     Return sqlite database session
     '''
     engine = create_engine(f'sqlite:///{sqlite_file}', encoding='utf-8')
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
-    return sessionmaker(bind=engine, query_cls=RetryingQuery)()
+    return engine
 
-def get_db_session(settings):
+def get_db_engine(settings):
     '''
     Use settings to return db_session
     '''
     if settings['db_type'] == 'mysql':
-        return get_mysql_database_session(settings['mysql_user'],
+        return get_mysql_database_engine(settings['mysql_user'],
                                           settings['mysql_password'],
                                           settings['mysql_database'],
                                           settings['mysql_host'])
     if settings['db_type'] == 'sqlite':
-        return get_sqlite_database_session(settings['sqlite_file'])
+        return get_sqlite_database_engine(settings['sqlite_file'])
     return None
