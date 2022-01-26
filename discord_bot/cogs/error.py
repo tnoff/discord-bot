@@ -23,9 +23,8 @@ class CommandErrorHandler(commands.Cog):
         if hasattr(ctx.command, 'on_error'):
             return
 
-        cog = ctx.cog
-        if cog:
-            if cog._get_overridden_method(cog.cog_command_error) is not None: #pylint:disable=protected-access
+        if ctx.cog:
+            if ctx.cog._get_overridden_method(ctx.cog.cog_command_error) is not None: #pylint:disable=protected-access
                 return
 
         error_type = getattr(error, 'original', error)

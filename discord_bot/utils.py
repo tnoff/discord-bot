@@ -4,7 +4,7 @@ from logging.handlers import RotatingFileHandler
 from time import sleep
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import InvalidRequestError, OperationalError, StatementError
+from sqlalchemy.exc import InvalidRequestError, OperationalError, PendingRollbackError, StatementError
 from sqlalchemy.orm.query import Query as _Query
 
 from discord_bot.database import BASE
@@ -40,6 +40,9 @@ class RetryingQuery(_Query): #pylint:disable=too-many-ancestors
                 self.session.rollback()
             except InvalidRequestError as ex:
                 logging.error(f'Invalid request error {str(ex)}')
+                self.session.rollback()
+            except PendingRollbackError:
+                logging.error('Need to rollback pending transaction')
                 self.session.rollback()
 
 def get_logger(logger_name, log_file):
