@@ -36,9 +36,9 @@ class RetryingQuery(Query): #pylint:disable=too-many-ancestors
                 if "reconnect until invalid transaction is rolled back" not in str(ex):
                     raise
                 self.session.rollback()
-            except InvalidRequestError as ex:
-                self.session.rollback()
             except PendingRollbackError:
+                self.session.rollback()
+            except InvalidRequestError as ex:
                 self.session.rollback()
 
 def get_logger(logger_name, log_file):
