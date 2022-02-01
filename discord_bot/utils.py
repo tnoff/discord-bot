@@ -1,16 +1,15 @@
-
-import logging
+from logging import getLogger, Formatter, DEBUG
 from logging.handlers import RotatingFileHandler
 from time import sleep
 
 from sqlalchemy import create_engine
 from sqlalchemy.exc import InvalidRequestError, OperationalError, PendingRollbackError, StatementError
-from sqlalchemy.orm.query import Query as _Query
+from sqlalchemy.orm.query import Query
 
 from discord_bot.database import BASE
 
 # https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
-class RetryingQuery(_Query): #pylint:disable=too-many-ancestors
+class RetryingQuery(Query): #pylint:disable=too-many-ancestors
     '''
     Retry logic for sqlalchemy
     '''
@@ -30,7 +29,6 @@ class RetryingQuery(_Query): #pylint:disable=too-many-ancestors
                     raise
                 if attempts <= self.__max_retry_count__:
                     sleep_for = 2 ** (attempts - 1)
-                    logging.error(f'Database connection error, sleeping for {sleep_for} seconds')
                     sleep(sleep_for)
                     continue
                 raise
@@ -39,24 +37,22 @@ class RetryingQuery(_Query): #pylint:disable=too-many-ancestors
                     raise
                 self.session.rollback()
             except InvalidRequestError as ex:
-                logging.error(f'Invalid request error {str(ex)}')
                 self.session.rollback()
             except PendingRollbackError:
-                logging.error('Need to rollback pending transaction')
                 self.session.rollback()
 
 def get_logger(logger_name, log_file):
     '''
     Generic logger
     '''
-    logger = logging.getLogger(logger_name)
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+    logger = getLogger(logger_name)
+    formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
                                   datefmt='%Y-%m-%d %H:%M:%S')
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(DEBUG)
     fh = RotatingFileHandler(log_file,
                              backupCount=2,
                              maxBytes=((2 ** 20) * 10))
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(DEBUG)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     return logger
