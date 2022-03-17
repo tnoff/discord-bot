@@ -32,10 +32,6 @@ class RetryingQuery(Query): #pylint:disable=too-many-ancestors
                     sleep(sleep_for)
                     continue
                 raise
-            except StatementError as ex:
-                if "reconnect until invalid transaction is rolled back" not in str(ex):
-                    raise
-                self.session.rollback()
             except PendingRollbackError:
                 self.session.rollback()
             except InvalidRequestError as ex:
