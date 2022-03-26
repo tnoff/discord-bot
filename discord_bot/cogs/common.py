@@ -1,7 +1,9 @@
+from time import sleep
+
 from discord.ext import commands
+from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.orm import sessionmaker
 
-from discord_bot.utils import RetryingQuery
 
 class CogHelper(commands.Cog):
     '''
@@ -15,4 +17,30 @@ class CogHelper(commands.Cog):
         self.db_engine = db_engine
         self.db_session = None
         if self.db_engine:
-            self.db_session = sessionmaker(bind=db_engine, query_cls=RetryingQuery)()
+            self.db_session = sessionmaker(bind=db_engine)()
+
+    async def retry_command(self, func, *args, **kwargs):
+        '''
+        Use retries for the command, mostly deals with db issues
+        '''
+        max_retries = kwargs.pop('max_retries', 3)
+        retry = 0
+        while True:
+            retry += 1
+            try:
+                return await func(*args, **kwargs)
+            except OperationalError as ex:
+                if "server closed the connection unexpectedly" not in str(ex):
+                    raise
+                if retry <= max_retries:
+                    sleep_for = 2 ** (retry - 1)
+                    sleep(sleep_for)
+                    continue
+                raise
+            except PendingRollbackError:
+                self.db_session.rollback()
+                if retry <= max_retries:
+                    sleep_for = 2 ** (retry - 1)
+                    sleep(sleep_for)
+                    continue
+                raise

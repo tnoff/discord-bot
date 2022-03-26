@@ -1,41 +1,7 @@
 from logging import getLogger, Formatter, DEBUG
 from logging.handlers import RotatingFileHandler
-from time import sleep
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import InvalidRequestError, OperationalError, PendingRollbackError, StatementError
-from sqlalchemy.orm.query import Query
-
-from discord_bot.database import BASE
-
-# https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
-class RetryingQuery(Query): #pylint:disable=too-many-ancestors
-    '''
-    Retry logic for sqlalchemy
-    '''
-    __max_retry_count__ = 3
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def __iter__(self):
-        attempts = 0
-        while True:
-            attempts += 1
-            try:
-                return super().__iter__()
-            except OperationalError as ex:
-                if "server closed the connection unexpectedly" not in str(ex):
-                    raise
-                if attempts <= self.__max_retry_count__:
-                    sleep_for = 2 ** (attempts - 1)
-                    sleep(sleep_for)
-                    continue
-                raise
-            except PendingRollbackError:
-                self.session.rollback()
-            except InvalidRequestError as ex:
-                self.session.rollback()
 
 def get_logger(logger_name, log_file):
     '''
@@ -59,8 +25,6 @@ def get_mysql_database_engine(mysql_user, mysql_password, mysql_database, mysql_
     '''
     sql_statement = f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}/{mysql_database}'
     engine = create_engine(sql_statement, encoding='utf-8')
-    BASE.metadata.create_all(engine)
-    BASE.metadata.bind = engine
     return engine
 
 def get_sqlite_database_engine(sqlite_file):
@@ -68,8 +32,6 @@ def get_sqlite_database_engine(sqlite_file):
     Return sqlite database session
     '''
     engine = create_engine(f'sqlite:///{sqlite_file}', encoding='utf-8')
-    BASE.metadata.create_all(engine)
-    BASE.metadata.bind = engine
     return engine
 
 def get_db_engine(settings):
