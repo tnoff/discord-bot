@@ -1,5 +1,6 @@
 from time import sleep
 
+from discord.errors import HTTPException
 from discord.ext import commands
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.orm import sessionmaker
@@ -29,6 +30,12 @@ class CogHelper(commands.Cog):
             retry += 1
             try:
                 return await func(*args, **kwargs)
+            except HTTPException:
+                if retry <= max_retries:
+                    sleep_for = 2 ** (retry - 1)
+                    sleep(sleep_for)
+                    continue
+                raise
             except OperationalError as ex:
                 if "server closed the connection unexpectedly" not in str(ex):
                     raise
