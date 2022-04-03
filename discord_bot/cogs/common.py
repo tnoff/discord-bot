@@ -37,7 +37,7 @@ class CogHelper(commands.Cog):
                     continue
                 raise
             except OperationalError as ex:
-                if "server closed the connection unexpectedly" not in str(ex):
+                if "server closed the connection unexpectedly" not in str(ex) and "MySQL server has gone away" not in str(ex):
                     raise
                 if retry <= max_retries:
                     sleep_for = 2 ** (retry - 1)
