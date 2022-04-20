@@ -11,8 +11,11 @@ for root, dirs, files in os.walk(os.path.join(THIS_DIR, 'cogs/plugins')):
 
 required = []
 for file_name in REQUIREMENTS_FILES:
-    with open(file_name) as f:
-        required += f.read().splitlines()
+    # Not sure why but tox seems to miss the file here
+    # So add the check
+    if os.path.exists(file_name):
+        with open(file_name) as f:
+            required += f.read().splitlines()
 
 setuptools.setup(
     name='discord_bot',
