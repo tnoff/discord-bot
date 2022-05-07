@@ -1,10 +1,10 @@
 from time import sleep
 
-from discord.errors import HTTPException
 from discord.ext import commands
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.orm import sessionmaker
 
+DEFAULT_DB_EXCEPTIONS = (OperationalError, PendingRollbackError)
 
 class CogHelper(commands.Cog):
     '''
@@ -25,27 +25,23 @@ class CogHelper(commands.Cog):
         Use retries for the command, mostly deals with db issues
         '''
         max_retries = kwargs.pop('max_retries', 3)
+        db_exceptions = kwargs.pop('db_exceptions', DEFAULT_DB_EXCEPTIONS)
+        non_db_exceptions = kwargs.pop('non_db_exceptions', ())
         retry = 0
         while True:
             retry += 1
             try:
                 return await func(*args, **kwargs)
-            except HTTPException:
-                if retry <= max_retries:
-                    sleep_for = 2 ** (retry - 1)
-                    sleep(sleep_for)
-                    continue
-                raise
-            except OperationalError as ex:
-                if "server closed the connection unexpectedly" not in str(ex) and "MySQL server has gone away" not in str(ex):
-                    raise
-                if retry <= max_retries:
-                    sleep_for = 2 ** (retry - 1)
-                    sleep(sleep_for)
-                    continue
-                raise
-            except PendingRollbackError:
+            except db_exceptions as ex:
+                self.logger.exception(f'Hit DB Exception, attempting to retry "{str(ex)}"')
                 self.db_session.rollback()
+                if retry <= max_retries:
+                    sleep_for = 2 ** (retry - 1)
+                    sleep(sleep_for)
+                    continue
+                raise
+            except non_db_exceptions as ex:
+                self.logger.exception(f'Hit Non-DB Exception, attempting to retry "{str(ex)}"')
                 if retry <= max_retries:
                     sleep_for = 2 ** (retry - 1)
                     sleep(sleep_for)
