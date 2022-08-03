@@ -1,7 +1,8 @@
 import argparse
-from configparser import NoSectionError, NoOptionError, SafeConfigParser
+from copy import deepcopy
 import importlib
 import pathlib
+from yaml import safe_load
 
 from discord.ext import commands
 from discord.ext.commands.cog import CogMeta
@@ -18,11 +19,6 @@ REQUIRED_GENERAL_SETTINGS = [
     'discord_token',
 ]
 
-OPTIONAL_GENERAL_SETTINGS = [
-    'db_type',
-    'message_delete_after',
-]
-
 def parse_args():
     '''
     Basic cli arg parser
@@ -37,50 +33,38 @@ def read_config(config_file):
     '''
     if config_file is None:
         return {}
-    parser = SafeConfigParser()
-    parser.read(config_file)
+    with open(config_file, 'r') as reader:
+        settings = safe_load(reader)
 
-    settings = {}
-
-    sections = [item.lower() for item in parser.sections()]
+    sections = list(settings.keys())
     if 'general' not in sections:
         raise DiscordBotException('General config section required')
 
     for key in REQUIRED_GENERAL_SETTINGS:
         try:
-            settings[key] = parser.get('general', key)
-        except (NoSectionError, NoOptionError) as e:
-            raise DiscordBotException(f'Missing required general setting "{key}"') from e
-
-    for key in OPTIONAL_GENERAL_SETTINGS:
-        try:
-            settings[key] = parser.get('general', key)
-        except (NoSectionError, NoOptionError):
-            settings[key] = None
-
-    for section in sections:
-        if section == 'general':
-            continue
-        for key in parser[section]:
-            settings[f'{section}_{key}'] = parser.get(section, key)
+            settings['general'][key]
+        except KeyError as exc:
+            raise DiscordBotException(f'Missing required general setting "{key}"') from exc
     return settings
 
-def validate_config(settings):
+def validate_config(settings, prefix_keys=None):
     '''
     Validate some settings are set properly
     '''
+    prefix_keys = prefix_keys or []
     # Guess type
-    for key in settings:
-        if settings[key] is None:
+    validated_settings = {}
+    for key, value in settings.items():
+        if isinstance(value, dict):
+            pks = deepcopy(prefix_keys)
+            pks.append(key)
+            validated_settings.update(validate_config(value, prefix_keys=pks))
             continue
-        try:
-            settings[key] = int(settings[key])
-            continue
-        except (TypeError, ValueError):
-            pass
-        if settings[key].lower() == 'true' or settings[key].lower() == 'false':
-            settings[key] = bool(settings[key])
-    return settings
+        new_key = key
+        if prefix_keys:
+            new_key = f'{"_".join(k for k in prefix_keys)}_{key}'
+        validated_settings[new_key] = value
+    return validated_settings
 
 def main():
     '''
@@ -90,10 +74,9 @@ def main():
 
     settings = read_config(args.config_file)
     settings = validate_config(settings)
-
     # Setup vars
     bot = commands.Bot(command_prefix='!')
-    logger = get_logger(__name__, settings['log_file'])
+    logger = get_logger(__name__, settings['general_log_file'])
     db_engine = get_db_engine(settings)
 
     # Add error and general handler first
@@ -129,4 +112,4 @@ def main():
                 except CogMissingRequiredArg:
                     logger.warning(f'Unable to add cog "{import_name}"')
 
-    bot.run(settings['discord_token'])
+    bot.run(settings['general_discord_token'])

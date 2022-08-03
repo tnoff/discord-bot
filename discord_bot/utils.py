@@ -38,11 +38,11 @@ def get_db_engine(settings):
     '''
     Use settings to return db_session
     '''
-    if settings['db_type'] == 'mysql':
+    if settings['general_db_type'] == 'mysql':
         return get_mysql_database_engine(settings['mysql_user'],
                                           settings['mysql_password'],
                                           settings['mysql_database'],
                                           settings['mysql_host'])
-    if settings['db_type'] == 'sqlite':
+    if settings['general_db_type'] == 'sqlite':
         return get_sqlite_database_engine(settings['sqlite_file'])
     return None

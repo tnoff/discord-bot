@@ -13,14 +13,14 @@ class General(CogHelper):
     '''
 
     @commands.command(name='hello')
-    async def hello(self, ctx): #pylint:disable=no-self-use
+    async def hello(self, ctx):
         '''
         Say hello to the server
         '''
         await ctx.send(f'Waddup {ctx.author.name}')
 
     @commands.command(name='roll')
-    async def roll(self, ctx, *, number): #pylint:disable=no-self-use
+    async def roll(self, ctx, *, number):
         '''
         Get a random number between 1 and number given
         '''
@@ -59,14 +59,14 @@ class General(CogHelper):
         await ctx.send(message)
 
     @commands.command(name='windows')
-    async def windows(self, ctx): #pylint:disable=no-self-use
+    async def windows(self, ctx):
         '''
         Get an inspirational note about your operating system
         '''
         await ctx.send('Install linux coward')
 
     @commands.command(name='meta')
-    async def meta(self, ctx): #pylint:disable=no-self-use
+    async def meta(self, ctx):
         '''
         Get meta information for channel and server
         '''

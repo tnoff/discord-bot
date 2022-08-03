@@ -3,4 +3,5 @@ discord>=1.0.1
 PyMySQL>=1.0.2
 PyNaCl>=1.4.0
 pathlib>=1.0.1
+PyYAML>=6.0
 SQLAlchemy>=1.4.18
