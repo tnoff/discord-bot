@@ -17,6 +17,8 @@ class General(CogHelper):
         '''
         Say hello to the server
         '''
+        if not await self.check_user_role(ctx):
+            return await ctx.send('Unable to verify user role, ignoring command')
         await ctx.send(f'Waddup {ctx.author.name}')
 
     @commands.command(name='roll')
@@ -24,6 +26,8 @@ class General(CogHelper):
         '''
         Get a random number between 1 and number given
         '''
+        if not await self.check_user_role(ctx):
+            return await ctx.send('Unable to verify user role, ignoring command')
         matcher = re.match(ROLL_REGEX, number)
         # First check if matches regex
         if not matcher:
@@ -58,18 +62,13 @@ class General(CogHelper):
 
         await ctx.send(message)
 
-    @commands.command(name='windows')
-    async def windows(self, ctx):
-        '''
-        Get an inspirational note about your operating system
-        '''
-        await ctx.send('Install linux coward')
-
     @commands.command(name='meta')
     async def meta(self, ctx):
         '''
         Get meta information for channel and server
         '''
+        if not await self.check_user_role(ctx):
+            return await ctx.send('Unable to verify user role, ignoring command')
         message = f'```Server id: {ctx.guild.id}\n'\
                   f'Channel id: {ctx.channel.id}\n'\
                   f'User id: {ctx.author.id}```'

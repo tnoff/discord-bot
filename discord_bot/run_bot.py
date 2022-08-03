@@ -47,7 +47,7 @@ def read_config(config_file):
             raise DiscordBotException(f'Missing required general setting "{key}"') from exc
     return settings
 
-def validate_config(settings, prefix_keys=None):
+def validate_config(settings, prefix_keys=None, depth=0):
     '''
     Validate some settings are set properly
     '''
@@ -55,10 +55,10 @@ def validate_config(settings, prefix_keys=None):
     # Guess type
     validated_settings = {}
     for key, value in settings.items():
-        if isinstance(value, dict):
+        if isinstance(value, dict) and depth == 0:
             pks = deepcopy(prefix_keys)
             pks.append(key)
-            validated_settings.update(validate_config(value, prefix_keys=pks))
+            validated_settings.update(validate_config(value, prefix_keys=pks, depth=depth + 1))
             continue
         new_key = key
         if prefix_keys:
