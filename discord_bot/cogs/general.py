@@ -5,7 +5,7 @@ from discord.ext import commands
 
 from discord_bot.cogs.common import CogHelper
 
-ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+) *(?P<operator>[+-])? *(?P<modifier>\d+)?'
+ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+)'
 
 class General(CogHelper):
     '''
@@ -24,41 +24,46 @@ class General(CogHelper):
     @commands.command(name='roll')
     async def roll(self, ctx, *, number):
         '''
-        Get a random number between 1 and number given
+        Dice rolls
+
+        Can give standard '!roll 6', for random number between 1 and 6
+        Can give 'd' prefix, '!roll d6', for random number between 1 and 6
+        Can give multipliers, '!roll 2d6', to get two random numbers between 1 and 6, and add total
         '''
         if not await self.check_user_role(ctx):
             return await ctx.send('Unable to verify user role, ignoring command')
         matcher = re.match(ROLL_REGEX, number)
         # First check if matches regex
         if not matcher:
-            message = f'Invalid number given {number}'
+            message = f'Invalid input given {number}'
             return False, message
         try:
             sides = int(matcher.group('sides'))
             rolls = matcher.group('rolls')
-            modifier = matcher.group('modifier')
             if rolls is None:
                 rolls = 1
             else:
                 rolls = int(rolls)
-            if modifier is None:
-                modifier = 0
-            else:
-                modifier = int(modifier)
         except ValueError:
-            message = 'Non integer value given'
+            message = f'Non integer value given {number}'
             return False, message
 
+        if rolls > 20:
+            return False, 'Max rolls is 20'
+        if sides > 100:
+            return False, 'Max number is 100'
+
+        roll_values = []
         total = 0
         for _ in range(rolls):
-            total += random.randint(1, sides)
-        if modifier:
-            if matcher.group('operator') == '-':
-                total = total - modifier
-            elif matcher.group('operator') == '+':
-                total = total + modifier
-
-        message = f'{ctx.author.name} rolled a {total}'
+            num = random.randint(1, sides)
+            total += num
+            roll_values.append(num)
+        if rolls == 1:
+            message = f'{ctx.author.name} rolled a {total}'
+        else:
+            roll_values_message = ' + '.join(f'{d}' for d in roll_values)
+            message = f'{ctx.author.name} rolled: {roll_values_message} = {total}'
 
         await ctx.send(message)
 
