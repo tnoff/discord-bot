@@ -12,10 +12,29 @@ $ git clone https://github.com/tnoff/discord-bot.git
 $ pip install discord-bot/discord_bot/
 ```
 
+## Running bot
+
 To run the bot via the command line
 
 ```
-discord-bot /path/to/config/file
+$ discord-bot /path/to/config/file run
+```
+
+## Database dump and load
+
+Dump database contents to a json file, and load database contents from that same json file
+
+
+Prints json contents to screen
+```
+$ discord-bot /path/to/config/file db_dumps
+# To save to a file
+$ discord-bot /path/to/config/file db_dumps > db.json
+```
+
+Loads that same json to the db
+```
+$ discord-bot /path/to/config/file db_load db.json
 ```
 
 ### Plugins

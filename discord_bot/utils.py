@@ -1,7 +1,10 @@
 from logging import getLogger, Formatter, DEBUG
 from logging.handlers import RotatingFileHandler
 
+
 from sqlalchemy import create_engine
+
+DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
 
 def get_logger(logger_name, log_file):
     '''
