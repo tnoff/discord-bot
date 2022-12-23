@@ -25,3 +25,4 @@ disable=logging-fstring-interpolation,
         singleton-comparison,
         line-too-long,
         unspecified-encoding,
+        too-many-locals

@@ -1,9 +1,11 @@
 import argparse
+from asyncio import run
 from copy import deepcopy
 import importlib
 import pathlib
 from yaml import safe_load
 
+from discord import Intents
 from discord.ext import commands
 from discord.ext.commands.cog import CogMeta
 
@@ -75,14 +77,21 @@ def main():
     settings = read_config(args.config_file)
     settings = validate_config(settings)
     # Setup vars
-    bot = commands.Bot(command_prefix='!')
+    intents = Intents.default()
+    intents.message_content = True #pylint:disable=assigning-non-slot
+
+    bot = commands.Bot(
+        command_prefix=commands.when_mentioned_or("!"),
+        description='Discord bot',
+        intents=intents,
+    )
     logger = get_logger(__name__, settings['general_log_file'])
     db_engine = get_db_engine(settings)
 
-    # Add error and general handler first
-    bot.add_cog(CommandErrorHandler(bot, logger))
-    bot.add_cog(General(bot, db_engine, logger, settings))
-
+    cog_list = [
+        CommandErrorHandler(bot, logger),
+        General(bot, db_engine, logger, settings),
+    ]
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
     plugin_path = absolute_path.parent / 'cogs' / 'plugins'
@@ -108,8 +117,19 @@ def main():
                 imported_cog = getattr(module, key)
                 # Add cog to bot
                 try:
-                    bot.add_cog(imported_cog(bot, db_engine, logger, settings))
+                    cog_list.append(imported_cog(bot, db_engine, logger, settings))
                 except CogMissingRequiredArg:
                     logger.warning(f'Unable to add cog "{import_name}"')
 
-    bot.run(settings['general_discord_token'])
+
+    @bot.event
+    async def on_ready():
+        logger.info(f'Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
+
+    async def main_loop():
+        async with bot:
+            for cog in cog_list:
+                await bot.add_cog(cog)
+            await bot.start(settings['general_discord_token'])
+    run(main_loop())
+    
