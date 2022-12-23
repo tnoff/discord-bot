@@ -1,3 +1,0 @@
-[submodule "discord_bot/cogs/discord-bot-plugins"]
-	path = discord_bot/cogs/plugins
-	url = https://github.com/tnoff/discord-bot-plugins.git
