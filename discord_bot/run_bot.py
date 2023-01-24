@@ -10,13 +10,14 @@ from yaml import safe_load
 from discord import Intents
 from discord.ext import commands
 from discord.ext.commands.cog import CogMeta
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
 from discord_bot.database import BASE, AlchemyEncoder
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
-from discord_bot.utils import get_logger, get_db_engine
+from discord_bot.utils import get_logger
 
 REQUIRED_GENERAL_SETTINGS = [
     'log_file',
@@ -139,7 +140,11 @@ def main():
         intents=intents,
     )
     logger = get_logger(__name__, settings['general_log_file'])
-    db_engine = get_db_engine(settings)
+    try:
+        db_engine = create_engine(settings['general_sql_connection_statement'], encoding='utf-8')
+    except KeyError:
+        print('Unable to find sql statement in settings, assuming no db')
+        db_engine = None
 
     cog_list = [
         CommandErrorHandler(bot, logger),

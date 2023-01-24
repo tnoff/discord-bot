@@ -79,35 +79,18 @@ general:
 
 ### Database
 
-The commands in the default cog do not use the database, but plugins usually will. Sqlite3 and mysql databases are current supported.
+The commands in the default cog do not use the database, but plugins usually will. To enable database support, add a database connection string to the configuration file.
 
-
-#### Sqlite
-
-
-The simpliest database type is a sqlite file
+Example sqlite string
 ```
 general:
-  db_type: sqlite
-
-sqlite:
-  file: /path/to/sqlite/file
+  sql_connection_statement: sqlite:///home/user/db.sql
 ```
 
-
-#### Mysql
-
-A mysql server can be used instead of sqlite
-
+Example mysql string
 ```
 general:
-  db_type: mysql
-
-mysql:
-  user: discord
-  password: example-password
-  database: discord
-  host: 172.19.0.2
+  sql_connection_statement: mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}/{mysql_database}
 ```
 
 ### Aditional Settings
