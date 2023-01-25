@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 from sqlalchemy.orm.decl_api import registry
 
 from discord_bot.exceptions import UnhandledColumnType
+from discord_bot.utils import DATETIME_FORMAT
 
 BASE = declarative_base()
 
@@ -25,7 +26,7 @@ class AlchemyEncoder(JSONEncoder):
                     fields[field] = data
                 except TypeError as exc:
                     if isinstance(data, (date, datetime)):
-                        fields[field] = data.isoformat()
+                        fields[field] = data.strftime(DATETIME_FORMAT)
                     else:
                         raise UnhandledColumnType(f'Field {field} and data {data} are not handled by AlchemyEncoder') from exc
             # a json-encodable dict
