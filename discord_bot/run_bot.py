@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
-from discord_bot.database import BASE, AlchemyEncoder
+from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.utils import get_logger
 
@@ -85,7 +85,7 @@ def db_dump(db_engine):
     if db_engine is None:
         print('Unable to dump database, no engine')
         return
-    db_session = sessionmaker(bind=db_engine)()
+    db_session = sessionmaker(bind=db_engine, query_cls=RetryingQuery)()
     tables = BASE.__subclasses__()
     table_data = {}
     for t in tables:

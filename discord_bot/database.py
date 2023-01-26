@@ -1,5 +1,9 @@
 from datetime import datetime, date
 from json import JSONEncoder, dumps
+from time import sleep
+
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm.query import Query
 from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 from sqlalchemy.orm.decl_api import registry
 
@@ -32,3 +36,30 @@ class AlchemyEncoder(JSONEncoder):
             # a json-encodable dict
             return fields
         return JSONEncoder.default(self, o)
+
+# https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
+class RetryingQuery(Query):
+    '''
+    Add some basic retry logic to the queries
+    '''
+    __max_retry_count__ = 3
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __iter__(self):
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return super().__iter__()
+            except OperationalError as ex:
+                print(f'SQL Operational error {str(ex)}')
+                if "server closed the connection unexpectedly" not in str(ex):
+                    raise
+                if attempts <= self.__max_retry_count__:
+                    print(f'Retrying SQL Error, attempt {attempts}')
+                    sleep_for = 2 ** (attempts - 1)
+                    sleep(sleep_for)
+                    continue
+                raise
