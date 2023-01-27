@@ -20,7 +20,27 @@ def get_logger(logger_name, log_file):
     logger.addHandler(fh)
     return logger
 
-async def retry_command(func, *args, **kwargs):
+def retry_command(func, *args, **kwargs):
+    '''
+    Use retries for the command, mostly deals with db issues
+    '''
+    max_retries = kwargs.pop('max_retries', 3)
+    accepted_exceptions = kwargs.pop('accepted_exceptions', (Exception))
+    post_functions = kwargs.pop('post_exception_functions', [])
+    retry = 0
+    while True:
+        retry += 1
+        try:
+            return func(*args, **kwargs)
+        except accepted_exceptions as ex:
+            post_functions(ex)
+            if retry <= max_retries:
+                sleep_for = 2 ** (retry - 1)
+                sleep(sleep_for)
+                continue
+            raise
+
+async def async_retry_command(func, *args, **kwargs):
     '''
     Use retries for the command, mostly deals with db issues
     '''
