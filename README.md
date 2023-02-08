@@ -1,7 +1,10 @@
 # Discord Bot
 
 
-Bot for discord servers. Includes functions for playing music in voice chats, music playlists, twitter, and a markov chat bot.
+Python bot for discord servers. Handles basic configurations, database sessions, and supports plugins.
+
+For some example plugins including youtube music in voice chat, twitter, and markov chat, see [some example plugins here](For example plugins see: [https://github.com/tnoff/discord-bot-plugins]
+)
 
 ## Setup
 
@@ -44,14 +47,12 @@ You can add custom plugins in the `cogs/plugins` directly, that will be loaded a
 
 You can also use the `BASE` declarative base from the database file in any plugin file, in order to create database tables.
 
-For example plugins see: [https://github.com/tnoff/discord-bot-plugins]
-
 ## Config
 
 The config should be a file in the YAML format.
 
 Two main arguments are required
-- A discord authentication token, you can read more about that [here|https://discord.com/developers/docs/topics/oauth2]
+- A discord authentication token, you can read more about that [here](https://discord.com/developers/docs/topics/oauth2)
 - A log file
 
 ```
