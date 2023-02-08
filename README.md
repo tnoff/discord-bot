@@ -3,8 +3,7 @@
 
 Python bot for discord servers. Handles basic configurations, database sessions, and supports plugins.
 
-For some example plugins including youtube music in voice chat, twitter, and markov chat, see [some example plugins here](For example plugins see: [https://github.com/tnoff/discord-bot-plugins]
-)
+For some example plugins including youtube music in voice chat, twitter, and markov chat, see [some example plugins here](https://github.com/tnoff/discord-bot-plugins)
 
 ## Setup
 
