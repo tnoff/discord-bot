@@ -141,7 +141,7 @@ def main():
     )
     logger = get_logger(__name__, settings['general_log_file'])
     try:
-        db_engine = create_engine(settings['general_sql_connection_statement'], encoding='utf-8')
+        db_engine = create_engine(settings['general_sql_connection_statement'])
     except KeyError:
         print('Unable to find sql statement in settings, assuming no db')
         db_engine = None
