@@ -33,7 +33,8 @@ def retry_command(func, *args, **kwargs):
         try:
             return func(*args, **kwargs)
         except accepted_exceptions as ex:
-            post_functions(ex)
+            for pf in post_functions:
+                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 sleep(sleep_for)
@@ -53,7 +54,8 @@ async def async_retry_command(func, *args, **kwargs):
         try:
             return await func(*args, **kwargs)
         except accepted_exceptions as ex:
-            post_functions(ex)
+            for pf in post_functions:
+                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 sleep(sleep_for)

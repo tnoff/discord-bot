@@ -1,4 +1,4 @@
-discord.py>=2.1.1
+discord.py>=2.2.2
 pathlib>=1.0.1
 PyYAML>=6.0
 SQLAlchemy>=2.0.4
