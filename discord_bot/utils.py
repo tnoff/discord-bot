@@ -1,3 +1,4 @@
+from asyncio import sleep as async_sleep
 from logging import getLogger, Formatter, DEBUG
 from logging.handlers import RotatingFileHandler
 from time import sleep
@@ -10,7 +11,7 @@ def get_logger(logger_name, log_file):
     '''
     logger = getLogger(logger_name)
     formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                                  datefmt=DATETIME_FORMAT)
+                          datefmt=DATETIME_FORMAT)
     logger.setLevel(DEBUG)
     fh = RotatingFileHandler(log_file,
                              backupCount=2,
@@ -58,6 +59,6 @@ async def async_retry_command(func, *args, **kwargs):
                 pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
-                sleep(sleep_for)
+                await async_sleep(sleep_for)
                 continue
             raise
