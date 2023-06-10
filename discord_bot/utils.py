@@ -3,7 +3,31 @@ from logging import getLogger, Formatter, DEBUG
 from logging.handlers import RotatingFileHandler
 from time import sleep
 
+from jsonschema import validate
+
 DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
+
+GENERAL_SECTION_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'log_file': {
+            'type': 'string'
+        }
+        'discord_token': {
+            'type': 'string'
+        }
+        'sql_connection_statement': {
+            'type': 'string',
+            'required': False,
+        }
+    }
+}
+
+def validate_config(config_section, schema):
+    '''
+    Validate config against a JSON schema
+    '''
+    return validate(instance=config_section, schema=schema)
 
 def get_logger(logger_name, log_file):
     '''

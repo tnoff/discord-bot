@@ -10,6 +10,7 @@ from yaml import safe_load
 from discord import Intents
 from discord.ext import commands
 from discord.ext.commands.cog import CogMeta
+from jsonschema import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -17,7 +18,7 @@ from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
 from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
-from discord_bot.utils import get_logger
+from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
 REQUIRED_GENERAL_SETTINGS = [
     'log_file',
@@ -32,9 +33,11 @@ def parse_args():
     '''
     parser = argparse.ArgumentParser(description='Discord Bot Runner')
     parser.add_argument('config_file', help='Config file')
+
     subparser = parser.add_subparsers(dest='command', help='command')
     subparser.add_parser('run', help='Run bot')
     subparser.add_parser('db_dump', help='Dump database contents to json')
+
     db_load_parser = subparser.add_parser('db_load')
     db_load_parser.add_argument('json_file', help='JSON file to load from')
     return parser.parse_args()
@@ -51,32 +54,8 @@ def read_config(config_file):
     sections = list(settings.keys())
     if 'general' not in sections:
         raise DiscordBotException('General config section required')
-
-    for key in REQUIRED_GENERAL_SETTINGS:
-        try:
-            settings['general'][key]
-        except KeyError as exc:
-            raise DiscordBotException(f'Missing required general setting "{key}"') from exc
     return settings
 
-def validate_config(settings, prefix_keys=None, depth=0):
-    '''
-    Validate some settings are set properly
-    '''
-    prefix_keys = prefix_keys or []
-    # Guess type
-    validated_settings = {}
-    for key, value in settings.items():
-        if isinstance(value, dict) and depth == 0:
-            pks = deepcopy(prefix_keys)
-            pks.append(key)
-            validated_settings.update(validate_config(value, prefix_keys=pks, depth=depth + 1))
-            continue
-        new_key = key
-        if prefix_keys:
-            new_key = f'{"_".join(k for k in prefix_keys)}_{key}'
-        validated_settings[new_key] = value
-    return validated_settings
 
 def db_dump(db_engine):
     '''
@@ -129,7 +108,11 @@ def main():
     args = parse_args()
 
     settings = read_config(args.config_file)
-    settings = validate_config(settings)
+    try:
+        validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
+    except ValidationError:
+        print('Invalid config, general section does not match schema')
+
     # Setup vars
     intents = Intents.default()
     intents.message_content = True #pylint:disable=assigning-non-slot
@@ -139,9 +122,9 @@ def main():
         description='Discord bot',
         intents=intents,
     )
-    logger = get_logger(__name__, settings['general_log_file'])
+    logger = get_logger(__name__, settings['general']['log_file'])
     try:
-        db_engine = create_engine(settings['general_sql_connection_statement'])
+        db_engine = create_engine(settings['general']['sql_connection_statement'])
     except KeyError:
         print('Unable to find sql statement in settings, assuming no db')
         db_engine = None
@@ -187,7 +170,7 @@ def main():
         async with bot:
             for cog in cog_list:
                 await bot.add_cog(cog)
-            await bot.start(settings['general_discord_token'])
+            await bot.start(settings['general']['discord_token'])
 
     if args.command.lower() == 'run':
         run(main_loop())
