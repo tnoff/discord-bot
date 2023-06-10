@@ -38,7 +38,7 @@ class AlchemyEncoder(JSONEncoder):
         return JSONEncoder.default(self, o)
 
 # https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
-class RetryingQuery(Query):
+class RetryingQuery(Query): #pylint: disable=abstract-method
     '''
     Add some basic retry logic to the queries
     '''

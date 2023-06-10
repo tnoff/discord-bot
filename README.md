@@ -16,6 +16,18 @@ $ git clone https://github.com/tnoff/discord-bot.git
 $ pip install discord-bot/discord_bot/
 ```
 
+To install the package with all of the example plugins
+
+```
+For example, to run the bot with the example plugins run:
+
+```
+$ git clone https://github.com/tnoff/discord-bot.git
+$ git clone https://github.com/tnoff/discord-bot-plugins.git
+$ cp discord-bot-plugins/* discord-bot/discord_bot/cogs/
+$ pip install discord-bot/discord_bot/
+```
+
 ## Running bot
 
 To run the bot via the command line
@@ -117,14 +129,7 @@ You can add custom plugins in the `cogs/plugins` directly, that will be loaded a
 
 You can also use the `BASE` declarative base from the database file in any plugin file, in order to create database tables.
 
-You can find some example plugins here [some example plugins here](https://github.com/tnoff/discord-bot-plugins). For example, to run the bot with the example plugins run:
-
-```
-$ git clone https://github.com/tnoff/discord-bot.git
-$ git clone https://github.com/tnoff/discord-bot-plugins.git
-$ cp discord-bot-plugins/* discord-bot/discord_bot/cogs/
-$ pip install discord-bot/discord_bot/
-```
+You can find some example plugins here [some example plugins here](https://github.com/tnoff/discord-bot-plugins).
 
 If you place a `requirements.txt` file in the plugins directly, these should be installed during the `pip install` of the package.
 

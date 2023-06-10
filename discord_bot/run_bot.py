@@ -1,6 +1,5 @@
 import argparse
 from asyncio import run
-from copy import deepcopy
 from datetime import datetime
 from json import dumps, load
 import importlib
@@ -17,13 +16,9 @@ from sqlalchemy.orm import sessionmaker
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
 from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
-from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
+from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
-REQUIRED_GENERAL_SETTINGS = [
-    'log_file',
-    'discord_token',
-]
 
 DB_DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
 
@@ -110,8 +105,8 @@ def main():
     settings = read_config(args.config_file)
     try:
         validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
-    except ValidationError:
-        print('Invalid config, general section does not match schema')
+    except ValidationError as exc:
+        raise DiscordBotException('Invalid config, general section does not match schema') from exc
 
     # Setup vars
     intents = Intents.default()
@@ -159,8 +154,8 @@ def main():
                 # Add cog to bot
                 try:
                     cog_list.append(imported_cog(bot, db_engine, logger, settings))
-                except CogMissingRequiredArg:
-                    logger.warning(f'Unable to add cog "{import_name}"')
+                except ValidationError:
+                    logger.warning(f'Unable to add cog "{import_name}" due to missing required args')
 
     @bot.event
     async def on_ready():

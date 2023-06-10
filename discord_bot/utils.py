@@ -12,15 +12,15 @@ GENERAL_SECTION_SCHEMA = {
     'properties': {
         'log_file': {
             'type': 'string'
-        }
+        },
         'discord_token': {
             'type': 'string'
-        }
+        },
         'sql_connection_statement': {
             'type': 'string',
             'required': False,
-        }
-    }
+        },
+    },
 }
 
 def validate_config(config_section, schema):
@@ -39,7 +39,7 @@ def get_logger(logger_name, log_file):
     logger.setLevel(DEBUG)
     fh = RotatingFileHandler(log_file,
                              backupCount=2,
-                             maxBytes=((2 ** 20) * 10))
+                             maxBytes=(2 ** 20) * 10)
     fh.setLevel(DEBUG)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
