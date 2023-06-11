@@ -18,9 +18,11 @@ GENERAL_SECTION_SCHEMA = {
         },
         'sql_connection_statement': {
             'type': 'string',
-            'required': False,
         },
     },
+    'required': [
+        'sql_connection_statement'
+    ]
 }
 
 def validate_config(config_section, schema):
