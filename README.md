@@ -16,9 +16,6 @@ $ git clone https://github.com/tnoff/discord-bot.git
 $ pip install discord-bot/discord_bot/
 ```
 
-To install the package with all of the example plugins
-
-```
 For example, to run the bot with the example plugins run:
 
 ```
