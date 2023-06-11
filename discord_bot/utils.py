@@ -21,7 +21,8 @@ GENERAL_SECTION_SCHEMA = {
         },
     },
     'required': [
-        'sql_connection_statement'
+        'log_file',
+        'discord_token',
     ]
 }
 
