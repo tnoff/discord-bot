@@ -1,5 +1,5 @@
 discord.py>=2.3.0
 jsonschema>=4.17.3
 pathlib>=1.0.1
-PyYAML>=6.0
+pyaml-env>=1.2.1
 SQLAlchemy>=2.0.16

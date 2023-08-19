@@ -4,12 +4,12 @@ from datetime import datetime
 from json import dumps, load
 import importlib
 import pathlib
-from yaml import safe_load
 
 from discord import Intents
 from discord.ext import commands
 from discord.ext.commands.cog import CogMeta
 from jsonschema import ValidationError
+from pyaml_env import parse_config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -43,8 +43,7 @@ def read_config(config_file):
     '''
     if config_file is None:
         return {}
-    with open(config_file, 'r') as reader:
-        settings = safe_load(reader)
+    settings = parse_config(config_file)
 
     sections = list(settings.keys())
     if 'general' not in sections:
