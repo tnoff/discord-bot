@@ -125,8 +125,9 @@ def main():
 
     cog_list = [
         CommandErrorHandler(bot, logger),
-        General(bot, db_engine, logger, settings),
     ]
+    if settings['general']['include_default_cog']:
+        cog_list.append(General(bot, db_engine, logger, settings))
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
     plugin_path = absolute_path.parent / 'cogs' / 'plugins'

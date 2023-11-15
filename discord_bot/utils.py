@@ -19,6 +19,10 @@ GENERAL_SECTION_SCHEMA = {
         'sql_connection_statement': {
             'type': 'string',
         },
+        'include_default_cog': {
+            'type': 'boolean',
+            'default': True,
+        }
     },
     'required': [
         'log_file',

@@ -64,6 +64,15 @@ Probably the most useful basic function, show user id, channel id, and guild (se
 > User id: <redacted>
 ```
 
+### Disable Default Cog
+
+You can pass the following config arg to disable to default cog
+
+```
+general:
+  include_default_cog = false
+```
+
 ### Help Page
 
 To check the available functions, use `!help` command.
