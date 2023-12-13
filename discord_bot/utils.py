@@ -1,6 +1,7 @@
 from asyncio import sleep as async_sleep
 from logging import getLogger, Formatter, DEBUG
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, StreamHandler
+from sys import stdout
 from time import sleep
 
 from jsonschema import validate
@@ -22,10 +23,28 @@ GENERAL_SECTION_SCHEMA = {
         'include_default_cog': {
             'type': 'boolean',
             'default': True,
-        }
+        },
+        'logging': {
+            'type': 'object',
+            'properties': {
+                'log_file': {
+                    'type': 'string',
+                },
+                'log_file_count': {
+                    'type': 'integer',
+                },
+                'log_file_max_bytes': {
+                    'type': 'integer',
+                }
+            },
+            'required': [
+                'log_file',
+                'log_file_count',
+                'log_file_max_bytes',
+            ]
+        },
     },
     'required': [
-        'log_file',
         'discord_token',
     ]
 }
@@ -36,7 +55,7 @@ def validate_config(config_section, schema):
     '''
     return validate(instance=config_section, schema=schema)
 
-def get_logger(logger_name, log_file):
+def get_logger(logger_name, logging_section):
     '''
     Generic logger
     '''
@@ -44,12 +63,18 @@ def get_logger(logger_name, log_file):
     formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
                           datefmt=DATETIME_FORMAT)
     logger.setLevel(DEBUG)
-    fh = RotatingFileHandler(log_file,
-                             backupCount=2,
-                             maxBytes=(2 ** 20) * 10)
-    fh.setLevel(DEBUG)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    if not logging_section:
+        ch = StreamHandler(stdout)
+        ch.setLevel(DEBUG)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+    else:
+        fh = RotatingFileHandler(logging_section['log_file'],
+                                backupCount=logging_section['log_file_count'],
+                                maxBytes=logging_section['log_file_max_bytes'])
+        fh.setLevel(DEBUG)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
     return logger
 
 def retry_command(func, *args, **kwargs):

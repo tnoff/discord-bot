@@ -116,7 +116,7 @@ def main():
         description='Discord bot',
         intents=intents,
     )
-    logger = get_logger(__name__, settings['general']['log_file'])
+    logger = get_logger(__name__, settings['general'].get('logging', {}))
     try:
         db_engine = create_engine(settings['general']['sql_connection_statement'])
     except KeyError:

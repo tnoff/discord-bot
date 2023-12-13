@@ -83,16 +83,20 @@ The config should be a file in the YAML format.
 
 Two main arguments are required:
 - A discord authentication token, you can read more about that [here](https://discord.com/developers/docs/topics/oauth2)
-- A log file
 
 You can also pass in a `sql_connection_statement` to have a persistent database. This is not required for any of the standard functions but you may want to include a plugin that requires a db. The statement should be a standard sqlalchemy connection string, for example: `sqlite://database.sql`
 
 ```
 general:
   discord_token: blah-blah-blah-discord-token
-  log_file: /logs/discord.log
   sql_connection_statement: sqlite:///home/user/db.sql
+  logging:
+    log_file: /logs/discord.log # Log file path
+    log_file_count: 2 # Max backup log files
+    log_file_max_bytes: 1240000 # Size to rotate log files at
 ```
+
+If no logging section provided, the logs will print to stdout by default.
 
 ## Allowed Roles
 
