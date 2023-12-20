@@ -1,6 +1,6 @@
 from asyncio import sleep as async_sleep
-from logging import getLogger, Formatter, DEBUG
-from logging.handlers import RotatingFileHandler, StreamHandler
+from logging import getLogger, Formatter, DEBUG, StreamHandler
+from logging.handlers import RotatingFileHandler
 from sys import stdout
 from time import sleep
 

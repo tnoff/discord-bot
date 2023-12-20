@@ -116,7 +116,9 @@ def main():
         description='Discord bot',
         intents=intents,
     )
+    print('Starting logging')
     logger = get_logger(__name__, settings['general'].get('logging', {}))
+
     try:
         db_engine = create_engine(settings['general']['sql_connection_statement'])
     except KeyError:
@@ -126,7 +128,8 @@ def main():
     cog_list = [
         CommandErrorHandler(bot, logger),
     ]
-    if settings['general']['include_default_cog']:
+    # Include default cog is not specified otherwise
+    if settings['general'].get('include_default_cog', True):
         cog_list.append(General(bot, db_engine, logger, settings))
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
