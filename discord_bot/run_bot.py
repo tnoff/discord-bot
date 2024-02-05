@@ -108,7 +108,7 @@ def main():
         raise DiscordBotException('Invalid config, general section does not match schema') from exc
 
     # Setup vars
-    intents = Intents.default()
+    intents = Intents.all()
     intents.message_content = True #pylint:disable=assigning-non-slot
 
     bot = commands.Bot(
