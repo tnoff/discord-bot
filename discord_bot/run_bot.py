@@ -15,6 +15,8 @@ from sqlalchemy.orm import sessionmaker
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.general import General
+from discord_bot.cogs.markov import Markov
+from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
@@ -130,7 +132,12 @@ def main():
     ]
     # Include default cog is not specified otherwise
     if settings['general'].get('include_default_cog', True):
-        cog_list.append(General(bot, db_engine, logger, settings))
+        
+    # Add all basic cogs
+    cog_list.append(General(bot, logger, settings))
+    cog_list.append(UrbanDictionary(bot, logger, settings))
+    cog_list.append(Markov(bot, logger, settings, db_engine=db_engine))
+
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
     plugin_path = absolute_path.parent / 'cogs' / 'plugins'

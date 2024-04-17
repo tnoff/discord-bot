@@ -1,5 +1,8 @@
+beautifulsoup4>=4.12.2
+-e git+https://github.com/tnoff/dappertable.git@v0.0.8#egg=dappertable
 discord.py>=2.3.0
 jsonschema>=4.17.3
 pathlib>=1.0.1
+requests>=2.31.0
 pyaml-env>=1.2.1
 SQLAlchemy>=2.0.16
