@@ -2,21 +2,16 @@ import argparse
 from asyncio import run
 from datetime import datetime
 from json import dumps, load
-import importlib
-import pathlib
 
 from discord import Intents
 from discord.ext import commands
-from discord.ext.commands.cog import CogMeta
 from jsonschema import ValidationError
 from pyaml_env import parse_config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.error import CommandErrorHandler
-from discord_bot.cogs.general import General
-from discord_bot.cogs.markov import Markov
-from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
@@ -109,9 +104,15 @@ def main():
     except ValidationError as exc:
         raise DiscordBotException('Invalid config, general section does not match schema') from exc
 
-    # Setup vars
-    intents = Intents.all()
-    intents.message_content = True #pylint:disable=assigning-non-slot
+    print('Generating intents')
+    intents = Intents.default()
+    try:
+        intent_list = settings['general']['intents']
+        print('Adding extra intents:', intent_list)
+        for intent in intent_list:
+            setattr(intents, intent, True)
+    except KeyError:
+        pass
 
     bot = commands.Bot(
         command_prefix=commands.when_mentioned_or("!"),
@@ -121,51 +122,22 @@ def main():
     print('Starting logging')
     logger = get_logger(__name__, settings['general'].get('logging', {}))
 
+    print('Starting database connection, setting up tables')
     try:
         db_engine = create_engine(settings['general']['sql_connection_statement'])
+        BASE.metadata.create_all(db_engine)
+        BASE.metadata.bind = db_engine
     except KeyError:
         print('Unable to find sql statement in settings, assuming no db')
         db_engine = None
 
+    # Load default cogs
     cog_list = [
         CommandErrorHandler(bot, logger),
     ]
-    # Include default cog is not specified otherwise
-    if settings['general'].get('include_default_cog', True):
-        
-    # Add all basic cogs
-    cog_list.append(General(bot, logger, settings))
-    cog_list.append(UrbanDictionary(bot, logger, settings))
-    cog_list.append(Markov(bot, logger, settings, db_engine=db_engine))
 
-    absolute_path = pathlib.Path(__file__)
-    # check plugin path for relevant py files
-    plugin_path = absolute_path.parent / 'cogs' / 'plugins'
-    for file_path in plugin_path.rglob('*.py'):
-        # Ignore init file
-        if file_path.name == '__init__.py':
-            continue
-        # Remove file suffixes
-        # Ex: cogs/plugins/general.py
-        proper_file = file_path.relative_to(absolute_path.parent.parent)
-        proper_path = proper_file.parent / proper_file.stem
-        # Make a proper import string
-        # Ex: cogs.plugins.general
-        import_name = str(proper_path).replace(pathlib.os.sep, '.')
-        # Import, and then get "Cog" object
-        logger.debug(f'Attempting to import cog from "{import_name}"')
-        module = importlib.import_module(import_name)
-        # Find all classes with 'Cog' in name, avoid 'CogHelper'
-        for key, value in module.__dict__.items():
-            if key == 'CogHelper':
-                continue
-            if isinstance(value, CogMeta):
-                imported_cog = getattr(module, key)
-                # Add cog to bot
-                try:
-                    cog_list.append(imported_cog(bot, db_engine, logger, settings))
-                except ValidationError:
-                    logger.warning(f'Unable to add cog "{import_name}" due to missing required args')
+    for cog in CogHelper.__subclasses__():
+        cog_list.append(cog(bot, logger, settings, db_engine=db_engine))
 
     @bot.event
     async def on_ready():

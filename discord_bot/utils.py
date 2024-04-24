@@ -58,9 +58,19 @@ GENERAL_SECTION_SCHEMA = {
                 'music': {
                     'type': 'boolean',
                     'default': False,
+                },
+                'delete_messages': {
+                    'type': 'boolean',
+                    'default': False,
                 }
             }
-        }
+        },
+        'intents': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
+        },
     },
     'required': [
         'discord_token',

@@ -17,10 +17,9 @@ from uuid import uuid4
 from async_timeout import timeout
 from dappertable import shorten_string_cjk, DapperTable
 from discord import FFmpegPCMAudio
-from discord.errors import HTTPException, DiscordServerError, RateLimited, NotFound
+from discord.errors import NotFound
 from discord.ext import commands
 from moviepy.editor import AudioFileClip, afx
-from jsonschema import ValidationError
 from numpy import sqrt
 from requests import get as requests_get
 from requests import post as requests_post
@@ -35,7 +34,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import BASE
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils import validate_config, async_retry_discord_message_command
+from discord_bot.utils import async_retry_discord_message_command
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -908,7 +907,6 @@ class MusicPlayer:
         self.disconnect_timeout = disconnect_timeout
         self.current_track_duration = 0
 
-
         self.play_queue = MyQueue(maxsize=queue_max_size)
         self.history = MyQueue(maxsize=queue_max_size)
         self.next = Event()
@@ -1209,15 +1207,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     Music related commands
     '''
 
-    def __init__(self, bot, logger, settings, db_engine=None):
-        super().__init__(bot, db_engine, logger, settings, db_engine=None,
-                         loop_enabled=True, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
+    def __init__(self, bot, logger, settings, db_engine):
+        super().__init__(bot, logger, settings, db_engine=db_engine,
+                         enable_loop=True, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
         if not self.settings['include']['music']:
             raise CogMissingRequiredArg('Music not enabled')
         self.players = {}
-        BASE.metadata.create_all(self.db_engine)
-        BASE.metadata.bind = self.db_engine
-    
+
         self.delete_after = self.settings['music'].get('message_delete_after', DELETE_AFTER_DEFAULT)
         self.queue_max_size = self.settings['music'].get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
         self.download_queue = MyQueue(maxsize=self.queue_max_size)
@@ -1287,7 +1283,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             guild = await self.bot.fetch_guild(guild_id)
             await self.cleanup(guild)
 
-    async def __main_loop(self):
+    async def __main_loop(self): #pylint:disable=unused-private-member
         '''
         Main loop runner
         '''

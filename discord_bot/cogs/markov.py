@@ -1,15 +1,12 @@
 from asyncio import sleep
 from datetime import datetime, timedelta
 from random import choice
-from pathlib import Path
 from re import match, sub, MULTILINE
-from tempfile import NamedTemporaryFile
 from typing import Optional
 
 from discord import TextChannel
 from discord.ext import commands
-from discord.errors import NotFound, HTTPException, DiscordServerError
-from jsonschema import ValidationError
+from discord.errors import NotFound
 from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy import ForeignKey, UniqueConstraint
 
@@ -123,17 +120,18 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    def __init__(self, bot, logger, settings, db_engine=None):
+    def __init__(self, bot, logger, settings, db_engine):
+        '''
+        This cog requires the message_content intent
+        '''
         super().__init__(bot, db_engine, logger, settings,
-                         db_engine=db_engine, loop_enabled=True,
+                         db_engine=db_engine, enable_loop=True,
                          settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
         if not self.settings['include']['markov']:
             raise CogMissingRequiredArg('Markov not enabled')
 
-        BASE.metadata.create_all(self.db_engine)
-        BASE.metadata.bind = self.db_engine
         self.loop_sleep_interval = self.settings['markov'].get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
         self.message_check_limit = self.settings['markov'].get('message_check_limit', MESSAGE_CHECK_LIMIT)
         self.history_retention_days = self.settings['markov'].get('history_retention_days', MARKOV_HISTORY_RETENTION_DAYS_DEFAULT)
@@ -168,7 +166,7 @@ class Markov(CogHelper):
     def _delete_channel_relations(self, channel_id):
         self.db_session.query(MarkovRelation).filter(MarkovRelation.channel_id == channel_id).delete()
 
-    async def __main_loop(self):
+    async def __main_loop(self): #pylint:disable=unused-private-member
         '''
         Main loop runner
         '''

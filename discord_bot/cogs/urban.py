@@ -1,9 +1,11 @@
 from bs4 import BeautifulSoup
+from dappertable import shorten_string_cjk
 from discord.ext import commands
 from requests import get as requests_get
 
 from discord_bot.cogs.common import CogHelper
-from dappertable import shorten_string_cjk
+from discord_bot.exceptions import CogMissingRequiredArg
+
 
 BASE_URL = 'https://www.urbandictionary.com/'
 

@@ -1,3 +1,5 @@
+from asyncio import sleep
+
 from discord.ext import commands
 from jsonschema import ValidationError
 from sqlalchemy.orm import sessionmaker
@@ -13,13 +15,13 @@ class CogHelper(commands.Cog):
     def __init__(self, bot, logger, settings, db_engine=None, enable_loop=False, settings_prefix=None, section_schema=None):
         '''
         Init a basic cog
-        bot             :   Discord bot object
-        logger          :   Common python logger obj
-        settings        :   Common settings config
-        db_engine       :   (Optional) Sqlalchemy db engine
-        enable_loop     :   (Optional) Enable background loop (default False)
-        settings_prefix :   (Optional) Settings prefix, will load settings if given
-        section_schema  :   (Optional) Json schema to use to validate config. settings_prefix must also be given
+        bot                 :   Discord bot object
+        logger              :   Common python logger obj
+        settings            :   Common settings config
+        db_engine           :   (Optional) Sqlalchemy db engine
+        enable_loop         :   (Optional) Enable background loop (default False)
+        settings_prefix     :   (Optional) Settings prefix, will load settings if given
+        section_schema      :   (Optional) Json schema to use to validate config. settings_prefix must also be given
         '''
         # Check that prefix given if schema also given
         if section_schema and not settings_prefix:
@@ -36,9 +38,9 @@ class CogHelper(commands.Cog):
 
         # Task object for loops
         self._task = None
-        self.loop_enabled = loop_enabled
-    
-        # Setup config 
+        self.enable_loop = enable_loop
+
+        # Setup config
         if section_schema:
             try:
                 validate_config(self.settings[settings_prefix], section_schema)
@@ -46,21 +48,21 @@ class CogHelper(commands.Cog):
                 raise CogMissingRequiredArg('Invalid config given for markov bot') from exc
             except KeyError:
                 self.settings[settings_prefix] = {}
-                self.loop_enabled = False
+                self.enable_loop = False
                 return
 
     async def cog_load(self):
         '''
         Load cog task
         '''
-        if self.loop_enabled:
+        if self.enable_loop:
             self._task = self.bot.loop.create_task(self.main_loop())
 
     async def cog_unload(self):
         '''
         Unload cog task
         '''
-        if self.loop_enabled and self._task:
+        if self.enable_loop and self._task:
             self._task.cancel()
 
     async def main_loop(self):

@@ -1,11 +1,14 @@
 # Discord Bot
 
+A discord bot framework written in python. Supports starting a bot via a token, configuration via YAML files, database sessions, and includes plugin support.
 
-Python bot for discord servers. Handles basic configurations, database sessions, and supports plugins.
+Includes some pre-written cogs for:
 
-For some example plugins including youtube music in voice chat, twitter, and markov chat, see [some example plugins here](https://github.com/tnoff/discord-bot-plugins)
-
-You'll need to generate a discord bot token for the config, you can see more information on that [here](https://discord.com/developers/docs/getting-started)
+- Playing audio from youtube in voice channels
+- Looking up words in Urban Dictionary
+- Auto generating messages from channel text via Markov Chains
+- Auto deletion of messages in specific channels
+- Advanced Role Based Access Control
 
 ## Setup
 
@@ -16,13 +19,63 @@ $ git clone https://github.com/tnoff/discord-bot.git
 $ pip install discord-bot/discord_bot/
 ```
 
-For example, to run the bot with the example plugins run:
+## Configuration
+
+You'll need to set up a YAML config file for the bot to use. The only requirement is a discord bot token. You can generate one of these through the [discord developer portal](https://discord.com/developers/docs/topics/oauth2).
+
+
+So at minimum a config file can look like:
+```
+---
+general:
+  discord_token: blah-blah-blah-discord-token
+```
+
+There is also support for [pyaml-env](https://pypi.org/project/pyaml-env/) so environment variables can be passed in:
+```
+---
+general:
+  discord_token: !ENV ${DISCORD_TOKEN}
+```
+
+### Database
+
+Certain cogs, such as markov or music, have functions that require database support. You can pass in a database connection string that will then be passed into sqlalchemy.
 
 ```
-$ git clone https://github.com/tnoff/discord-bot.git
-$ git clone https://github.com/tnoff/discord-bot-plugins.git
-$ cp discord-bot-plugins/* discord-bot/discord_bot/cogs/
-$ pip install discord-bot/discord_bot/
+---
+general:
+  discord_token: blah-blah-blah-discord-token
+  sql_connection_statement: sqlite:///home/user/db.sql
+```
+
+### Log File Rotation
+
+You can set up log file rotations:
+
+```
+---
+general:
+  discord_token: blah-blah-blah-discord-token
+  logging:
+    log_file: /logs/discord.log # Log file path
+    log_file_count: 2 # Max backup log files
+    log_file_max_bytes: 1240000 # Size to rotate log files at
+```
+
+### Include Cogs
+
+The "common" cog with some basic functions will be included by default, the rest are opt-in
+```
+---
+general:
+  discord_token: blah-blah-blah-discord-token
+include:
+  music: true
+  markov: true
+  urban: true
+  delete_messages: true
+  role: true
 ```
 
 ## Running bot
@@ -32,6 +85,13 @@ To run the bot via the command line
 ```
 $ discord-bot /path/to/config/file run
 ```
+
+## Help Page
+
+To check the available functions, use `!help` command.
+
+
+
 
 ## Basic Functions
 
@@ -64,18 +124,8 @@ Probably the most useful basic function, show user id, channel id, and guild (se
 > User id: <redacted>
 ```
 
-### Disable Default Cog
 
-You can pass the following config arg to disable to default cog
 
-```
-general:
-  include_default_cog = false
-```
-
-### Help Page
-
-To check the available functions, use `!help` command.
 
 ## Config
 
