@@ -14,4 +14,4 @@ Arguments:
   word No description given
 ```
 
-Example: [](./images/urban.png)
+Example: ![](./images/urban.png)
