@@ -91,7 +91,9 @@ $ discord-bot /path/to/config/file run
 To check the available functions, use `!help` command.
 
 
+## Cog Docs
 
+- [Common Cog](./docs/common.md)
 
 ## Basic Functions
 
