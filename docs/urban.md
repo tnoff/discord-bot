@@ -14,4 +14,5 @@ Arguments:
   word No description given
 ```
 
-Example: ![](./images/urban.png)
+Example: 
+![urban dictionary example with "foo"](./images/urban.png)
