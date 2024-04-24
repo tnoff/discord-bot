@@ -94,6 +94,7 @@ To check the available functions, use `!help` command.
 ## Cog Docs
 
 - [Common Cog](./docs/common.md)
+- [Urban Cog](./docs/urban.md)
 
 ## Basic Functions
 
