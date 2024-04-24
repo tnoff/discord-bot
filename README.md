@@ -95,6 +95,7 @@ To check the available functions, use `!help` command.
 
 - [Common Cog](./docs/common.md)
 - [Urban Cog](./docs/urban.md)
+- [Delete Messages](./docs/delete_messages.md)
 
 ## Basic Functions
 
