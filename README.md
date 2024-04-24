@@ -51,7 +51,7 @@ general:
 
 ### Log File Rotation
 
-You can set up log file rotations:
+If no log section given, logs will go to stdout by default. If you wish to setup logs and have log rotation set:
 
 ```
 ---
@@ -91,66 +91,26 @@ $ discord-bot /path/to/config/file run
 To check the available functions, use `!help` command.
 
 
+## Intents
+
+Certain cogs and function will require different "intents" to be setup in the config, and enabled in your developer portal. You can read more about that [here](https://discordpy.readthedocs.io/en/stable/intents.html).
+
+You can find a list of intents [here](https://discordpy.readthedocs.io/en/stable/api.html?highlight=intents#discord.Intents) as well.
+
+You can set intents in the config like so
+
+```
+intents:
+  - members
+```
+
+
 ## Cog Docs
 
 - [Common Cog](./docs/common.md)
 - [Urban Cog](./docs/urban.md)
 - [Delete Messages](./docs/delete_messages.md)
-
-## Basic Functions
-
-### Hello
-
-Say hello to the bot and it will say hello back. Mostly used to see if the bot is running
-
-```
-!hello
-> Waddup tnoff
-```
-
-### Roll
-
-Do a random dice roll
-
-```
-!roll 2d6
-> tnoff rolled: 6 + 4 = 10
-```
-
-### Meta
-
-Probably the most useful basic function, show user id, channel id, and guild (server) id.
-
-```
-!meta
-> Server id: <redacted>
-> Channel id: <redacted>
-> User id: <redacted>
-```
-
-
-
-
-## Config
-
-The config should be a file in the YAML format.
-
-Two main arguments are required:
-- A discord authentication token, you can read more about that [here](https://discord.com/developers/docs/topics/oauth2)
-
-You can also pass in a `sql_connection_statement` to have a persistent database. This is not required for any of the standard functions but you may want to include a plugin that requires a db. The statement should be a standard sqlalchemy connection string, for example: `sqlite://database.sql`
-
-```
-general:
-  discord_token: blah-blah-blah-discord-token
-  sql_connection_statement: sqlite:///home/user/db.sql
-  logging:
-    log_file: /logs/discord.log # Log file path
-    log_file_count: 2 # Max backup log files
-    log_file_max_bytes: 1240000 # Size to rotate log files at
-```
-
-If no logging section provided, the logs will print to stdout by default.
+- [Markov](./docs/markov.md)
 
 ## Allowed Roles
 
