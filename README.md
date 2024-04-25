@@ -111,6 +111,7 @@ intents:
 - [Delete Messages](./docs/delete_messages.md)
 - [Markov](./docs/markov.md)
 - [Role](./docs/role.md)
+- [Music](./docs/music.md)
 
 
 ## Database dump and load

@@ -11,6 +11,10 @@ If one of these roles is given the "Manage Roles" command, then they can add/rem
 
 For most servers this probably isn't a real problem, but for some larger server setups this can become problematic. You may want to only give roles permission to govern the users in only other particular roles. This is the sort situation this cog is designed for.
 
+## Intents
+
+Note that to use all functions, this cog requires the `members` intent.
+
 ## Example Scenario
 
 Take the following scenario, you have a discord server setup with multiple sub type organizations. Say you have a "Tech Team", "Sales Team", and "QA Team". You want to have roles to govern members of each team. You want to be able to give the Tech Team ability to add members to their role, sales team their own role, and QA team their own role.
