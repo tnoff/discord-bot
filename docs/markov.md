@@ -25,4 +25,30 @@ In then uses weighted random chance to pick the next word, then uses this word a
 
 Turn markov on in the channel and track channel history.
 
-## WIP FINISH
+```
+!markov on
+```
+
+## Turn markov off
+
+Turn off markov in the channel and delete all channel history from db.
+
+```
+!markov off
+```
+
+## Markov Speak
+
+Have markov generate a random message from history
+
+```
+!markov speak
+```
+
+## Markov Speak with prompt
+
+Have markov speak but start with a random word or phrase. If multiple words given, will start at last word in string.
+
+```
+!markov speak "foo bar fooey"
+```

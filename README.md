@@ -104,30 +104,14 @@ intents:
   - members
 ```
 
-
 ## Cog Docs
 
 - [Common Cog](./docs/common.md)
 - [Urban Cog](./docs/urban.md)
 - [Delete Messages](./docs/delete_messages.md)
 - [Markov](./docs/markov.md)
+- [Role](./docs/role.md)
 
-## Allowed Roles
-
-You can set access to discord commands in specific servers to allowed roles within the config. You'll need to specify the server id (sometimes called 'guild id'), any specific channel ids, and the role names.
-
-You can specificy specific channel ids, or pass in 'all' for default options for any channel in the server.
-
-Roles should be separated by the string ';;;'.
-
-The format should look like:
-```
-general:
-  allowed_roles:
-    <server-id>:
-      all: "@everyone;;;admin"
-      <channel-id>: admin
-```
 
 ## Database dump and load
 
@@ -146,14 +130,12 @@ Loads that same json to the db
 $ discord-bot /path/to/config/file db_load db.json
 ```
 
-### Plugins
+## Plugins
 
 
-You can add custom plugins in the `cogs/plugins` directly, that will be loaded automatically. The Cogs must use the `discord.ext.commands.cog.CogMeta` class, and take the arguments `bot`, `db_session`, `logger`, and `settings` as arguments. The easiest way to do this is to inherit the `CogHelper` object from the common cogs file.
+You can add custom plugins in the `cogs/plugins` directly, that will be loaded automatically. The Cogs must inherit from the `CogHelper` class, and take the arguments `bot`,  `logger`, and `settings` as arguments. `db_engine` may also be passed as an optional arg.
 
 You can also use the `BASE` declarative base from the database file in any plugin file, in order to create database tables.
-
-You can find some example plugins here [some example plugins here](https://github.com/tnoff/discord-bot-plugins).
 
 If you place a `requirements.txt` file in the plugins directly, these should be installed during the `pip install` of the package.
 
@@ -167,32 +149,11 @@ from discord_bot.cogs.common import CogHelper
 
 
 class TestCog(CogHelper):
-    def __init__(self, bot, db_engine, logger, settings):
-        super().__init__(bot, db_engine, logger, settings)
+    def __init__(self, bot, logger, settings):
+        super().__init__(bot, logger, settings)
         BASE.metadata.create_all(self.db_engine)
         BASE.metadata.bind = self.db_engine
         self.loop_sleep_interval = settings['test'].get('loop_sleep_interval', 3600)
-
-
-    async def cog_load(self):
-        self._task = self.bot.loop.create_task(self.main_loop())
-
-    async def cog_unload(self):
-        if self._task:
-            self._task.cancel()
-        if self.lock_file.exists():
-            self.lock_file.unlink()
-
-    async def main_loop(self):
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.__main_loop()
-            except Exception as e:
-                self.logger.exception(e)
-                print(f'Player loop exception {str(e)}')
-                return
 
     async def __main_loop(self):
         '''
@@ -230,4 +191,21 @@ Will have the following settings value added to the config
     'foo': 'bar',
   }
 }
+```
+
+### Allowed Roles
+
+You can set access to discord commands in specific servers to allowed roles within the config. You'll need to specify the server id (sometimes called 'guild id'), any specific channel ids, and the role names.
+
+You can specificy specific channel ids, or pass in 'all' for default options for any channel in the server.
+
+Roles should be separated by the string ';;;'.
+
+The format should look like:
+```
+general:
+  allowed_roles:
+    <server-id>:
+      all: "@everyone;;;admin"
+      <channel-id>: admin
 ```
