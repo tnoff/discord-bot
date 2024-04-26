@@ -17,6 +17,8 @@ for file_name in REQUIREMENTS_FILES:
         with open(file_name) as f:
             required += f.read().splitlines()
 
+print('Required', required)
+
 setuptools.setup(
     name='discord_bot',
     description='Discord Bot',

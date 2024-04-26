@@ -50,7 +50,7 @@ class DeleteMessages(CogHelper):
     '''
     Delete Messages in Channels after X days
     '''
-    def __init__(self, bot, logger, settings, db_engine, **kwargs):
+    def __init__(self, bot, logger, settings, db_engine):
         super().__init__(bot, logger, settings, None, enable_loop=True, settings_prefix='delete_messages', section_schema=DELETE_MESSAGES_SCHEMA)
         if not self.settings.get('include', {}).get('delete_messages', False):
             raise CogMissingRequiredArg('Delete messages cog not enabled')
