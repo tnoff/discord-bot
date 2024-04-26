@@ -1,16 +1,16 @@
 # Music Cog
 
-Play audio from youtube videos in voice chat. The bot can be called to join voice chat, and youtube videos can be requested to be downloaded, processed, and played in the voice chat. Video audio will play one at a time and can be added to a queue to be played after the current video audio is played or skipped.
+Play audio from Youtube videos in voice chat. The bot can be called to join voice chat, and Youtube videos can be requested to be downloaded, processed, and played in the voice chat. Video audio will play one at a time and can be added to a queue to be played after the current video audio is played or skipped.
 
 The bot is designed to be able to run on multiple servers at the same time.
 
 ## Inputs
 
 Potential input includes
-- A string that will be searched in youtube and download the first result
-- A direct youtube link that will be downloaded
+- A string that will be searched in Youtube and download the first result
+- A direct Youtube link that will be downloaded
 - A Spotify playlist or album (if Spotify credentials are given in the config)
-- A youtube playlist (if youtube credentials are given in the config)
+- A Youtube playlist (if Youtube credentials are given in the config)
 
 ## Basic Usage
 
@@ -62,7 +62,7 @@ If you would like to move the queue messages to a different channel, call `!move
 
 ## Playlist Functions
 
-If database creds are given to the bot, playlists can be created and updated to the server. This will allow you to save lists of youtube videos to be played within the server. By default, a "history" playlist is created which adds previously played videos from the server. Anyone can queue these videos up in the server using:
+If database creds are given to the bot, playlists can be created and updated to the server. This will allow you to save lists of Youtube videos to be played within the server. By default, a "history" playlist is created which adds previously played videos from the server. Anyone can queue these videos up in the server using:
 
 ```
 !random-play
@@ -134,7 +134,7 @@ Remove an item from a playlist
 
 ## Spotify Enablement
 
-You can pass [Spotify API](https://developer.spotify.com/) credentials to the config to allow for Spotify playlists and albums to be given as input. This will request the track information from Spotify, then the bot will run a Youtube search for "<artist name> <song name>" in Youtube, and download the first result.
+You can pass [Spotify API](https://developer.spotify.com/) credentials to the config to allow for Spotify playlists and albums to be given as input. This will request the track information from Spotify, then the bot will run a Youtube search for "`<artist name>` `<song name>`" in Youtube, and download the first result.
 
 You can pass the Spotify credentials into the config:
 
@@ -146,13 +146,13 @@ music:
 
 ## Youtube Playlist Enablement
 
-You can pass [Youtube API Key](https://developers.google.com/youtube/v3/getting-started) credentials to the config to allow for Youtube playlists to be given as input. This will request all of the video Ids in the playlist and download all of them to the queue.
+You can pass [Youtube API Key](https://developers.google.com/Youtube/v3/getting-started) credentials to the config to allow for Youtube playlists to be given as input. This will request all of the video Ids in the playlist and download all of them to the queue.
 
 You can pass Youtube API credentials into the config:
 
 ```
 music:
-  youtube_api_key: secret-youtube-api-key
+  Youtube_api_key: secret-Youtube-api-key
 ```
 
 ## Multi Video Input Shuffles

@@ -6,7 +6,7 @@ Includes some pre-written cogs for:
 
 - Playing audio from youtube in voice channels
 - Looking up words in Urban Dictionary
-- Auto generating messages from channel text via Markov Chains
+- Auto generating messages from channel history via Markov Chains
 - Auto deletion of messages in specific channels
 - Advanced Role Based Access Control
 
