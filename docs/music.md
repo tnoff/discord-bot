@@ -152,7 +152,7 @@ You can pass Youtube API credentials into the config:
 
 ```
 music:
-  Youtube_api_key: secret-Youtube-api-key
+  youtube_api_key: secret-Youtube-api-key
 ```
 
 ## Multi Video Input Shuffles

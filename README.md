@@ -150,8 +150,8 @@ from discord_bot.cogs.common import CogHelper
 
 
 class TestCog(CogHelper):
-    def __init__(self, bot, logger, settings):
-        super().__init__(bot, logger, settings)
+    def __init__(self, bot, logger, settings, db_engine=None):
+        super().__init__(bot, logger, settings, db_engine=db_engine)
         BASE.metadata.create_all(self.db_engine)
         BASE.metadata.bind = self.db_engine
         self.loop_sleep_interval = settings['test'].get('loop_sleep_interval', 3600)
