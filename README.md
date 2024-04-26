@@ -107,12 +107,11 @@ intents:
 ## Cog Docs
 
 - [Common Cog](./docs/common.md)
+- [Delete Messages Cog](./docs/delete_messages.md)
+- [Markov Cog](./docs/markov.md)
+- [Music Cog](./docs/music.md)
+- [Role Cog](./docs/role.md)
 - [Urban Cog](./docs/urban.md)
-- [Delete Messages](./docs/delete_messages.md)
-- [Markov](./docs/markov.md)
-- [Role](./docs/role.md)
-- [Music](./docs/music.md)
-
 
 ## Database dump and load
 
@@ -165,7 +164,7 @@ class TestCog(CogHelper):
 
 ```
 
-#### Aditional Settings
+### Aditional Settings
 
 
 Additional settings can be added for plugins. The settings will be available in the `settings` variable passed into the plugin, and will be available under the key of the config section.
@@ -209,4 +208,11 @@ general:
     <server-id>:
       all: "@everyone;;;admin"
       <channel-id>: admin
+```
+
+You can then use the `check_user_role` function to check whether users can perform commands in your cog:
+
+```
+if not await self.check_user_role(ctx):
+    return await async_retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
 ```
