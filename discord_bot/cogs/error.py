@@ -20,6 +20,7 @@ class CommandErrorHandler(commands.Cog):
         error: commands.CommandError
             The Exception raised.
         """
+        print('On Command error:', ctx, error)
         if hasattr(ctx.command, 'on_error'):
             return
 

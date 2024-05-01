@@ -13,7 +13,8 @@ class UrbanDictionary(CogHelper):
     '''
     Class that looks up urban dictionary definitions
     '''
-    def __init__(self, bot, logger, settings, db_engine, **kwargs):
+    def __init__(self, bot, logger, settings, db_engine):
+        super().__init__(bot, logger, settings, db_engine)
         if not self.settings.get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban cog not enabled')
 

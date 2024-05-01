@@ -124,7 +124,7 @@ class Markov(CogHelper):
         '''
         This cog requires the message_content intent
         '''
-        super().__init__(bot, db_engine, logger, settings, db_engine, enable_loop=True,
+        super().__init__(bot, logger, settings, db_engine, enable_loop=True,
                          settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')

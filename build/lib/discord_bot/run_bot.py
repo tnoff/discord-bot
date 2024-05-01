@@ -2,6 +2,7 @@ import argparse
 from asyncio import run
 from datetime import datetime
 from json import dumps, load
+import pathlib
 
 from discord import Intents
 from discord.ext import commands
@@ -182,7 +183,7 @@ def main():
     for cog in CogHelper.__subclasses__():
         print('Importing cog:', cog)
         try:
-            cog_list.append(cog(bot, logger, settings, db_engine=db_engine))
+            cog_list.append(cog(bot, logger, settings, db_engine))
         except CogMissingRequiredArg as e:
             logger.warning(f'Error importing cog: {str(e)}')
 
@@ -197,6 +198,7 @@ def main():
     async def main_loop():
         async with bot:
             for cog in cog_list:
+                print('Adding cog:', cog)
                 await bot.add_cog(cog)
             await bot.start(settings['general']['discord_token'])
 
