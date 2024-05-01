@@ -6,6 +6,8 @@ from time import sleep
 
 from jsonschema import validate
 
+from discord.errors import HTTPException, DiscordServerError, RateLimited
+
 DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
 
 GENERAL_SECTION_SCHEMA = {
@@ -19,10 +21,6 @@ GENERAL_SECTION_SCHEMA = {
         },
         'sql_connection_statement': {
             'type': 'string',
-        },
-        'include_default_cog': {
-            'type': 'boolean',
-            'default': True,
         },
         'logging': {
             'type': 'object',
@@ -42,6 +40,32 @@ GENERAL_SECTION_SCHEMA = {
                 'log_file_count',
                 'log_file_max_bytes',
             ]
+        },
+        'include': {
+            'type': 'object',
+            'properties': {
+                'default': {
+                    'type': 'boolean',
+                },
+                'markov': {
+                    'type': 'boolean',
+                },
+                'urban': {
+                    'type': 'boolean',
+                },
+                'music': {
+                    'type': 'boolean',
+                },
+                'delete_messages': {
+                    'type': 'boolean',
+                }
+            }
+        },
+        'intents': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            },
         },
     },
     'required': [
@@ -118,3 +142,25 @@ async def async_retry_command(func, *args, **kwargs):
                 await async_sleep(sleep_for)
                 continue
             raise
+
+def retry_discord_message_command(func, *args, **kwargs):
+    '''
+    Retry discord send message command, catch case of rate limiting
+    '''
+    def check_429(ex):
+        if '429' not in str(ex):
+            raise #pylint:disable=misplaced-bare-raise
+    post_exception_functions = [check_429]
+    exceptions = (HTTPException, RateLimited, DiscordServerError)
+    return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+
+async def async_retry_discord_message_command(func, *args, **kwargs):
+    '''
+    Retry discord send message command, catch case of rate limiting
+    '''
+    def check_429(ex):
+        if '429' not in str(ex):
+            raise #pylint:disable=misplaced-bare-raise
+    post_exception_functions = [check_429]
+    exceptions = (HTTPException, RateLimited, DiscordServerError)
+    return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)

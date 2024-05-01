@@ -3,6 +3,7 @@ import re
 
 from discord.ext import commands
 
+from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.common import CogHelper
 
 ROLL_REGEX = r'^((?P<rolls>\d+)[dD])?(?P<sides>\d+)'
@@ -11,6 +12,10 @@ class General(CogHelper):
     '''
     General use commands
     '''
+    def __init__(self, bot, logger, settings, db_engine):
+        super().__init__(bot, logger, settings, db_engine)
+        if not self.settings.get('include', {}).get('default', True):
+            raise CogMissingRequiredArg('Default cog not enabled')
 
     @commands.command(name='hello')
     async def hello(self, ctx):

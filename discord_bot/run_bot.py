@@ -14,9 +14,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from discord_bot.cogs.error import CommandErrorHandler
-from discord_bot.cogs.general import General
+from discord_bot.cogs.common import CogHelper
+# These imported via subclasses later
+from discord_bot.cogs.delete_messages import DeleteMessages #pylint:disable=unused-import
+from discord_bot.cogs.general import General #pylint:disable=unused-import
+from discord_bot.cogs.markov import Markov #pylint:disable=unused-import
+from discord_bot.cogs.music import Music #pylint:disable=unused-import
+from discord_bot.cogs.role import RoleAssignment #pylint:disable=unused-import
+from discord_bot.cogs.urban import UrbanDictionary #pylint:disable=unused-import
 from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
-from discord_bot.exceptions import DiscordBotException
+from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
 
@@ -95,42 +102,10 @@ def db_load(db_engine, json_data):
             db_session.commit()
     print('Finished importing json file')
 
-def main():
+def load_plugins(logger, cog_list, bot, settings, db_engine):
     '''
-    Main loop
+    Load plugins from plugins dir
     '''
-    args = parse_args()
-
-    settings = read_config(args.config_file)
-    try:
-        validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
-    except ValidationError as exc:
-        raise DiscordBotException('Invalid config, general section does not match schema') from exc
-
-    # Setup vars
-    intents = Intents.all()
-    intents.message_content = True #pylint:disable=assigning-non-slot
-
-    bot = commands.Bot(
-        command_prefix=commands.when_mentioned_or("!"),
-        description='Discord bot',
-        intents=intents,
-    )
-    print('Starting logging')
-    logger = get_logger(__name__, settings['general'].get('logging', {}))
-
-    try:
-        db_engine = create_engine(settings['general']['sql_connection_statement'])
-    except KeyError:
-        print('Unable to find sql statement in settings, assuming no db')
-        db_engine = None
-
-    cog_list = [
-        CommandErrorHandler(bot, logger),
-    ]
-    # Include default cog is not specified otherwise
-    if settings['general'].get('include_default_cog', True):
-        cog_list.append(General(bot, db_engine, logger, settings))
     absolute_path = pathlib.Path(__file__)
     # check plugin path for relevant py files
     plugin_path = absolute_path.parent / 'cogs' / 'plugins'
@@ -156,9 +131,60 @@ def main():
                 imported_cog = getattr(module, key)
                 # Add cog to bot
                 try:
-                    cog_list.append(imported_cog(bot, db_engine, logger, settings))
-                except ValidationError:
+                    cog_list.append(imported_cog(bot, logger, settings, db_engine))
+                except CogMissingRequiredArg:
                     logger.warning(f'Unable to add cog "{import_name}" due to missing required args')
+    return cog_list
+
+def main():
+    '''
+    Main loop
+    '''
+    args = parse_args()
+
+    settings = read_config(args.config_file)
+    try:
+        validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
+    except ValidationError as exc:
+        raise DiscordBotException('Invalid config, general section does not match schema') from exc
+
+    print('Generating intents')
+    intents = Intents.default()
+    try:
+        intent_list = settings['general']['intents']
+        print('Adding extra intents:', intent_list)
+        for intent in intent_list:
+            setattr(intents, intent, True)
+    except KeyError:
+        pass
+
+    bot = commands.Bot(
+        command_prefix=commands.when_mentioned_or("!"),
+        description='Discord bot',
+        intents=intents,
+    )
+    print('Starting logging')
+    logger = get_logger(__name__, settings['general'].get('logging', {}))
+
+    try:
+        db_engine = create_engine(settings['general']['sql_connection_statement'])
+        BASE.metadata.create_all(db_engine)
+        BASE.metadata.bind = db_engine
+    except KeyError:
+        print('Unable to find sql statement in settings, assuming no db')
+        db_engine = None
+
+    cog_list = [
+        CommandErrorHandler(bot, logger),
+    ]
+
+    for cog in CogHelper.__subclasses__():
+        try:
+            cog_list.append(cog(bot, logger, settings, db_engine))
+        except CogMissingRequiredArg:
+            logger.error('Error Importing Cog:', cog)
+
+    cog_list = load_plugins(logger, cog_list, bot, settings, db_engine)
 
     @bot.event
     async def on_ready():
