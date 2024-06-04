@@ -5,6 +5,7 @@ from time import sleep
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm.query import Query
 from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
+from sqlalchemy.exc import PendingRollbackError
 from sqlalchemy.orm.decl_api import registry
 
 from discord_bot.exceptions import UnhandledColumnType
@@ -53,12 +54,20 @@ class RetryingQuery(Query): #pylint: disable=abstract-method
             attempts += 1
             try:
                 return super().__iter__()
+            # https://stackoverflow.com/questions/53287215/retry-failed-sqlalchemy-queries
+            except PendingRollbackError as ex:
+                if attempts <= self.__max_retry_count__:
+                    print(f'Retrying SQL Error {str(ex)}, attempt {attempts}')
+                    sleep_for = 2 ** (attempts - 1)
+                    sleep(sleep_for)
+                    self.session.rollback()
+                    continue
+                raise
             except OperationalError as ex:
-                print(f'SQL Operational error {str(ex)}')
                 if "server closed the connection unexpectedly" not in str(ex):
                     raise
                 if attempts <= self.__max_retry_count__:
-                    print(f'Retrying SQL Error, attempt {attempts}')
+                    print(f'Retrying SQL Error {str(ex)}, attempt {attempts}')
                     sleep_for = 2 ** (attempts - 1)
                     sleep(sleep_for)
                     continue
