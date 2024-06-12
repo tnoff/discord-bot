@@ -46,7 +46,7 @@ MARKOV_SECTION_SCHEMA = {
     }
 }
 
-def clean_message(content, emoji_ids):
+def clean_message(content, emojis):
     '''
     Clean channel message
     content :   Full message content to clean
@@ -63,6 +63,7 @@ def clean_message(content, emoji_ids):
     # Strip blank ends
     message_text = message_text.strip()
     corpus = []
+    emoji_ids = [emoji.id for emoji in emojis]
     for word in message_text.split(' '):
         if word in ('', ' '):
             continue
@@ -197,7 +198,7 @@ class Markov(CogHelper):
             self.logger.debug(f'Markov :: Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, markov_channel.channel_id)
             server = await async_retry_discord_message_command(self.bot.fetch_guild, markov_channel.server_id)
-            emoji_ids = [emoji.id for emoji in await server.fetch_emojis()]
+            emojis = await async_retry_discord_message_command(server.fetch_emojis)
             self.logger.info('Markov :: Gathering markov messages for '
                              f'channel {markov_channel.channel_id}')
             # Start at the beginning of channel history,
@@ -234,7 +235,7 @@ class Markov(CogHelper):
                     add_message = False
                 corpus = None
                 if add_message:
-                    corpus = clean_message(message.content, emoji_ids)
+                    corpus = clean_message(message.content, emojis)
                 if corpus:
                     self.logger.info(f'Attempting to add corpus "{corpus}" '
                                     f'to channel {markov_channel.channel_id}')
