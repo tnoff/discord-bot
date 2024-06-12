@@ -718,11 +718,13 @@ class CacheFile():
             new_list.append(item)
 
         for item in remove_files:
+            base_path = Path(item['base_path'])
+            original_path = Path(item['original_path'])
             self.logger.info(f'Music :: Removing item from cache {item}')
-            if item['base_path'].exists():
-                item['base_path'].unlink()
-            if item['original_path'].exists():
-                item['original_path'].unlink()
+            if base_path.exists():
+                base_path.unlink()
+            if original_path.exists():
+                original_path.unlink()
         self._data = new_list
 
     def write_file(self):
