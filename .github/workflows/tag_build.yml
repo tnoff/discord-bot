@@ -1,0 +1,27 @@
+name: Tag Build
+
+on:
+  push:
+    branches:
+    - main
+    - dev
+
+jobs:
+  push_to_registry:
+    name: Tag Build if doesn't exist already
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+      - name: Get version
+        id: version
+        run: echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+      - name: Check If Tag already exists
+        uses: mukunku/tag-exists-action@v1.6.0
+        id: check-tag
+        with: 
+          tag: ${{ steps.version.outputs.version }}
+      - run: echo "Tag exists!"
+        if: steps.check-tag.outputs.exists == 'true' 
