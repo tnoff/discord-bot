@@ -19,6 +19,10 @@ $ git clone https://github.com/tnoff/discord-bot.git
 $ pip install discord-bot/discord_bot/
 ```
 
+## Docker
+
+Docker support and builds are available, read me in the [docker docs](./docker/README.md)
+
 ## Configuration
 
 You'll need to set up a YAML config file for the bot to use. The only requirement is a discord bot token. You can generate one of these through the [discord developer portal](https://discord.com/developers/docs/topics/oauth2).
