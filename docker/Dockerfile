@@ -1,6 +1,5 @@
 FROM ubuntu:24.04
 
-ENV DISCORD_VERSION="v2.0.1"
 ENV WORKDIR="/opt/discord"
 ENV VENVDIR="/opt/discord-venv"
 
@@ -12,10 +11,11 @@ RUN apt-get install -y python3-dev python3-virtualenv ffmpeg wget git libpq-dev
 RUN apt-get install -y vim iputils-ping
 
 # Setup venv
-RUN wget https://github.com/tnoff/discord-bot/archive/refs/tags/${DISCORD_VERSION}.tar.gz -O /tmp/discord.tar.gz
+# Assume we should just get latest code
+RUN git clone https://github.com/tnoff/discord-bot.git /tmp/discord_bot/
 RUN mkdir -p "${WORKDIR}"
 RUN virtualenv "${VENVDIR}"
-RUN ${VENVDIR}/bin/pip install /tmp/discord.tar.gz
+RUN ${VENVDIR}/bin/pip install /tmp/discord_bot/
 # TODO remove ansyc timeout once package version bumped
 RUN ${VENVDIR}/bin/pip install async-timeout psycopg2
 
