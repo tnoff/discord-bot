@@ -198,7 +198,8 @@ class Markov(CogHelper):
             self.logger.debug(f'Markov :: Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, markov_channel.channel_id)
             server = await async_retry_discord_message_command(self.bot.fetch_guild, markov_channel.server_id)
-            emojis = await async_retry_discord_message_command(server.fetch_emojis)
+            # Not sure why but this check in particular seems especially flakey
+            emojis = await async_retry_discord_message_command(server.fetch_emojis, max_retries: 5)
             self.logger.info('Markov :: Gathering markov messages for '
                              f'channel {markov_channel.channel_id}')
             # Start at the beginning of channel history,
