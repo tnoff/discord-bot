@@ -539,7 +539,8 @@ class SourceFile():
             except KeyError:
                 pass
 
-        self._new_dict['requester'] = source_dict['requester']
+        self._new_dict['requester_name'] = source_dict['requester_name']
+        self._new_dict['requester_id'] = source_dict['requester_id']
         self._new_dict['guild_id'] = source_dict['guild_id']
         try:
             self._new_dict['added_from_history'] = source_dict['added_from_history']
@@ -861,7 +862,7 @@ class DownloadClient():
             return search_strings
         return [search]
 
-    async def check_source(self, search, guild_id, requester_name, loop):
+    async def check_source(self, search, guild_id, requester_name, requester_id, loop):
         '''
         Create source from youtube search
         '''
@@ -871,7 +872,8 @@ class DownloadClient():
         for search_string in search_strings:
             all_entries.append({
                 'guild_id': guild_id,
-                'requester': requester_name,
+                'requester_name': requester_name,
+                'requester_id': requester_id,
                 'search_string': search_string,
             })
         return all_entries
@@ -1140,9 +1142,9 @@ class MusicPlayer:
             await self.destroy(self.guild)
             raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
         self.logger.info(f'Music :: Now playing "{source["title"]}" requested '
-                            f'by "{source["requester"]}" in guild {self.guild.id}, url '
+                            f'by "{source["requester_id"]}" in guild {self.guild.id}, url '
                             f'"{source["webpage_url"]}"')
-        self.np_message = f'Now playing {source["webpage_url"]} requested by {source["requester"]}'
+        self.np_message = f'Now playing {source["webpage_url"]} requested by {source["requester_name"]}'
         await self.update_queue_strings()
 
         await self.next.wait()
@@ -1594,7 +1596,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return await retry_discord_message_command(ctx.send, 'Queue is full, cannot add more songs',
                                                        delete_after=self.delete_after)
 
-        entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, self.bot.loop)
+        entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
         for entry in entries:
             try:
                 message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{entry["search_string"]}"')
@@ -2023,7 +2025,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not playlist:
             return None
 
-        source_entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, self.bot.loop)
+        source_entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
         for entry in source_entries:
             source = await self.download_client.create_source(entry, self.bot.loop, download=False)
             if source is None:
@@ -2409,7 +2411,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_queue.put_nowait({
                     'search_string': item.video_id,
                     'guild_id': ctx.guild.id,
-                    'requester': ctx.author.name,
+                    'requester_name': ctx.author.name,
+                    'requester_id': ctx.author.id,
                     'message': message,
                     # Pass history so we know to pass into history check later
                     'added_from_history': is_history,
