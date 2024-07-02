@@ -1089,7 +1089,7 @@ class MusicPlayer:
         '''
         Used for loop to call once voice channel done
         '''
-        self.logger.info(f'Music :: Set next called on player in guild "{self.guild.name}"')
+        self.logger.info(f'Music :: Set next called on player in guild "{self.guild.id}"')
         self.next.set()
 
     async def player_loop(self):
@@ -1121,7 +1121,7 @@ class MusicPlayer:
             async with timeout(self.disconnect_timeout):
                 source = await self.play_queue.get()
         except asyncio_timeout:
-            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.name}"')
+            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
             await self.destroy(self.guild)
             raise ExitEarlyException('Bot timeout, exiting') #pylint:disable=raise-missing-from
 
@@ -1138,7 +1138,7 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
         except AttributeError:
-            self.logger.info(f'Music :: No voice client found, disconnecting from guild {self.guild.name}')
+            self.logger.info(f'Music :: No voice client found, disconnecting from guild {self.guild.id}')
             await self.destroy(self.guild)
             raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
         self.logger.info(f'Music :: Now playing "{source["title"]}" requested '
@@ -1198,7 +1198,7 @@ class MusicPlayer:
         '''
         Disconnect and cleanup the player.
         '''
-        self.logger.info(f'Music :: Removing music bot from guild "{self.guild.name}", id {self.guild.id}')
+        self.logger.info(f'Music :: Removing music bot from guild id {self.guild.id}')
         await self.cog_cleanup(guild)
 
 
