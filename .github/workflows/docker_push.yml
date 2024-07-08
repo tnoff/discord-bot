@@ -28,7 +28,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
           context: docker/
           tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.version.outputs.version }}
