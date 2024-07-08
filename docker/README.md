@@ -50,10 +50,6 @@ Note that the default `init.sql` assumes the password for all users is just `pas
 
 ### Volumes
 
-The `discord.cnf` file should be mounted into `/opt/discord/discord.cnf` file for the bot to use.
+The `discord.cnf` file should be mounted into `/opt/discord/cnf/discord.cnf` file for the bot to use.
 
 It is also recommended that the download files for the music bot are set to a volume. This path can be updated via the config.
-
-## Relase Info
-
-Release info on bulid placed into `release.txt` file.

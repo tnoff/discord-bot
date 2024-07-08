@@ -23,4 +23,4 @@ RUN ${VENVDIR}/bin/pip install psycopg2
 RUN mkdir -p "${WORKDIR}/downloads/" "${WORKDIR}/backup"
 RUN mkdir -p /var/log/discord/
 
-CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/discord.cnf", "run"]
+CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf", "run"]
