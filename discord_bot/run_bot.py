@@ -4,6 +4,7 @@ from datetime import datetime
 from json import dumps, load
 import importlib
 import pathlib
+from sys import stderr
 
 from discord import Intents
 from discord.ext import commands
@@ -63,7 +64,7 @@ def db_dump(db_engine):
     Dump contents of DB to json
     '''
     if db_engine is None:
-        print('Unable to dump database, no engine')
+        print('Unable to dump database, no engine', file=stderr)
         return
     db_session = sessionmaker(bind=db_engine, query_cls=RetryingQuery)()
     tables = BASE.__subclasses__()
@@ -141,18 +142,45 @@ def main():
     Main loop
     '''
     args = parse_args()
+    if args.command.lower() not in ['db_dump', 'db_load', 'run']:
+        print('Invalid subcommand passed', file=stderr)
 
+    # First generate settings
     settings = read_config(args.config_file)
     try:
         validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
     except ValidationError as exc:
         raise DiscordBotException('Invalid config, general section does not match schema') from exc
 
-    print('Generating intents')
+    # Grab db engine for possible dump or load commands
+    try:
+        db_engine = create_engine(settings['general']['sql_connection_statement'])
+        BASE.metadata.create_all(db_engine)
+        BASE.metadata.bind = db_engine
+    except KeyError:
+        print('Unable to find sql statement in settings, assuming no db', file=stderr)
+        db_engine = None
+
+    # Run db commands if given
+    if args.command.lower() == 'db_dump':
+        db_dump(db_engine)
+        return
+    if args.command.lower() == 'db_load':
+        with open(args.json_file, 'r') as o:
+            json_data = load(o)
+        db_load(db_engine, json_data)
+        return
+    # Else assume its a run command
+
+    # Grab logger
+    print('Starting logging', file=stderr)
+    logger = get_logger(__name__, settings['general'].get('logging', {}))
+
+    logger.debug('Startup: Generating Intents')
     intents = Intents.default()
     try:
         intent_list = settings['general']['intents']
-        print('Adding extra intents:', intent_list)
+        logger.debug('Startup: Adding extra intents:', intent_list)
         for intent in intent_list:
             setattr(intents, intent, True)
     except KeyError:
@@ -163,16 +191,6 @@ def main():
         description='Discord bot',
         intents=intents,
     )
-    print('Starting logging')
-    logger = get_logger(__name__, settings['general'].get('logging', {}))
-
-    try:
-        db_engine = create_engine(settings['general']['sql_connection_statement'])
-        BASE.metadata.create_all(db_engine)
-        BASE.metadata.bind = db_engine
-    except KeyError:
-        print('Unable to find sql statement in settings, assuming no db')
-        db_engine = None
 
     cog_list = [
         CommandErrorHandler(bot, logger),
@@ -196,11 +214,4 @@ def main():
                 await bot.add_cog(cog)
             await bot.start(settings['general']['discord_token'])
 
-    if args.command.lower() == 'run':
-        run(main_loop())
-    elif args.command.lower() == 'db_dump':
-        db_dump(db_engine)
-    elif args.command.lower() == 'db_load':
-        with open(args.json_file, 'r') as o:
-            json_data = load(o)
-        db_load(db_engine, json_data)
+    run(main_loop())

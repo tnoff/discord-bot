@@ -18,8 +18,12 @@ for file_name in REQUIREMENTS_FILES:
         with open(file_name) as f:
             required += f.read().splitlines()
 
-with open(VERSION_FILE) as r:
-    version = r.read().strip()
+# Try/catch mostly here for tox.ini
+try:
+    with open(VERSION_FILE) as r:
+        version = r.read().strip()
+except FileNotFoundError:
+    version = '0.0.1'
 
 setuptools.setup(
     name='discord_bot',
