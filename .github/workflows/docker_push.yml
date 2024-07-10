@@ -47,8 +47,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Fix version
-        id: version
-        run: echo "version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
+        id: fix-version
+        run: echo "version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/v([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
+      - name: Echo version
+        id: echo
+        run: echo "${{ steps.fix-version.outputs.version }}"
       - name: Login to OCIR
         uses: docker/login-action@v3
         with:
@@ -61,4 +64,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: docker/
-          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.version.outputs.version }}
+          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.fix-version.outputs.version }}
