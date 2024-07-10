@@ -1,4 +1,4 @@
-name: Publish Docker image
+name: Tag and build docker image
 
 on:
   push:
@@ -6,17 +6,44 @@ on:
     - main
 
 jobs:
-  push_to_registry:
-    name: Push Docker image to Docker Hub
+  tag_build:
+    name: Tag Build if doesn't exist already
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Get version
         id: version
-        run: echo "version=$(cat VERSION | sed -r 's/([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
+        run: echo "version=v$(cat VERSION)" >> $GITHUB_OUTPUT
+      - name: Check If Tag already exists
+        uses: mukunku/tag-exists-action@v1.6.0
+        id: check-tag
+        with: 
+          tag: ${{ steps.version.outputs.version }}
+      - run: echo "Tag exists!"
+        if: steps.check-tag.outputs.exists == 'true'
+      - name: Add tag
+        id: tag-version
+        if: steps.check-tag.outputs.exists != 'true'
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          custom_tag: ${{ steps.version.outputs.version }}
+          tag_prefix: ''
+  push_to_registry:
+    name: Push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs:
+      - tag_build
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to OCIR
@@ -31,4 +58,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: docker/
-          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.version.outputs.version }}
+          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ needs.tag_build.outputs.version }}
