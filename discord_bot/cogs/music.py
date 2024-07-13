@@ -17,7 +17,7 @@ from uuid import uuid4
 from async_timeout import timeout
 from dappertable import shorten_string_cjk, DapperTable
 from discord import FFmpegPCMAudio
-from discord.errors import NotFound
+from discord.errors import ClientException, NotFound
 from discord.ext import commands
 from moviepy.editor import AudioFileClip, afx
 from numpy import sqrt
@@ -1137,7 +1137,7 @@ class MusicPlayer:
         audio_source.volume = self.volume
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
-        except AttributeError:
+        except (AttributeError, ClientException):
             self.logger.info(f'Music :: No voice client found, disconnecting from guild {self.guild.id}')
             await self.destroy(self.guild)
             raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
