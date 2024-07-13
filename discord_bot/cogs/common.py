@@ -44,7 +44,6 @@ class CogHelper(commands.Cog):
             except KeyError:
                 self.settings[settings_prefix] = {}
                 self.enable_loop = False
-                return
 
     async def check_user_role(self, ctx):
         '''
