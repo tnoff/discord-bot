@@ -215,3 +215,6 @@ def main():
             await bot.start(settings['general']['discord_token'])
 
     run(main_loop())
+
+if __name__ == '__main__':
+    main()
