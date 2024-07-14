@@ -9,3 +9,5 @@ discord_bot.egg-info/
 .vs/
 build/
 docker/.env
+.coverage
+htmlcov/

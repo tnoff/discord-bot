@@ -36,6 +36,6 @@ setuptools.setup(
             'discord-bot = discord_bot.run_bot:main',
         ]
     },
-    packages=setuptools.find_packages(exclude=['tests', 'docker', 'docs']),
+    packages=setuptools.find_packages(include=['discord_bot']),
     version=version,
 )

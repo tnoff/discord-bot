@@ -1,5 +1,5 @@
 from asyncio import sleep as async_sleep
-from logging import getLogger, Formatter, DEBUG, StreamHandler
+from logging import getLogger, Formatter, StreamHandler
 from logging.handlers import RotatingFileHandler
 from sys import stdout
 from time import sleep
@@ -13,9 +13,6 @@ DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
 GENERAL_SECTION_SCHEMA = {
     'type': 'object',
     'properties': {
-        'log_file': {
-            'type': 'string'
-        },
         'discord_token': {
             'type': 'string'
         },
@@ -33,10 +30,15 @@ GENERAL_SECTION_SCHEMA = {
                 },
                 'log_file_max_bytes': {
                     'type': 'integer',
+                },
+                'log_level': {
+                    'type': 'integer',
+                    'enum': [0, 10, 20, 30, 40, 50],
                 }
             },
             'required': [
                 'log_file',
+                'log_level',
                 'log_file_count',
                 'log_file_max_bytes',
             ]
@@ -46,20 +48,25 @@ GENERAL_SECTION_SCHEMA = {
             'properties': {
                 'default': {
                     'type': 'boolean',
+                    'default': True,
                 },
                 'markov': {
                     'type': 'boolean',
+                    'default': False,
                 },
                 'urban': {
                     'type': 'boolean',
+                    'default': False,
                 },
                 'music': {
                     'type': 'boolean',
+                    'default': False,
                 },
                 'delete_messages': {
                     'type': 'boolean',
+                    'default': False,
                 }
-            }
+            },
         },
         'intents': {
             'type': 'array',
@@ -86,19 +93,21 @@ def get_logger(logger_name, logging_section):
     logger = getLogger(logger_name)
     formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
                           datefmt=DATETIME_FORMAT)
-    logger.setLevel(DEBUG)
+    # If no logging section given, return generic logger
+    # That logs to stdout
     if not logging_section:
         ch = StreamHandler(stdout)
-        ch.setLevel(DEBUG)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
-    else:
-        fh = RotatingFileHandler(logging_section['log_file'],
-                                backupCount=logging_section['log_file_count'],
-                                maxBytes=logging_section['log_file_max_bytes'])
-        fh.setLevel(DEBUG)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
+        logger.setLevel(10)
+        return logger
+    # Else set more proper rotated file logging
+    fh = RotatingFileHandler(logging_section['log_file'],
+                            backupCount=logging_section['log_file_count'],
+                            maxBytes=logging_section['log_file_max_bytes'])
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.setLevel(logging_section['log_level'])
     return logger
 
 def retry_command(func, *args, **kwargs):
@@ -114,12 +123,13 @@ def retry_command(func, *args, **kwargs):
         try:
             return func(*args, **kwargs)
         except accepted_exceptions as ex:
-            for pf in post_functions:
-                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 sleep(sleep_for)
                 continue
+            # if no retries left, run post functions
+            for pf in post_functions:
+                pf(ex)
             raise
 
 async def async_retry_command(func, *args, **kwargs):
@@ -135,12 +145,13 @@ async def async_retry_command(func, *args, **kwargs):
         try:
             return await func(*args, **kwargs)
         except accepted_exceptions as ex:
-            for pf in post_functions:
-                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 await async_sleep(sleep_for)
                 continue
+            # if not retries left, run post functions
+            for pf in post_functions:
+                pf(ex)
             raise
 
 def retry_discord_message_command(func, *args, **kwargs):
