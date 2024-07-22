@@ -48,10 +48,16 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Fix version
         id: fix-version
-        run: echo "version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/v([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
-      - name: Echo version
-        id: echo
-        run: echo "${{ steps.fix-version.outputs.version }}"
+        run: echo "submajor_version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/v([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
+      - name: Fix full version
+        id: fix-full-version
+        run: echo "full_version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/^//')" >> $GITHUB_OUTPUT
+      - name: Echo submajor version
+        id: echo-submajor
+        run: echo "${{ steps.fix-version.outputs.submajor_version }}"
+      - name: Echo full version
+        id: echo-full
+        run: echo "${{ steps.fix-full-version.outputs.full_version }}.$${{ github.run_number }}"
       - name: Login to OCIR
         uses: docker/login-action@v3
         with:
@@ -64,4 +70,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: docker/
-          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.fix-version.outputs.version }}
+          tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.fix-version.outputs.submajor_version }},sjc.ocir.io/tnoff/discord:${{ steps.fix-full-version.outputs.full_version }}.${{ github.run_number }}
