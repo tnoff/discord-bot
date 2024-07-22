@@ -57,7 +57,7 @@ jobs:
         run: echo "${{ steps.fix-version.outputs.submajor_version }}"
       - name: Echo full version
         id: echo-full
-        run: echo "${{ steps.fix-full-version.outputs.full_version }}.$${{ github.run_number }}"
+        run: echo "${{ steps.fix-full-version.outputs.full_version }}.${{ github.run_number }}"
       - name: Login to OCIR
         uses: docker/login-action@v3
         with:
