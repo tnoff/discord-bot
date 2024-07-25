@@ -150,7 +150,7 @@ def main():
     try:
         validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
     except ValidationError as exc:
-        raise DiscordBotException('Invalid config, general section does not match schema') from exc
+        print(f'Invalid config, general section does not match schema: {str(exc)}', file=stderr)
 
     # Grab db engine for possible dump or load commands
     try:

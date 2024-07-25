@@ -13,10 +13,16 @@ RUN apt-get install -y vim iputils-ping
 
 # Setup venv
 # Assume we should just get latest code
-RUN git clone https://github.com/tnoff/discord-bot.git /tmp/discord_bot/
+#RUN git clone https://github.com/tnoff/discord-bot.git /tmp/discord_bot/
+
+ENV TMPDIR="/tmp/bot"
+RUN mkdir -p "${TMPDIR}"
+COPY discord_bot/ "${TMPDIR}/discord_bot/"
+COPY requirements.txt "${TMPDIR}/"
+COPY setup.py "${TMPDIR}/"
 RUN mkdir -p "${WORKDIR}"
 RUN virtualenv "${VENVDIR}"
-RUN ${VENVDIR}/bin/pip install /tmp/discord_bot/
+RUN ${VENVDIR}/bin/pip install "${TMPDIR}"
 RUN ${VENVDIR}/bin/pip install psycopg2
 
 CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf", "run"]
