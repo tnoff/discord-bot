@@ -171,6 +171,12 @@ def main():
         db_load(db_engine, json_data)
         return
     # Else assume its a run command
+    # And assuming that, check for token
+    try:
+        token = settings['general']['discord_token']
+    except KeyError:
+        print('Unable to run bot without token', file=stderr)
+        return
 
     # Grab logger
     print('Starting logging', file=stderr)
@@ -212,7 +218,7 @@ def main():
         async with bot:
             for cog in cog_list:
                 await bot.add_cog(cog)
-            await bot.start(settings['general']['discord_token'])
+            await bot.start(token)
 
     run(main_loop())
 
