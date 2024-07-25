@@ -13,10 +13,6 @@ def test_validate_minimal_config():
     }
     validate_config(minimal_input, GENERAL_SECTION_SCHEMA)
 
-    with pytest.raises(ValidationError) as exc:
-        validate_config({}, GENERAL_SECTION_SCHEMA)
-    assert "'discord_token' is a required" in str(exc.value)
-
 def test_sql_statement_config():
     sql_input = {
         'discord_token': 'abctoken',

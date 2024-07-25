@@ -75,9 +75,6 @@ GENERAL_SECTION_SCHEMA = {
             },
         },
     },
-    'required': [
-        'discord_token',
-    ]
 }
 
 def validate_config(config_section, schema):
