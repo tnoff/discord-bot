@@ -51,7 +51,7 @@ jobs:
         run: echo "submajor_version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/v([0-9]+)\.([0-9]+)\..*/\1\.\2/')" >> $GITHUB_OUTPUT
       - name: Fix full version
         id: fix-full-version
-        run: echo "full_version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/^//')" >> $GITHUB_OUTPUT
+        run: echo "full_version=$(echo ${{ needs.tag_build.outputs.version }} | sed -r 's/^v//')" >> $GITHUB_OUTPUT
       - name: Echo submajor version
         id: echo-submajor
         run: echo "${{ steps.fix-version.outputs.submajor_version }}"
