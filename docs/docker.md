@@ -21,27 +21,11 @@ $ docker pull sjc.ocir.io/tnoff/discord:2.0
 Build just the discord-bot docker image:
 
 ```
-$ docker build docker/
+$ docker build .
 ```
 
-## Docker-Compose
 
-Run locally with docker compose
-
-```
-$ cd docker/
-$ docker-compose build
-$ docker-compose up
-```
-
-### Setup Local Vars
-
-For docker-compose you'll need to setup the `.env` file, this can be copied from `.env.example`
-
-```
-$ cd docker/
-$ cp .env.example .env
-```
+## Setup Local Vars
 
 You'll need a discord token to start the bot, you can generate one of these through the [discord developer portal](https://discord.com/developers/docs/topics/oauth2).
 Then place this token in an `.env` file under `DISCORD_TOKEN`.

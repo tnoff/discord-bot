@@ -69,5 +69,5 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           push: true
-          context: docker/
+          context: .
           tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.fix-version.outputs.submajor_version }},sjc.ocir.io/tnoff/discord:${{ steps.fix-full-version.outputs.full_version }}.${{ github.run_number }}

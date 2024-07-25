@@ -21,7 +21,7 @@ $ pip install discord-bot/discord_bot/
 
 ## Docker
 
-Docker support and builds are available, read me in the [docker docs](./docker/README.md)
+Docker support and builds are available, read me in the [docker docs](./docs/docker.md)
 
 ## Configuration
 
