@@ -120,13 +120,12 @@ def retry_command(func, *args, **kwargs):
         try:
             return func(*args, **kwargs)
         except accepted_exceptions as ex:
+            for pf in post_functions:
+                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 sleep(sleep_for)
                 continue
-            # if no retries left, run post functions
-            for pf in post_functions:
-                pf(ex)
             raise
 
 async def async_retry_command(func, *args, **kwargs):
@@ -142,13 +141,12 @@ async def async_retry_command(func, *args, **kwargs):
         try:
             return await func(*args, **kwargs)
         except accepted_exceptions as ex:
+            for pf in post_functions:
+                pf(ex)
             if retry <= max_retries:
                 sleep_for = 2 ** (retry - 1)
                 await async_sleep(sleep_for)
                 continue
-            # if not retries left, run post functions
-            for pf in post_functions:
-                pf(ex)
             raise
 
 def retry_discord_message_command(func, *args, **kwargs):
@@ -156,7 +154,7 @@ def retry_discord_message_command(func, *args, **kwargs):
     Retry discord send message command, catch case of rate limiting
     '''
     def check_429(ex):
-        if '429' not in str(ex):
+        if isinstance(ex, RateLimited) and '429' not in str(ex):
             raise #pylint:disable=misplaced-bare-raise
     post_exception_functions = [check_429]
     exceptions = (HTTPException, RateLimited, DiscordServerError)
@@ -167,7 +165,7 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
     Retry discord send message command, catch case of rate limiting
     '''
     def check_429(ex):
-        if '429' not in str(ex):
+        if isinstance(ex, RateLimited) and '429' not in str(ex):
             raise #pylint:disable=misplaced-bare-raise
     post_exception_functions = [check_429]
     exceptions = (HTTPException, RateLimited, DiscordServerError)
