@@ -133,7 +133,7 @@ MUSIC_SECTION_SCHEMA = {
             'items': {
                 'type': 'object',
                 'properties': {
-                    'id': {
+                    'url': {
                         'type': 'string',
                     },
                     'message': {
@@ -194,11 +194,11 @@ def match_generator(max_song_length, banned_videos_list):
         duration = info.get('duration')
         if duration and max_song_length and duration > max_song_length:
             raise SongTooLong(f'Song exceeds max length of {max_song_length}')
-        vid_id = info.get('id')
-        if vid_id and banned_videos_list:
+        vid_url = info.get('url')
+        if vid_url and banned_videos_list:
             for banned_video_dict in banned_videos_list:
-                if vid_id == banned_video_dict['id']:
-                    raise VideoBanned(f'Video id {vid_id} banned, message: {banned_video_dict["message"]}')
+                if vid_url == banned_video_dict['webpage_url']:
+                    raise VideoBanned(f'Video id {vid_url} banned, message: {banned_video_dict["message"]}')
     return filter_function
 
 def get_finished_path(path):
@@ -298,12 +298,12 @@ class PlaylistItem(BASE):
     '''
     __tablename__ = 'playlist_item'
     __table_args__ = (
-        UniqueConstraint('video_id', 'playlist_id',
+        UniqueConstraint('video_url', 'playlist_id',
                          name='_unique_playlist_video'),
     )
     id = Column(Integer, primary_key=True)
     title = Column(String(256))
-    video_id = Column(String(32))
+    video_url = Column(String(256))
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     created_at = Column(DateTime)
@@ -674,28 +674,59 @@ class CacheFile():
             if str(file_path) not in existing_files:
                 file_path.unlink()
 
-    def iterate_file(self, base_path, original_path):
+    def check_for_url(self, source_dict, logger):
+        '''
+        Check for webpage_url in cache before attempting download
+
+        webpage_url     : Web page url to check for
+        source_dict     : Source dict generate source from
+        logger          : Logger path
+        '''
+        for item in self._data:
+            if item['webpage_url'] == source_dict['search_string']:
+                ytdlp_data = {}
+                for key in YT_DLP_KEYS:
+                    ytdlp_data[key] = item[key]
+                return SourceFile(
+                    Path(item['file_path']),
+                    Path(item['original_path']),
+                    ytdlp_data,
+                    source_dict,
+                    logger,
+                )
+        return None
+
+    def iterate_file(self, source_download, source_dict):
         '''
         Bump file path
-        base_path       :   Path of cached file
-        original_path   :   Path of original download file (if post processing enabled)
+        source_download :   Data dict from yt-dlp with download data
+        source_dict     :   Data dict from original request
         '''
+        base_path = source_download['base_path']
+        original_path = source_download['original_path']
+        guild_id = source_dict['guild_id']
         self.logger.info(f'Music :: Adding file path {str(base_path)} to cache file')
         for item in self._data:
             if item['base_path'] == base_path:
                 item['count'] += 1
                 item['last_iterated_at'] = datetime.utcnow()
+                if guild_id not in item['guilds']:
+                    item['guilds'].append(guild_id)
                 self.logger.info(f'Music :: Cache entry existed for path {str(base_path)}, bumping')
                 return
         now = datetime.utcnow()
         self.logger.info(f'Music :: Cache entry did not exist for path {str(base_path)}, creating now')
-        self._data.append({
-            'base_path': base_path,
+        new_data = {
+            'base_path': str(base_path),
+            'original_path': str(original_path),
             'count': 1,
             'last_iterated_at': now,
             'created_at': now,
-            'original_path': original_path,
-        })
+            'guilds': [guild_id]
+        }
+        for key in YT_DLP_KEYS:
+            new_data[key] = source_download[key]
+        self._data.append(new_data)
 
     def remove(self):
         '''
@@ -1384,30 +1415,36 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                 delete_after=player.delete_after)
             return
 
-        try:
-            source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
-        except SongTooLong:
-            await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
-                                                delete_after=player.delete_after)
-            self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
-            return
-        except VideoBanned as vb:
-            await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'{str(vb)}',
-                                                delete_after=player.delete_after)
-            self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
-            return
-        if source_download is None:
-            await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{source_dict["search_string"]}", skipping',
-                                                delete_after=player.delete_after)
-            for func in video_non_exist_callback_functions:
-                await func()
-            return
+        # If https link, check for cache first
+        source_download = None
+        if self.cache_file and 'https://' in source_dict['search_string']:
+            source_download = self.cache_file.check_for_url(source_dict, self.logger)
+
+        if not source_download:
+            try:
+                source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
+            except SongTooLong:
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                return
+            except VideoBanned as vb:
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'{str(vb)}',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
+                return
+            if source_download is None:
+                await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{source_dict["search_string"]}", skipping',
+                                                    delete_after=player.delete_after)
+                for func in video_non_exist_callback_functions:
+                    await func()
+                return
         try:
             player.play_queue.put_nowait(source_download)
             self.logger.info(f'Music :: Adding "{source_download["title"]}" '
-                                f'to queue in guild {source_dict["guild_id"]}')
+                             f'to queue in guild {source_dict["guild_id"]}')
             await player.update_queue_strings()
             await retry_discord_message_command(source_dict['message'].delete)
         except QueueFull:
@@ -1425,7 +1462,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Iterate on cache file if exists
         if self.cache_file:
             self.logger.info(f'Music :: Iterating file on base path {str(source_download["base_path"])}')
-            self.cache_file.iterate_file(source_download['base_path'], source_download['original_path'])
+            self.cache_file.iterate_file(source_download, source_dict)
             self.logger.debug('Music ::: Checking cache files to remove in music player')
             self.cache_file.remove()
             self.cache_file.write_file()
@@ -1461,7 +1498,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in history_items:
                 while True:
                     try:
-                        self.__playlist_add_item(playlist, item['id'], item['title'], item['uploader'], ignore_fail=True)
+                        self.__playlist_add_item(playlist, item['webpage_url'], item['title'], item['uploader'], ignore_fail=True)
                         break
                     except PlaylistMaxLength:
                         deleted_item =  self.db_session.query(PlaylistItem).\
@@ -1972,13 +2009,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
     def __playlist_add_item(self, playlist, data_id, data_title, data_uploader, ignore_fail=False):
-        self.logger.info(f'Music :: Adding video_id {data_id} to playlist {playlist.id}')
+        self.logger.info(f'Music :: Adding video_url {data_id} to playlist {playlist.id}')
         item_count = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
         if item_count >= (self.server_playlist_max):
             raise PlaylistMaxLength(f'Playlist {playlist.id} greater to or equal to max length {self.server_playlist_max}')
 
         playlist_item = PlaylistItem(title=shorten_string_cjk(data_title, 256),
-                                     video_id=data_id,
+                                     video_url=data_id,
                                      uploader=shorten_string_cjk(data_uploader, 256),
                                      playlist_id=playlist.id,
                                      created_at=datetime.utcnow())
@@ -2031,10 +2068,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if source is None:
                 await retry_discord_message_command(ctx.send, f'Unable to find video for search {search}')
                 continue
-            self.logger.info(f'Music :: Adding video_id {source["id"]} to playlist "{playlist.name}" '
+            self.logger.info(f'Music :: Adding video_url {source["webpage_url"]} to playlist "{playlist.name}" '
                              f' in guild {ctx.guild.id}')
             try:
-                playlist_item = self.__playlist_add_item(playlist, source['id'], source['title'], source['uploader'])
+                playlist_item = self.__playlist_add_item(playlist, source['webpage_url'], source['title'], source['uploader'])
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
                 return
@@ -2286,7 +2323,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         for data in queue_copy:
             try:
-                playlist_item = self.__playlist_add_item(playlist, data['id'], data['title'], data['uploader'])
+                playlist_item = self.__playlist_add_item(playlist, data['webpage_url'], data['title'], data['uploader'])
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
                 break
@@ -2360,8 +2397,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
 
     async def __delete_non_existing_item(self, item, ctx):
-        self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
-        await retry_discord_message_command(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
+        self.logger.warning(f'Unable to find video "{item.video_url}" in playlist {item.playlist_id}, deleting')
+        await retry_discord_message_command(ctx.send, content=f'Unable to find video "{item.video_url}" in playlist, deleting',
                                             delete_after=self.delete_after)
         self.db_session.delete(item)
         self.db_session.commit()
@@ -2409,7 +2446,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 # Just add directly to download queue here, since we already know the video id
                 self.download_queue.put_nowait({
-                    'search_string': item.video_id,
+                    'search_string': item.video_url,
                     'guild_id': ctx.guild.id,
                     'requester_name': ctx.author.name,
                     'requester_id': ctx.author.id,
@@ -2419,7 +2456,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
                 })
             except QueueFull:
-                await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_url}" to queue, queue is full',
                                                     delete_after=self.delete_after)
                 broke_early = True
                 break
@@ -2469,7 +2506,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         query = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_two.id)
         for item in query:
             try:
-                playlist_item = self.__playlist_add_item(playlist_one, item.video_id, item.title, item.uploader)
+                playlist_item = self.__playlist_add_item(playlist_one, item.video_url, item.title, item.uploader)
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after)
                 return
