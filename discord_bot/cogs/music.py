@@ -128,6 +128,9 @@ MUSIC_SECTION_SCHEMA = {
         'youtube_api_key': {
             'type': 'string',
         },
+        'extra_ytdlp_options': {
+            'type': 'object',
+        },
         'banned_videos_list': {
             'type': 'array',
             'items': {
@@ -1230,6 +1233,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         spotify_client_id = self.settings.get('music', {}).get('spotify_client_id', None)
         spotify_client_secret = self.settings.get('music', {}).get('spotify_client_secret', None)
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
+        ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -1262,6 +1266,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(self.download_dir / '%(id)s.%(ext)s'),
         }
+        for key, val in ytdlp_options:
+            ytdlopts[key] = val
         # Add any filter functions, do some logic so we only pass a single function into the processor
         if self.max_song_length or self.banned_videos_list:
             ytdlopts['match_filter'] = match_generator(self.max_song_length, self.banned_videos_list)
