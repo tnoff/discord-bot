@@ -2494,7 +2494,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_queue.put_nowait({
                     'search_string': item.video_id,
                     'guild_id': ctx.guild.id,
-                    'requester_name': ctx.author.name,
+                    'requester_name': ctx.author.display_name,
                     'requester_id': ctx.author.id,
                     'message': message,
                     # Pass history so we know to pass into history check later
