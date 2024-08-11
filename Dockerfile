@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 # Base packages
 RUN apt-get update -y && apt-get -y upgrade
-RUN apt-get install -y python3-dev python3-virtualenv ffmpeg wget git libpq-dev
+RUN apt-get install -y python3-dev python3-virtualenv ffmpeg wget git libpq-dev jq
 
 # Setup venv
 ENV TMPDIR="/tmp/bot"

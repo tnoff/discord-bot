@@ -10,4 +10,4 @@ pyaml-env==1.2.1
 pytz==2024.1
 requests>=2.32.0
 SQLAlchemy==2.0.32
-yt-dlp>=2024.4.9
+yt-dlp>=2024.8.6
