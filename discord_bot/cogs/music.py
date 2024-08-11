@@ -1382,7 +1382,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    async def __download_files(self):
+    async def __download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
         '''
