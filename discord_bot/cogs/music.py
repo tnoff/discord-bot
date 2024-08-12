@@ -740,9 +740,9 @@ class CacheFile():
             new_dict[key] = source_download[key]
         self._data.append(new_dict)
 
-    def remove(self):
+    def __remove_oldest_items(self):
         '''
-        Remove oldest and least used file from cache
+        Remove oldest items in cache
         '''
         num_to_remove = len(self._data) - self.max_cache_files
         if num_to_remove < 1:
@@ -761,7 +761,16 @@ class CacheFile():
                 continue
             new_list.append(item)
 
-        for item in remove_files:
+        self.__remove_files(remove_files)
+        self._data = new_list
+        self.logger.info(f'Music ::: Removed {removed} files from cache')
+
+    def __remove_files(self, remove_files_list):
+        '''
+        Remove specific files
+        remove_files_list  : List of items to remove
+        '''
+        for item in remove_files_list:
             base_path = Path(item['base_path'])
             original_path = Path(item['original_path'])
             self.logger.info(f'Music :: Removing item from cache {item}')
@@ -769,7 +778,34 @@ class CacheFile():
                 base_path.unlink()
             if original_path.exists():
                 original_path.unlink()
+
+    def __remove_item(self, base_path):
+        '''
+        Remove specific base path
+        base_path   : Remove item with specific base path
+        '''
+        remove_files = []
+
+        new_list = []
+        for item in self._data:
+            if item['base_path'] != base_path:
+                new_list.append(item)
+                continue
+            remove_files.append(item)
+        self.__remove_files(remove_files)
         self._data = new_list
+        self.logger.info(f'Music :: Removed base path {str(base_path)} from cache')
+
+    def remove(self, base_path=None):
+        '''
+        Remove oldest and least used file from cache
+        base_path   : Remove item with specific base path
+        '''
+        if not base_path:
+            self.__remove_oldest_items()
+            return True
+        self.__remove_item(base_path)
+        return True
 
     def write_file(self):
         '''
@@ -1431,6 +1467,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         }
 
         source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=False)
+        if not source_download:
+            self.logger.debug(f'Music ::: Unable to verify cache file {str(item["base_path"])} removing from cache')
+            self.cache_file.remove(base_path=item['base_path'])
+            return
         self.cache_file.fix_legacy_cache_item(item['base_path'], source_download)
         self.logger.debug(f'Music ::: Fixed legacy cache item {search_string}, added extra ytdlp options, updating timestamp')
         self.legacy_cache_updated.write_text(str(datetime.utcnow().timestamp()))
