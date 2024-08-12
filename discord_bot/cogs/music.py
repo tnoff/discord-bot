@@ -653,6 +653,7 @@ class CacheFile():
         new_list = []
         for item in self._data:
             item['base_path'] = Path(item['base_path'])
+            item['original_path'] = Path(item['original_path'])
             if not item['base_path'].exists():
                 self.logger.warning(f'Music :: :: Cached file {str(item["base_path"])} does not exist, skipping')
                 continue
