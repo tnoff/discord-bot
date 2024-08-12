@@ -690,14 +690,14 @@ class CacheFile():
                 return item
         return None
 
-    def fix_legacy_cache_item(self, original_path, source_download):
+    def fix_legacy_cache_item(self, base_path, source_download):
         '''
         Fix up a legacy cache item
-        original_path   : Path of original path to find item
+        base_path       : Path to find item
         source_download : Dict of ytdlp options to use to fix up
         '''
         for item in self._data:
-            if item['original_path'] == original_path:
+            if item['base_path'] == base_path:
                 for key in YT_DLP_KEYS:
                     item[key] = source_download[key]
                 return True
@@ -1421,13 +1421,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Music ::: No legacy cache items found, exiting')
             return
         # Assume the name from the file path, id should be in the final stem name
-        search_string = item['original_path'].stem
+        search_string = item['base_path'].stem.replace('.finished', '')
         self.logger.debug(f'Music ::: Found legacy cache item {search_string}, downloading to get latest data')
         source_dict = {
             'search_string': search_string,
         }
         source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=False)
-        self.cache_file.fix_legacy_cache_item(item['original_path'], source_download)
+        self.cache_file.fix_legacy_cache_item(item['base_path'], source_download)
         self.logger.debug(f'Music ::: Fixed legacy cache item {search_string}, added extra ytdlp options, updating timestamp')
         self.legacy_cache_updated.write_text(str(datetime.utcnow().timestamp()))
 
