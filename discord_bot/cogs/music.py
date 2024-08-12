@@ -1266,7 +1266,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(self.download_dir / '%(id)s.%(ext)s'),
         }
-        for key, val in ytdlp_options:
+        for key, val in ytdlp_options.items():
             ytdlopts[key] = val
         # Add any filter functions, do some logic so we only pass a single function into the processor
         if self.max_song_length or self.banned_videos_list:
