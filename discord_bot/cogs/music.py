@@ -1412,7 +1412,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug(f'Music ::: Fixing old cache item, last run at {last_updated_at}, waiting {wait_time} seconds')
             if wait_time < 10:
                 await sleep(wait_time)
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             self.logger.debug('Music ::: No legacy cache file timestamp found, assuming first run, starting one now')
             pass
         item = self.cache_file.find_legacy_cache_item()
