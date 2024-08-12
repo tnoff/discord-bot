@@ -1425,7 +1425,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.debug(f'Music ::: Found legacy cache item {search_string}, downloading to get latest data')
         source_dict = {
             'search_string': search_string,
+            'requester_name': 'background_job',
+            'requester_id': None,
+            'guild_id': 'system'
         }
+
         source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=False)
         self.cache_file.fix_legacy_cache_item(item['base_path'], source_download)
         self.logger.debug(f'Music ::: Fixed legacy cache item {search_string}, added extra ytdlp options, updating timestamp')
