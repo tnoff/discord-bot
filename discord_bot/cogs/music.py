@@ -677,28 +677,67 @@ class CacheFile():
             if str(file_path) not in existing_files:
                 file_path.unlink()
 
-    def iterate_file(self, base_path, original_path):
+    def find_legacy_cache_item(self):
+        '''
+        Find first item in list that does not contain newer cache keys from ytdlp
+        '''
+        for item in self._data:
+            try:
+                # Use duration b/c we know we didnt keep that key
+                item['duration']
+            except KeyError:
+                return item
+        return None
+
+    def fix_legacy_cache_item(self, original_path, source_download):
+        '''
+        Fix up a legacy cache item
+        original_path   : Path of original path to find item
+        source_download : Dict of ytdlp options to use to fix up
+        '''
+        for item in self._data:
+            if item['original_path'] == original_path:
+                for key in YT_DLP_KEYS:
+                    item[key] = source_download[key]
+                return True
+        return False
+
+    def iterate_file(self, source_download, source_dict):
         '''
         Bump file path
-        base_path       :   Path of cached file
-        original_path   :   Path of original download file (if post processing enabled)
+        source_download : All options from source download in ytdlp
+        source_dict     : Original dict that called function
         '''
+        base_path = source_download['base_path']
+        original_path = source_download['original_path']
         self.logger.info(f'Music :: Adding file path {str(base_path)} to cache file')
         for item in self._data:
             if item['base_path'] == base_path:
                 item['count'] += 1
                 item['last_iterated_at'] = datetime.utcnow()
+                # Add item to guild ids
+                try:
+                    if source_dict['guild_id'] not in item['guilds']:
+                        item['guilds'].append(source_dict['guild_id'])
+                except KeyError:
+                    item['guilds'] = source_dict['guild_id']
                 self.logger.info(f'Music :: Cache entry existed for path {str(base_path)}, bumping')
                 return
         now = datetime.utcnow()
         self.logger.info(f'Music :: Cache entry did not exist for path {str(base_path)}, creating now')
-        self._data.append({
+        new_dict = {
             'base_path': base_path,
             'count': 1,
             'last_iterated_at': now,
             'created_at': now,
             'original_path': original_path,
-        })
+            'guilds': [
+                source_dict['guild_id'],
+            ]
+        }
+        for key in YT_DLP_KEYS:
+            new_dict[key] = source_download[key]
+        self._data.append(new_dict)
 
     def remove(self):
         '''
@@ -1250,9 +1289,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         self.cache_file = None
+        self.legacy_cache_updated = None
         if self.enable_cache:
             self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger)
             self.cache_file.remove_extra_files()
+            self.legacy_cache_updated = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
 
         ytdlopts = {
             'format': 'bestaudio',
@@ -1302,6 +1343,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._cleanup_task.cancel()
         if self._download_task:
             self._download_task.cancel()
+        if self.legacy_cache_updated:
+            self.legacy_cache_updated.unlink()
 
     async def cleanup_players(self):
         '''
@@ -1357,7 +1400,37 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    async def __download_files(self):
+    async def __fix_legacy_cache(self):
+        '''
+        Fix an older video in the legacy cache, assuming we have cycles
+        '''
+        # Check last timestamp, should only run this about every 10 seconds to be safe
+        try:
+            last_updated_at = self.legacy_cache_updated.read_text()
+            now = int(datetime.utcnow().timestamp())
+            wait_time = now - int(last_updated_at)
+            self.logger.debug(f'Music ::: Fixing old cache item, last run at {last_updated_at}, waiting {wait_time} seconds')
+            if wait_time < 10:
+                await sleep(wait_time)
+        except FileNotFoundError:
+            self.logger.debug('Music ::: No legacy cache file timestamp found, assuming first run, starting one now')
+            pass
+        item = self.cache_file.find_legacy_cache_item()
+        if not item:
+            self.logger.debug('Music ::: No legacy cache items found, exiting')
+            return
+        # Assume the name from the file path, id should be in the final stem name
+        search_string = item['original_path'].stem
+        self.logger.debug(f'Music ::: Found legacy cache item {search_string}, downloading to get latest data')
+        source_dict = {
+            'search_string': search_string,
+        }
+        source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=False)
+        self.cache_file.fix_legacy_cache_item(item['original_path'], source_download)
+        self.logger.debug(f'Music ::: Fixed legacy cache item {search_string}, added extra ytdlp options, updating timestamp')
+        self.legacy_cache_updated.write_text(str(datetime.utcnow().timestamp()))
+
+    async def __download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
         '''
@@ -1366,6 +1439,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
+            # If queue empty, go fix up an old timestamp
+            self.logger.info('Music ::: No items in download queue, attempting to fix old cache item')
+            await self.__fix_legacy_cache()
             return
         # Check for player, if doesn't exist return
         try:
@@ -1431,7 +1507,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Iterate on cache file if exists
         if self.cache_file:
             self.logger.info(f'Music :: Iterating file on base path {str(source_download["base_path"])}')
-            self.cache_file.iterate_file(source_download['base_path'], source_download['original_path'])
+            self.cache_file.iterate_file(source_download, source_dict)
             self.logger.debug('Music ::: Checking cache files to remove in music player')
             self.cache_file.remove()
             self.cache_file.write_file()
