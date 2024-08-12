@@ -1476,6 +1476,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.cache_file.fix_legacy_cache_item(item['base_path'], source_download)
         self.logger.debug(f'Music ::: Fixed legacy cache item {search_string}, added extra ytdlp options, updating timestamp')
         self.legacy_cache_updated.write_text(str(datetime.utcnow().timestamp()))
+        self.cache_file.write_file()
 
     async def __download_files(self): #pylint:disable=too-many-statements
         '''
@@ -1487,8 +1488,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
             # If queue empty, go fix up an old timestamp
-            self.logger.info('Music ::: No items in download queue, attempting to fix old cache item')
             if not self.legacy_cache_finished:
+                self.logger.info('Music ::: No items in download queue, attempting to fix old cache item')
                 await self.__fix_legacy_cache()
             return
         # Check for player, if doesn't exist return
