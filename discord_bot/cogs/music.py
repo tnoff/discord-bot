@@ -82,6 +82,8 @@ YOUTUBE_BASE_URL =  'https://www.googleapis.com/youtube/v3/playlistItems'
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
+YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
+
 
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
 
@@ -307,6 +309,7 @@ class PlaylistItem(BASE):
     id = Column(Integer, primary_key=True)
     title = Column(String(256))
     video_id = Column(String(32))
+    video_url = Column(String(256))
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     created_at = Column(DateTime)
@@ -1286,7 +1289,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     Music related commands
     '''
 
-    def __init__(self, bot, logger, settings, db_engine):
+    def __init__(self, bot, logger, settings, db_engine): #pylint:disable=too-many-statements
         super().__init__(bot, logger, settings, db_engine, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
@@ -1356,7 +1359,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.download_client = DownloadClient(ytdl, self.logger,
                                               spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                               delete_after=self.delete_after)
+        # Run cleanup on legacy playlist items
+        if self.db_session:
+            self.__cleanup_legacy_playlist_items()
 
+    def __cleanup_legacy_playlist_items(self):
+        '''
+        Add video_url to all playlist items where it does not already exist
+        '''
+        for item in self.db_session.query(PlaylistItem).filter(PlaylistItem.video_url == None):
+            # Assume its a youtube video
+            item.video_url = f'{YOUTUBE_VIDEO_PREFIX}{item.video_id}'
+        self.db_session.commit()
 
     async def cog_load(self):
         '''
@@ -1590,15 +1604,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if player.history_playlist_id:
             playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
             for item in history_items:
+                self.logger.info(f'Music ::: Attempting to add url {item["webpage_url"]} to history playlist {playlist.id}')
                 while True:
                     try:
-                        self.__playlist_add_item(playlist, item['id'], item['title'], item['uploader'], ignore_fail=True)
+                        self.__playlist_add_item(playlist, item['id'], item['webpage_url'], item['title'], item['uploader'], ignore_fail=True)
                         break
                     except PlaylistMaxLength:
                         deleted_item =  self.db_session.query(PlaylistItem).\
                                             filter(PlaylistItem.playlist_id == playlist.id).\
                                             order_by(desc(PlaylistItem.created_at)).first()
                         if deleted_item:
+                            self.logger.info(f'Music ::: History playlist reached max length, deleting item {deleted_item.id} with video id {deleted_item["id"]}')
                             self.db_session.delete(deleted_item)
                             self.db_session.commit()
 
@@ -2102,14 +2118,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for mess in messages:
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
-    def __playlist_add_item(self, playlist, data_id, data_title, data_uploader, ignore_fail=False):
-        self.logger.info(f'Music :: Adding video_id {data_id} to playlist {playlist.id}')
+    def __playlist_add_item(self, playlist, data_id, data_url, data_title, data_uploader, ignore_fail=False):
+        self.logger.info(f'Music :: Adding video {data_url} to playlist {playlist.id}')
         item_count = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
         if item_count >= (self.server_playlist_max):
             raise PlaylistMaxLength(f'Playlist {playlist.id} greater to or equal to max length {self.server_playlist_max}')
 
         playlist_item = PlaylistItem(title=shorten_string_cjk(data_title, 256),
                                      video_id=data_id,
+                                     video_url=data_url,
                                      uploader=shorten_string_cjk(data_uploader, 256),
                                      playlist_id=playlist.id,
                                      created_at=datetime.utcnow())
@@ -2162,10 +2179,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if source is None:
                 await retry_discord_message_command(ctx.send, f'Unable to find video for search {search}')
                 continue
-            self.logger.info(f'Music :: Adding video_id {source["id"]} to playlist "{playlist.name}" '
+            self.logger.info(f'Music :: Adding video_id {source["webpage_url"]} to playlist "{playlist.name}" '
                              f' in guild {ctx.guild.id}')
             try:
-                playlist_item = self.__playlist_add_item(playlist, source['id'], source['title'], source['uploader'])
+                playlist_item = self.__playlist_add_item(playlist, source['id'], source['webpage_url'], source['title'], source['uploader'])
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
                 return
@@ -2417,7 +2434,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         for data in queue_copy:
             try:
-                playlist_item = self.__playlist_add_item(playlist, data['id'], data['title'], data['uploader'])
+                playlist_item = self.__playlist_add_item(playlist, data['id'], data['webpage_url'], data['title'], data['uploader'])
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
                 break
@@ -2600,7 +2617,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         query = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_two.id)
         for item in query:
             try:
-                playlist_item = self.__playlist_add_item(playlist_one, item.video_id, item.title, item.uploader)
+                playlist_item = self.__playlist_add_item(playlist_one, item.video_id, item.video_url, item.title, item.uploader)
             except PlaylistMaxLength:
                 retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after)
                 return
