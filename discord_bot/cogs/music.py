@@ -1327,6 +1327,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.cache_file = None
         self.legacy_cache_updated = None
+        self.legacy_cache_finished = False
         if self.enable_cache:
             self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger)
             self.cache_file.remove_extra_files()
@@ -1455,6 +1456,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         item = self.cache_file.find_legacy_cache_item()
         if not item:
             self.logger.debug('Music ::: No legacy cache items found, exiting')
+            self.legacy_cache_finished = True
             return
         # Assume the name from the file path, id should be in the final stem name
         search_string = item['base_path'].stem.replace('.finished', '')
@@ -1486,7 +1488,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except QueueEmpty:
             # If queue empty, go fix up an old timestamp
             self.logger.info('Music ::: No items in download queue, attempting to fix old cache item')
-            await self.__fix_legacy_cache()
+            if not self.legacy_cache_finished:
+                await self.__fix_legacy_cache()
             return
         # Check for player, if doesn't exist return
         try:
