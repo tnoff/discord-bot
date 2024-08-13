@@ -209,3 +209,13 @@ You can also choose to enable audio processing, which will use FFMPEG to normali
 music:
   enable_audio_processing: true
 ```
+
+### Extra YT-DLP Options
+
+You can pass in extra options for the [yt-dlp](https://github.com/yt-dlp/yt-dlp/) client. These should be inputted as a dictionary/hash and will be passed in to the YTDLP client when the download client is created.
+
+```
+music:
+  extra_ytdlp_options:
+    proxy: http://localhost:8888
+```
