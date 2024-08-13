@@ -679,8 +679,11 @@ class CacheFile():
                 new_original_path = item['original_path'].parent / f'{item["extractor"]}.{item["id"]}.{"".join(s for s in item["original_path"].suffixes)}'
                 item['original_path'].rename(new_original_path)
         # Fix guilds if single instance
-        if isinstance(item['guilds'], int):
-            item['guilds'] = [item['guilds']]
+        try:
+            if isinstance(item['guilds'], int):
+                item['guilds'] = [item['guilds']]
+        except KeyError:
+            item['guilds'] = []
 
     def remove_extra_files(self):
         '''
