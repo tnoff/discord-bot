@@ -660,11 +660,24 @@ class CacheFile():
             if not item['base_path'].exists():
                 self.logger.warning(f'Music :: :: Cached file {str(item["base_path"])} does not exist, skipping')
                 continue
+            self.__fix_item_file(item)
             item['last_iterated_at'] = datetime.strptime(item['last_iterated_at'], CACHE_DATETIME_FORMAT)
             item['created_at'] = datetime.strptime(item['created_at'], CACHE_DATETIME_FORMAT)
             new_list.append(item)
         self._data = new_list
         self.logger.info(f'Music :: :: Cache created with {len(self._data)} items')
+        self.write_file()
+
+    def __fix_item_file(self, item):
+        '''
+        Fix file item to include extractor
+        '''
+        if item['extractor'] not in str(item['base_path']):
+            new_path = item['base_path'].parent / f'{item["extractor"]}.{item["id"]}.{"".join(s for s in item["base_path"].suffixes)}'
+            item['base_path'].rename(new_path)
+            if item['original_path']:
+                new_original_path = item['original_path'].parent / f'{item["extractor"]}.{item["id"]}.{"".join(s for s in item["original_path"].suffixes)}'
+                item['original_path'].rename(new_original_path)
 
     def remove_extra_files(self):
         '''
@@ -1346,7 +1359,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'logger': self.logger,
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
-            'outtmpl': str(self.download_dir / '%(id)s.%(ext)s'),
+            'outtmpl': str(self.download_dir / '%(extractor)s.%(id)s.%(ext)s'),
         }
         for key, val in ytdlp_options.items():
             ytdlopts[key] = val
