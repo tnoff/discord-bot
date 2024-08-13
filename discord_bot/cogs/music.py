@@ -2485,7 +2485,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 # Just add directly to download queue here, since we already know the video id
                 self.download_queue.put_nowait({
-                    'search_string': item.video_id,
+                    'search_string': item.video_url,
                     'guild_id': ctx.guild.id,
                     'requester_name': ctx.author.display_name,
                     'requester_id': ctx.author.id,
