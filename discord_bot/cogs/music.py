@@ -88,7 +88,7 @@ YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
 
 # We only care about the following data in the yt-dlp dict
-YT_DLP_KEYS = ['id', 'title', 'webpage_url', 'uploader', 'duration']
+YT_DLP_KEYS = ['id', 'title', 'webpage_url', 'uploader', 'duration', 'extractor']
 
 # Music config schema
 MUSIC_SECTION_SCHEMA = {
@@ -687,8 +687,8 @@ class CacheFile():
         '''
         for item in self._data:
             try:
-                # Use duration b/c we know we didnt keep that key
-                item['duration']
+                # Use extraction b/c this was recently added
+                item['extractor']
             except KeyError:
                 return item
         return None
