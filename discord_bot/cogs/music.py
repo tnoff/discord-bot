@@ -744,6 +744,20 @@ class CacheFile():
         self._data = new_list
         self.logger.info(f'Music ::: Removed {removed} files from cache')
 
+    def get_webpage_url_item(self, webpage_url, source_dict):
+        '''
+        Get item with matching webpage url
+        webpage_url : URL string to match
+        source_dict : Source dict to create SourceFile with
+        '''
+        for item in self._data:
+            if item['webpage_url'] == webpage_url:
+                ytldp_data = {}
+                for key in YT_DLP_KEYS:
+                    ytldp_data[key] = item[key]
+                return SourceFile(item['base_path'], item['original_path'], ytldp_data, source_dict, self.logger)
+        return None
+
     def __remove_files(self, remove_files_list):
         '''
         Remove specific files
@@ -1457,20 +1471,27 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                 delete_after=player.delete_after)
             return
 
-        try:
-            source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
-        except SongTooLong:
-            await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
-                                                delete_after=player.delete_after)
-            self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
-            return
-        except VideoBanned as vb:
-            await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'{str(vb)}',
-                                                delete_after=player.delete_after)
-            self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
-            return
+        # If cache enabled and search string with 'https://' given, try to grab this first
+        source_download = None
+        if self.cache_file and 'https://' in source_dict['search_string']:
+            source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
+        # Else grab from ytdlp
+        if not source_download:
+            try:
+                source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
+            except SongTooLong:
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                return
+            except VideoBanned as vb:
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'{str(vb)}',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
+                return
+        # Final none check in case we couldn't download video
         if source_download is None:
             await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{source_dict["search_string"]}", skipping',
                                                 delete_after=player.delete_after)
