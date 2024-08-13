@@ -678,6 +678,9 @@ class CacheFile():
             if item['original_path']:
                 new_original_path = item['original_path'].parent / f'{item["extractor"]}.{item["id"]}.{"".join(s for s in item["original_path"].suffixes)}'
                 item['original_path'].rename(new_original_path)
+        # Fix guilds if single instance
+        if isinstance(item['guilds'], int):
+            item['guilds'] = [item['guilds']]
 
     def remove_extra_files(self):
         '''
@@ -737,7 +740,7 @@ class CacheFile():
                     if source_dict['guild_id'] not in item['guilds']:
                         item['guilds'].append(source_dict['guild_id'])
                 except KeyError:
-                    item['guilds'] = source_dict['guild_id']
+                    item['guilds'] = [source_dict['guild_id']]
                 self.logger.info(f'Music :: Cache entry existed for path {str(base_path)}, bumping')
                 return
         now = datetime.utcnow()
