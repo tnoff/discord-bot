@@ -1328,6 +1328,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger)
             self.cache_file.remove_extra_files()
 
+        self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+
         ytdlopts = {
             'format': 'bestaudio',
             'restrictfilenames': True,
@@ -1351,18 +1353,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.download_client = DownloadClient(ytdl, self.logger,
                                               spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                               delete_after=self.delete_after)
-        # Run cleanup on legacy playlist items
-        if self.db_session:
-            self.__cleanup_legacy_playlist_items()
-
-    def __cleanup_legacy_playlist_items(self):
-        '''
-        Add video_url to all playlist items where it does not already exist
-        '''
-        for item in self.db_session.query(PlaylistItem).filter(PlaylistItem.video_url == None):
-            # Assume its a youtube video
-            item.video_url = f'{YOUTUBE_VIDEO_PREFIX}{item.video_id}'
-        self.db_session.commit()
 
     async def cog_load(self):
         '''
@@ -1387,6 +1377,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._cleanup_task.cancel()
         if self._download_task:
             self._download_task.cancel()
+        self.last_download_lockfile.unlink()
+
+    def wait_for_download_time(self, wait=10):
+        '''
+        Whether or not to continue waiting for next download
+        wait        : How long we should wait between next download
+
+        Returns how long we need to wait for next run
+        '''
+        try:
+            last_updated_at = self.last_download_lockfile.read_text()
+            now = int(datetime.utcnow().timestamp())
+            total_diff = now - int(last_updated_at)
+            return total_diff - wait
+        except (FileNotFoundError, ValueError):
+            return 0
 
     async def cleanup_players(self):
         '''
@@ -1446,6 +1452,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Main runner
         '''
+        await sleep(.01)
         try:
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
@@ -1479,19 +1486,27 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
         # Else grab from ytdlp
         if not source_download:
+            wait_time = self.wait_for_download_time()
+            if wait_time:
+                self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
+                await sleep(wait_time)
+
             try:
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
+                self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
             except SongTooLong:
                 await retry_discord_message_command(source_dict['message'].edit,
                                                     content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
                                                     delete_after=player.delete_after)
                 self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
             except VideoBanned as vb:
                 await retry_discord_message_command(source_dict['message'].edit,
                                                     content=f'{str(vb)}',
                                                     delete_after=player.delete_after)
                 self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
+                self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
         # Final none check in case we couldn't download video
         if source_download is None:
@@ -1525,8 +1540,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Music ::: Checking cache files to remove in music player')
             self.cache_file.remove()
             self.cache_file.write_file()
-        # Await 10 seconds so we don't spam youtube too much
-        await sleep(10)
 
     async def __check_database_session(self, ctx):
         '''
