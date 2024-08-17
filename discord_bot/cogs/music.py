@@ -830,8 +830,8 @@ class DownloadClient():
         self.logger.info(f'Music :: Starting download of video "{source_dict["search_string"]}"')
         try:
             data = self.ytdl.extract_info(source_dict['search_string'], download=download)
-        except DownloadError:
-            self.logger.warning(f'Music :: Error downloading youtube search "{source_dict["search_string"]}')
+        except DownloadError as error:
+            self.logger.error(f'Music :: Error downloading youtube search "{source_dict["search_string"]}", error: {str(error)}')
             return None
         # Make sure we get the first entry here
         # Since we don't pass "url" directly anymore
@@ -1446,8 +1446,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Main runner
         '''
-        # Await a sleep here just so other tasks can grab loop
-        await sleep(.01)
         try:
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
@@ -1527,6 +1525,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Music ::: Checking cache files to remove in music player')
             self.cache_file.remove()
             self.cache_file.write_file()
+        # Await 10 seconds so we don't spam youtube too much
+        await sleep(10)
 
     async def __check_database_session(self, ctx):
         '''
@@ -2460,13 +2460,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
         return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
 
-    async def __delete_non_existing_item(self, item, ctx):
-        self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
-        await retry_discord_message_command(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
-                                            delete_after=self.delete_after)
-        self.db_session.delete(item)
-        self.db_session.commit()
-
     async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
         vc = ctx.voice_client
         if not vc:
@@ -2517,7 +2510,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'message': message,
                     # Pass history so we know to pass into history check later
                     'added_from_history': is_history,
-                    'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
                 })
             except QueueFull:
                 await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
