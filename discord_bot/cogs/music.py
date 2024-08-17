@@ -1030,10 +1030,14 @@ class MusicPlayer:
         while True:
             if (datetime.now() - start).seconds > wait_timeout:
                 raise LockfileException('Error acquiring player lock lock')
-            if self.lock_file.read_text() == 'locked':
-                await sleep(.5)
-                continue
-            break
+            try:
+                if self.lock_file.read_text() == 'locked':
+                    await sleep(.5)
+                    continue
+                break
+            except FileNotFoundError:
+                # If file not found, delete
+                break
         self.lock_file.write_text('locked')
 
     async def release_lock(self):
