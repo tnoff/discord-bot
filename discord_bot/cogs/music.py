@@ -276,6 +276,17 @@ def json_converter(o): #pylint:disable=inconsistent-return-statements
     if isinstance(o, Path):
         return str(o)
 
+def clean_search_string(stringy):
+    '''
+    Make sure all double spaces are replaced with a space, also strip string
+    '''
+    stringy = stringy.strip()
+    while True:
+        new_string = stringy.replace(' ' * 2, ' ')
+        if new_string == stringy:
+            return stringy
+        stringy = new_string
+
 #
 # Music Tables
 #
@@ -313,6 +324,17 @@ class PlaylistItem(BASE):
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     created_at = Column(DateTime)
+
+class SearchCache(BASE):
+    '''
+    Cache search strings to video urls
+    '''
+    __tablename__ = 'search_string_cache'
+    id = Column(Integer, primary_key=True)
+    search_string = Column(String(1024))
+    video_url = Column(String(256))
+    created_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime)
 
 #
 # Spotify Client
@@ -1449,6 +1471,39 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
+    def __cache_search_string(self, search_string, video_url):
+        '''
+        Cache search string in db session
+        search_string       : Original search string
+        video_url           : Video url of item
+        '''
+        if not self.db_session:
+            return False
+        search_string = clean_search_string(search_string)
+        now = datetime.utcnow()
+        item = SearchCache(search_string=search_string,
+                           video_url=video_url,
+                           created_at=now,
+                           last_used_at=now)
+        self.db_session.add(item)
+        self.db_session.commit()
+        return True
+
+    def __search_string_cache(self, search_string):
+        '''
+        Check search string cache for item
+        search_string       : Search string
+        '''
+        if not self.db_session:
+            return None
+        search_string = clean_search_string(search_string)
+        item = self.db_session.query(SearchCache).filter(SearchCache.search_string == search_string)
+        if not item:
+            return None
+        item.last_used_at = datetime.now()
+        self.db_session.commit()
+        return item.video_url
+
     async def __download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
@@ -1481,12 +1536,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                 delete_after=player.delete_after)
             return
 
+        # Check if we have already made this search
+        if self.cache_file:
+            self.logger.info(f'Music ::: Checking search cache for string "{source_dict["search_string"]}"')
+            cache_item_url = self.__search_string_cache(source_dict['search_string'])
+            if cache_item_url:
+                self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is {cache_item_url}')
+                source_dict['search_string'] = cache_item_url
+
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = None
         if self.cache_file and 'https://' in source_dict['search_string']:
             source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
         # Else grab from ytdlp
         if not source_download:
+            # Make sure we wait for next video download
+            # Dont spam the video client
             wait_time = self.wait_for_download_time()
             if wait_time:
                 self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
@@ -1516,6 +1581,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for func in video_non_exist_callback_functions:
                 await func()
             return
+
+        # If we have a result, add to search cache
+        if self.cache_file and 'https://' not in source_dict['search_string']:
+            self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
+            self.__cache_search_string(source_dict['search_string'], source_download['webpage_url'])
+
+        # Now add video to whatever player
         try:
             player.play_queue.put_nowait(source_download)
             self.logger.info(f'Music :: Adding "{source_download["title"]}" '
