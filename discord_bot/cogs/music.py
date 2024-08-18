@@ -435,7 +435,7 @@ class YoutubeAPI():
                 resource = item['snippet']['resourceId']
                 if resource['kind'] != 'youtube#video':
                     continue
-                results.append(resource['videoId'])
+                results.append(f'{YOUTUBE_VIDEO_PREFIX}{resource["videoId"]}')
             try:
                 token = req.json()['nextPageToken']
             except KeyError:
