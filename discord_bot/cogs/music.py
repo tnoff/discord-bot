@@ -1567,7 +1567,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             filter(PlaylistItem.playlist_id == playlist.id).\
                                             order_by(desc(PlaylistItem.created_at)).first()
                         if deleted_item:
-                            self.logger.info(f'Music ::: History playlist reached max length, deleting item {deleted_item.id} with video id {deleted_item["id"]}')
+                            self.logger.info(f'Music ::: Histo"ry playlist reached max length, deleting item with id {deleted_item.id} and video url "{deleted_item.video_url}"')
                             self.db_session.delete(deleted_item)
                             self.db_session.commit()
 
