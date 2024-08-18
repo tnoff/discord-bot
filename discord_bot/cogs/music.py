@@ -1390,7 +1390,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             last_updated_at = self.last_download_lockfile.read_text()
             now = int(datetime.utcnow().timestamp())
             total_diff = now - int(last_updated_at)
-            return total_diff - wait
+            # Make sure if value is negative we default to 0 here
+            return max((total_diff - wait), 0)
         except (FileNotFoundError, ValueError):
             return 0
 
