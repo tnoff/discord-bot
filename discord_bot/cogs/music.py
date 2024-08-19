@@ -1541,7 +1541,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Music ::: Checking search cache for string "{source_dict["search_string"]}"')
             cache_item_url = self.__search_string_cache(source_dict['search_string'])
             if cache_item_url:
-                self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is {cache_item_url}')
+                self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is "{cache_item_url}"')
                 source_dict['search_string'] = cache_item_url
 
         # If cache enabled and search string with 'https://' given, try to grab this first
