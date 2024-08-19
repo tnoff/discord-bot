@@ -1497,7 +1497,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not self.db_session:
             return None
         search_string = clean_search_string(search_string)
-        item = self.db_session.query(SearchCache).filter(SearchCache.search_string == search_string)
+        item = self.db_session.query(SearchCache).filter(SearchCache.search_string == search_string).first()
         if not item:
             return None
         item.last_used_at = datetime.now()
