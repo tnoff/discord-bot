@@ -325,6 +325,9 @@ class PlaylistItem(BASE):
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     created_at = Column(DateTime)
 
+# TODO add some function for removing older items
+# Probably safe to base it on last_used_at and created_at
+# Max should be related to total cache size
 class SearchCache(BASE):
     '''
     Cache search strings to video urls
