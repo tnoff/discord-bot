@@ -1583,7 +1583,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return
         # Final none check in case we couldn't download video
         if source_download is None:
-            await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{source_dict["search_string"]}", skipping',
+            search_string_message = source_dict['search_string']
+            if 'https://' in search_string_message:
+                search_string_message = f'<{search_string_message}>'
+            await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
                                                 delete_after=player.delete_after)
             for func in video_non_exist_callback_functions:
                 await func()
@@ -1603,8 +1606,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(source_dict['message'].delete)
         except QueueFull:
             self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict["search_string"]}"')
+            search_string_message = source_dict['search_string']
+            if 'https://' in search_string_message:
+                search_string_message = f'<{search_string_message}>'
             await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'Play queue is full, cannot add "{source_dict["search_string"]}"',
+                                                content=f'Play queue is full, cannot add "{search_string_message}"',
                                                 delete_after=self.delete_after)
             source_download.delete()
             # Dont return to loop, file was downloaded so we can iterate on cache at least
