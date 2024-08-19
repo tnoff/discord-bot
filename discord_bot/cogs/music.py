@@ -287,6 +287,17 @@ def clean_search_string(stringy):
             return stringy
         stringy = new_string
 
+def fix_search_string_message(search_string):
+    '''
+    Format search string correctly if it has https://
+    https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
+
+    search_string   : Search string
+    '''
+    if 'https://' in search_string:
+        return f'<{search_string}>'
+    return search_string
+
 #
 # Music Tables
 #
@@ -1569,8 +1580,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
             except SongTooLong:
+                search_string_message = fix_search_string_message(source_dict['search_string'])
                 await retry_discord_message_command(source_dict['message'].edit,
-                                                    content=f'Search "{source_dict["search_string"]}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
                                                     delete_after=player.delete_after)
                 self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
@@ -1584,9 +1596,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return
         # Final none check in case we couldn't download video
         if source_download is None:
-            search_string_message = source_dict['search_string']
-            if 'https://' in search_string_message:
-                search_string_message = f'<{search_string_message}>'
+            search_string_message = fix_search_string_message(source_dict['search_string'])
             await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
                                                 delete_after=player.delete_after)
             for func in video_non_exist_callback_functions:
@@ -1607,9 +1617,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(source_dict['message'].delete)
         except QueueFull:
             self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict["search_string"]}"')
-            search_string_message = source_dict['search_string']
-            if 'https://' in search_string_message:
-                search_string_message = f'<{search_string_message}>'
+            search_string_message = fix_search_string_message(source_dict['search_string'])
+
             await retry_discord_message_command(source_dict['message'].edit,
                                                 content=f'Play queue is full, cannot add "{search_string_message}"',
                                                 delete_after=self.delete_after)
@@ -1801,10 +1810,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 # Dont embed link if https
                 # https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
-                search_string = entry['search_string']
-                if 'https://' in search_string:
-                    search_string = f'<{search_string}>'
-                message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string}"')
+                search_string_message = fix_search_string_message(entry['search_string'])
+                message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
                 self.logger.debug(f'Music :: Handing off entry {entry} to download queue')
                 entry['message'] = message
                 self.download_queue.put_nowait(entry)
