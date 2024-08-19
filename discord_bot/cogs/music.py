@@ -1785,7 +1785,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
         for entry in entries:
             try:
-                message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{entry["search_string"]}"')
+                # Dont embed link if https
+                # https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
+                search_string = entry['search_string']
+                if 'https://' in search_string:
+                    search_string = f'<{search_string}>'
+                message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string}"')
                 self.logger.debug(f'Music :: Handing off entry {entry} to download queue')
                 entry['message'] = message
                 self.download_queue.put_nowait(entry)
