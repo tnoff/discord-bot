@@ -1361,7 +1361,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         ytdlopts = {
-            'format': 'bestaudio',
+            'format': 'bestaudio/best',
             'restrictfilenames': True,
             'noplaylist': True,
             'nocheckcertificate': True,
