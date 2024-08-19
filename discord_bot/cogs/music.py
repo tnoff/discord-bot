@@ -276,12 +276,11 @@ def json_converter(o): #pylint:disable=inconsistent-return-statements
     if isinstance(o, Path):
         return str(o)
 
-# TODO call lower on stringy here
 def clean_search_string(stringy):
     '''
     Make sure all double spaces are replaced with a space, also strip string
     '''
-    stringy = stringy.strip()
+    stringy = stringy.lower().strip()
     while True:
         new_string = stringy.replace(' ' * 2, ' ')
         if new_string == stringy:
