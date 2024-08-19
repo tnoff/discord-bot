@@ -1419,7 +1419,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             now = int(datetime.utcnow().timestamp())
             total_diff = now - int(last_updated_at)
             # Make sure if value is negative we default to 0 here
-            return max((total_diff - wait), 0)
+            return max((wait - total_diff), 0)
         except (FileNotFoundError, ValueError):
             return 0
 
@@ -1558,7 +1558,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not source_download:
             # Make sure we wait for next video download
             # Dont spam the video client
-            # TODO this feels a bit off, waiting too long
             wait_time = self.wait_for_download_time()
             if wait_time:
                 self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
