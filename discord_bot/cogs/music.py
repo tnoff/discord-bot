@@ -1537,7 +1537,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # Check if we have already made this search
-        if self.cache_file:
+        if self.cache_file and 'https://' not in source_dict['search_string']:
             self.logger.info(f'Music ::: Checking search cache for string "{source_dict["search_string"]}"')
             cache_item_url = self.__search_string_cache(source_dict['search_string'])
             if cache_item_url:
