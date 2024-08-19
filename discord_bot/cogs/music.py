@@ -276,6 +276,7 @@ def json_converter(o): #pylint:disable=inconsistent-return-statements
     if isinstance(o, Path):
         return str(o)
 
+# TODO call lower on stringy here
 def clean_search_string(stringy):
     '''
     Make sure all double spaces are replaced with a space, also strip string
@@ -328,6 +329,8 @@ class PlaylistItem(BASE):
 # TODO add some function for removing older items
 # Probably safe to base it on last_used_at and created_at
 # Max should be related to total cache size
+# TODO save when video url is unavailable
+# maybe not in this table but the cache?
 class SearchCache(BASE):
     '''
     Cache search strings to video urls
@@ -1555,6 +1558,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not source_download:
             # Make sure we wait for next video download
             # Dont spam the video client
+            # TODO this feels a bit off, waiting too long
             wait_time = self.wait_for_download_time()
             if wait_time:
                 self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
