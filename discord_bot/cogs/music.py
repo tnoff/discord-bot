@@ -4,7 +4,6 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import partial
 from json import load as json_load
-from json import dumps as json_dumps
 from pathlib import Path
 from random import shuffle as random_shuffle
 from re import match as re_match
@@ -23,7 +22,7 @@ from moviepy.editor import AudioFileClip, afx
 from numpy import sqrt
 from requests import get as requests_get
 from requests import post as requests_post
-from sqlalchemy import desc
+from sqlalchemy import asc
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
@@ -364,6 +363,49 @@ class SearchCache(BASE):
     created_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime)
 
+class VideoCache(BASE):
+    '''
+    Cached downloaded videos
+    '''
+    __tablename__ = 'video_cache'
+    id = Column(Integer, primary_key=True)
+    # YTDLP Keys
+    video_id = Column(String(32))
+    video_url = Column(String(256))
+    title = Column(String(1024))
+    uploader = Column(String(1024))
+    duration = Column(Integer) # In seconds
+    extractor = Column(String(256))
+    # Other metadata
+    last_iterated_at = Column(DateTime)
+    created_at = Column(DateTime)
+    count = Column(Integer)
+    # File paths
+    base_path = Column(String(2048))
+    original_path = Column(String(2048))
+
+class Guild(BASE):
+    '''
+    Discord Guild
+    '''
+    __tablename__ = 'guild'
+    id = Column(Integer, primary_key=True)
+    server_id = Column(String(128))
+
+class VideoCacheGuild(BASE):
+    '''
+    Map video cache to a guild
+    '''
+    __tablename__ = 'video_cache_guild'
+    __table_args__ = (
+        UniqueConstraint('video_cache_id', 'guild_id',
+                         name='_unique_cache_guild'),
+    )
+    id = Column(Integer, primary_key=True)
+    guild_id = Column(Integer, ForeignKey('guild.id'))
+    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
+
+
 #
 # Spotify Client
 #
@@ -689,18 +731,20 @@ class CacheFile():
     '''
     Keep cache of local files
     '''
-    def __init__(self, download_dir, max_cache_files, logger):
+    def __init__(self, download_dir, max_cache_files, logger, db_session):
         '''
         Create new file cache
         download_dir    :       Dir where files are downloaded
         max_cache_files :       Maximum number of files to keep in cache
         logger          :       Python logger
+        db_session      :       DB session for cache
         '''
         self._data = []
         self.download_dir = download_dir
         self._file = self.download_dir / 'cache.json'
         self.max_cache_files = max_cache_files
         self.logger = logger
+        self.db_session = db_session
         if self._file.exists():
             with open(str(self._file), 'r') as o:
                 self._data = json_load(o)
@@ -717,22 +761,84 @@ class CacheFile():
             item['created_at'] = datetime.strptime(item['created_at'], CACHE_DATETIME_FORMAT)
             new_list.append(item)
         self._data = new_list
-        self.logger.info(f'Music :: :: Cache created with {len(self._data)} items')
-        self.write_file()
+
+    def __ensure_guild(self, guild_id):
+        '''
+        Create or find guild with id
+        guild_id    : Guild(Server) ID
+        '''
+        guild = self.db_session.query(Guild).filter(Guild.server_id == guild_id).first()
+        if guild:
+            return guild
+        guild = Guild(
+            server_id=guild_id,
+        )
+        self.db_session.add(guild)
+        self.db_session.commit()
+        return guild
+
+    def __ensure_guild_video(self, guild, video_cache):
+        '''
+        Ensure video cache association
+        guild       : Guild object
+        video_cache : Video Cache object
+        '''
+        video_guild_cache = self.db_session.query(VideoCacheGuild).\
+            filter(VideoCacheGuild.video_cache_id == video_cache.id).\
+            filter(VideoCacheGuild.guild_id == guild.id).first()
+        if video_guild_cache:
+            return video_guild_cache
+        video_guild_cache = VideoCacheGuild(
+            video_cache_id=video_cache.id,
+            guild_id=guild.id,
+        )
+        self.db_session.add(video_guild_cache)
+        self.db_session.commit()
+        return video_guild_cache
+
+    def load_cache_database(self):
+        '''
+        Load cache from data
+        '''
+        total_count = self.db_session(VideoCache).count()
+        if total_count > 0:
+            return False
+        self.logger.info('Music ::: Loading cache file to database')
+        for item in self._data:
+            cache_item = VideoCache(
+                video_id=item['id'],
+                video_url=item['webpage_url'],
+                title=item['title'],
+                uploader=item['uploader'],
+                duration=item['duration'],
+                extractor=item['extractor'],
+                last_iterated_at=item['last_iterated_at'],
+                created_at=item['created_at'],
+                base_path=str(item['base_path']),
+                original_path=str(item['original_path']),
+                count=item['count'],
+            )
+            self.db_session.add(cache_item)
+            self.db_session.commit()
+            for guild_id in item['guilds']:
+                guild = self.__ensure_guild(guild_id)
+                self.__ensure_guild_video(guild, cache_item)
+        return True
 
     def remove_extra_files(self):
         '''
         Remove files in directory that are not cached
         '''
-        existing_files = set([str(self.download_dir / 'cache.json')])
-        for item in self._data:
-            existing_files.add(str(item['base_path']))
-            existing_files.add(str(item['original_path']))
+        existing_files = set([])
+        for base_path, original_path in self.db_session.query(VideoCache.base_path, VideoCache.original_path):
+            existing_files.add(base_path)
+            existing_files.add(original_path)
         for file_path in self.download_dir.glob('*'):
             if file_path.is_dir():
                 rm_tree(file_path)
                 continue
             if str(file_path) not in existing_files:
+                self.logger.debug(f'Music ::: File path {str(file_path)} not tracked by cache, removing')
                 file_path.unlink()
 
     def iterate_file(self, source_download, source_dict):
@@ -741,61 +847,32 @@ class CacheFile():
         source_download : All options from source download in ytdlp
         source_dict     : Original dict that called function
         '''
-        base_path = source_download['base_path']
-        original_path = source_download['original_path']
-        self.logger.info(f'Music :: Adding file path {str(base_path)} to cache file')
-        for item in self._data:
-            if item['base_path'] == base_path:
-                item['count'] += 1
-                item['last_iterated_at'] = datetime.utcnow()
-                # Add item to guild ids
-                try:
-                    if source_dict['guild_id'] not in item['guilds']:
-                        item['guilds'].append(source_dict['guild_id'])
-                except KeyError:
-                    item['guilds'] = [source_dict['guild_id']]
-                self.logger.info(f'Music :: Cache entry existed for path {str(base_path)}, bumping')
-                return
         now = datetime.utcnow()
-        self.logger.info(f'Music :: Cache entry did not exist for path {str(base_path)}, creating now')
-        new_dict = {
-            'base_path': base_path,
-            'count': 1,
-            'last_iterated_at': now,
-            'created_at': now,
-            'original_path': original_path,
-            'guilds': [
-                source_dict['guild_id'],
-            ]
-        }
-        for key in YT_DLP_KEYS:
-            new_dict[key] = source_download[key]
-        self._data.append(new_dict)
-
-    def __remove_oldest_items(self):
-        '''
-        Remove oldest items in cache
-        '''
-        num_to_remove = len(self._data) - self.max_cache_files
-        if num_to_remove < 1:
-            self.logger.info(f'Music :: Total cache files {len(self._data)} and max is {self.max_cache_files}, no need to remove files')
-            return
-        self.logger.info(f'Music :: Need to remove {num_to_remove} cached files')
-        sorted_list = sorted(self._data, key=lambda k: (float(k['count']), k['last_iterated_at']), reverse=False)
-        removed = 0
-        remove_files = []
-
-        new_list = []
-        for item in sorted_list:
-            if removed < num_to_remove:
-                remove_files.append(item)
-                removed += 1
-                continue
-            new_list.append(item)
-
-        self.__remove_files(remove_files)
-        self._data = new_list
-        self.logger.info(f'Music ::: Removed {removed} files from cache')
+        video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == source_download['webpage_url']).first()
+        if video_cache:
+            self.logger.debug(f'Music ::: Cache file found for url {source_download["webpage_url"]}, iterating')
+            video_cache.count += 1
+            video_cache.last_iterated_at = now
+            self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), video_cache)
+            return True
+        self.logger.debug(f'Music ::: No cache file found for url {source_download["webpage_url"]}, adding new')
+        cache_item = VideoCache(
+            video_id=source_download['id'],
+            video_url=source_download['webpage_url'],
+            title=source_download['title'],
+            uploader=source_download['uploader'],
+            duration=source_download['duration'],
+            extractor=source_download['extractor'],
+            last_iterated_at=now,
+            created_at=now,
+            base_path=str(source_download['base_path']),
+            original_path=str(source_download['original_path']),
+            count=1,
+        )
+        self.db_session.add(cache_item)
+        self.db_session.commit()
+        self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), cache_item)
+        return True
 
     def get_webpage_url_item(self, webpage_url, source_dict):
         '''
@@ -803,62 +880,40 @@ class CacheFile():
         webpage_url : URL string to match
         source_dict : Source dict to create SourceFile with
         '''
-        for item in self._data:
-            if item['webpage_url'] == webpage_url:
-                ytldp_data = {}
-                for key in YT_DLP_KEYS:
-                    ytldp_data[key] = item[key]
-                return SourceFile(item['base_path'], item['original_path'], ytldp_data, source_dict, self.logger)
-        return None
+        video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == webpage_url).first()
+        if not video_cache:
+            return None
+        ytdlp_data = {
+            'id': video_cache.video_id,
+            'title': video_cache.title,
+            'uploader': video_cache.uploader,
+            'duration': video_cache.duration,
+            'extractor': video_cache.extractor,
+            'webpage_url': video_cache.video_url,
+        }
+        return SourceFile(Path(video_cache.base_path), Path(video_cache.original_path), ytdlp_data, source_dict, self.logger)
 
-    def __remove_files(self, remove_files_list):
+    def remove(self):
         '''
-        Remove specific files
-        remove_files_list  : List of items to remove
+        Remove oldest and least used file from cache
         '''
-        for item in remove_files_list:
-            base_path = Path(item['base_path'])
-            original_path = Path(item['original_path'])
-            self.logger.info(f'Music :: Removing item from cache {item}')
+        cache_count = self.db_session.query(VideoCache).count()
+        num_to_remove = cache_count - self.max_cache_files
+        if num_to_remove < 1:
+            self.logger.debug(f'Music ::: Total of {cache_count} cached files, less than max of {self.max_cache_files}')
+            return True
+        self.logger.debug(f'Music ::: Total cache count {cache_count}, greater than max of {self.max_cache_files}, removing {num_to_remove} files')
+        for video_cache in self.db_session.query(VideoCache).order_by(asc(VideoCache.count), asc(VideoCache.last_iterated_at)).limit(num_to_remove):
+            base_path = Path(video_cache.base_path)
+            original_path = Path(video_cache.original_path)
             if base_path.exists():
                 base_path.unlink()
             if original_path.exists():
                 original_path.unlink()
-
-    def __remove_item(self, base_path):
-        '''
-        Remove specific base path
-        base_path   : Remove item with specific base path
-        '''
-        remove_files = []
-
-        new_list = []
-        for item in self._data:
-            if item['base_path'] != base_path:
-                new_list.append(item)
-                continue
-            remove_files.append(item)
-        self.__remove_files(remove_files)
-        self._data = new_list
-        self.logger.info(f'Music :: Removed base path {str(base_path)} from cache')
-
-    def remove(self, base_path=None):
-        '''
-        Remove oldest and least used file from cache
-        base_path   : Remove item with specific base path
-        '''
-        if not base_path:
-            self.__remove_oldest_items()
-            return True
-        self.__remove_item(base_path)
+            self.logger.debug(f'Music ::: Removing cached file for webpage url {video_cache.video_url}')
+            self.db_session.delete(video_cache)
+        self.db_session.commit()
         return True
-
-    def write_file(self):
-        '''
-        Write to local file
-        '''
-        self._file.write_text(json_dumps(self._data, default=json_converter))
-
 
 #
 # YTDL Download Client
@@ -1384,7 +1439,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.cache_file = None
         self.legacy_cache_updated = None
         if self.enable_cache:
-            self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger)
+            self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger, self.db_session)
+            self.cache_file.load_cache_database()
             self.cache_file.remove_extra_files()
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -1520,7 +1576,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         total_count = self.db_session.query(SearchCache).count()
         if total_count >= self.max_search_cache_entries:
             self.logger.debug(f'At max entries in search cache {self.max_search_cache_entries}, deleting older records')
-            item = self.db_session.query(SearchCache).order_by(desc(SearchCache.last_used_at)).first()
+            item = self.db_session.query(SearchCache).order_by(asc(SearchCache.last_used_at)).first()
             self.db_session.delete(item)
             self.db_session.commit()
         search_string = clean_search_string(search_string)
@@ -1668,7 +1724,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.cache_file.iterate_file(source_download, source_dict)
             self.logger.debug('Music ::: Checking cache files to remove in music player')
             self.cache_file.remove()
-            self.cache_file.write_file()
 
     async def __check_database_session(self, ctx):
         '''
@@ -1707,7 +1762,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     except PlaylistMaxLength:
                         deleted_item =  self.db_session.query(PlaylistItem).\
                                             filter(PlaylistItem.playlist_id == playlist.id).\
-                                            order_by(desc(PlaylistItem.created_at)).first()
+                                            order_by(asc(PlaylistItem.created_at)).first()
                         if deleted_item:
                             self.logger.info(f'Music ::: History playlist reached max length, deleting item with id {deleted_item.id} and video url "{deleted_item.video_url}"')
                             self.db_session.delete(deleted_item)
