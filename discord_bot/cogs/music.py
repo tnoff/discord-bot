@@ -1348,6 +1348,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         spotify_client_secret = self.settings.get('music', {}).get('spotify_client_secret', None)
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
         ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
+        self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', 30)
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -1571,7 +1572,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not source_download:
             # Make sure we wait for next video download
             # Dont spam the video client
-            wait_time = self.wait_for_download_time()
+            wait_time = self.wait_for_download_time(wait=self.ytdlp_wait_period)
             if wait_time:
                 self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
                 await sleep(wait_time)
