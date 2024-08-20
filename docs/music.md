@@ -187,6 +187,7 @@ music:
   server_playlist_max: 64
 ```
 
+
 ### Caching
 
 You can enable caching so that videos are not deleted automatically when all players are stopped on the server. The bot then has logic to use the previous download when the same video is then downloaded again. There can be a max cache number given that limits the number of videos downloaded at a time, which older/less played videos will be deleted.
@@ -196,6 +197,31 @@ You can enable caching so that videos are not deleted automatically when all pla
 music:
   download_dir: /tmp/discord
   enable_cache_files: true
+```
+
+There is a cache JSON file, stored as `cache.json` in the download_dir, that will contain the video url that was gathered, as long as metadata about the video. If a video url is given to download, it will first check for an entry that matches that url in the cache before a download.
+
+You can set the number of local cache entries you want stored in the download dir via `max_cache_files`.
+
+
+```
+music:
+  max_cache_files: 2048
+```
+
+Additionally if the cache is set there is a `SearchCache` table that is used to map "search strings" to video urls gathered through [yt-dlp](https://github.com/yt-dlp/yt-dlp). For example, if the following command is given
+
+```
+!play john prine paradise
+```
+
+There will be a `SearchCache` entry that maps the `search_string` "john prine paradise" to the Youtube url that was downloaded. If a cache entry is discovered, this video url will be passed to the download client instead of the search string. This way at the next step when the local cache JSON is searched for the video url, it will return immediately and not need to make a call to [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+You can set how many entries you want in this table via `max_search_cache_entries`, it will default to double the size of the cache files option
+
+```
+music:
+  max_search_cache_entries: 1024
 ```
 
 ### Audio Processing
@@ -210,6 +236,8 @@ music:
   enable_audio_processing: true
 ```
 
+Note that if audio processing is enabled alongside the cache, then two copies of each video will be stored. One for the original download, and another for the processed file.
+
 ### Extra YT-DLP Options
 
 You can pass in extra options for the [yt-dlp](https://github.com/yt-dlp/yt-dlp/) client. These should be inputted as a dictionary/hash and will be passed in to the YTDLP client when the download client is created.
@@ -218,4 +246,13 @@ You can pass in extra options for the [yt-dlp](https://github.com/yt-dlp/yt-dlp/
 music:
   extra_ytdlp_options:
     proxy: http://localhost:8888
+```
+
+### YTDLP Wait Time
+
+Add a wait time between [yt-dlp](https://github.com/yt-dlp/yt-dlp/) downloads. Defaults to 30 seconds if not given.
+
+```
+music:
+  ytdlp_wait_period: 50 # Value in seconds
 ```
