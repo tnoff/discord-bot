@@ -1575,8 +1575,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Check if queue is full before attempting to download file
         if player.play_queue.full():
             self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict["search_string"]}"')
+            search_string_message = fix_search_string_message(source_dict['search_string'])
             await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'Play queue is full, cannot add "{source_dict["search_string"]}"',
+                                                content=f'Play queue is full, cannot add "{search_string_message}"',
                                                 delete_after=player.delete_after)
             return
 
