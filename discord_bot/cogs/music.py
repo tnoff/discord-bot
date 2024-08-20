@@ -1606,6 +1606,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
             except (PrivateVideoException, VideoUnavailableException):
+                # TODO can likely add another cache layer to track these videos
+                # And skip them if given the full url
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", expected error, calling video callback functions')
                 await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
