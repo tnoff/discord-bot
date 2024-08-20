@@ -1517,7 +1517,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not self.db_session:
             return False
         # Check if we're at capacity
-        total_count = self.db_session.query(SearchCache).all().count()
+        total_count = self.db_session.query(SearchCache).count()
         if total_count >= self.max_search_cache_entries:
             self.logger.debug(f'At max entries in search cache {self.max_search_cache_entries}, deleting older records')
             item = self.db_session.query(SearchCache).order_by(desc(SearchCache.last_used_at)).first()
