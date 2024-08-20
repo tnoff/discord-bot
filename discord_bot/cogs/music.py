@@ -450,7 +450,7 @@ class YoutubeAPI():
         token = None
         results = []
         while True:
-            url = f'{YOUTUBE_BASE_URL}?key={self.api_key}&playlistId={playlist_id}&part=snippet'
+            url = f'{YOUTUBE_BASE_URL}?key={self.api_key}&playlistId={playlist_id}&part=snippet,status'
             if token:
                 url = f'{url}&pageToken={token}'
             req = requests_get(url, timeout=REQUESTS_TIMEOUT)
@@ -461,6 +461,9 @@ class YoutubeAPI():
                     continue
                 resource = item['snippet']['resourceId']
                 if resource['kind'] != 'youtube#video':
+                    continue
+                # Skip private videos
+                if item['status']['privacyStatus'] in ['private', 'privacyStatusUnspecified']:
                     continue
                 results.append(f'{YOUTUBE_VIDEO_PREFIX}{resource["videoId"]}')
             try:
