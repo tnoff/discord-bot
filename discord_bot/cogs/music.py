@@ -884,7 +884,7 @@ class DownloadClient():
         try:
             data = self.ytdl.extract_info(source_dict['search_string'], download=download)
         except DownloadError as error:
-            self.logger.warming(f'Music :: Error downloading youtube search "{source_dict["search_string"]}", error: {str(error)}')
+            self.logger.warning(f'Music :: Error downloading youtube search "{source_dict["search_string"]}", error: {str(error)}')
             if 'Private video' in str(error):
                 raise PrivateVideoException('Video is private, cannot download') from error
             if 'Video unavailable' in str(error):
