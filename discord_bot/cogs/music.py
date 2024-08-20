@@ -184,6 +184,16 @@ class LockfileException(Exception):
     Lock file Exceptions
     '''
 
+class PrivateVideoException(Exception):
+    '''
+    Private Video while downloading
+    '''
+
+class VideoUnavailableException(Exception):
+    '''
+    Video Unavailable while downloading
+    '''
+
 #
 # Common Functions
 #
@@ -872,7 +882,11 @@ class DownloadClient():
         try:
             data = self.ytdl.extract_info(source_dict['search_string'], download=download)
         except DownloadError as error:
-            self.logger.error(f'Music :: Error downloading youtube search "{source_dict["search_string"]}", error: {str(error)}')
+            self.logger.warming(f'Music :: Error downloading youtube search "{source_dict["search_string"]}", error: {str(error)}')
+            if 'Private video' in str(error):
+                raise PrivateVideoException('Video is private, cannot download') from error
+            if 'Video unavailable' in str(error):
+                raise VideoUnavailableException('Video is unavailable, cannot download') from error
             return None
         # Make sure we get the first entry here
         # Since we don't pass "url" directly anymore
@@ -1580,6 +1594,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
+            except (PrivateVideoException, VideoUnavailableException):
+                search_string_message = fix_search_string_message(source_dict['search_string'])
+                self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", expected error, calling video callback functions')
+                await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
+                                                    delete_after=player.delete_after)
+                for func in video_non_exist_callback_functions:
+                    await func()
+                return
             except SongTooLong:
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 await retry_discord_message_command(source_dict['message'].edit,
@@ -1600,9 +1622,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             search_string_message = fix_search_string_message(source_dict['search_string'])
             await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
                                                 delete_after=player.delete_after)
-            for func in video_non_exist_callback_functions:
-                await func()
-            return
 
         # If we have a result, add to search cache
         if self.cache_file and 'https://' not in source_dict['search_string']:
@@ -2573,6 +2592,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
         return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
 
+    async def __delete_non_existing_item(self, item, ctx):
+        self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
+        await retry_discord_message_command(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
+                                            delete_after=self.delete_after)
+        self.db_session.delete(item)
+        self.db_session.commit()
+
     async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
         vc = ctx.voice_client
         if not vc:
@@ -2623,6 +2649,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'message': message,
                     # Pass history so we know to pass into history check later
                     'added_from_history': is_history,
+                    # Delete video if unavailable or private
+                    'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
                 })
             except QueueFull:
                 await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
