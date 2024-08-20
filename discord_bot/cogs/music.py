@@ -70,6 +70,10 @@ DISCONNECT_TIMEOUT_DEFAULT = 60 * 15
 # NOTE: If you enable audio processing this keeps double the files as one gets edited
 MAX_CACHE_FILES_DEFAULT = 2048
 
+# Time to wait between yt-dlp downloads
+# In seconds
+YTDLP_WAIT_TIME_DEFAULT = 30
+
 # Number of shuffles to do
 # Note: Not sure if this should be configurable, for now assuming this fine
 NUM_SHUFFLES = 5
@@ -349,8 +353,6 @@ class PlaylistItem(BASE):
 # TODO add some function for removing older items
 # Probably safe to base it on last_used_at and created_at
 # Max should be related to total cache size
-# TODO save when video url is unavailable
-# maybe not in this table but the cache?
 class SearchCache(BASE):
     '''
     Cache search strings to video urls
@@ -1357,12 +1359,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.enable_audio_processing = self.settings.get('music', {}).get('enable_audio_processing', False)
         self.enable_cache = self.settings.get('music', {}).get('enable_cache_files', False)
         self.max_cache_files = self.settings.get('music', {}).get('max_cache_files', MAX_CACHE_FILES_DEFAULT)
+        self.max_search_cache_entries = self.settings.get('music', {}).get('max_search_cache_entries', MAX_CACHE_FILES_DEFAULT * 2)
         self.banned_videos_list = self.settings.get('music', {}).get('banned_videos_list', [])
         spotify_client_id = self.settings.get('music', {}).get('spotify_client_id', None)
         spotify_client_secret = self.settings.get('music', {}).get('spotify_client_secret', None)
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
         ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
-        self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', 30)
+        self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', YTDLP_WAIT_TIME_DEFAULT)
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -1513,6 +1516,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if not self.db_session:
             return False
+        # Check if we're at capacity
+        total_count = self.db_session.query(SearchCache).all().count()
+        if total_count >= self.max_search_cache_entries:
+            self.logger.debug(f'At max entries in search cache {self.max_search_cache_entries}, deleting older records')
+            item = self.db_session.query(SearchCache).order_by(desc(SearchCache.last_used_at)).first()
+            self.db_session.delete(item)
+            self.db_session.commit()
         search_string = clean_search_string(search_string)
         now = datetime.utcnow()
         item = SearchCache(search_string=search_string,
