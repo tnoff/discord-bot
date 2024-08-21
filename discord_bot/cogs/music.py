@@ -800,7 +800,7 @@ class CacheFile():
         '''
         Load cache from data
         '''
-        total_count = self.db_session(VideoCache).count()
+        total_count = self.db_session.query(VideoCache).count()
         if total_count > 0:
             return False
         self.logger.info('Music ::: Loading cache file to database')
