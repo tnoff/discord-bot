@@ -3,7 +3,6 @@ from asyncio import Event, Queue, QueueEmpty, QueueFull, TimeoutError as asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import partial
-from json import load as json_load
 from pathlib import Path
 from random import shuffle as random_shuffle
 from re import match as re_match
@@ -197,6 +196,11 @@ class VideoUnavailableException(Exception):
     Video Unavailable while downloading
     '''
 
+class KnownBadVideo(Exception):
+    '''
+    Throw if video is known to be bad
+    '''
+
 #
 # Common Functions
 #
@@ -349,9 +353,7 @@ class PlaylistItem(BASE):
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     created_at = Column(DateTime)
 
-# TODO add some function for removing older items
-# Probably safe to base it on last_used_at and created_at
-# Max should be related to total cache size
+
 class SearchCache(BASE):
     '''
     Cache search strings to video urls
@@ -383,6 +385,9 @@ class VideoCache(BASE):
     # File paths
     base_path = Column(String(2048))
     original_path = Column(String(2048))
+    # Status metatada
+    video_available = Column(Boolean, default=True)
+
 
 class Guild(BASE):
     '''
@@ -741,26 +746,9 @@ class CacheFile():
         '''
         self._data = []
         self.download_dir = download_dir
-        self._file = self.download_dir / 'cache.json'
         self.max_cache_files = max_cache_files
         self.logger = logger
         self.db_session = db_session
-        if self._file.exists():
-            with open(str(self._file), 'r') as o:
-                self._data = json_load(o)
-
-        # Check all files exist
-        new_list = []
-        for item in self._data:
-            item['base_path'] = Path(item['base_path'])
-            item['original_path'] = Path(item['original_path'])
-            if not item['base_path'].exists():
-                self.logger.warning(f'Music :: :: Cached file {str(item["base_path"])} does not exist, skipping')
-                continue
-            item['last_iterated_at'] = datetime.strptime(item['last_iterated_at'], CACHE_DATETIME_FORMAT)
-            item['created_at'] = datetime.strptime(item['created_at'], CACHE_DATETIME_FORMAT)
-            new_list.append(item)
-        self._data = new_list
 
     def __ensure_guild(self, guild_id):
         '''
@@ -812,6 +800,26 @@ class CacheFile():
                 self.logger.debug(f'Music ::: File path {str(file_path)} not tracked by cache, removing')
                 file_path.unlink()
 
+    def mark_url_unavailable(self, search_string):
+        '''
+        Create an entry for an unavailable video
+        search_string   :   Original search string
+        '''
+        if 'https://' not in search_string:
+            return False
+        video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == search_string).first()
+        if video_cache:
+            video_cache.video_available = False
+            self.db_session.commit()
+            return True
+        cache_item = VideoCache(
+            video_url=search_string,
+            video_available=False,
+        )
+        self.db_session.add(cache_item)
+        self.db_session.commit()
+        return True
+
     def iterate_file(self, source_download, source_dict):
         '''
         Bump file path
@@ -839,6 +847,7 @@ class CacheFile():
             base_path=str(source_download['base_path']),
             original_path=str(source_download['original_path']),
             count=1,
+            video_available=True,
         )
         self.db_session.add(cache_item)
         self.db_session.commit()
@@ -854,6 +863,8 @@ class CacheFile():
         video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == webpage_url).first()
         if not video_cache:
             return None
+        if not video_cache.video_available:
+            raise KnownBadVideo(f'Video Known to be bad for search {source_dict["webpage_url"]}')
         ytdlp_data = {
             'id': video_cache.video_id,
             'title': video_cache.title,
@@ -1618,7 +1629,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = None
         if self.cache_file and 'https://' in source_dict['search_string']:
-            source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
+            try:
+                source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
+            except KnownBadVideo:
+                search_string_message = fix_search_string_message(source_dict['search_string'])
+                self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", known to be bad, skipping')
+                await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
+                                                    delete_after=player.delete_after)
+                for func in video_non_exist_callback_functions:
+                    await func()
+                return
+
         # Else grab from ytdlp
         if not source_download:
             # Make sure we wait for next video download
@@ -1632,8 +1653,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
             except (PrivateVideoException, VideoUnavailableException):
-                # TODO can likely add another cache layer to track these videos
-                # And skip them if given the full url
+                # Try to mark search as unavailable for later
+                self.cache_file.mark_url_unavailable(source_dict['search_string'])
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", expected error, calling video callback functions')
                 await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
