@@ -767,11 +767,11 @@ class CacheFile():
         Create or find guild with id
         guild_id    : Guild(Server) ID
         '''
-        guild = self.db_session.query(Guild).filter(Guild.server_id == guild_id).first()
+        guild = self.db_session.query(Guild).filter(Guild.server_id == str(guild_id)).first()
         if guild:
             return guild
         guild = Guild(
-            server_id=guild_id,
+            server_id=str(guild_id),
         )
         self.db_session.add(guild)
         self.db_session.commit()
@@ -795,35 +795,6 @@ class CacheFile():
         self.db_session.add(video_guild_cache)
         self.db_session.commit()
         return video_guild_cache
-
-    def load_cache_database(self):
-        '''
-        Load cache from data
-        '''
-        total_count = self.db_session.query(VideoCache).count()
-        if total_count > 0:
-            return False
-        self.logger.info('Music ::: Loading cache file to database')
-        for item in self._data:
-            cache_item = VideoCache(
-                video_id=item['id'],
-                video_url=item['webpage_url'],
-                title=item['title'],
-                uploader=item['uploader'],
-                duration=item['duration'],
-                extractor=item['extractor'],
-                last_iterated_at=item['last_iterated_at'],
-                created_at=item['created_at'],
-                base_path=str(item['base_path']),
-                original_path=str(item['original_path']),
-                count=item['count'],
-            )
-            self.db_session.add(cache_item)
-            self.db_session.commit()
-            for guild_id in item['guilds']:
-                guild = self.__ensure_guild(guild_id)
-                self.__ensure_guild_video(guild, cache_item)
-        return True
 
     def remove_extra_files(self):
         '''
@@ -1440,7 +1411,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.legacy_cache_updated = None
         if self.enable_cache:
             self.cache_file = CacheFile(self.download_dir, self.max_cache_files, self.logger, self.db_session)
-            self.cache_file.load_cache_database()
             self.cache_file.remove_extra_files()
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
