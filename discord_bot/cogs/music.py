@@ -140,7 +140,7 @@ MUSIC_SECTION_SCHEMA = {
             'items': {
                 'type': 'object',
                 'properties': {
-                    'id': {
+                    'url': {
                         'type': 'string',
                     },
                     'message': {
@@ -859,13 +859,19 @@ class CacheFile():
         now = datetime.utcnow()
         video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == source_download['webpage_url']).first()
         if video_cache:
-            self.logger.debug(f'Music ::: Cache file found for url {source_download["webpage_url"]}, iterating')
-            video_cache.count += 1
-            video_cache.last_iterated_at = now
-            video_cache.exceeds_max_length = None
-            self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), video_cache)
-            self.db_session.commit()
-            return True
+            # If song exceeding max length before, lets re-create
+            if video_cache.exceeds_max_length:
+                self.logger.info(f'Music ::: Cache item for url {source_dict["webpage_url"]} had max song length {video_cache.exceeds_max_length} that has changed, re-created')
+                self.db_session.delete(video_cache)
+                self.db_session.commit()
+            else:
+                self.logger.debug(f'Music ::: Cache file found for url {source_download["webpage_url"]}, iterating')
+                video_cache.count += 1
+                video_cache.last_iterated_at = now
+                video_cache.exceeds_max_length = None
+                self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), video_cache)
+                self.db_session.commit()
+                return True
         self.logger.debug(f'Music ::: No cache file found for url {source_download["webpage_url"]}, adding new')
         cache_item = VideoCache(
             video_id=source_download['id'],
@@ -887,20 +893,27 @@ class CacheFile():
         self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), cache_item)
         return True
 
-    def get_webpage_url_item(self, webpage_url, source_dict, max_song_length):
+    def get_webpage_url_item(self, webpage_url, source_dict, max_song_length, video_banned_list):
         '''
         Get item with matching webpage url
         webpage_url : URL string to match
         source_dict : Source dict to create SourceFile with
         max_song_length : Max song length set by player
+        video_banned_list : List of banned videos
         '''
+        for banned_vid in video_banned_list:
+            if webpage_url == banned_vid['url']:
+                raise VideoBanned(banned_vid['message'])
         video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == webpage_url).first()
         if not video_cache:
             return None
         if not video_cache.video_available:
             raise KnownBadVideo(f'Video Known to be bad for search {webpage_url}')
-        if not video_cache.exceeds_max_length == max_song_length:
-            raise KnownVideoTooLong(f'Video known to be too long {webpage_url}')
+        if video_cache.exceeds_max_length:
+            if video_cache.exceeds_max_length == max_song_length:
+                raise KnownVideoTooLong(f'Video known to be too long {webpage_url}')
+            return None
+
         ytdlp_data = {
             'id': video_cache.video_id,
             'title': video_cache.title,
@@ -1666,7 +1679,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         source_download = None
         if self.cache_file and 'https://' in source_dict['search_string']:
             try:
-                source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict, self.max_song_length)
+                source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'],
+                                                                       source_dict,
+                                                                       self.max_song_length,
+                                                                       self.banned_videos_list)
             except KnownBadVideo:
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", known to be bad, skipping')
@@ -1681,6 +1697,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                     content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
                                                     delete_after=player.delete_after)
                 self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                return
+            except VideoBanned as vb:
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'{str(vb)}',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
                 return
 
         # Else grab from ytdlp
