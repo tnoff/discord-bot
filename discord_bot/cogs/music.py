@@ -201,6 +201,11 @@ class KnownBadVideo(Exception):
     Throw if video is known to be bad
     '''
 
+class KnownVideoTooLong(Exception):
+    '''
+    Video Known To be too long
+    '''
+
 #
 # Common Functions
 #
@@ -387,6 +392,9 @@ class VideoCache(BASE):
     original_path = Column(String(2048))
     # Status metatada
     video_available = Column(Boolean, default=True)
+    # Exceeds max song length
+    # Track the length the max set here in case it changes
+    exceeds_max_length = Column(Integer, nullable=True)
 
 
 class Guild(BASE):
@@ -820,6 +828,28 @@ class CacheFile():
         self.db_session.commit()
         return True
 
+    def mark_url_too_long(self, search_string, max_length):
+        '''
+        Create an entry for if a video exceeds max length
+        search_string   :   Original search string
+        max_length      :   Max song length set by server
+        '''
+        if 'https://' not in search_string:
+            return False
+        video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == search_string).first()
+        if video_cache:
+            video_cache.exceeds_max_length = max_length
+            self.db_session.commit()
+            return True
+        cache_item = VideoCache(
+            video_url=search_string,
+            exceeds_max_length=max_length,
+            video_available=True,
+        )
+        self.db_session.add(cache_item)
+        self.db_session.commit()
+        return True
+
     def iterate_file(self, source_download, source_dict):
         '''
         Bump file path
@@ -832,7 +862,9 @@ class CacheFile():
             self.logger.debug(f'Music ::: Cache file found for url {source_download["webpage_url"]}, iterating')
             video_cache.count += 1
             video_cache.last_iterated_at = now
+            video_cache.exceeds_max_length = None
             self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), video_cache)
+            self.db_session.commit()
             return True
         self.logger.debug(f'Music ::: No cache file found for url {source_download["webpage_url"]}, adding new')
         cache_item = VideoCache(
@@ -848,23 +880,27 @@ class CacheFile():
             original_path=str(source_download['original_path']),
             count=1,
             video_available=True,
+            exceeds_max_length=None,
         )
         self.db_session.add(cache_item)
         self.db_session.commit()
         self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), cache_item)
         return True
 
-    def get_webpage_url_item(self, webpage_url, source_dict):
+    def get_webpage_url_item(self, webpage_url, source_dict, max_song_length):
         '''
         Get item with matching webpage url
         webpage_url : URL string to match
         source_dict : Source dict to create SourceFile with
+        max_song_length : Max song length set by player
         '''
         video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == webpage_url).first()
         if not video_cache:
             return None
         if not video_cache.video_available:
-            raise KnownBadVideo(f'Video Known to be bad for search {source_dict["webpage_url"]}')
+            raise KnownBadVideo(f'Video Known to be bad for search {webpage_url}')
+        if not video_cache.exceeds_max_length == max_song_length:
+            raise KnownVideoTooLong(f'Video known to be too long {webpage_url}')
         ytdlp_data = {
             'id': video_cache.video_id,
             'title': video_cache.title,
@@ -1630,7 +1666,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         source_download = None
         if self.cache_file and 'https://' in source_dict['search_string']:
             try:
-                source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict)
+                source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'], source_dict, self.max_song_length)
             except KnownBadVideo:
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", known to be bad, skipping')
@@ -1638,6 +1674,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                     delete_after=player.delete_after)
                 for func in video_non_exist_callback_functions:
                     await func()
+                return
+            except KnownVideoTooLong:
+                search_string_message = fix_search_string_message(source_dict['search_string'])
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    delete_after=player.delete_after)
+                self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
                 return
 
         # Else grab from ytdlp
@@ -1659,10 +1702,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", expected error, calling video callback functions')
                 await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
                                                     delete_after=player.delete_after)
+                self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 for func in video_non_exist_callback_functions:
                     await func()
                 return
             except SongTooLong:
+                self.cache_file.mark_url_too_long(source_dict['search_string'], self.max_song_length)
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 await retry_discord_message_command(source_dict['message'].edit,
                                                     content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
