@@ -52,8 +52,8 @@ QUEUE_MAX_SIZE_DEFAULT = 128
 # Max playlists per server (not including history)
 SERVER_PLAYLIST_MAX_DEFAULT = 64
 
-# Max song length
-MAX_SONG_LENGTH_DEFAULT = 60 * 15
+# Max video length
+MAX_VIDEO_LENGTH_DEFAULT = 60 * 15
 
 # Timeout for web requests
 REQUESTS_TIMEOUT = 180
@@ -105,7 +105,7 @@ MUSIC_SECTION_SCHEMA = {
         'server_playlist_max': {
             'type': 'number',
         },
-        'max_song_length': {
+        'max_video_length': {
             'type': 'number',
         },
         'disconnect_timeout': {
@@ -161,9 +161,9 @@ class PutsBlocked(Exception):
     Puts Blocked on Queue
     '''
 
-class SongTooLong(Exception):
+class VideoTooLong(Exception):
     '''
-    Max length of song duration exceeded
+    Max length of video duration exceeded
     '''
 
 class VideoBanned(Exception):
@@ -210,7 +210,7 @@ class KnownVideoTooLong(Exception):
 # Common Functions
 #
 
-def match_generator(max_song_length, banned_videos_list):
+def match_generator(max_video_length, banned_videos_list):
     '''
     Generate filters for yt-dlp
     '''
@@ -219,13 +219,13 @@ def match_generator(max_song_length, banned_videos_list):
         Throw errors if filters dont match
         '''
         duration = info.get('duration')
-        if duration and max_song_length and duration > max_song_length:
-            raise SongTooLong(f'Song exceeds max length of {max_song_length}')
-        vid_id = info.get('id')
-        if vid_id and banned_videos_list:
+        if duration and max_video_length and duration > max_video_length:
+            raise VideoTooLong(f'Video exceeds max length of {max_video_length}')
+        vid_url = info.get('webpage_url')
+        if vid_url and banned_videos_list:
             for banned_video_dict in banned_videos_list:
-                if vid_id == banned_video_dict['id']:
-                    raise VideoBanned(f'Video id {vid_id} banned, message: {banned_video_dict["message"]}')
+                if vid_url == banned_video_dict['url']:
+                    raise VideoBanned(f'Video id {vid_url} banned, message: {banned_video_dict["message"]}')
     return filter_function
 
 def get_finished_path(path):
@@ -288,15 +288,6 @@ def rm_tree(pth):
         else:
             rm_tree(child)
     pth.rmdir()
-
-def json_converter(o): #pylint:disable=inconsistent-return-statements
-    '''
-    Convert json objects to proper strings for writing
-    '''
-    if isinstance(o, datetime):
-        return o.strftime(CACHE_DATETIME_FORMAT)
-    if isinstance(o, Path):
-        return str(o)
 
 def clean_search_string(stringy):
     '''
@@ -392,7 +383,7 @@ class VideoCache(BASE):
     original_path = Column(String(2048))
     # Status metatada
     video_available = Column(Boolean, default=True)
-    # Exceeds max song length
+    # Exceeds max video length
     # Track the length the max set here in case it changes
     exceeds_max_length = Column(Integer, nullable=True)
 
@@ -832,7 +823,7 @@ class CacheFile():
         '''
         Create an entry for if a video exceeds max length
         search_string   :   Original search string
-        max_length      :   Max song length set by server
+        max_length      :   Max video length set by server
         '''
         if 'https://' not in search_string:
             return False
@@ -859,9 +850,9 @@ class CacheFile():
         now = datetime.utcnow()
         video_cache = self.db_session.query(VideoCache).filter(VideoCache.video_url == source_download['webpage_url']).first()
         if video_cache:
-            # If song exceeding max length before, lets re-create
+            # If video exceeding max length before, lets re-create
             if video_cache.exceeds_max_length:
-                self.logger.info(f'Music ::: Cache item for url {source_dict["webpage_url"]} had max song length {video_cache.exceeds_max_length} that has changed, re-created')
+                self.logger.info(f'Music ::: Cache item for url {source_dict["webpage_url"]} had max video length {video_cache.exceeds_max_length} that has changed, re-created')
                 self.db_session.delete(video_cache)
                 self.db_session.commit()
             else:
@@ -893,12 +884,12 @@ class CacheFile():
         self.__ensure_guild_video(self.__ensure_guild(source_dict['guild_id']), cache_item)
         return True
 
-    def get_webpage_url_item(self, webpage_url, source_dict, max_song_length, video_banned_list):
+    def get_webpage_url_item(self, webpage_url, source_dict, max_video_length, video_banned_list):
         '''
         Get item with matching webpage url
         webpage_url : URL string to match
         source_dict : Source dict to create SourceFile with
-        max_song_length : Max song length set by player
+        max_video_length : Max video length set by player
         video_banned_list : List of banned videos
         '''
         for banned_vid in video_banned_list:
@@ -910,7 +901,7 @@ class CacheFile():
         if not video_cache.video_available:
             raise KnownBadVideo(f'Video Known to be bad for search {webpage_url}')
         if video_cache.exceeds_max_length:
-            if video_cache.exceeds_max_length == max_song_length:
+            if video_cache.exceeds_max_length == max_video_length:
                 raise KnownVideoTooLong(f'Video known to be too long {webpage_url}')
             return None
 
@@ -1127,7 +1118,7 @@ class MusicPlayer:
         self.next = Event()
 
         self.np_message = ''
-        self.song_skipped = False
+        self.video_skipped = False
         self.queue_messages = [] # Show current queue
         self.volume = 0.5
 
@@ -1336,7 +1327,7 @@ class MusicPlayer:
         self.next.clear()
 
         try:
-            # Wait for the next song. If we timeout cancel the player and disconnect...
+            # Wait for the next video. If we timeout cancel the player and disconnect...
             async with timeout(self.disconnect_timeout):
                 source = await self.play_queue.get()
         except asyncio_timeout:
@@ -1352,7 +1343,7 @@ class MusicPlayer:
         self.current_track_duration = source['duration']
 
         audio_source = FFmpegPCMAudio(str(source['file_path']))
-        self.song_skipped = False
+        self.video_skipped = False
         audio_source.volume = self.volume
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
@@ -1377,8 +1368,8 @@ class MusicPlayer:
         # Cleanup source files, if cache not enabled delete base/original as well
         source.delete(delete_original=not self.cache_file_enabled)
 
-        # Add song to history if possible
-        if not self.song_skipped:
+        # Add video to history if possible
+        if not self.video_skipped:
             try:
                 self.history.put_nowait(source)
             except QueueFull:
@@ -1439,7 +1430,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.queue_max_size = self.settings.get('music', {}).get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
         self.download_queue = MyQueue(maxsize=self.queue_max_size)
         self.server_playlist_max = self.settings.get('music', {}).get('server_playlist_max', SERVER_PLAYLIST_MAX_DEFAULT)
-        self.max_song_length = self.settings.get('music', {}).get('max_song_length', MAX_SONG_LENGTH_DEFAULT)
+        self.max_video_length = self.settings.get('music', {}).get('max_video_length', MAX_VIDEO_LENGTH_DEFAULT)
         self.disconnect_timeout = self.settings.get('music', {}).get('disconnect_timeout', DISCONNECT_TIMEOUT_DEFAULT)
         self.download_dir = self.settings.get('music', {}).get('download_dir', None)
         self.enable_audio_processing = self.settings.get('music', {}).get('enable_audio_processing', False)
@@ -1490,8 +1481,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for key, val in ytdlp_options.items():
             ytdlopts[key] = val
         # Add any filter functions, do some logic so we only pass a single function into the processor
-        if self.max_song_length or self.banned_videos_list:
-            ytdlopts['match_filter'] = match_generator(self.max_song_length, self.banned_videos_list)
+        if self.max_video_length or self.banned_videos_list:
+            ytdlopts['match_filter'] = match_generator(self.max_video_length, self.banned_videos_list)
         ytdl = YoutubeDL(ytdlopts)
         if self.enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
@@ -1681,7 +1672,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 source_download = self.cache_file.get_webpage_url_item(source_dict['search_string'],
                                                                        source_dict,
-                                                                       self.max_song_length,
+                                                                       self.max_video_length,
                                                                        self.banned_videos_list)
             except KnownBadVideo:
                 search_string_message = fix_search_string_message(source_dict['search_string'])
@@ -1694,15 +1685,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except KnownVideoTooLong:
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 await retry_discord_message_command(source_dict['message'].edit,
-                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_video_length} seconds, skipping',
                                                     delete_after=player.delete_after)
-                self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                self.logger.warning(f'Music ::: Video too long to play in queue, skipping "{source_dict["search_string"]}"')
                 return
             except VideoBanned as vb:
                 await retry_discord_message_command(source_dict['message'].edit,
                                                     content=f'{str(vb)}',
                                                     delete_after=player.delete_after)
-                self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
+                self.logger.warning(f'Music ::: Video on video banned list, unable to play "{source_dict["search_string"]}"')
                 return
 
         # Else grab from ytdlp
@@ -1728,20 +1719,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 for func in video_non_exist_callback_functions:
                     await func()
                 return
-            except SongTooLong:
-                self.cache_file.mark_url_too_long(source_dict['search_string'], self.max_song_length)
+            except VideoTooLong:
+                self.cache_file.mark_url_too_long(source_dict['search_string'], self.max_video_length)
                 search_string_message = fix_search_string_message(source_dict['search_string'])
                 await retry_discord_message_command(source_dict['message'].edit,
-                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_song_length} seconds, skipping',
+                                                    content=f'Search "{search_string_message}" exceeds maximum of {self.max_video_length} seconds, skipping',
                                                     delete_after=player.delete_after)
-                self.logger.warning(f'Music ::: Song too long to play in queue, skipping "{source_dict["search_string"]}"')
+                self.logger.warning(f'Music ::: Video too long to play in queue, skipping "{source_dict["search_string"]}"')
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
             except VideoBanned as vb:
                 await retry_discord_message_command(source_dict['message'].edit,
                                                     content=f'{str(vb)}',
                                                     delete_after=player.delete_after)
-                self.logger.warning(f'Music ::: Song on video banned list, unable to play "{source_dict["search_string"]}"')
+                self.logger.warning(f'Music ::: Video on video banned list, unable to play "{source_dict["search_string"]}"')
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
         # Final none check in case we couldn't download video
@@ -1924,10 +1915,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='play')
     async def play_(self, ctx, *, search: str):
         '''
-        Request a song and add it to the download queue, which will then play after the download
+        Request a video and add it to the download queue, which will then play after the download
 
         search: str [Required]
-            The song to search and retrieve from youtube.
+            The video to search and retrieve from youtube.
             This could be a string to search in youtube, an video id, or a direct url.
 
             If spotify credentials are passed to the bot it can also be a spotify album or playlist.
@@ -1949,7 +1940,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = await self.get_player(ctx, vc.channel)
 
         if player.play_queue.full():
-            return await retry_discord_message_command(ctx.send, 'Queue is full, cannot add more songs',
+            return await retry_discord_message_command(ctx.send, 'Queue is full, cannot add more videos',
                                                        delete_after=self.delete_after)
 
         entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
@@ -1973,7 +1964,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='skip')
     async def skip_(self, ctx):
         '''
-        Skip the song.
+        Skip the video.
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -1988,9 +1979,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = await self.get_player(ctx, vc.channel)
         if not vc.is_paused() and not vc.is_playing():
             return
-        player.song_skipped = True
+        player.video_skipped = True
         vc.stop()
-        await retry_discord_message_command(ctx.send, 'Skipping song',
+        await retry_discord_message_command(ctx.send, 'Skipping video',
                                             delete_after=self.delete_after)
 
     @commands.command(name='clear')
@@ -2010,10 +2001,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
         if player.play_queue.empty():
-            return await retry_discord_message_command(ctx.send, 'There are currently no more queued songs.',
+            return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                                       delete_after=self.delete_after)
         self.logger.info(f'Music :: Clear called in guild {ctx.guild.id}, first stopping tasks')
-        # Try and keep this as simple as possible, get the size and remove that many songs
+        # Try and keep this as simple as possible, get the size and remove that many videos
         for _ in range(player.play_queue.size()):
             item = player.play_queue.remove_item(1)
             item.delete()
@@ -2023,7 +2014,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='history')
     async def history_(self, ctx):
         '''
-        Show recently played songs
+        Show recently played videos
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2037,7 +2028,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
         if player.history.empty():
-            return await retry_discord_message_command(ctx.send, 'There have been no songs played.',
+            return await retry_discord_message_command(ctx.send, 'There have been no videos played.',
                                                        delete_after=self.delete_after)
 
         headers = [
@@ -2065,7 +2056,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='shuffle')
     async def shuffle_(self, ctx):
         '''
-        Shuffle song queue.
+        Shuffle video queue.
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2079,7 +2070,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
         if player.play_queue.empty():
-            return await retry_discord_message_command(ctx.send, 'There are currently no more queued songs.',
+            return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                                        delete_after=self.delete_after)
         # Check if player is in shutdown, assume we're shutting down or clearing queue
         if player.play_queue.shutdown:
@@ -2094,7 +2085,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Remove item from queue.
 
         queue_index: integer [Required]
-            Position in queue of song that will be removed.
+            Position in queue of video that will be removed.
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2108,7 +2099,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
         if player.play_queue.empty():
-            return await retry_discord_message_command(ctx.send, 'There are currently no more queued songs.',
+            return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                             delete_after=self.delete_after)
         # Check if player is in shutdown, assume we're shutting down or clearing queue
         if player.play_queue.shutdown:
@@ -2136,7 +2127,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Bump item to top of queue
 
         queue_index: integer [Required]
-            Position in queue of song that will be removed.
+            Position in queue of video that will be removed.
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2150,7 +2141,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
         if player.play_queue.empty():
-            return await retry_discord_message_command(ctx.send, 'There are currently no more queued songs.',
+            return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                             delete_after=self.delete_after)
         # Check if player is in shutdown, assume we're shutting down or clearing queue
         if player.play_queue.shutdown:
@@ -2174,7 +2165,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='stop')
     async def stop_(self, ctx):
         '''
-        Stop the currently playing song and disconnect bot from voice chat.
+        Stop the currently playing video and disconnect bot from voice chat.
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2362,7 +2353,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         search: str [Required]
-            The song to search and retrieve from youtube.
+            The video to search and retrieve from youtube.
             This could be a simple search, an ID or URL.
         '''
         return await self.__playlist_item_add(ctx, playlist_index, search)
@@ -2460,14 +2451,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
     @playlist.command(name='item-remove')
-    async def playlist_item_remove(self, ctx, playlist_index, song_index):
+    async def playlist_item_remove(self, ctx, playlist_index, video_index):
         '''
         Add item to playlist
 
         playlist_index: integer [Required]
             ID of playlist
-        song_index: integer [Required]
-            ID of song to remove
+        video_index: integer [Required]
+            ID of video to remove
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2480,25 +2471,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not playlist:
             return None
         try:
-            song_index = int(song_index)
+            video_index = int(video_index)
         except ValueError:
-            return await retry_discord_message_command(ctx.send, f'Invalid item index {song_index}',
+            return await retry_discord_message_command(ctx.send, f'Invalid item index {video_index}',
                                             delete_after=self.delete_after)
-        if song_index < 1:
-            return await retry_discord_message_command(ctx.send, f'Invalid item index {song_index}',
+        if video_index < 1:
+            return await retry_discord_message_command(ctx.send, f'Invalid item index {video_index}',
                                             delete_after=self.delete_after)
 
         query = self.db_session.query(PlaylistItem).\
             filter(PlaylistItem.playlist_id == playlist.id)
         query_results = [item for item in query]
         try:
-            item = query_results[song_index - 1]
+            item = query_results[video_index - 1]
             self.db_session.delete(item)
             self.db_session.commit()
-            return await retry_discord_message_command(ctx.send, f'Removed item {song_index} from playlist',
+            return await retry_discord_message_command(ctx.send, f'Removed item {video_index} from playlist',
                                             delete_after=self.delete_after)
         except IndexError:
-            return await retry_discord_message_command(ctx.send, f'Unable to find item {song_index}',
+            return await retry_discord_message_command(ctx.send, f'Unable to find item {video_index}',
                                             delete_after=self.delete_after)
 
     @playlist.command(name='show')
@@ -2641,7 +2632,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Music :: Saving queue contents to playlist "{name}", is_history? {is_history}')
 
         if len(queue_copy) == 0:
-            return await retry_discord_message_command(ctx.send, 'There are no songs to add to playlist',
+            return await retry_discord_message_command(ctx.send, 'There are no videos to add to playlist',
                                                        delete_after=self.delete_after)
 
         for data in queue_copy:
@@ -2669,7 +2660,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ID of playlist
         Sub commands - [shuffle] [max_number]
             shuffle - Shuffle playlist when entering it into queue
-            max_num - Only add this number of songs to the queue
+            max_num - Only add this number of videos to the queue
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2694,10 +2685,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @commands.command(name='random-play')
     async def playlist_random_play(self, ctx, sub_command: Optional[str] = ''):
         '''
-        Play random songs from history
+        Play random videos from history
 
         Sub commands - [max_num]
-            max_num - Number of songs to add to the queue at maximum
+            max_num - Number of videos to add to the queue at maximum
         '''
         if not await self.check_user_role(ctx):
             return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
@@ -2710,7 +2701,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 max_num = int(sub_command)
             except ValueError:
-                retry_discord_message_command(ctx.send, f'Using default number of max songs {DEFAULT_RANDOM_QUEUE_LENGTH}', delete_after=self.delete_after)
+                retry_discord_message_command(ctx.send, f'Using default number of max videos {DEFAULT_RANDOM_QUEUE_LENGTH}', delete_after=self.delete_after)
         history_playlist = self.db_session.query(Playlist).\
             filter(Playlist.server_id == str(ctx.guild.id)).\
             filter(Playlist.is_history == True).first()
@@ -2752,7 +2743,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if max_num:
             if max_num < 0:
-                await retry_discord_message_command(ctx.send, f'Invalid number of songs {max_num}',
+                await retry_discord_message_command(ctx.send, f'Invalid number of videos {max_num}',
                                                     delete_after=self.delete_after)
                 return
             if max_num < len(playlist_items):
@@ -2792,13 +2783,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if PLAYHISTORY_PREFIX in playlist_name:
             playlist_name = 'Channel History'
         if broke_early:
-            await retry_discord_message_command(ctx.send, f'Added as many songs in playlist "{playlist_name}" to queue as possible, but hit limit',
+            await retry_discord_message_command(ctx.send, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
                                                 delete_after=self.delete_after)
         elif max_num:
-            await retry_discord_message_command(ctx.send, f'Added {max_num} songs from "{playlist_name}" to queue',
+            await retry_discord_message_command(ctx.send, f'Added {max_num} videos from "{playlist_name}" to queue',
                                                 delete_after=self.delete_after)
         else:
-            await retry_discord_message_command(ctx.send, f'Added all songs in playlist "{playlist_name}" to queue',
+            await retry_discord_message_command(ctx.send, f'Added all videos in playlist "{playlist_name}" to queue',
                                                 delete_after=self.delete_after)
         playlist.last_queued = datetime.utcnow()
         self.db_session.commit()
