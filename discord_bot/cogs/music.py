@@ -249,7 +249,13 @@ def edit_audio_file(file_path):
     if finished_path.exists():
         return finished_path
     editing_path = get_editing_path(file_path)
-    audio_clip = AudioFileClip(str(file_path))
+    try:
+        audio_clip = AudioFileClip(str(file_path))
+    except KeyError:
+        # Need to treat like a video
+        # Assume we cant do file processing at this point
+        copyfile(str(file_path), str(finished_path))
+        return finished_path
     # Find dead audio at start and end of file
     cut = lambda i: audio_clip.subclip(i, i+1).to_soundarray(fps=1)
     volume = lambda array: sqrt(((1.0 * array) ** 2).mean())
