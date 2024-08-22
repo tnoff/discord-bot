@@ -1682,6 +1682,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             search_string_message = fix_search_string_message(source_dict['search_string'])
             await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
                                                 delete_after=player.delete_after)
+            return
 
         # If we have a result, add to search cache
         if self.cache_file and 'https://' not in source_dict['search_string']:
