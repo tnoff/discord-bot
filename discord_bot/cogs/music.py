@@ -1088,7 +1088,7 @@ class DownloadClient():
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from youtube playlist "{search}"')
             return search_strings
         if youtube_video_match:
-            return f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'
+            return [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
         return [search]
 
     async def check_source(self, search, guild_id, requester_name, requester_id, loop):
