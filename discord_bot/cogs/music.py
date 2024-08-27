@@ -85,6 +85,7 @@ SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
+YOUTUBE_VIDEO_REGEX = 'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
 
 
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
@@ -1058,6 +1059,7 @@ class DownloadClient():
         spotify_playlist_matcher = re_match(SPOTIFY_PLAYLIST_REGEX, search)
         spotify_album_matcher = re_match(SPOTIFY_ALBUM_REGEX, search)
         playlist_matcher = re_match(YOUTUBE_PLAYLIST_REGEX, search)
+        youtube_video_match = re_match(YOUTUBE_VIDEO_REGEX, search)
 
         if spotify_playlist_matcher and self.spotify_client:
             to_run = partial(self.__check_spotify_source, playlist_id=spotify_playlist_matcher.group('playlist_id'))
@@ -1085,6 +1087,8 @@ class DownloadClient():
                     random_shuffle(search_strings)
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from youtube playlist "{search}"')
             return search_strings
+        if youtube_video_match:
+            return f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'
         return [search]
 
     async def check_source(self, search, guild_id, requester_name, requester_id, loop):
