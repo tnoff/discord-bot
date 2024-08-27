@@ -254,8 +254,7 @@ def edit_audio_file(file_path):
     except KeyError:
         # Need to treat like a video
         # Assume we cant do file processing at this point
-        copyfile(str(file_path), str(finished_path))
-        return finished_path
+        return None
     # Find dead audio at start and end of file
     cut = lambda i: audio_clip.subclip(i, i+1).to_soundarray(fps=1)
     volume = lambda array: sqrt(((1.0 * array) ** 2).mean())
@@ -709,8 +708,9 @@ class SourceFile():
         if delete_original:
             if self.base_path.exists():
                 self.base_path.unlink()
-            if self.original_path.exists():
-                self.original_path.unlink()
+            if self.original_path:
+                if self.original_path.exists():
+                    self.original_path.unlink()
 
 #
 # YTDL Post Processor
@@ -728,9 +728,13 @@ class VideoEditing(PostProcessor):
         '''
         file_path = Path(information['_filename'])
         edited_path = edit_audio_file(file_path)
-        information['_filename'] = str(edited_path)
-        information['filepath'] = str(edited_path)
-        information['original_path'] = file_path
+        if edited_path:
+            information['_filename'] = str(edited_path)
+            information['filepath'] = str(edited_path)
+            information['original_path'] = file_path
+        else:
+            information['_filename'] = str(file_path)
+            information['filepath'] = str(file_path)
         return [], information
 
 #
@@ -796,7 +800,8 @@ class CacheFile():
         existing_files = set([])
         for base_path, original_path in self.db_session.query(VideoCache.base_path, VideoCache.original_path):
             existing_files.add(base_path)
-            existing_files.add(original_path)
+            if original_path:
+                existing_files.add(original_path)
         for file_path in self.download_dir.glob('*'):
             if file_path.is_dir():
                 rm_tree(file_path)
@@ -870,6 +875,10 @@ class CacheFile():
                 self.db_session.commit()
                 return True
         self.logger.debug(f'Music ::: No cache file found for url {source_download["webpage_url"]}, adding new')
+        # Make sure you catch none type of original path
+        original_path = source_download['original_path']
+        if original_path:
+            original_path = str(original_path)
         cache_item = VideoCache(
             video_id=source_download['id'],
             video_url=source_download['webpage_url'],
@@ -880,7 +889,7 @@ class CacheFile():
             last_iterated_at=now,
             created_at=now,
             base_path=str(source_download['base_path']),
-            original_path=str(source_download['original_path']),
+            original_path=original_path,
             count=1,
             video_available=True,
             exceeds_max_length=None,
@@ -919,7 +928,10 @@ class CacheFile():
             'extractor': video_cache.extractor,
             'webpage_url': video_cache.video_url,
         }
-        return SourceFile(Path(video_cache.base_path), Path(video_cache.original_path), ytdlp_data, source_dict, self.logger)
+        original_path = video_cache.original_path
+        if original_path:
+            original_path = Path(original_path)
+        return SourceFile(Path(video_cache.base_path), original_path, ytdlp_data, source_dict, self.logger)
 
     def remove(self):
         '''
@@ -933,11 +945,12 @@ class CacheFile():
         self.logger.debug(f'Music ::: Total cache count {cache_count}, greater than max of {self.max_cache_files}, removing {num_to_remove} files')
         for video_cache in self.db_session.query(VideoCache).order_by(asc(VideoCache.count), asc(VideoCache.last_iterated_at)).limit(num_to_remove):
             base_path = Path(video_cache.base_path)
-            original_path = Path(video_cache.original_path)
             if base_path.exists():
                 base_path.unlink()
-            if original_path.exists():
-                original_path.unlink()
+            if video_cache.original_path:
+                original_path = Path(video_cache.original_path)
+                if original_path.exists():
+                    original_path.unlink()
             self.logger.debug(f'Music ::: Removing cached file for webpage url {video_cache.video_url}')
             self.db_session.delete(video_cache)
         self.db_session.commit()
