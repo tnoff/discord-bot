@@ -199,7 +199,7 @@ music:
   enable_cache_files: true
 ```
 
-There is a cache JSON file, stored as `cache.json` in the download_dir, that will contain the video url that was gathered, as long as metadata about the video. If a video url is given to download, it will first check for an entry that matches that url in the cache before a download.
+There is a cache JSON file, stored in the `VideoCache` table with the files kept in the download_dir, that will contain the video url that was gathered, as long as metadata about the video. If a video url is given to download, it will first check for an entry that matches that url in the cache before a download.
 
 You can set the number of local cache entries you want stored in the download dir via `max_cache_files`.
 
@@ -223,6 +223,27 @@ You can set how many entries you want in this table via `max_search_cache_entrie
 music:
   max_search_cache_entries: 1024
 ```
+
+Here is a diagram of how the layers of caching interact with each other:
+
+![](./images/caching.png)
+
+Explainers of each item:
+
+- *A* Check for the type of input
+- *B/E* If youtube playlist, generate list of full urls
+- *C/F* If spotify playlist/album, generate list of "<artist name> <song name>" pairs
+- *D* Generic input passed
+- *G* Check if `https://` is passed in generic input, and determine if full url or search string
+- *H* If a search string, check `SearchCache` for an existing result
+- *J* If cache hit, pass full url down
+- *K* If full url given, check `VideoCache` for existing items
+- *L* If video found in `VideoCache`, return that existing item
+- *M* If `SearchCache` has no existing items, pass to download
+- *N* If `VideoCache` has no existing items, pass to download
+- *O* If original input was a search string, add search string/full url pair to `SearchCache`
+- *P* If item downloaded, add new item to cache
+
 
 ### Audio Processing
 
