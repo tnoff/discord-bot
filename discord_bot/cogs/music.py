@@ -275,7 +275,7 @@ def edit_audio_file(file_path):
         start -= 1
     if end < audio_clip.duration - 1:
         end += 1
-    audio_clip = audio_clip.subclip(t_start=start, t_end=end + 1)
+    audio_clip = audio_clip.subclip(start_time=start, end_time=end + 1)
     # Normalize audio
     edited_audio = audio_clip.fx(afx.audio_normalize) #pylint:disable=no-member
     edited_audio.write_audiofile(str(editing_path))
