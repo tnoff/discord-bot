@@ -75,7 +75,7 @@ def clean_message(content, emojis):
         # Emojis can be case sensitive so do not lower them
         # Custom emojis usually have <:emoji:id> format
         # Ex: <:fail:1231031923091032910390>
-        match_result = match('^\ *<(?P<emoji>:\w+:)(?P<id>\d+)>\ *$', word)
+        match_result = match(r'^\ *<(?P<emoji>:\w+:)(?P<id>\d+)>\ *$', word)
         if match_result:
             if int(match_result.group('id')) in emoji_ids:
                 corpus.append(word)
