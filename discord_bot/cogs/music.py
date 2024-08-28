@@ -953,8 +953,11 @@ class CacheFile():
                 if original_path.exists():
                     original_path.unlink()
             self.logger.debug(f'Music ::: Removing cached file for webpage url {video_cache.video_url}')
+            for video_cache_guild in self.db_session.query(VideoCacheGuild).filter(VideoCacheGuild.video_cache_id == video_cache.id):
+                self.db_session.delete(video_cache_guild)
+            self.db_session.commit()
             self.db_session.delete(video_cache)
-        self.db_session.commit()
+            self.db_session.commit()
         return True
 
 #
