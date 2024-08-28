@@ -4,7 +4,7 @@ from datetime import datetime
 from json import dumps, load
 import importlib
 import pathlib
-from sys import stderr
+from sys import stderr, argv
 
 from discord import Intents
 from discord.ext import commands
@@ -23,14 +23,14 @@ from discord_bot.cogs.markov import Markov #pylint:disable=unused-import
 from discord_bot.cogs.music import Music #pylint:disable=unused-import
 from discord_bot.cogs.role import RoleAssignment #pylint:disable=unused-import
 from discord_bot.cogs.urban import UrbanDictionary #pylint:disable=unused-import
-from discord_bot.database import BASE, AlchemyEncoder, RetryingQuery
+from discord_bot.database import BASE, AlchemyEncoder
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
 
 DB_DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
 
-def parse_args():
+def parse_args(args):
     '''
     Basic cli arg parser
     '''
@@ -43,7 +43,7 @@ def parse_args():
 
     db_load_parser = subparser.add_parser('db_load')
     db_load_parser.add_argument('json_file', help='JSON file to load from')
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 def read_config(config_file):
     '''
@@ -66,7 +66,7 @@ def db_dump(db_engine):
     if db_engine is None:
         print('Unable to dump database, no engine', file=stderr)
         return
-    db_session = sessionmaker(bind=db_engine, query_cls=RetryingQuery)()
+    db_session = sessionmaker(bind=db_engine)()
     tables = BASE.__subclasses__()
     table_data = {}
     for t in tables:
@@ -141,7 +141,7 @@ def main():
     '''
     Main loop
     '''
-    args = parse_args()
+    args = parse_args(argv[1:])
     if args.command.lower() not in ['db_dump', 'db_load', 'run']:
         print('Invalid subcommand passed', file=stderr)
 
@@ -154,7 +154,7 @@ def main():
 
     # Grab db engine for possible dump or load commands
     try:
-        db_engine = create_engine(settings['general']['sql_connection_statement'])
+        db_engine = create_engine(settings['general']['sql_connection_statement'], pool_pre_ping=True)
         BASE.metadata.create_all(db_engine)
         BASE.metadata.bind = db_engine
     except KeyError:
