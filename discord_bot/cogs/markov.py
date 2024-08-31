@@ -8,7 +8,7 @@ from typing import Optional
 
 from discord import TextChannel
 from discord.ext import commands
-from discord.errors import NotFound
+from discord.errors import NotFound, DiscordServerError
 from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy import ForeignKey, UniqueConstraint
 
@@ -179,6 +179,10 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             try:
                 await self.__main_loop()
+            except DiscordServerError as e:
+                self.logger.warning(f'Markov :: Loop hit discord server exception, retrying {str(e)}')
+                await sleep(self.loop_sleep_interval)
+                continue
             except ExitEarlyException:
                 return
             except Exception as e:
