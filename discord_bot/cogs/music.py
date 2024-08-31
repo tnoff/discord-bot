@@ -636,6 +636,12 @@ class MyQueue(Queue):
             self._queue.appendleft(item)
         return item
 
+    def items(self):
+        '''
+        Get a copy of all items in the queue
+        '''
+        return deepcopy(self._queue)
+
 #
 # Source File
 #
@@ -1250,7 +1256,8 @@ class MusicPlayer:
         items = []
         if self.np_message:
             items.append(self.np_message)
-        if not self.play_queue._queue: #pylint:disable=protected-access
+        queue_items = self.play_queue.items()
+        if not queue_items:
             return items
         headers = [
             {
@@ -1268,7 +1275,6 @@ class MusicPlayer:
         ]
         table = DapperTable(headers, rows_per_message=15)
         duration = self.current_track_duration
-        queue_items = deepcopy(self.play_queue._queue) #pylint:disable=protected-access
         for (count, item) in enumerate(queue_items):
             uploader = item['uploader'] or ''
             delta = timedelta(seconds=duration)
@@ -1732,9 +1738,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                 delete_after=player.delete_after)
             return
 
-        # Check if we have already made this search
-        self.__check_search_cache(source_dict)
-
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = None
         if self.cache_file and 'https://' in source_dict['search_string']:
@@ -2015,6 +2018,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
                 self.logger.debug(f'Music :: Handing off entry {entry} to download queue')
                 entry['message'] = message
+                # Check if item is already search cache
+                self.__check_search_cache(entry)
                 self.download_queue.put_nowait(entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
@@ -2105,13 +2110,67 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             },
         ]
         table = DapperTable(headers, rows_per_message=15)
-        table_items = deepcopy(player.history._queue) #pylint:disable=protected-access
+        table_items = player.history.items()
         for (count, item) in enumerate(table_items):
             uploader = item['uploader'] or ''
             table.add_row([
                 f'{count + 1}',
                 f'{item["title"]} /// {uploader}'
             ])
+        messages = [f'```{t}```' for t in table.print()]
+        for mess in messages:
+            await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
+
+    @commands.command(name='download-queue')
+    async def download_queue_(self, ctx):
+        '''
+        Show items in download queue
+        '''
+        if not await self.check_user_role(ctx):
+            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
+        if not await self.__check_author_voice_chat(ctx):
+            return
+        vc = ctx.voice_client
+
+        if not vc or not vc.is_connected():
+            return await retry_discord_message_command(ctx.send, 'I am not currently playing anything',
+                                            delete_after=self.delete_after)
+
+        guild_queue = []
+        for item in self.download_queue.items():
+            if str(item['guild_id']) == str(ctx.guild.id):
+                guild_queue.append(item)
+
+        if len(guild_queue) == 0:
+            return await retry_discord_message_command(ctx.send, 'There are no videos in download queue',
+                                                       delete_after=self.delete_after)
+
+        headers = [
+            {
+                'name': 'Pos',
+                'length': 3,
+            },
+            {
+                'name': 'Cached',
+                'length': 6,
+            },
+            {
+                'name': 'Search Item',
+                'length': 70,
+            },
+        ]
+        table = DapperTable(headers, rows_per_message=15)
+        for (count, item) in enumerate(guild_queue):
+            # Check if we have item cached
+            if self.db_session and 'https://' in item['source_string']:
+                check = self.db_session.query(VideoCache).filter(VideoCache.video_url == item['source_string']).first()
+                if check:
+                    table.add_row([f'{count + 1}', 'yes', check.title])
+                    continue
+            # Grab title if available, else just print search string
+            title = item.get('title', item['source_string'])
+            table.add_row([f'{count + 1}', 'no', title])
+
         messages = [f'```{t}```' for t in table.print()]
         for mess in messages:
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
@@ -2680,9 +2739,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                        delete_after=self.delete_after)
         # Do a deepcopy here so list doesn't mutate as we iterate
         if is_history:
-            queue_copy = deepcopy(player.history._queue) #pylint:disable=protected-access
+            queue_copy = player.history.items()
         else:
-            queue_copy = deepcopy(player.play_queue._queue) #pylint:disable=protected-access
+            queue_copy = player.play_queue.items()
 
         self.logger.info(f'Music :: Saving queue contents to playlist "{name}", is_history? {is_history}')
 
@@ -2820,6 +2879,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'requester_name': ctx.author.display_name,
                     'requester_id': ctx.author.id,
                     'message': message,
+                    'title': item.title,
                     # Pass history so we know to pass into history check later
                     'added_from_history': is_history,
                     # Delete video if unavailable or private
