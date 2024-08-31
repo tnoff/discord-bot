@@ -49,8 +49,8 @@ DELETE_AFTER_DEFAULT = 300
 # Max queue size
 QUEUE_MAX_SIZE_DEFAULT = 128
 
-# Max playlists per server (not including history)
-SERVER_PLAYLIST_MAX_DEFAULT = 64
+# Max playlist items per server (not including history)
+SERVER_PLAYLIST_MAX_SIZE_DEFAULT = 64
 
 # Max video length
 MAX_VIDEO_LENGTH_DEFAULT = 60 * 15
@@ -103,7 +103,7 @@ MUSIC_SECTION_SCHEMA = {
         'queue_max_size': {
             'type': 'number',
         },
-        'server_playlist_max': {
+        'server_playlist_max_size': {
             'type': 'number',
         },
         'max_video_length': {
@@ -1455,7 +1455,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.delete_after = self.settings.get('music', {}).get('message_delete_after', DELETE_AFTER_DEFAULT)
         self.queue_max_size = self.settings.get('music', {}).get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
         self.download_queue = MyQueue(maxsize=self.queue_max_size)
-        self.server_playlist_max = self.settings.get('music', {}).get('server_playlist_max', SERVER_PLAYLIST_MAX_DEFAULT)
+        self.server_playlist_max_size = self.settings.get('music', {}).get('server_playlist_max_size', SERVER_PLAYLIST_MAX_SIZE_DEFAULT)
         self.max_video_length = self.settings.get('music', {}).get('max_video_length', MAX_VIDEO_LENGTH_DEFAULT)
         self.disconnect_timeout = self.settings.get('music', {}).get('disconnect_timeout', DISCONNECT_TIMEOUT_DEFAULT)
         self.download_dir = self.settings.get('music', {}).get('download_dir', None)
@@ -1814,6 +1814,36 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return False
         return True
 
+    def __update_history_playlist(self, playlist, history_items):
+        '''
+        Add history items to playlist
+        playlist        : Playlist history object
+        history_items   : List of history items
+        '''
+        # Delete existing items first
+        for item in history_items:
+            self.logger.info(f'Music ::: Attempting to add url {item["webpage_url"]} to history playlist {playlist.id}')
+            existing_history_item = self.db_session.query(PlaylistItem).\
+                filter(PlaylistItem.video_url == item['webpage_url']).\
+                filter(PlaylistItem.playlist_id == playlist.id).first()
+            self.logger.debug(f'Music ::: New history item {item["webpage_url"]} already exists, deleting this first')
+            self.db_session.delete(existing_history_item)
+            self.db_session.commit()
+
+        # Delete number of rows necessary to add list
+        existing_items = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
+        if (existing_items + len(history_items)) > self.server_playlist_max_size:
+            delta = (existing_items + len(history_items)) - self.server_playlist_max_size
+            for existing_item in self.db_session.query(PlaylistItem).\
+                    filter(PlaylistItem.playlist_id == playlist.id).\
+                    order_by(asc(PlaylistItem.created_at)).limit(delta):
+                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist.id}')
+                self.db_session.delete(existing_item)
+                self.db_session.commit()
+        for item in history_items:
+            self.logger.info(f'Music ::: Adding new history item {item["webpage_url"]} to playlist {playlist.id}')
+            self.__playlist_add_item(playlist, item['id'], item['webpage_url'], item['title'], item['uploader'])
+
     async def cleanup(self, guild):
         '''
         Cleanup guild player
@@ -1833,20 +1863,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         history_items = await player.clear_remaining_queue()
         if player.history_playlist_id:
             playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
-            for item in history_items:
-                self.logger.info(f'Music ::: Attempting to add url {item["webpage_url"]} to history playlist {playlist.id}')
-                while True:
-                    try:
-                        self.__playlist_add_item(playlist, item['id'], item['webpage_url'], item['title'], item['uploader'], ignore_fail=True)
-                        break
-                    except PlaylistMaxLength:
-                        deleted_item =  self.db_session.query(PlaylistItem).\
-                                            filter(PlaylistItem.playlist_id == playlist.id).\
-                                            order_by(asc(PlaylistItem.created_at)).first()
-                        if deleted_item:
-                            self.logger.info(f'Music ::: History playlist reached max length, deleting item with id {deleted_item.id} and video url "{deleted_item.video_url}"')
-                            self.db_session.delete(deleted_item)
-                            self.db_session.commit()
+            self.__update_history_playlist(playlist, history_items)
 
         guild_path = self.download_dir / f'{guild.id}'
         if guild_path.exists():
@@ -2271,11 +2288,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if PLAYHISTORY_PREFIX in playlist_name.lower():
             await retry_discord_message_command(ctx.send, f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')
             return None
-        # Check we haven't hit max playlist for server
-        server_playlist_count = self.db_session.query(Playlist).filter(Playlist.server_id == str(ctx.guild.id)).count()
-        if server_playlist_count >= self.server_playlist_max:
-            await retry_discord_message_command(ctx.send, f'Unable to create playlist "{name}", already hit max playlists for server')
-            return None
         playlist = Playlist(name=playlist_name,
                             server_id=ctx.guild.id,
                             created_at=datetime.utcnow(),
@@ -2351,11 +2363,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for mess in messages:
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
-    def __playlist_add_item(self, playlist, data_id, data_url, data_title, data_uploader, ignore_fail=False):
+    def __playlist_add_item(self, playlist, data_id, data_url, data_title, data_uploader):
         self.logger.info(f'Music :: Adding video {data_url} to playlist {playlist.id}')
         item_count = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
-        if item_count >= (self.server_playlist_max):
-            raise PlaylistMaxLength(f'Playlist {playlist.id} greater to or equal to max length {self.server_playlist_max}')
+        if item_count >= (self.server_playlist_max_size):
+            raise PlaylistMaxLength(f'Playlist {playlist.id} greater to or equal to max length {self.server_playlist_max_size}')
 
         playlist_item = PlaylistItem(title=shorten_string_cjk(data_title, 256),
                                      video_id=data_id,
@@ -2367,10 +2379,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.db_session.add(playlist_item)
             self.db_session.commit()
             return playlist_item
-        except IntegrityError as e:
-            if not ignore_fail:
-                self.logger.exception(e)
-                self.logger.warning(str(e))
+        except IntegrityError:
             self.db_session.rollback()
             self.db_session.commit()
             return None
