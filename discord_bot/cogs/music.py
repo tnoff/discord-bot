@@ -86,6 +86,9 @@ SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9
 YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
+# RIP twitter
+TWITTER_VIDEO_PREFIX = 'https://x.com'
+FXTWITTER_VIDEO_PREFIX = 'https://fxtwitter.com'
 
 
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
@@ -323,8 +326,8 @@ def fix_now_playing_message(webpage_url, requester_name):
     webpage_url     :   Webpage url of source
     requester_name  :   Name of requester
     '''
-    if 'https://x.com' in webpage_url:
-        webpage_url = webpage_url.replace('https://x.com', 'https://fxtwitter.com')
+    if TWITTER_VIDEO_PREFIX in webpage_url:
+        webpage_url = webpage_url.replace(TWITTER_VIDEO_PREFIX, FXTWITTER_VIDEO_PREFIX)
     return  f'Now playing {webpage_url} requested by {requester_name}'
 
 #
@@ -1102,6 +1105,8 @@ class DownloadClient():
             return search_strings
         if youtube_video_match:
             return [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
+        if FXTWITTER_VIDEO_PREFIX in search:
+            return [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)]
         return [search]
 
     async def check_source(self, search, guild_id, requester_name, requester_id, loop):
