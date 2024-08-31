@@ -317,6 +317,16 @@ def fix_search_string_message(search_string):
         return f'<{search_string}>'
     return search_string
 
+def fix_now_playing_message(webpage_url, requester_name):
+    '''
+    Fix now playing message for players
+    webpage_url     :   Webpage url of source
+    requester_name  :   Name of requester
+    '''
+    if 'https://x.com' in webpage_url:
+        webpage_url = webpage_url.replace('https://x.com', 'https://fxtwitter.com')
+    return  f'Now playing {webpage_url} requested by {requester_name}'
+
 #
 # Music Tables
 #
@@ -1377,10 +1387,10 @@ class MusicPlayer:
             self.logger.info(f'Music :: No voice client found, disconnecting from guild {self.guild.id}')
             await self.destroy(self.guild)
             raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
-        self.logger.info(f'Music :: Now playing "{source["title"]}" requested '
+        self.logger.info(f'Music :: Now playing "{source["webpage_url"]}" requested '
                             f'by "{source["requester_id"]}" in guild {self.guild.id}, url '
                             f'"{source["webpage_url"]}"')
-        self.np_message = f'Now playing {source["webpage_url"]} requested by {source["requester_name"]}'
+        self.np_message = fix_now_playing_message(source['webpage_url'], source['requester_name'])
         await self.update_queue_strings()
 
         await self.next.wait()
