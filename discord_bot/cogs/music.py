@@ -1826,9 +1826,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             existing_history_item = self.db_session.query(PlaylistItem).\
                 filter(PlaylistItem.video_url == item['webpage_url']).\
                 filter(PlaylistItem.playlist_id == playlist.id).first()
-            self.logger.debug(f'Music ::: New history item {item["webpage_url"]} already exists, deleting this first')
-            self.db_session.delete(existing_history_item)
-            self.db_session.commit()
+            if existing_history_item:
+                self.logger.debug(f'Music ::: New history item {item["webpage_url"]} already exists, deleting this first')
+                self.db_session.delete(existing_history_item)
+                self.db_session.commit()
 
         # Delete number of rows necessary to add list
         existing_items = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
