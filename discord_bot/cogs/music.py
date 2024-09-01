@@ -640,7 +640,11 @@ class MyQueue(Queue):
         '''
         Get a copy of all items in the queue
         '''
-        return deepcopy(self._queue)
+        return_list = []
+        queue_copy = deepcopy(self._queue)
+        for item in queue_copy:
+            return_list.append(item)
+        return return_list
 
 #
 # Source File
@@ -1679,7 +1683,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             cache_item_url = self.__search_string_cache(source_dict['search_string'])
             if cache_item_url:
                 self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is "{cache_item_url}"')
-                source_dict['search_string'] = cache_item_url
+                return cache_item_url
+        return None
 
     async def __return_bad_video(self, source_dict, video_non_exist_callback_functions, player):
         search_string_message = fix_search_string_message(source_dict['search_string'])
@@ -2012,14 +2017,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
         for entry in entries:
             try:
+                # Check if item is already search cache
+                search_cache_entry = self.__check_search_cache(entry)
+                if search_cache_entry:
+                    entry['search_string'] = search_cache_entry
                 # Dont embed link if https
                 # https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
                 search_string_message = fix_search_string_message(entry['search_string'])
                 message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
                 self.logger.debug(f'Music :: Handing off entry {entry} to download queue')
                 entry['message'] = message
-                # Check if item is already search cache
-                self.__check_search_cache(entry)
                 self.download_queue.put_nowait(entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
@@ -2160,10 +2167,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             },
         ]
         table = DapperTable(headers, rows_per_message=15)
+        self.logger.debug(f'TDNORTH :: Generating table for guild queue {guild_queue}')
         for (count, item) in enumerate(guild_queue):
             # Check if we have item cached
+            self.logger.debug(f'TDNORTH :: Generating table row for item {item} and count {count}')
             if self.db_session and 'https://' in item['source_string']:
                 check = self.db_session.query(VideoCache).filter(VideoCache.video_url == item['source_string']).first()
+                self.logger.debug(f'TDNORTH checking cache and found {check}')
                 if check:
                     table.add_row([f'{count + 1}', 'yes', check.title])
                     continue
