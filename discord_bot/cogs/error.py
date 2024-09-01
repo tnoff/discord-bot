@@ -1,3 +1,4 @@
+from traceback import format_exc
 from discord.ext import commands
 
 # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
@@ -34,3 +35,4 @@ class CommandErrorHandler(commands.Cog):
         if isinstance(error_type, commands.MissingRequiredArgument):
             return await ctx.send(f'Missing required arguments: {error}')
         self.logger.exception(f'Exception on command "{ctx.command.name}", exception {error}', exc_info=True)
+        self.logger.error(format_exc())
