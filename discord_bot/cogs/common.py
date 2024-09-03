@@ -44,29 +44,3 @@ class CogHelper(commands.Cog):
             except KeyError:
                 self.settings[settings_prefix] = {}
                 self.enable_loop = False
-
-    async def check_user_role(self, ctx):
-        '''
-        Check if user has proper role to run command
-
-        ctx : Standard context
-        '''
-        try:
-            allowed_roles = self.settings['general_allowed_roles'][ctx.guild.id]
-        except KeyError:
-            # No settings set, assume true
-            return True
-        # First check if channel key set, if not see if we have an all
-        try:
-            channel_role = allowed_roles[ctx.channel.id]
-        except KeyError:
-            try:
-                channel_role = allowed_roles['all']
-            except KeyError:
-                self.logger.warning(f'No role settings for channel {ctx.channel.id}, assuming false')
-                return False
-        channel_roles = channel_role.split(';;;')
-        for role in ctx.author.roles:
-            if role.name in channel_roles:
-                return True
-        return False
