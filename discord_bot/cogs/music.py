@@ -644,8 +644,8 @@ class MyQueue(Queue):
         queue_copy = deepcopy(self._queue)
         while True:
             try:
-                return_list.append(queue_copy.get_nowait())
-            except QueueEmpty:
+                return_list.append(queue_copy.pop())
+            except IndexError:
                 return return_list
 
 #
@@ -2126,64 +2126,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'{count + 1}',
                 f'{item["title"]} /// {uploader}'
             ])
-        messages = [f'```{t}```' for t in table.print()]
-        for mess in messages:
-            await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
-
-    @commands.command(name='download-queue')
-    async def download_queue_(self, ctx):
-        '''
-        Show items in download queue
-        '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        vc = ctx.voice_client
-
-        if not vc or not vc.is_connected():
-            return await retry_discord_message_command(ctx.send, 'I am not currently playing anything',
-                                            delete_after=self.delete_after)
-
-        self.logger.debug(f'TDNORTH gathering items for queue {ctx.guild.id}')
-        guild_queue = []
-        for item in self.download_queue.items():
-            if str(item['guild_id']) == str(ctx.guild.id):
-                guild_queue.append(item)
-
-        if len(guild_queue) == 0:
-            return await retry_discord_message_command(ctx.send, 'There are no videos in download queue',
-                                                       delete_after=self.delete_after)
-
-        headers = [
-            {
-                'name': 'Pos',
-                'length': 3,
-            },
-            {
-                'name': 'Cached',
-                'length': 6,
-            },
-            {
-                'name': 'Search Item',
-                'length': 70,
-            },
-        ]
-        table = DapperTable(headers, rows_per_message=15)
-        self.logger.debug(f'TDNORTH :: Generating table for guild queue {guild_queue}')
-        for (count, item) in enumerate(guild_queue):
-            # Check if we have item cached
-            self.logger.debug(f'TDNORTH :: Generating table row for item {item} and count {count}')
-            if self.db_session and 'https://' in item['source_string']:
-                check = self.db_session.query(VideoCache).filter(VideoCache.video_url == item['source_string']).first()
-                self.logger.debug(f'TDNORTH checking cache and found {check}')
-                if check:
-                    table.add_row([f'{count + 1}', 'yes', check.title])
-                    continue
-            # Grab title if available, else just print search string
-            title = item.get('title', item['source_string'])
-            table.add_row([f'{count + 1}', 'no', title])
-
         messages = [f'```{t}```' for t in table.print()]
         for mess in messages:
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
