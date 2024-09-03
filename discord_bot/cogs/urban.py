@@ -28,8 +28,6 @@ class UrbanDictionary(CogHelper):
         search: str [Required]
             The word or phrase to search in urban dictionary
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
         self.logger.debug(f'Urban :: Looking up word string "{word}" {ctx.guild.id}')
         word_url = f'{BASE_URL}define.php?term={word}'
         result = requests_get(word_url, timeout=60)

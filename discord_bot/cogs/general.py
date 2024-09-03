@@ -22,8 +22,6 @@ class General(CogHelper):
         '''
         Say hello to the server
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
         await ctx.send(f'Waddup {ctx.author.name}')
 
     @commands.command(name='roll')
@@ -35,8 +33,6 @@ class General(CogHelper):
         Can give 'd' prefix, '!roll d6', for random number between 1 and 6
         Can give multipliers, '!roll 2d6', to get two random numbers between 1 and 6, and add total
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
         matcher = re.match(ROLL_REGEX, number)
         # First check if matches regex
         if not matcher:
@@ -77,8 +73,6 @@ class General(CogHelper):
         '''
         Get meta information for channel and server
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
         message = f'```Server id: {ctx.guild.id}\n'\
                   f'Channel id: {ctx.channel.id}\n'\
                   f'User id: {ctx.author.id}```'

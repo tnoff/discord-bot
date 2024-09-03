@@ -1960,9 +1960,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Connect to voice channel.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
-
         channel = await self.__check_author_voice_chat(ctx, check_voice_chats=False)
         vc = ctx.voice_client
 
@@ -2000,8 +1997,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         shuffle: boolean [Optional]
             If the search input is a spotify url or youtube api playlist, it will shuffle the results from the api before passing it into the download queue
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2043,8 +2038,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Skip the video.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2066,8 +2059,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Clear all items from queue
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2093,8 +2084,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Show recently played videos
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2135,8 +2124,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Shuffle video queue.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2164,8 +2151,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2206,8 +2191,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2244,8 +2227,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Stop the currently playing video and disconnect bot from voice chat.
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2261,8 +2242,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Move queue messages to this text chanel
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         vc = ctx.voice_client
@@ -2306,8 +2285,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, 'Invalid sub command passed...', delete_after=self.delete_after)
 
     async def __playlist_create(self, ctx, name):
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2350,9 +2327,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
-
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2428,8 +2402,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_item_add(ctx, playlist_index, search)
 
     async def __playlist_item_add(self, ctx, playlist_index, search):
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2473,9 +2445,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         search: str [Required]
             String to look for in item title
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command',
-                                            delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2529,8 +2498,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         video_index: integer [Required]
             ID of video to remove
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2569,8 +2536,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2619,8 +2584,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_delete(ctx, playlist_index)
 
     async def __playlist_delete(self, ctx, playlist_index):
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2647,8 +2610,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_name: str [Required]
             New name of playlist
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2731,8 +2692,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             shuffle - Shuffle playlist when entering it into queue
             max_num - Only add this number of videos to the queue
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2759,8 +2718,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Sub commands - [max_num]
             max_num - Number of videos to add to the queue at maximum
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2874,8 +2831,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_index_two: integer [Required]
             ID of playlist to be merged, will be deleted
         '''
-        if not await self.check_user_role(ctx):
-            return await retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):

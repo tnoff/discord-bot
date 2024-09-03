@@ -268,8 +268,6 @@ class Markov(CogHelper):
         '''
         Turn markov on for channel
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
 
         if ctx.guild.id in self.server_reject_list:
             return await ctx.send('Unable to turn on markov for server, in reject list')
@@ -299,8 +297,6 @@ class Markov(CogHelper):
         '''
         Turn markov off for channel
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
 
         if ctx.guild.id in self.server_reject_list:
             return await ctx.send('Unable to turn off markov for server, in reject list')
@@ -334,8 +330,6 @@ class Markov(CogHelper):
         Note that for first_word, multiple words can be given, but they must be in quotes
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
-        if not await self.check_user_role(ctx):
-            return await ctx.send('Unable to verify user role, ignoring command')
 
         if ctx.guild.id in self.server_reject_list:
             return await ctx.send('Unable to use markov for server, in reject list')
