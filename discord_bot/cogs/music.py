@@ -642,9 +642,11 @@ class MyQueue(Queue):
         '''
         return_list = []
         queue_copy = deepcopy(self._queue)
-        for item in queue_copy:
-            return_list.append(item)
-        return return_list
+        while True:
+            try:
+                return_list.append(queue_copy.get_nowait())
+            except QueueEmpty:
+                return return_list
 
 #
 # Source File
@@ -2143,6 +2145,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return await retry_discord_message_command(ctx.send, 'I am not currently playing anything',
                                             delete_after=self.delete_after)
 
+        self.logger.debug(f'TDNORTH gathering items for queue {ctx.guild.id}')
         guild_queue = []
         for item in self.download_queue.items():
             if str(item['guild_id']) == str(ctx.guild.id):
