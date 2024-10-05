@@ -644,7 +644,7 @@ class MyQueue(Queue):
         queue_copy = deepcopy(self._queue)
         while True:
             try:
-                return_list.append(queue_copy.pop())
+                return_list.append(queue_copy.pop(0))
             except IndexError:
                 return return_list
 
