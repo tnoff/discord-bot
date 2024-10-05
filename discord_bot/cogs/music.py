@@ -640,13 +640,7 @@ class MyQueue(Queue):
         '''
         Get a copy of all items in the queue
         '''
-        return_list = []
-        queue_copy = deepcopy(self._queue)
-        while True:
-            try:
-                return_list.append(queue_copy.pop(0))
-            except IndexError:
-                return return_list
+        return deepcopy(self._queue)
 
 #
 # Source File
