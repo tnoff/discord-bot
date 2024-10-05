@@ -2715,26 +2715,60 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Play random videos from history
 
-        Sub commands - [max_num]
+        Sub commands - [cache] [max_num]
             max_num - Number of videos to add to the queue at maximum
+            cache   - Play videos that are available in cache
         '''
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
             return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
         max_num = DEFAULT_RANDOM_QUEUE_LENGTH
+        from_cache = False
         if sub_command:
-            try:
-                max_num = int(sub_command)
-            except ValueError:
-                retry_discord_message_command(ctx.send, f'Using default number of max videos {DEFAULT_RANDOM_QUEUE_LENGTH}', delete_after=self.delete_after)
-        history_playlist = self.db_session.query(Playlist).\
-            filter(Playlist.server_id == str(ctx.guild.id)).\
-            filter(Playlist.is_history == True).first()
+            sub_commands = sub_command.split(' ')
+            for item in sub_commands:
+                if item.lower() == 'cache':
+                    from_cache = True
+                    continue
+                try:
+                    max_num = int(item)
+                except ValueError:
+                    continue
+        # If not from cache, play from history playlist
+        if not from_cache:
+            history_playlist = self.db_session.query(Playlist).\
+                filter(Playlist.server_id == str(ctx.guild.id)).\
+                filter(Playlist.is_history == True).first()
 
-        if not history_playlist:
-            return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
-        return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
+            if not history_playlist:
+                return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
+            return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
+        cache_items = self.db_session.query(VideoCache).\
+            join(VideoCacheGuild).\
+            join(Guild).\
+            filter(Guild.server_id == ctx.guild.id).all()
+
+        for _ in range(NUM_SHUFFLES):
+            random_shuffle(cache_items)
+
+        vc = ctx.voice_client
+        if not vc:
+            await ctx.invoke(self.connect_)
+            vc = ctx.voice_client
+        # Get player in case we dont have one already
+        _player = await self.get_player(ctx, vc.channel)
+        broke_early = await self.__playlist_enqueue_items(ctx, cache_items, True)
+        if broke_early:
+            await retry_discord_message_command(ctx.send, 'Added as many videos in cache to queue as possible, but hit limit',
+                                                delete_after=self.delete_after)
+        elif max_num:
+            await retry_discord_message_command(ctx.send, 'Added {max_num} videos from cache to queue',
+                                                delete_after=self.delete_after)
+        else:
+            await retry_discord_message_command(ctx.send, 'Added all videos in playlist cache to queue',
+                                                delete_after=self.delete_after)
+        return
 
     async def __delete_non_existing_item(self, item, ctx):
         self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
@@ -2742,6 +2776,35 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             delete_after=self.delete_after)
         self.db_session.delete(item)
         self.db_session.commit()
+
+    async def __playlist_enqueue_items(self, ctx, playlist_items, is_history):
+        broke_early = False
+        for item in playlist_items:
+            message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
+            try:
+                # Just add directly to download queue here, since we already know the video id
+                self.download_queue.put_nowait({
+                    'search_string': item.video_url,
+                    'guild_id': ctx.guild.id,
+                    'requester_name': ctx.author.display_name,
+                    'requester_id': ctx.author.id,
+                    'message': message,
+                    'title': item.title,
+                    # Pass history so we know to pass into history check later
+                    'added_from_history': is_history,
+                    # Delete video if unavailable or private
+                    'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
+                })
+            except QueueFull:
+                await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                    delete_after=self.delete_after)
+                broke_early = True
+                break
+            except PutsBlocked:
+                self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                await retry_discord_message_command(message.delete)
+                break
+        return broke_early
 
     async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
         vc = ctx.voice_client
@@ -2779,33 +2842,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Get player in case we dont have one already
         _player = await self.get_player(ctx, vc.channel)
+        broke_early = await self.__playlist_enqueue_items(ctx, playlist_items, is_history)
 
-        broke_early = False
-        for item in playlist_items:
-            message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
-            try:
-                # Just add directly to download queue here, since we already know the video id
-                self.download_queue.put_nowait({
-                    'search_string': item.video_url,
-                    'guild_id': ctx.guild.id,
-                    'requester_name': ctx.author.display_name,
-                    'requester_id': ctx.author.id,
-                    'message': message,
-                    'title': item.title,
-                    # Pass history so we know to pass into history check later
-                    'added_from_history': is_history,
-                    # Delete video if unavailable or private
-                    'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
-                })
-            except QueueFull:
-                await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
-                                                    delete_after=self.delete_after)
-                broke_early = True
-                break
-            except PutsBlocked:
-                self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                await retry_discord_message_command(message.delete)
-                break
         playlist_name = playlist.name
         if PLAYHISTORY_PREFIX in playlist_name:
             playlist_name = 'Channel History'
