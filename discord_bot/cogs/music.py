@@ -2031,21 +2031,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Dont embed link if https
                 # https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
                 search_string_message = fix_search_string_message(entry['search_string'])
-                message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
-                self.logger.debug(f'Music :: Handing off entry {entry} to download queue')
-                entry['message'] = message
                 # Check cache first
                 source_download = await self.__check_video_cache(entry, player)
                 if source_download:
+                    self.logger.debug(f'Music :: Search "{search_string_message}" found in cache, placing in player queue')
+                    entry['message'] = await retry_discord_message_command(ctx.send, f'Gathering video "{search_string_message}" from cache"')
                     await self.__add_source_to_player(entry, source_download, player)
                     continue
+                entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
+                self.logger.debug(f'Music :: Handing off entry {search_string_message} to download queue')
                 self.download_queue.put_nowait(entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                await retry_discord_message_command(message.delete)
+                await retry_discord_message_command(entry['message'].delete)
                 return
             except QueueFull:
-                await retry_discord_message_command(message.edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
+                await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
                 return
 
     @commands.command(name='skip')
@@ -2795,7 +2796,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def __playlist_enqueue_items(self, ctx, playlist_items, is_history, player):
         broke_early = False
         for item in playlist_items:
-            message = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
             try:
                 # Just add directly to download queue here, since we already know the video id
                 entry = {
@@ -2803,7 +2803,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'guild_id': ctx.guild.id,
                     'requester_name': ctx.author.display_name,
                     'requester_id': ctx.author.id,
-                    'message': message,
                     'title': item.title,
                     # Pass history so we know to pass into history check later
                     'added_from_history': is_history,
@@ -2813,17 +2812,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Check video cache first
                 source_download = await self.__check_video_cache(entry, player)
                 if source_download:
+                    self.logger.debug(f'Music :: Search "{item.video_url}" found in cache, placing in player queue')
+                    entry['message'] = await retry_discord_message_command(ctx.send, f'Gathering video "{item.title}" from cache')
                     await self.__add_source_to_player(entry, source_download, player)
                     continue
+                self.logger.debug(f'Music :: Handing off "{item.video_url}" to download queue')
+                entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
                 self.download_queue.put_nowait(entry)
             except QueueFull:
-                await retry_discord_message_command(message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                await retry_discord_message_command(entry['message'].edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
                                                     delete_after=self.delete_after)
                 broke_early = True
                 break
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                await retry_discord_message_command(message.delete)
+                await retry_discord_message_command(entry['message'].delete)
                 break
         return broke_early
 
