@@ -2762,7 +2762,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         cache_items = self.db_session.query(VideoCache).\
             join(VideoCacheGuild).\
             join(Guild).\
-            filter(Guild.server_id == str(ctx.guild.id)).all()
+            filter(Guild.server_id == str(ctx.guild.id)).limit(max_num)
 
         for _ in range(NUM_SHUFFLES):
             random_shuffle(cache_items)
@@ -2778,7 +2778,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, 'Added as many videos in cache to queue as possible, but hit limit',
                                                 delete_after=self.delete_after)
         elif max_num:
-            await retry_discord_message_command(ctx.send, 'Added {max_num} videos from cache to queue',
+            await retry_discord_message_command(ctx.send, f'Added {max_num} videos from cache to queue',
                                                 delete_after=self.delete_after)
         else:
             await retry_discord_message_command(ctx.send, 'Added all videos in playlist cache to queue',
