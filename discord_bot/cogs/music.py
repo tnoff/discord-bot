@@ -2768,7 +2768,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         cache_items = self.db_session.query(VideoCache).\
             join(VideoCacheGuild).\
             join(Guild).\
-            filter(Guild.server_id == ctx.guild.id).all()
+            filter(Guild.server_id == str(ctx.guild.id)).all()
 
         for _ in range(NUM_SHUFFLES):
             random_shuffle(cache_items)
