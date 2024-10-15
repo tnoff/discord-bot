@@ -1877,6 +1877,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         video_non_exist_callback_functions = source_dict.get('video_non_exist_callback_functions', [])
+        post_download_callback_functions = source_dict.pop('post_download_callback_functions', [])
 
         # Check if queue is full before attempting to download file
         if player.play_queue.full():
@@ -1890,6 +1891,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = await self.__check_video_cache(source_dict, player)
 
+        download_file = source_dict.pop('download_file', True)
         # Else grab from ytdlp
         if not source_download:
             # Make sure we wait for next video download
@@ -1900,7 +1902,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await sleep(wait_time)
 
             try:
-                source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=True)
+                source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=download_file)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
             except (PrivateVideoException, VideoUnavailableException):
                 # Try to mark search as unavailable for later
@@ -1926,13 +1928,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
             await self.__cache_search_string(source_dict['search_string'], source_download['webpage_url'])
 
-        # Add sources to players
-        if not await self.__add_source_to_player(source_dict, source_download, player):
-            return
-        # Remove from cache file if exists
-        if self.cache_file:
-            self.logger.debug('Music ::: Checking cache files to remove in music player')
-            self.cache_file.remove()
+        for func in post_download_callback_functions:
+            await func(source_download)
+
+        if download_file:
+            # Add sources to players
+            if not await self.__add_source_to_player(source_dict, source_download, player):
+                return
+            # Remove from cache file if exists
+            if self.cache_file:
+                self.logger.debug('Music ::: Checking cache files to remove in music player')
+                self.cache_file.remove()
 
     async def __check_database_session(self, ctx):
         '''
@@ -2512,7 +2518,26 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         return await self.__playlist_item_add(ctx, playlist_index, search)
 
+    async def __add_playlist_item_function(self, ctx, search, playlist, source_download):
+        '''
+        Call this when the source download eventually completes
+        source_download : Source Download from download client
+        '''
+        if source_download is None:
+            await retry_discord_message_command(ctx.send, f'Unable to find video for search {search}')
+        self.logger.info(f'Music :: Adding video_id {source_download["webpage_url"]} to playlist "{playlist.name}" '
+                         f' in guild {ctx.guild.id}')
+        try:
+            playlist_item = self.__playlist_add_item(playlist, source_download['id'], source_download['webpage_url'], source_download['title'], source_download['uploader'])
+        except PlaylistMaxLength:
+            retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
+            return
+        if playlist_item:
+            await retry_discord_message_command(ctx.send, f'Added item "{source_download["title"]}" to playlist {playlist.name}', delete_after=self.delete_after)
+        await retry_discord_message_command(ctx.send, 'Unable to add playlist item, likely already exists', delete_after=self.delete_after)
+
     async def __playlist_item_add(self, ctx, playlist_index, search):
+
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
@@ -2530,21 +2555,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         source_entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
         for entry in source_entries:
-            source = await self.download_client.create_source(entry, self.bot.loop, download=False)
-            if source is None:
-                await retry_discord_message_command(ctx.send, f'Unable to find video for search {search}')
-                continue
-            self.logger.info(f'Music :: Adding video_id {source["webpage_url"]} to playlist "{playlist.name}" '
-                             f' in guild {ctx.guild.id}')
-            try:
-                playlist_item = self.__playlist_add_item(playlist, source['id'], source['webpage_url'], source['title'], source['uploader'])
-            except PlaylistMaxLength:
-                retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
-                return
-            if playlist_item:
-                await retry_discord_message_command(ctx.send, f'Added item "{source["title"]}" to playlist {playlist_index}', delete_after=self.delete_after)
-                continue
-            await retry_discord_message_command(ctx.send, 'Unable to add playlist item, likely already exists', delete_after=self.delete_after)
+            entry['download_file'] = False
+            # Pylint disable as gets injected later
+            entry['post_download_callback_functions'] = [partial(self.__add_playlist_item_function(ctx, search, playlist))] #pylint: disable=no-value-for-parameter
+            self.download_queue.put_nowait(entry)
 
     @playlist.command(name='item-search')
     async def playlist_item_search(self, ctx, playlist_index, *, search: str):
