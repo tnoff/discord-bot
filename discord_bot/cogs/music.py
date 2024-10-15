@@ -2042,11 +2042,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                        delete_after=self.delete_after)
 
         entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.name, ctx.author.id, self.bot.loop)
-        # Keep track on if we hit the cache for all entries
-        # If so, we need to call update queue strings after loop
-        # Since we skip that queue update on each cache iteration here
-        non_cache_item_hit = False
-        for entry in entries:
+        for (count, entry) in enumerate(entries):
             try:
                 # Check if item is already search cache
                 search_cache_entry = self.__check_search_cache(entry)
@@ -2059,11 +2055,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_download = await self.__check_video_cache(entry, player)
                 if source_download:
                     self.logger.debug(f'Music :: Search "{search_string_message}" found in cache, placing in player queue')
-                    await self.__add_source_to_player(entry, source_download, player, skip_update_queue_strings=True)
+                    # Skip queue strings for every cahced result except the last one
+                    skip_queue_strings = not count == (len(entries) - 1)
+                    await self.__add_source_to_player(entry, source_download, player, skip_update_queue_strings=skip_queue_strings)
                     continue
                 entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
                 self.logger.debug(f'Music :: Handing off entry {search_string_message} to download queue')
-                non_cache_item_hit = True
                 self.download_queue.put_nowait(entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
@@ -2072,9 +2069,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except QueueFull:
                 await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
                 continue
-        # If all items were cache, lets go ahead and update queue strings
-        if not non_cache_item_hit:
-            await player.update_queue_strings()
 
     @commands.command(name='skip')
     async def skip_(self, ctx):
@@ -2830,11 +2824,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         # Track if we broke early for eventual return block
         broke_early = False
-        # Keep track on if we hit the cache for all entries
-        # If so, we need to call update queue strings after loop
-        # Since we skip that queue update on each cache iteration here
-        non_cache_item_hit = False
-        for item in playlist_items:
+        for (count, item) in enumerate(playlist_items):
             try:
                 # Just add directly to download queue here, since we already know the video id
                 entry = {
@@ -2852,11 +2842,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_download = await self.__check_video_cache(entry, player)
                 if source_download:
                     self.logger.debug(f'Music :: Search "{item.video_url}" found in cache, placing in player queue')
-                    await self.__add_source_to_player(entry, source_download, player, skip_update_queue_strings=True)
+                    # Skip queue strings for every cahced result except the last one
+                    skip_queue_strings = not count == (len(playlist_items) - 1)
+                    await self.__add_source_to_player(entry, source_download, player, skip_update_queue_strings=skip_queue_strings)
                     continue
                 self.logger.debug(f'Music :: Handing off "{item.video_url}" to download queue')
                 entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
-                non_cache_item_hit = True
                 self.download_queue.put_nowait(entry)
             except QueueFull:
                 await retry_discord_message_command(entry['message'].edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
@@ -2867,9 +2858,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 await retry_discord_message_command(entry['message'].delete)
                 break
-        # If all items were cache, lets go ahead and update queue strings
-        if not non_cache_item_hit:
-            await player.update_queue_strings()
         return broke_early
 
     async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
