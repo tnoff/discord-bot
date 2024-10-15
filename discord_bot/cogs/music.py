@@ -575,13 +575,14 @@ class ElasticSearchClient():
     '''
     Client to hit elasticsearch endpoints
     '''
-    def __init__(self, elasticsearch_url, elasticsearch_auth):
+    def __init__(self, elasticsearch_url, elasticsearch_auth, logger):
         '''
         Init basic options
         '''
         auth_split = elasticsearch_auth.split(':::')
         auth_creds = (auth_split(0), auth_split(1))
         self.client = AsyncElasticsearch(elasticsearch_url, basic_auth=auth_creds)
+        self.logger = logger
 
     async def check_auth(self):
         '''
@@ -598,6 +599,10 @@ class ElasticSearchClient():
         Add index with source download
         source_download : Source Download from DownloadClient
         '''
+        existing_value = await self.check_id(source_download)
+        if existing_value:
+            await self.client.update(index='youtube', id=source_download['webpage_url'], doc={'last_iterated_at': datetime.utcnow()})
+            return existing_value
         # Similar to YT_DLP_KEYS
         # But exclude some args we dont use
         extractor = source_download['extractor']
@@ -608,21 +613,33 @@ class ElasticSearchClient():
         document = {
             'title': title,
             'uploader': uploader,
-            'timestamp': datetime.utcnow(),
+            'created_at': datetime.utcnow(),
+            'last_iterated_at': datetime.utcnow(),
         }
+        self.logger.debug(f'Music :: Uploading new elastic-cache document "{document}" with id "{webpage_url}" to extractor "{extractor}"')
         return await self.client.index(index=extractor, id=webpage_url, document=document)
 
-    async def check_index(self, source_download):
+    async def check_id(self, source_download):
         '''
         Check if index with source download already exists
         '''
         webpage_url = source_download['webpage_url']
         extractor = source_download['extractor']
         try:
-            await self.client.get(index=extractor, id=webpage_url)
-            return True
+            return await self.client.get(index=extractor, id=webpage_url)
         except NotFoundError:
-            return False
+            return None
+
+    async def check_cache(self, search_string):
+        '''
+        Check if item exists in current search cache
+        search_string      :    Search string to look for
+        '''
+        top_result = await self.client.search(index='youtube', size=1, query={'query_string': { 'query': clean_search_string(search_string) }})['hits']['hits'][0]
+        self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and found top result with score {top_result["_score"]} and payload "{top_result["_source"]}"')
+        # TODO figure out what the best score value as a baseline is to use this
+        # then enable an update to the last_iterated_at
+        # await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
 
 # Music bot setup
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
@@ -1566,7 +1583,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.elasticsearch_client = None
         if self.elasticsearch_url and self.elasticsearch_auth:
-            self.elasticsearch_client = ElasticSearchClient(self.elasticsearch_url, self.elasticsearch_auth)
+            self.elasticsearch_client = ElasticSearchClient(self.elasticsearch_url, self.elasticsearch_auth, self.logger)
 
         if self.download_dir is not None:
             self.download_dir = Path(self.download_dir)
@@ -1717,27 +1734,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             item = self.db_session.query(SearchCache).order_by(asc(SearchCache.last_used_at)).first()
             self.db_session.delete(item)
             self.db_session.commit()
-        search_string = clean_search_string(search_string)
-        now = datetime.utcnow()
-        item = SearchCache(search_string=search_string,
-                           video_url=source_download['webpage_url'],
-                           created_at=now,
-                           last_used_at=now)
-        self.db_session.add(item)
-        self.db_session.commit()
+        if 'https://' not in search_string:
+            search_string = clean_search_string(search_string)
+            now = datetime.utcnow()
+            item = SearchCache(search_string=search_string,
+                            video_url=source_download['webpage_url'],
+                            created_at=now,
+                            last_used_at=now)
+            self.db_session.add(item)
+            self.db_session.commit()
         # If ElasticSearch cache enabled, add there as well
         if self.elasticsearch_client:
             self.logger.info(f'Music :: Elasticsearch cache enabled, attempting to add webpage "{source_download["webpage_url"]}"')
             await self.elasticsearch_client.add_source(source_download)
         return True
 
-    def __search_string_cache(self, search_string):
+    async def __search_string_cache(self, search_string):
         '''
         Check search string cache for item
         search_string       : Search string
         '''
         if not self.db_session:
             return None
+        if self.elasticsearch_client:
+            await self.elasticsearch_client.check_cache(search_string)
         search_string = clean_search_string(search_string)
         item = self.db_session.query(SearchCache).filter(SearchCache.search_string == search_string).first()
         if not item:
@@ -1746,11 +1766,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.db_session.commit()
         return item.video_url
 
-    def __check_search_cache(self, source_dict):
+    async def __check_search_cache(self, source_dict):
         # Check if we have already made this search
         if self.cache_file and 'https://' not in source_dict['search_string']:
             self.logger.info(f'Music ::: Checking search cache for string "{source_dict["search_string"]}"')
-            cache_item_url = self.__search_string_cache(source_dict['search_string'])
+            cache_item_url = await self.__search_string_cache(source_dict['search_string'])
             if cache_item_url:
                 self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is "{cache_item_url}"')
                 return cache_item_url
@@ -1924,7 +1944,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # If we have a result, add to search cache
-        if self.cache_file and 'https://' not in source_dict['search_string']:
+        if self.cache_file:
             self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
             await self.__cache_search_string(source_dict['search_string'], source_download)
 
@@ -2125,7 +2145,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for (count, entry) in enumerate(entries):
             try:
                 # Check if item is already search cache
-                search_cache_entry = self.__check_search_cache(entry)
+                search_cache_entry = await self.__check_search_cache(entry)
                 if search_cache_entry:
                     entry['search_string'] = search_cache_entry
                 # Dont embed link if https
