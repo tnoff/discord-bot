@@ -1926,7 +1926,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # If we have a result, add to search cache
         if self.cache_file and 'https://' not in source_dict['search_string']:
             self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
-            await self.__cache_search_string(source_dict['search_string'], source_download['webpage_url'])
+            await self.__cache_search_string(source_dict['search_string'], source_download)
 
         for func in post_download_callback_functions:
             await func(source_download)
