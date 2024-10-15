@@ -580,7 +580,7 @@ class ElasticSearchClient():
         Init basic options
         '''
         auth_split = elasticsearch_auth.split(':::')
-        auth_creds = (auth_split(0), auth_split(1))
+        auth_creds = (auth_split[0], auth_split[0])
         self.client = AsyncElasticsearch(elasticsearch_url, basic_auth=auth_creds)
         self.logger = logger
 
