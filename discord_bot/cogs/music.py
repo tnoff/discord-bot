@@ -1038,6 +1038,7 @@ class CacheFile():
         '''
         Remove oldest and least used file from cache
         '''
+        # TODO this should only count video cache items with an actual file
         cache_count = self.db_session.query(VideoCache).count()
         num_to_remove = cache_count - self.max_cache_files
         if num_to_remove < 1:
