@@ -17,6 +17,7 @@ from dappertable import shorten_string_cjk, DapperTable
 from discord import FFmpegPCMAudio
 from discord.errors import ClientException, NotFound
 from discord.ext import commands
+from elasticsearch import AsyncElasticsearch, AuthenticationException, NotFoundError
 from moviepy.editor import AudioFileClip, afx
 from numpy import sqrt
 from requests import get as requests_get
@@ -138,6 +139,12 @@ MUSIC_SECTION_SCHEMA = {
         },
         'extra_ytdlp_options': {
             'type': 'object',
+        },
+        'elasticsearch_url': {
+            'type': 'string',
+        },
+        'elasticsearch_auth': {
+            'type': 'string',
         },
         'banned_videos_list': {
             'type': 'array',
@@ -559,6 +566,63 @@ class YoutubeAPI():
             except KeyError:
                 return req, results
         return req, results
+
+#
+# ElasticSearch Client
+#
+
+class ElasticSearchClient():
+    '''
+    Client to hit elasticsearch endpoints
+    '''
+    def __init__(self, elasticsearch_url, elasticsearch_auth):
+        '''
+        Init basic options
+        '''
+        auth_split = elasticsearch_auth.split(':::')
+        auth_creds = (auth_split(0), auth_split(1))
+        self.client = AsyncElasticsearch(elasticsearch_url, basic_auth=auth_creds)
+
+    async def check_auth(self):
+        '''
+        Run basic auth check
+        '''
+        try:
+            await self.client.search()
+            return True
+        except AuthenticationException:
+            return False
+
+    async def add_source(self, source_download):
+        '''
+        Add index with source download
+        source_download : Source Download from DownloadClient
+        '''
+        # Similar to YT_DLP_KEYS
+        # But exclude some args we dont use
+        extractor = source_download['extractor']
+        webpage_url = source_download['webpage_url']
+        title = source_download['title']
+        uploader = source_download['uploader']
+
+        document = {
+            'title': title,
+            'uploader': uploader,
+            'timestamp': datetime.utcnow(),
+        }
+        return await self.client.index(index=extractor, id=webpage_url, document=document)
+
+    async def check_index(self, source_download):
+        '''
+        Check if index with source download already exists
+        '''
+        webpage_url = source_download['webpage_url']
+        extractor = source_download['extractor']
+        try:
+            await self.client.get(index=extractor, id=webpage_url)
+            return True
+        except NotFoundError:
+            return False
 
 # Music bot setup
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
@@ -1490,6 +1554,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
         ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
         self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', YTDLP_WAIT_TIME_DEFAULT)
+        self.elasticsearch_url = self.settings.get('music', {}).get('elasticsearch_url', None)
+        self.elasticsearch_auth = self.settings.get('music', {}).get('elasticsearch_auth', None)
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -1497,6 +1563,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.youtube_client = None
         if youtube_api_key:
             self.youtube_client = YoutubeAPI(youtube_api_key)
+
+        self.elasticsearch_client = None
+        if self.elasticsearch_url and self.elasticsearch_auth:
+            self.elasticsearch_client = ElasticSearchClient(self.elasticsearch_url, self.elasticsearch_auth)
 
         if self.download_dir is not None:
             self.download_dir = Path(self.download_dir)
@@ -1632,11 +1702,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    def __cache_search_string(self, search_string, video_url):
+    async def __cache_search_string(self, search_string, source_download):
         '''
         Cache search string in db session
         search_string       : Original search string
-        video_url           : Video url of item
+        source_download     : Source Download from DownloadClient
         '''
         if not self.db_session:
             return False
@@ -1650,11 +1720,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         search_string = clean_search_string(search_string)
         now = datetime.utcnow()
         item = SearchCache(search_string=search_string,
-                           video_url=video_url,
+                           video_url=source_download['webpage_url'],
                            created_at=now,
                            last_used_at=now)
         self.db_session.add(item)
         self.db_session.commit()
+        # If ElasticSearch cache enabled, add there as well
+        if self.elasticsearch_client:
+            self.logger.info(f'Music :: Elasticsearch cache enabled, attempting to add webpage "{source_download["webpage_url"]}"')
+            await self.elasticsearch_client.add_source(source_download)
         return True
 
     def __search_string_cache(self, search_string):
@@ -1850,7 +1924,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # If we have a result, add to search cache
         if self.cache_file and 'https://' not in source_dict['search_string']:
             self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
-            self.__cache_search_string(source_dict['search_string'], source_download['webpage_url'])
+            await self.__cache_search_string(source_dict['search_string'], source_download['webpage_url'])
 
         # Add sources to players
         if not await self.__add_source_to_player(source_dict, source_download, player):
