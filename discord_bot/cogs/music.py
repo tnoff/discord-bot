@@ -1946,7 +1946,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
         # Final none check in case we couldn't download video
-        if not self.__ensure_video_download_result(source_dict, source_download, player):
+        if not await self.__ensure_video_download_result(source_dict, source_download, player):
             return
 
         # If we have a result, add to search cache
