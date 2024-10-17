@@ -594,6 +594,15 @@ class ElasticSearchClient():
         except AuthenticationException:
             return False
 
+    def __cleanup_uploader(self, uploader):
+        '''
+        Cleanup uploader string
+
+        uploader: uploader string
+        '''
+        new_stringy = uploader.replace(' - Topic')
+        return new_stringy
+
     async def add_source(self, source_download):
         '''
         Add index with source download
@@ -608,7 +617,7 @@ class ElasticSearchClient():
         extractor = source_download['extractor']
         webpage_url = source_download['webpage_url']
         title = source_download['title']
-        uploader = source_download['uploader']
+        uploader = self.__cleanup_uploader(source_download['uploader'])
 
         document = {
             'title': title,
