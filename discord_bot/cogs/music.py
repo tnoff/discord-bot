@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from random import shuffle as random_shuffle
-from re import match as re_match
+from re import match as re_match, sub as re_sub
 from shutil import copyfile
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from traceback import format_exc
@@ -87,6 +87,8 @@ SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9
 YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
+OFFICIAL_TITLES_REGEX = r'\ (\(|\[)\ ?(OFFICIAL|Official)?\ ?(Audio|AUDIO|Music|MUSIC|Video|VIDEO|Visualiser|VISUALIZER|Lyric|LYRIC)\ ?(Video|VIDEO)?\ ?(\)|\])'
+
 # RIP twitter
 TWITTER_VIDEO_PREFIX = 'https://x.com'
 FXTWITTER_VIDEO_PREFIX = 'https://fxtwitter.com'
@@ -305,16 +307,22 @@ def rm_tree(pth):
             rm_tree(child)
     pth.rmdir()
 
-def clean_search_string(stringy):
+def remove_double_spaces(stringy):
     '''
-    Make sure all double spaces are replaced with a space, also strip string
+    Remove double spaces from string
     '''
-    stringy = stringy.lower().strip()
     while True:
         new_string = stringy.replace(' ' * 2, ' ')
         if new_string == stringy:
             return stringy
         stringy = new_string
+
+def clean_search_string(stringy):
+    '''
+    Make sure all double spaces are replaced with a space, also strip string
+    '''
+    stringy = stringy.lower().strip()
+    return remove_double_spaces(stringy)
 
 def fix_search_string_message(search_string):
     '''
@@ -594,6 +602,25 @@ class ElasticSearchClient():
         except AuthenticationException:
             return False
 
+    def __cleanup_title(self, title, uploader):
+        '''
+        Cleanup title
+
+        title: title string
+        uploader: uploader string
+        '''
+        # Remove "official" titles
+        new_stringy = title
+        new_stringy = re_sub(OFFICIAL_TITLES_REGEX, '', new_stringy)
+        # Sometimes uploader also in title
+        if uploader in new_stringy:
+            new_stringy = new_stringy.replace(uploader, '')
+            # Sometimes leaves - at the front
+            if new_stringy.startswith(' - '):
+                new_stringy = new_stringy[3:]
+        # Remove double spaces and all from string
+        return remove_double_spaces(new_stringy)
+
     def __cleanup_uploader(self, uploader):
         '''
         Cleanup uploader string
@@ -601,6 +628,7 @@ class ElasticSearchClient():
         uploader: uploader string
         '''
         new_stringy = uploader.replace(' - Topic')
+        new_stringy = new_stringy.replace('VEVO', '')
         return new_stringy
 
     async def add_source(self, source_download):
@@ -616,8 +644,8 @@ class ElasticSearchClient():
         # But exclude some args we dont use
         extractor = source_download['extractor']
         webpage_url = source_download['webpage_url']
-        title = source_download['title']
         uploader = self.__cleanup_uploader(source_download['uploader'])
+        title = self.__cleanup_title(source_download['title'], uploader)
 
         document = {
             'title': title,
