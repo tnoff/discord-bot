@@ -677,8 +677,12 @@ class ElasticSearchClient():
             query={'query_string': { 'query': clean_search_string(search_string) }},
             size=1,
         )
-        top_result = resp['hits']['hits'][0]
-        self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and found top result with score {top_result["_score"]} and payload "{top_result["_source"]}"')
+        try:
+            top_result = resp['hits']['hits'][0]
+            self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and found top result with score {top_result["_score"]} and payload "{top_result["_source"]}"')
+        except IndexError:
+            self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and no relevant results found')
+            return None
         # TODO figure out what the best score value as a baseline is to use this
         # then enable an update to the last_iterated_at
         # await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
