@@ -384,17 +384,6 @@ class PlaylistItem(BASE):
     created_at = Column(DateTime)
 
 
-class SearchCache(BASE):
-    '''
-    Cache search strings to video urls
-    '''
-    __tablename__ = 'search_string_cache'
-    id = Column(Integer, primary_key=True)
-    search_string = Column(String(1024))
-    video_url = Column(String(256))
-    created_at = Column(DateTime, nullable=True)
-    last_used_at = Column(DateTime)
-
 class VideoCache(BASE):
     '''
     Cached downloaded videos
@@ -696,9 +685,11 @@ class ElasticSearchClient():
         except IndexError:
             self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and no relevant results found')
             return None
-        # TODO figure out what the best score value as a baseline is to use this
-        # then enable an update to the last_iterated_at
-        # await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
+        if top_result['_score'] > 20:
+            self.logger.info(f'Music :: Checked elastic-cache for search "{search_string} and found result "{top_result["_source"]}" with id {top_result["_id"]}')
+            await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
+            return top_result['_id']
+        return None
 
 # Music bot setup
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
@@ -1779,31 +1770,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    async def __cache_search_string(self, search_string, source_download):
+    async def __cache_search(self, source_download):
         '''
         Cache search string in db session
-        search_string       : Original search string
         source_download     : Source Download from DownloadClient
         '''
-        if not self.db_session:
-            return False
-        # Check if we're at capacity
-        total_count = self.db_session.query(SearchCache).count()
-        if total_count >= self.max_search_cache_entries:
-            self.logger.debug(f'At max entries in search cache {self.max_search_cache_entries}, deleting older records')
-            item = self.db_session.query(SearchCache).order_by(asc(SearchCache.last_used_at)).first()
-            self.db_session.delete(item)
-            self.db_session.commit()
-        if 'https://' not in search_string:
-            search_string = clean_search_string(search_string)
-            now = datetime.utcnow()
-            item = SearchCache(search_string=search_string,
-                            video_url=source_download['webpage_url'],
-                            created_at=now,
-                            last_used_at=now)
-            self.db_session.add(item)
-            self.db_session.commit()
-        # If ElasticSearch cache enabled, add there as well
+        # TODO dd bit here to delete older items
         if self.elasticsearch_client:
             self.logger.info(f'Music :: Elasticsearch cache enabled, attempting to add webpage "{source_download["webpage_url"]}"')
             await self.elasticsearch_client.add_source(source_download)
@@ -1814,17 +1786,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Check search string cache for item
         search_string       : Search string
         '''
-        if not self.db_session:
-            return None
         if self.elasticsearch_client:
-            await self.elasticsearch_client.check_cache(search_string)
-        search_string = clean_search_string(search_string)
-        item = self.db_session.query(SearchCache).filter(SearchCache.search_string == search_string).first()
-        if not item:
-            return None
-        item.last_used_at = datetime.now()
-        self.db_session.commit()
-        return item.video_url
+            return await self.elasticsearch_client.check_cache(search_string)
+        return None
 
     async def __check_search_cache(self, source_dict):
         # Check if we have already made this search
@@ -2004,9 +1968,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # If we have a result, add to search cache
-        if self.cache_file:
-            self.logger.info(f'Music ::: Updating search cache for search string "{source_dict["search_string"]}" and url "{source_download["webpage_url"]}"')
-            await self.__cache_search_string(source_dict['search_string'], source_download)
+        await self.__cache_search(source_download)
 
         for func in post_download_callback_functions:
             await func(source_download)
