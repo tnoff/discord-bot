@@ -2212,6 +2212,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except QueueFull:
                 await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
                 continue
+        # Update queue strings finally just to be safe
+        await player.update_queue_strings()
+
 
     @commands.command(name='skip')
     async def skip_(self, ctx):
@@ -3009,6 +3012,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 await retry_discord_message_command(entry['message'].delete)
                 break
+        # Update queue strings finally just to be safe
+        await player.update_queue_strings()
         return broke_early
 
     async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
