@@ -17,7 +17,7 @@ from dappertable import shorten_string_cjk, DapperTable
 from discord import FFmpegPCMAudio
 from discord.errors import ClientException, NotFound
 from discord.ext import commands
-from elasticsearch import AsyncElasticsearch, AuthenticationException, NotFoundError
+from elasticsearch import AsyncElasticsearch, AuthenticationException, BadRequestError, NotFoundError
 from moviepy.editor import AudioFileClip, afx
 from numpy import sqrt
 from requests import get as requests_get
@@ -654,7 +654,14 @@ class ElasticSearchClient():
             'last_iterated_at': datetime.utcnow(),
         }
         self.logger.debug(f'Music :: Uploading new elastic-cache document "{document}" with id "{webpage_url}" to extractor "{extractor}"')
-        return await self.client.index(index=extractor, id=webpage_url, document=document)
+        try:
+            return await self.client.index(index=extractor, id=webpage_url, document=document)
+        except BadRequestError as e:
+            self.logger.error(f'Music :: Unable to add new document "{document}"')
+            self.logger.exception(e)
+            self.logger.error(format_exc())
+            self.logger.error(str(e))
+            return None
 
     async def check_id(self, source_download):
         '''
@@ -680,6 +687,12 @@ class ElasticSearchClient():
         try:
             top_result = resp['hits']['hits'][0]
             self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and found top result with score {top_result["_score"]} and payload "{top_result["_source"]}"')
+        except BadRequestError as e:
+            self.logger.error(f'Music :: Unable to search for search string "{search_string}"')
+            self.logger.exception(e)
+            self.logger.error(format_exc())
+            self.logger.error(str(e))
+            return None
         except IndexError:
             self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and no relevant results found')
             return None
