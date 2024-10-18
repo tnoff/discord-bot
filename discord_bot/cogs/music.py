@@ -672,6 +672,7 @@ class ElasticSearchClient():
         '''
         resp = await self.client.search(
             index="youtube",
+            # TODO Fix this to just account for these https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_reserved_characters
             query={'query_string': { 'query': clean_search_string(search_string) }},
             size=1,
         )
