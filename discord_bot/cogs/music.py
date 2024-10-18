@@ -627,7 +627,7 @@ class ElasticSearchClient():
 
         uploader: uploader string
         '''
-        new_stringy = uploader.replace(' - Topic')
+        new_stringy = uploader.replace(' - Topic', '')
         new_stringy = new_stringy.replace('VEVO', '')
         return new_stringy
 
