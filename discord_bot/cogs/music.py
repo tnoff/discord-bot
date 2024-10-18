@@ -674,7 +674,7 @@ class ElasticSearchClient():
         '''
         resp = await self.client.search(
             index="youtube",
-            query={'query_string': { 'query': clean_search_string(search_string) }},
+            query={'query_string': { 'query': clean_search_string(search_string), 'default_field': 'title' }},
             size=1,
         )
         top_result = resp['hits']['hits'][0]
