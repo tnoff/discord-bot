@@ -321,7 +321,9 @@ def clean_search_string(stringy):
     '''
     Make sure all double spaces are replaced with a space, also strip string
     '''
-    stringy = stringy.lower().strip()
+    # Remove non alpha-numeric chars
+    # https://stackoverflow.com/questions/1276764/stripping-everything-but-alphanumeric-chars-from-a-string-in-python
+    stringy = re_sub(r'\W+', '', stringy.lower())
     return remove_double_spaces(stringy)
 
 def fix_search_string_message(search_string):
