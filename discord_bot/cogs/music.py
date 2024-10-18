@@ -88,6 +88,8 @@ YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playli
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
 OFFICIAL_TITLES_REGEX = r'\ (\(|\[)\ ?(OFFICIAL|Official)?\ ?(Audio|AUDIO|Music|MUSIC|Video|VIDEO|Visualiser|VISUALIZER|Lyric|LYRIC)\ ?(Video|VIDEO)?\ ?(\)|\])'
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_reserved_characters
+KIBANA_SPECIAL_CHARS = '+ - & | ! ( ) { } [ ] ^ " ~ * ? : \\'
 
 # RIP twitter
 TWITTER_VIDEO_PREFIX = 'https://x.com'
@@ -319,11 +321,13 @@ def remove_double_spaces(stringy):
 
 def clean_search_string(stringy):
     '''
-    Make sure all double spaces are replaced with a space, also strip string
+    Remove special elasticsearch/kibana characters
+    Also remove double spaces
+
+    stringy: Original string
     '''
-    # Remove non alpha-numeric chars
-    # https://stackoverflow.com/questions/1276764/stripping-everything-but-alphanumeric-chars-from-a-string-in-python
-    stringy = re_sub(r'\W+', '', stringy.lower())
+    # https://stackoverflow.com/questions/40222694/escaping-special-characters-in-elasticsearch
+    stringy = re_sub('([{}])'.format('\\'.join(KIBANA_SPECIAL_CHARS)), r'\\\1', stringy.lower())
     return remove_double_spaces(stringy)
 
 def fix_search_string_message(search_string):
@@ -672,7 +676,6 @@ class ElasticSearchClient():
         '''
         resp = await self.client.search(
             index="youtube",
-            # TODO Fix this to just account for these https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_reserved_characters
             query={'query_string': { 'query': clean_search_string(search_string) }},
             size=1,
         )
