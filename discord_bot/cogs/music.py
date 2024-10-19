@@ -617,13 +617,13 @@ class DownloadQueue():
             if data['queue'].size() < 1:
                 continue
             # Find queue with smallest timestamp and return
-            if latest_guild is None:
-                latest_guild = guild_id
+            if oldest_guild is None:
+                oldest_guild = guild_id
                 oldest_timestamp = data['last_download_at'] or data['created_at']
                 continue
             check_value = data['last_download_at'] or data['created_at']
             if check_value < oldest_timestamp:
-                latest_guild = guild_id
+                oldest_guild = guild_id
                 oldest_timestamp = check_value
         if not oldest_guild:
             self.logger.debug('Music :: Cannot find queues with any items, skipping')
