@@ -571,6 +571,80 @@ class YoutubeAPI():
         return req, results
 
 #
+# Download Queue
+#
+
+class DownloadQueue():
+    '''
+    Keeps track of multiple download queues and switches between them
+    '''
+    def __init__(self, max_size, logger):
+        '''
+        max_size : Max size of each individual queue
+        '''
+        self.queues = {}
+        self.max_size = max_size
+        self.logger = logger
+
+    def put_nowait(self, entry):
+        '''
+        Put into the download queue for proper download queue
+
+        entry: Standard source dict object
+        '''
+        # TODO standardize source dict and source download objects if they aren't already
+        self.logger.debug(f'Music :: Adding entry "{entry}" to specific download queue')
+        guild_id = entry['guild_id']
+        if guild_id not in self.queues:
+            self.queues[guild_id] = {
+                'created_at': datetime.utcnow(),
+                'last_download_at': None,
+                'queue': MyQueue(maxsize=self.max_size),
+            }
+            self.logger.debug(f'Music :: Generating specific download queue for guild {guild_id}')
+        self.queues[guild_id]['queue'].put_nowait(entry)
+        return True
+
+    def get_nowait(self):
+        '''
+        Get download item from queue thats been waiting longest
+        '''
+        self.logger.debug('Music :: Grabbing item from queue that has been worked farthest in past')
+        oldest_guild = None
+        oldest_timestamp = None
+        for guild_id, data in self.queues.items():
+            # Skip empty queues
+            if data['queue'].size() < 1:
+                continue
+            # Find queue with smallest timestamp and return
+            if latest_guild is None:
+                latest_guild = guild_id
+                oldest_timestamp = data['last_download_at'] or data['created_at']
+                continue
+            check_value = data['last_download_at'] or data['created_at']
+            if check_value < oldest_timestamp:
+                latest_guild = guild_id
+                oldest_timestamp = check_value
+        if not oldest_guild:
+            self.logger.debug('Music :: Cannot find queues with any items, skipping')
+            raise QueueEmpty('No queues with any items')
+        self.logger.debug(f'Music :: Grabbing item from guild {oldest_guild} since it has oldest timestamp {oldest_timestamp}')
+        item = self.queues[oldest_guild]['queue'].get_nowait()
+        self.queues[oldest_guild]['last_download_at'] = datetime.utcnow()
+        return item
+
+    def clear_queue(self, guild_id):
+        '''
+        Clear queue for guild
+        '''
+        try:
+            del self.queues[guild_id]
+            return True
+        except KeyError:
+            return False
+
+
+#
 # ElasticSearch Client
 #
 
@@ -1613,7 +1687,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.delete_after = self.settings.get('music', {}).get('message_delete_after', DELETE_AFTER_DEFAULT)
         self.queue_max_size = self.settings.get('music', {}).get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
-        self.download_queue = MyQueue(maxsize=self.queue_max_size)
+        self.download_queue = DownloadQueue(self.queue_max_size, self.logger)
         self.server_playlist_max_size = self.settings.get('music', {}).get('server_playlist_max_size', SERVER_PLAYLIST_MAX_SIZE_DEFAULT)
         self.max_video_length = self.settings.get('music', {}).get('max_video_length', MAX_VIDEO_LENGTH_DEFAULT)
         self.disconnect_timeout = self.settings.get('music', {}).get('disconnect_timeout', DISCONNECT_TIMEOUT_DEFAULT)
@@ -2041,6 +2115,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             player = self.players[guild.id]
         except KeyError:
             return
+
+        self.download_queue.clear_queue(guild.id)
 
         await player.clear_queue_messages()
 
