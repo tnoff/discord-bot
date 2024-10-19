@@ -713,12 +713,13 @@ class ElasticSearchClient():
         source_dict     : Standard source direct object
         source_download : Source Download from DownloadClient
         '''
+        search_type = source_dict.get('search_type', '')
         existing_value = await self.check_id(source_download)
         if existing_value:
             doc = {
                 'last_iterated_at': datetime.utcnow(),
             }
-            if source_dict['search_type'] == 'spotify':
+            if search_type == 'spotify':
                 doc['spotify_search'] = source_dict['search_string']
             await self.client.update(index='youtube', id=source_download['webpage_url'], doc=doc)
             return existing_value
@@ -735,7 +736,7 @@ class ElasticSearchClient():
             'created_at': datetime.utcnow(),
             'last_iterated_at': datetime.utcnow(),
         }
-        if source_dict['search_type'] in ['spotify']:
+        if search_type  == 'spotify':
             document['spotify_search'] = source_dict['search_string']
         self.logger.debug(f'Music :: Uploading new elastic-cache document "{document}" with id "{webpage_url}" to extractor "{extractor}"')
         try:
@@ -764,7 +765,8 @@ class ElasticSearchClient():
         source_dict      :   Standard source dict
         '''
         search_string = source_dict['search_string']
-        if source_dict['search_type'] == 'spotify':
+        search_type = source_dict.get('search_type', '')
+        if search_type == 'spotify':
             direct_resp = await self.client.search(
                 index='youtube',
                 size=1,
