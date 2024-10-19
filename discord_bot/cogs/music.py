@@ -92,7 +92,7 @@ YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
 OFFICIAL_TITLES_REGEX = r'\ (\(|\[)\ ?(OFFICIAL|Official)?\ ?(Audio|AUDIO|Music|MUSIC|Video|VIDEO|Visualiser|VISUALIZER|Lyric|LYRIC)\ ?(Video|VIDEO)?\ ?(\)|\])'
 # https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_reserved_characters
-KIBANA_SPECIAL_CHARS = '+ - & | ! ( ) { } [ ] ^ " ~ * ? : \\'
+KIBANA_SPECIAL_CHARS = '+ - & | ! ( ) { } [ ] ^ " ~ * ? : \\ /'
 
 # RIP twitter
 TWITTER_VIDEO_PREFIX = 'https://x.com'
