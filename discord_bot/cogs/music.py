@@ -1734,7 +1734,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', YTDLP_WAIT_TIME_DEFAULT)
         self.elasticsearch_url = self.settings.get('music', {}).get('elasticsearch_url', None)
         self.elasticsearch_auth = self.settings.get('music', {}).get('elasticsearch_auth', None)
-        self.elasticsearch_min_score = self.settings.get('music, {}').get('elasticsearch_score', ELASTICSEARCH_MIN_SCORE_DEfAULT)
+        self.elasticsearch_min_score = self.settings.get('music', {}).get('elasticsearch_score', ELASTICSEARCH_MIN_SCORE_DEfAULT)
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
