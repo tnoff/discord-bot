@@ -704,14 +704,20 @@ class ElasticSearchClient():
         new_stringy = new_stringy.replace('VEVO', '')
         return new_stringy
 
-    async def add_source(self, source_download):
+    async def add_source(self, source_dict, source_download):
         '''
         Add index with source download
+        source_dict     : Standard source direct object
         source_download : Source Download from DownloadClient
         '''
         existing_value = await self.check_id(source_download)
         if existing_value:
-            await self.client.update(index='youtube', id=source_download['webpage_url'], doc={'last_iterated_at': datetime.utcnow()})
+            doc = {
+                'last_iterated_at': datetime.utcnow(),
+            }
+            if source_dict['search_type'] == 'spotify':
+                doc['spotify_search'] = source_dict['search_string']
+            await self.client.update(index='youtube', id=source_download['webpage_url'], doc=doc)
             return existing_value
         # Similar to YT_DLP_KEYS
         # But exclude some args we dont use
@@ -726,6 +732,8 @@ class ElasticSearchClient():
             'created_at': datetime.utcnow(),
             'last_iterated_at': datetime.utcnow(),
         }
+        if source_dict['search_type'] in ['spotify']:
+            document['spotify_search'] = source_dict['search_string']
         self.logger.debug(f'Music :: Uploading new elastic-cache document "{document}" with id "{webpage_url}" to extractor "{extractor}"')
         try:
             return await self.client.index(index=extractor, id=webpage_url, document=document)
@@ -747,11 +755,28 @@ class ElasticSearchClient():
         except NotFoundError:
             return None
 
-    async def check_cache(self, search_string):
+    async def check_cache(self, source_dict):
         '''
         Check if item exists in current search cache
-        search_string      :    Search string to look for
+        source_dict      :   Standard source dict
         '''
+        search_string = source_dict['search_string']
+        if source_dict['search_type'] == 'spotify':
+            direct_resp = await self.client.search(
+                index='youtube',
+                size=1,
+                query={'match': {'spotify_search': {'query': clean_search_string(search_string)}}}
+            )
+            try:
+                top_result = direct_resp['hits']['hits'][0]
+                self.logger.info(f'Music :: Checked elastic-cache for spotify search "{search_string} and found result "{top_result["_source"]}" with id {top_result["_id"]}')
+                if top_result['_score'] >= self.min_score:
+                    await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
+                    return top_result['_id']
+            except IndexError:
+                self.logger.debug(f'Music :: Checking elastic-search for direct spofity search "{source_dict["search_string"]}" and no results found')
+                pass
+
         resp = await self.client.search(
             index="youtube",
             query={'query_string': { 'query': clean_search_string(search_string) }},
@@ -1306,7 +1331,7 @@ class DownloadClient():
                 for _ in range(NUM_SHUFFLES):
                     random_shuffle(search_strings)
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from spotify playlist "{search}"')
-            return search_strings
+            return 'spotify', search_strings
 
         if spotify_album_matcher and self.spotify_client:
             to_run = partial(self.__check_spotify_source, album_id=spotify_album_matcher.group('album_id'))
@@ -1315,7 +1340,7 @@ class DownloadClient():
                 for _ in range(NUM_SHUFFLES):
                     random_shuffle(search_strings)
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from spotify playlist "{search}"')
-            return search_strings
+            return 'spotify', search_strings
 
         if playlist_matcher and self.youtube_client:
             to_run = partial(self.__check_youtube_source, playlist_id=playlist_matcher.group('playlist_id'))
@@ -1324,18 +1349,18 @@ class DownloadClient():
                 for _ in range(NUM_SHUFFLES):
                     random_shuffle(search_strings)
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from youtube playlist "{search}"')
-            return search_strings
+            return 'direct', search_strings
         if youtube_video_match:
-            return [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
+            return 'direct', [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
         if FXTWITTER_VIDEO_PREFIX in search:
-            return [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)]
-        return [search]
+            return 'direct', [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)]
+        return 'search', [search]
 
     async def check_source(self, search, guild_id, requester_name, requester_id, loop):
         '''
         Create source from youtube search
         '''
-        search_strings = await self.__check_source_types(search, loop)
+        search_type, search_strings = await self.__check_source_types(search, loop)
 
         all_entries = []
         for search_string in search_strings:
@@ -1344,6 +1369,7 @@ class DownloadClient():
                 'requester_name': requester_name,
                 'requester_id': requester_id,
                 'search_string': search_string,
+                'search_type': search_type,
             })
         return all_entries
 
@@ -1855,31 +1881,26 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    async def __cache_search(self, source_download):
+    async def __cache_search(self, source_dict, source_download):
         '''
         Cache search string in db session
+        source_dict         : Standard source dict object
         source_download     : Source Download from DownloadClient
         '''
         # TODO dd bit here to delete older items
         if self.elasticsearch_client:
             self.logger.info(f'Music :: Elasticsearch cache enabled, attempting to add webpage "{source_download["webpage_url"]}"')
-            await self.elasticsearch_client.add_source(source_download)
+            await self.elasticsearch_client.add_source(source_dict, source_download)
         return True
 
-    async def __search_string_cache(self, search_string):
+    async def __check_search_cache(self, source_dict):
         '''
         Check search string cache for item
-        search_string       : Search string
+        source_dict : Standard source dict object
         '''
-        if self.elasticsearch_client:
-            return await self.elasticsearch_client.check_cache(search_string)
-        return None
-
-    async def __check_search_cache(self, source_dict):
-        # Check if we have already made this search
-        if self.cache_file and 'https://' not in source_dict['search_string']:
+        if self.elasticsearch_client and 'https://' not in source_dict['search_string']:
             self.logger.info(f'Music ::: Checking search cache for string "{source_dict["search_string"]}"')
-            cache_item_url = await self.__search_string_cache(source_dict['search_string'])
+            cache_item_url = await self.elasticsearch_client.check_cache(source_dict)
             if cache_item_url:
                 self.logger.info(f'Music ::: Cache search url found for string "{source_dict["search_string"]}", url is "{cache_item_url}"')
                 return cache_item_url
@@ -2053,7 +2074,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # If we have a result, add to search cache
-        await self.__cache_search(source_download)
+        await self.__cache_search(source_dict, source_download)
 
         for func in post_download_callback_functions:
             await func(source_download)
