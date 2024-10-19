@@ -77,6 +77,9 @@ YTDLP_WAIT_TIME_DEFAULT = 30
 # Note: Not sure if this should be configurable, for now assuming this fine
 NUM_SHUFFLES = 5
 
+# Min score for elasticsearch hits
+ELASTICSEARCH_MIN_SCORE_DEfAULT = 20
+
 # Spotify
 SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/api/token'
 SPOTIFY_BASE_URL = 'https://api.spotify.com/v1/'
@@ -327,7 +330,7 @@ def clean_search_string(stringy):
     stringy: Original string
     '''
     # https://stackoverflow.com/questions/40222694/escaping-special-characters-in-elasticsearch
-    stringy = re_sub('([{}])'.format('\\'.join(KIBANA_SPECIAL_CHARS)), r'\\\1', stringy.lower())
+    stringy = re_sub('([{}])'.format('\\'.join(KIBANA_SPECIAL_CHARS)), r'\\\1', stringy)
     return remove_double_spaces(stringy)
 
 def fix_search_string_message(search_string):
@@ -652,7 +655,7 @@ class ElasticSearchClient():
     '''
     Client to hit elasticsearch endpoints
     '''
-    def __init__(self, elasticsearch_url, elasticsearch_auth, logger):
+    def __init__(self, elasticsearch_url, elasticsearch_auth, min_score, logger):
         '''
         Init basic options
         '''
@@ -660,6 +663,7 @@ class ElasticSearchClient():
         auth_creds = (auth_split[0], auth_split[1])
         self.client = AsyncElasticsearch(elasticsearch_url, basic_auth=auth_creds)
         self.logger = logger
+        self.min_score = min_score
 
     async def check_auth(self):
         '''
@@ -765,7 +769,7 @@ class ElasticSearchClient():
         except IndexError:
             self.logger.debug(f'Music :: Checking elastic-cache for search "{search_string}" and no relevant results found')
             return None
-        if top_result['_score'] > 20:
+        if top_result['_score'] >= self.min_score:
             self.logger.info(f'Music :: Checked elastic-cache for search "{search_string} and found result "{top_result["_source"]}" with id {top_result["_id"]}')
             await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
             return top_result['_id']
@@ -1704,6 +1708,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', YTDLP_WAIT_TIME_DEFAULT)
         self.elasticsearch_url = self.settings.get('music', {}).get('elasticsearch_url', None)
         self.elasticsearch_auth = self.settings.get('music', {}).get('elasticsearch_auth', None)
+        self.elasticsearch_min_score = self.settings.get('music, {}').get('elasticsearch_score', ELASTICSEARCH_MIN_SCORE_DEfAULT)
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -1714,7 +1719,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.elasticsearch_client = None
         if self.elasticsearch_url and self.elasticsearch_auth:
-            self.elasticsearch_client = ElasticSearchClient(self.elasticsearch_url, self.elasticsearch_auth, self.logger)
+            self.elasticsearch_client = ElasticSearchClient(self.elasticsearch_url, self.elasticsearch_auth, self.elasticsearch_min_score, self.logger)
 
         if self.download_dir is not None:
             self.download_dir = Path(self.download_dir)
