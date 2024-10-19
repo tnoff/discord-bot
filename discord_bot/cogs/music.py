@@ -596,7 +596,7 @@ class DownloadQueue():
         entry: Standard source dict object
         '''
         # TODO standardize source dict and source download objects if they aren't already
-        self.logger.debug(f'Music :: Adding entry "{entry}" to specific download queue')
+        self.logger.info(f'Music :: Adding entry "{entry}" to specific download queue for guild {entry["guild_id"]}')
         guild_id = entry['guild_id']
         if guild_id not in self.queues:
             self.queues[guild_id] = {
@@ -604,7 +604,6 @@ class DownloadQueue():
                 'last_download_at': None,
                 'queue': MyQueue(maxsize=self.max_size),
             }
-            self.logger.debug(f'Music :: Generating specific download queue for guild {guild_id}')
         self.queues[guild_id]['queue'].put_nowait(entry)
         return True
 
@@ -612,7 +611,6 @@ class DownloadQueue():
         '''
         Get download item from queue thats been waiting longest
         '''
-        self.logger.debug('Music :: Grabbing item from queue that has been worked farthest in past')
         oldest_guild = None
         oldest_timestamp = None
         for guild_id, data in self.queues.items():
@@ -629,23 +627,28 @@ class DownloadQueue():
                 oldest_guild = guild_id
                 oldest_timestamp = check_value
         if not oldest_guild:
-            self.logger.debug('Music :: Cannot find queues with any items, skipping')
             raise QueueEmpty('No queues with any items')
-        self.logger.debug(f'Music :: Grabbing item from guild {oldest_guild} since it has oldest timestamp {oldest_timestamp}')
         item = self.queues[oldest_guild]['queue'].get_nowait()
         self.queues[oldest_guild]['last_download_at'] = datetime.utcnow()
         return item
 
-    def clear_queue(self, guild_id):
+    async def clear_queue(self, guild_id):
         '''
         Clear queue for guild
         '''
-        try:
-            del self.queues[guild_id]
-            return True
-        except KeyError:
-            return False
-
+        while True:
+            try:
+                item = self.queues[guild_id].get_nowait()
+            except QueueEmpty:
+                try:
+                    del self.queues[guild_id]
+                    return True
+                except KeyError:
+                    return False
+            try:
+                await retry_discord_message_command(item['message'].delete)
+            except (KeyError, NotFound):
+                pass
 
 #
 # ElasticSearch Client
@@ -2142,14 +2145,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except KeyError:
             return
 
-        self.download_queue.clear_queue(guild.id)
-
-        await player.clear_queue_messages()
-
         history_items = await player.clear_remaining_queue()
         if player.history_playlist_id:
             playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
             self.__update_history_playlist(playlist, history_items)
+
+        await self.download_queue.clear_queue(guild.id)
 
         guild_path = self.download_dir / f'{guild.id}'
         if guild_path.exists():
