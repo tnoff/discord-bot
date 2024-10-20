@@ -775,9 +775,12 @@ class ElasticSearchClient():
             try:
                 top_result = direct_resp['hits']['hits'][0]
                 self.logger.info(f'Music :: Checked elastic-cache for spotify search "{search_string} and found result "{top_result["_source"]}" with id {top_result["_id"]}')
-                if top_result['_score'] >= self.min_score:
-                    await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
-                    return top_result['_id']
+                try:
+                    if top_result['_source']['spotify_search'] == search_string:
+                        await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
+                        return top_result['_id']
+                except KeyError:
+                    pass
             except IndexError:
                 self.logger.debug(f'Music :: Checking elastic-search for direct spofity search "{source_dict["search_string"]}" and no results found')
                 pass
