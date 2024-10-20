@@ -589,6 +589,16 @@ class DownloadQueue():
         self.max_size = max_size
         self.logger = logger
 
+    def block(self, guild_id):
+        '''
+        Block downloads for guild id
+        '''
+        try:
+            self.queues[guild_id]['queue'].block()
+            return True
+        except KeyError:
+            return False
+
     def put_nowait(self, entry):
         '''
         Put into the download queue for proper download queue
@@ -1439,7 +1449,6 @@ class MusicPlayer:
         self.play_queue.block()
         # Wait to ensure we have the block set
         await sleep(.5)
-        messages = []
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
@@ -1451,7 +1460,7 @@ class MusicPlayer:
         if self._player_task:
             self._player_task.cancel()
             self._player_task = None
-        return messages
+        return True
 
     async def acquire_lock(self, wait_timeout=600):
         '''
@@ -1677,11 +1686,11 @@ class MusicPlayer:
         if self.play_queue.empty():
             await self.update_queue_strings()
 
-    async def clear_remaining_queue(self):
+    async def clear_queues(self):
         '''
         Delete files downloaded for queue
         '''
-        messages = await self.stop_tasks()
+        await self.stop_tasks()
         # Grab history items
         history_items = []
         while True:
@@ -1694,9 +1703,7 @@ class MusicPlayer:
                 break
         # Clear out all the queues
         self.history.clear()
-        # Delete any outstanding download message
-        for message in messages:
-            await retry_discord_message_command(message.delete)
+        await self.clear_queue_messages()
         if self.lock_file.exists():
             self.lock_file.unlink()
         return history_items
@@ -1805,11 +1812,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Run when cog stops
         '''
+        self.logger.debug('Music :: Calling shutdown on Music')
         if self.download_dir.exists() and not self.enable_cache:
             rm_tree(self.download_dir)
 
         guilds = list(self.players.keys)
         for guild_id in guilds:
+            self.logger.info(f'Music :: Calling shutdown on player in guild {guild_id}')
             guild = await self.bot.fetch_guild(guild_id)
             await self.cleanup(guild)
 
@@ -2140,6 +2149,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Cleanup guild player
         '''
+        self.download_queue.block(guild.id)
         try:
             await guild.voice_client.disconnect()
         except AttributeError:
@@ -2150,7 +2160,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except KeyError:
             return
 
-        history_items = await player.clear_remaining_queue()
+        history_items = await player.clear_queues()
         if player.history_playlist_id:
             playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
             self.__update_history_playlist(playlist, history_items)
