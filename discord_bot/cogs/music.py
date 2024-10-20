@@ -638,7 +638,7 @@ class DownloadQueue():
         '''
         while True:
             try:
-                item = self.queues[guild_id].get_nowait()
+                item = self.queues[guild_id]['queue'].get_nowait()
             except QueueEmpty:
                 try:
                     del self.queues[guild_id]
