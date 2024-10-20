@@ -1417,22 +1417,25 @@ class MusicPlayer:
         self.delete_after = delete_after
         self.history_playlist_id = history_playlist_id
         self.disconnect_timeout = disconnect_timeout
-        self.current_track_duration = 0
 
 
+        # Queues
         self.play_queue = MyQueue(maxsize=queue_max_size)
         self.history = MyQueue(maxsize=queue_max_size)
         self.next = Event()
 
+        # For showing messages
+        self.lock_file = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+
+        # Keep these for later
+        self._player_task = None
+        self.current_track_duration = 0
         self.np_message = ''
         self.video_skipped = False
         self.queue_messages = [] # Show current queue
         self.volume = 0.5
-
-        # For showing messages
-        self.lock_file = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
-
-        self._player_task = None
+        # Shutdown called externally
+        self.shutdown_called = False
 
     async def start_tasks(self):
         '''
@@ -1440,27 +1443,6 @@ class MusicPlayer:
         '''
         if not self._player_task:
             self._player_task = self.bot.loop.create_task(self.player_loop())
-
-    async def stop_tasks(self):
-        '''
-        Stop downloads and player additions, if possible
-        '''
-        # Block puts first on download queue
-        self.play_queue.block()
-        # Wait to ensure we have the block set
-        await sleep(.5)
-        # Delete any messages from download queue
-        # Delete any files in play queue that are already added
-        while True:
-            try:
-                source = self.play_queue.get_nowait()
-                source.delete(delete_original=not self.cache_file_enabled)
-            except QueueEmpty:
-                break
-        if self._player_task:
-            self._player_task.cancel()
-            self._player_task = None
-        return True
 
     async def acquire_lock(self, wait_timeout=600):
         '''
@@ -1502,11 +1484,9 @@ class MusicPlayer:
         '''
         Delete queue messages
         '''
-        await self.acquire_lock()
         for queue_message in self.queue_messages:
             await retry_discord_message_command(queue_message.delete)
         self.queue_messages = []
-        await self.release_lock()
 
     def get_queue_message(self):
         '''
@@ -1654,8 +1634,9 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
         except (AttributeError, ClientException):
-            self.logger.info(f'Music :: No voice client found, disconnecting from guild {self.guild.id}')
-            await self.destroy(self.guild)
+            self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
+            if not self.shutdown_called:
+                await self.destroy(self.guild)
             raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
         self.logger.info(f'Music :: Now playing "{source["webpage_url"]}" requested '
                             f'by "{source["requester_id"]}" in guild {self.guild.id}, url '
@@ -1688,24 +1669,46 @@ class MusicPlayer:
 
     async def clear_queues(self):
         '''
-        Delete files downloaded for queue
+        Cleanup all resources for player
         '''
-        await self.stop_tasks()
+        self.logger.info(f'Music :: Clearing out resources for player in {self.guild.id}')
+        self.play_queue.block()
+        # Delete any messages from download queue
+        # Delete any files in play queue that are already added
+        while True:
+            try:
+                source = self.play_queue.get_nowait()
+                self.logger.debug(f'Music :: Removing item {source} from play queue')
+                source.delete(delete_original=not self.cache_file_enabled)
+            except QueueEmpty:
+                break
+
         # Grab history items
         history_items = []
         while True:
             try:
                 item = self.history.get_nowait()
+                self.logger.debug(f'Music :: Gathering history item {item} from history queue')
                 # If item wasn't history originally, track it for the history playlist
                 if not item['added_from_history']:
                     history_items.append(item)
             except QueueEmpty:
                 break
         # Clear out all the queues
+        self.logger.debug('Music :: Calling clear on queues and queue messages')
         self.history.clear()
-        await self.clear_queue_messages()
+        self.play_queue.clear()
+        # Clear any messages in the current queue
+        self.np_message = ''
+        for queue_message in self.queue_messages:
+            await retry_discord_message_command(queue_message.delete)
+        self.queue_messages = []
         if self.lock_file.exists():
             self.lock_file.unlink()
+
+        if self._player_task:
+            self._player_task.cancel()
+            self._player_task = None
         return history_items
 
     async def destroy(self, guild):
@@ -2149,6 +2152,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Cleanup guild player
         '''
+        self.logger.info(f'Music :: Starting cleanup on guild {guild.id}')
         self.download_queue.block(guild.id)
         try:
             await guild.voice_client.disconnect()
@@ -2160,11 +2164,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except KeyError:
             return
 
+        # Set external shutdown so we know not to call this twice
+        player.shutdown_called = True
+
+        self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
         history_items = await player.clear_queues()
+        self.logger.debug(f'Music :: Grabbing history items {history_items} for {guild.id}')
         if player.history_playlist_id:
             playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
             self.__update_history_playlist(playlist, history_items)
 
+        self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         await self.download_queue.clear_queue(guild.id)
 
         guild_path = self.download_dir / f'{guild.id}'
