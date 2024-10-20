@@ -2298,10 +2298,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 await retry_discord_message_command(entry['message'].delete)
-                return
+                break
             except QueueFull:
                 await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
-                continue
+                break
         # Update queue strings finally just to be safe
         await player.update_queue_strings()
 
