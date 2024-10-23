@@ -2320,10 +2320,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_queue.put_nowait(entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                await retry_discord_message_command(entry['message'].delete)
+                try:
+                    await retry_discord_message_command(entry['message'].delete)
+                except KeyError:
+                    # message not passed, just skip
+                    pass
                 break
             except QueueFull:
-                await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
+                try:
+                    await retry_discord_message_command(entry['message'].edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
+                except KeyError:
+                    # Message not passed, sent to channel instead
+                    await retry_discord_message_command(ctx.send, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
                 break
         # Update queue strings finally just to be safe
         await player.update_queue_strings()
@@ -3117,13 +3125,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
                 self.download_queue.put_nowait(entry)
             except QueueFull:
-                await retry_discord_message_command(entry['message'].edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
-                                                    delete_after=self.delete_after)
+                try:
+                    await retry_discord_message_command(entry['message'].edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                        delete_after=self.delete_after)
+                except KeyError:
+                    # Message not send originally
+                    await retry_discord_message_command(ctx.send, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                        delete_after=self.delete_after)
                 broke_early = True
                 break
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                await retry_discord_message_command(entry['message'].delete)
+                try:
+                    await retry_discord_message_command(entry['message'].delete)
+                except KeyError:
+                    # Message not sent, just skip
+                    pass
                 break
         # Update queue strings finally just to be safe
         await player.update_queue_strings()
