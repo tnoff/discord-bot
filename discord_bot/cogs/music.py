@@ -3062,10 +3062,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if not history_playlist:
                 return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
             return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
-        cache_items = self.db_session.query(VideoCache).\
+        # Turn this into a list so it can do the shuffle functions and other things
+        cache_items = [i for i in self.db_session.query(VideoCache).\
             join(VideoCacheGuild).\
             join(Guild).\
-            filter(Guild.server_id == str(ctx.guild.id)).limit(max_num)
+            filter(Guild.server_id == str(ctx.guild.id)).limit(max_num)]
 
         for _ in range(NUM_SHUFFLES):
             random_shuffle(cache_items)
