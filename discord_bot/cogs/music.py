@@ -2750,7 +2750,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for entry in source_entries:
             entry['download_file'] = False
             # Pylint disable as gets injected later
-            entry['post_download_callback_functions'] = [partial(self.__add_playlist_item_function(ctx, search, playlist))] #pylint: disable=no-value-for-parameter
+            entry['post_download_callback_functions'] = [partial(self.__add_playlist_item_function, ctx, search, playlist)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(entry)
 
     @playlist.command(name='item-search')
