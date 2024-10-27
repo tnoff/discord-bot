@@ -1926,39 +1926,39 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return cache_item_url
         return None
 
-    async def __return_bad_video(self, source_dict, video_non_exist_callback_functions, player):
+    async def __return_bad_video(self, source_dict, video_non_exist_callback_functions):
         search_string_message = fix_search_string_message(source_dict['search_string'])
         self.logger.debug(f'Cannot download video "{source_dict["search_string"]}", known to be bad, skipping')
         await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
-                                            delete_after=player.delete_after)
+                                            delete_after=self.delete_after)
         for func in video_non_exist_callback_functions:
             await func()
         return
 
-    async def __return_long_video(self, source_dict, player):
+    async def __return_long_video(self, source_dict):
         search_string_message = fix_search_string_message(source_dict['search_string'])
         await retry_discord_message_command(source_dict['message'].edit,
                                             content=f'Search "{search_string_message}" exceeds maximum of {self.max_video_length} seconds, skipping',
-                                            delete_after=player.delete_after)
+                                            delete_after=self.delete_after)
         self.logger.warning(f'Music ::: Video too long to play in queue, skipping "{source_dict["search_string"]}"')
         return
 
-    async def __return_video_banned(self, source_dict, video_banned_exception, player):
+    async def __return_video_banned(self, source_dict, video_banned_exception):
         await retry_discord_message_command(source_dict['message'].edit,
                                             content=f'{str(video_banned_exception)}',
-                                            delete_after=player.delete_after)
+                                            delete_after=self.delete_after)
         self.logger.warning(f'Music ::: Video on video banned list, unable to play "{source_dict["search_string"]}"')
         return
 
-    async def __ensure_video_download_result(self, source_dict, source_download, player):
+    async def __ensure_video_download_result(self, source_dict, source_download):
         if source_download is None:
             search_string_message = fix_search_string_message(source_dict['search_string'])
             await retry_discord_message_command(source_dict['message'].edit, content=f'Issue downloading video "{search_string_message}", skipping',
-                                                delete_after=player.delete_after)
+                                                delete_after=self.delete_after)
             return False
         return True
 
-    async def __check_video_cache(self, source_dict, player):
+    async def __check_video_cache(self, source_dict):
         video_non_exist_callback_functions = source_dict.get('video_non_exist_callback_functions', [])
         if self.cache_file and 'https://' in source_dict['search_string']:
             try:
@@ -1967,13 +1967,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                             self.max_video_length,
                                                             self.banned_videos_list)
             except KnownBadVideo:
-                await self.__return_bad_video(source_dict, video_non_exist_callback_functions, player)
+                await self.__return_bad_video(source_dict, video_non_exist_callback_functions)
                 return None
             except KnownVideoTooLong:
-                await self.__return_long_video(source_dict, player)
+                await self.__return_long_video(source_dict)
                 return None
             except VideoBanned as vb:
-                await self.__return_video_banned(source_dict, vb, player)
+                await self.__return_video_banned(source_dict, vb)
                 return None
         return None
 
@@ -2033,33 +2033,39 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
             return
+        # If not meant to download, dont check for player
         # Check for player, if doesn't exist return
-        try:
-            player = self.players[source_dict['guild_id']]
-        except KeyError:
-            await retry_discord_message_command(source_dict['message'].delete)
-            return
-        self.logger.debug(f'Music ::: Gathered new item to download "{source_dict["search_string"]}", guild "{player.guild.id}"')
-        # Check if queue in shutdown, if so return
-        if player.play_queue.shutdown:
-            self.logger.warning(f'Music ::: Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-            await retry_discord_message_command(source_dict['message'].delete)
-            return
+        download_file = source_dict.pop('download_file', True)
+        player = None
+        if download_file:
+            try:
+                player = self.players[source_dict['guild_id']]
+            except KeyError:
+                await retry_discord_message_command(source_dict['message'].delete)
+                return
 
+            # Check if queue in shutdown, if so return
+            if player.play_queue.shutdown:
+                self.logger.warning(f'Music ::: Play queue in shutdown, skipping downloads for guild {player.guild.id}')
+                await retry_discord_message_command(source_dict['message'].delete)
+                return
+
+            # Check if queue is full before attempting to download file
+            if player.play_queue.full():
+                self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict["search_string"]}"')
+                search_string_message = fix_search_string_message(source_dict['search_string'])
+                await retry_discord_message_command(source_dict['message'].edit,
+                                                    content=f'Play queue is full, cannot add "{search_string_message}"',
+                                                    delete_after=self.delete_after)
+                return
+
+        self.logger.debug(f'Music ::: Gathered new item to download "{source_dict["search_string"]}", guild "{player.guild.id}"')
         video_non_exist_callback_functions = source_dict.get('video_non_exist_callback_functions', [])
         post_download_callback_functions = source_dict.pop('post_download_callback_functions', [])
 
-        # Check if queue is full before attempting to download file
-        if player.play_queue.full():
-            self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict["search_string"]}"')
-            search_string_message = fix_search_string_message(source_dict['search_string'])
-            await retry_discord_message_command(source_dict['message'].edit,
-                                                content=f'Play queue is full, cannot add "{search_string_message}"',
-                                                delete_after=player.delete_after)
-            return
 
         # If cache enabled and search string with 'https://' given, try to grab this first
-        source_download = await self.__check_video_cache(source_dict, player)
+        source_download = await self.__check_video_cache(source_dict)
 
         download_file = source_dict.pop('download_file', True)
         # Else grab from ytdlp
@@ -2077,20 +2083,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except (PrivateVideoException, VideoUnavailableException):
                 # Try to mark search as unavailable for later
                 self.cache_file.mark_url_unavailable(source_dict['search_string'])
-                await self.__return_bad_video(source_dict, video_non_exist_callback_functions, player)
+                await self.__return_bad_video(source_dict, video_non_exist_callback_functions)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
             except VideoTooLong:
                 self.cache_file.mark_url_too_long(source_dict['search_string'], self.max_video_length)
-                await self.__return_long_video(source_dict, player)
+                await self.__return_long_video(source_dict)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
             except VideoBanned as vb:
-                await self.__return_video_banned(source_dict, vb, player)
+                await self.__return_video_banned(source_dict, vb)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
                 return
         # Final none check in case we couldn't download video
-        if not await self.__ensure_video_download_result(source_dict, source_download, player):
+        if not await self.__ensure_video_download_result(source_dict, source_download):
             return
 
         # If we have a result, add to search cache
@@ -2312,7 +2318,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
                 search_string_message = fix_search_string_message(entry['search_string'])
                 # Check cache first
-                source_download = await self.__check_video_cache(entry, player)
+                source_download = await self.__check_video_cache(entry)
                 if source_download:
                     self.logger.debug(f'Music :: Search "{search_string_message}" found in cache, placing in player queue')
                     # Skip queue strings for every cahced result except the last one
@@ -3121,7 +3127,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     'video_non_exist_callback_functions': [partial(self.__delete_non_existing_item, item, ctx)],
                 }
                 # Check video cache first
-                source_download = await self.__check_video_cache(entry, player)
+                source_download = await self.__check_video_cache(entry)
                 if source_download:
                     self.logger.debug(f'Music :: Search "{item.video_url}" found in cache, placing in player queue')
                     # Skip queue strings for every cahced result except the last one
