@@ -137,7 +137,7 @@ def load_plugins(logger, cog_list, bot, settings, db_engine):
                     logger.warning(f'Unable to add cog "{import_name}" due to missing required args')
     return cog_list
 
-def main():
+def main(): #pylint:disable=too-many-statements
     '''
     Main loop
     '''
@@ -218,6 +218,12 @@ def main():
         async with bot:
             for cog in cog_list:
                 await bot.add_cog(cog)
+            # Get servers the bot is currently in
+            try:
+                guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
+                logger.info(f'Bot installed in the following guilds {guilds}')
+            except Exception as e:
+                logger.error(f'Error getting guild listing {str(e)}')
             await bot.start(token)
 
     run(main_loop())
