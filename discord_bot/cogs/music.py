@@ -2059,7 +2059,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                     delete_after=self.delete_after)
                 return
 
-        self.logger.debug(f'Music ::: Gathered new item to download "{source_dict["search_string"]}", guild "{player.guild.id}"')
+        self.logger.debug(f'Music ::: Gathered new item to download "{source_dict["search_string"]}", guild "{source_dict["guild_id"]}"')
         video_non_exist_callback_functions = source_dict.get('video_non_exist_callback_functions', [])
         post_download_callback_functions = source_dict.pop('post_download_callback_functions', [])
 
