@@ -2066,8 +2066,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = await self.__check_video_cache(source_dict)
-
-        download_file = source_dict.pop('download_file', True)
         # Else grab from ytdlp
         if not source_download:
             # Make sure we wait for next video download
@@ -2733,7 +2731,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         if playlist_item:
             await retry_discord_message_command(ctx.send, f'Added item "{source_download["title"]}" to playlist {playlist.name}', delete_after=self.delete_after)
-        await retry_discord_message_command(ctx.send, 'Unable to add playlist item, likely already exists', delete_after=self.delete_after)
+        await retry_discord_message_command(ctx.send, content=f'Unable to add playlist item "{search}" , likely already exists', delete_after=self.delete_after)
 
     async def __playlist_item_add(self, ctx, playlist_index, search):
 
