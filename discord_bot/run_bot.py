@@ -1,9 +1,10 @@
 import argparse
-from asyncio import run
+from asyncio import get_event_loop, CancelledError
 from datetime import datetime
 from json import dumps, load
 import importlib
 import pathlib
+from signal import SIGINT, SIGTERM
 from sys import stderr, argv
 
 from discord import Intents
@@ -26,7 +27,6 @@ from discord_bot.cogs.urban import UrbanDictionary #pylint:disable=unused-import
 from discord_bot.database import BASE, AlchemyEncoder
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
-
 
 DB_DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S.%f'
 
@@ -215,18 +215,32 @@ def main(): #pylint:disable=too-many-statements
         logger.info(f'Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
 
     async def main_loop():
-        async with bot:
+        try:
+            async with bot:
+                for cog in cog_list:
+                    await bot.add_cog(cog)
+                # Start bot
+                await bot.start(token)
+        except CancelledError:
+            logger.info('Main loop called with sigterm')
             for cog in cog_list:
-                await bot.add_cog(cog)
-            # Get servers the bot is currently in
-            try:
-                guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
-                logger.info(f'Bot installed in the following guilds {guilds}')
-            except Exception as e:
-                logger.error(f'Error getting guild listing {str(e)}')
-            await bot.start(token)
+                logger.info(f'Attempting to remove cog {cog}')
+                await bot.remove_cog(cog.qualified_name)
 
-    run(main_loop())
+    try:
+        loop = get_event_loop()
+        main_task = loop.create_task(main_loop())
+        for signal in [SIGINT, SIGTERM]:
+            loop.add_signal_handler(signal, main_task.cancel)
+        loop.run_forever()
+    except KeyboardInterrupt:
+        print('Received keyboard interrupt')
+        logger.error('Received keyboard interrupt')
+    finally:
+        print('Shutting down discord bot')
+        logger.info('Shutting off discord bot')
+        loop.close()
+
 
 if __name__ == '__main__':
     main()
