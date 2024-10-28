@@ -606,7 +606,6 @@ class DownloadQueue():
         entry: Standard source dict object
         '''
         # TODO standardize source dict and source download objects if they aren't already
-        self.logger.info(f'Music :: Adding entry "{entry}" to specific download queue for guild {entry["guild_id"]}')
         guild_id = entry['guild_id']
         if guild_id not in self.queues:
             self.queues[guild_id] = {
