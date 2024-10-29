@@ -213,6 +213,10 @@ def main(): #pylint:disable=too-many-statements
     @bot.event
     async def on_ready():
         logger.info(f'Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
+        guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
+        for guild in guilds:
+            logger.info(f'Bot associated with guild {guild.id} with name "{guild.name}"')
+
 
     async def main_loop():
         try:
