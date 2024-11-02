@@ -6,6 +6,7 @@ import importlib
 import pathlib
 from signal import SIGINT, SIGTERM
 from sys import stderr, argv
+from traceback import format_exc
 
 from discord import Intents
 from discord.ext import commands
@@ -236,13 +237,15 @@ def main(): #pylint:disable=too-many-statements
                 # Start bot
                 await bot.start(token)
         except CancelledError:
-            logger.info('Main :: Main loop called with sigterm')
+            logger.info('Main :: Main loop received sigterm call')
             for cog in cog_list:
                 try:
                     logger.debug(f'Main :: Calling cog unload directly on cog {cog}')
                     await cog.cog_unload()
                 except Exception as e:
                     logger.error(f'Main :: Error calling cog unload, error {str(e)}')
+                    logger.exception(e)
+                    logger.error(format_exc())
                 logger.info(f'Main :: Attempting to remove cog {cog}')
                 await bot.remove_cog(cog.qualified_name)
 

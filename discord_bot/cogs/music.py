@@ -1815,20 +1815,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Run when cog stops
         '''
         self.logger.debug('Music :: Calling shutdown on Music')
-        if self.download_dir.exists() and not self.enable_cache:
-            rm_tree(self.download_dir)
 
         guilds = list(self.players.keys)
+        self.logger.debug(f'Music :: Calling shutdown on guild players {guilds}')
         for guild_id in guilds:
             self.logger.info(f'Music :: Calling shutdown on player in guild {guild_id}')
             guild = await self.bot.fetch_guild(guild_id)
             await self.cleanup(guild, external_shutdown_called=True)
 
+        self.logger.debug('Music :: Cancelling main tasks')
         if self._cleanup_task:
             self._cleanup_task.cancel()
         if self._download_task:
             self._download_task.cancel()
         self.last_download_lockfile.unlink()
+
+        if self.download_dir.exists() and not self.enable_cache:
+            rm_tree(self.download_dir)
 
     def wait_for_download_time(self, wait=10):
         '''
