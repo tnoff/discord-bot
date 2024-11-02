@@ -75,6 +75,15 @@ def test_intents_config():
     }
     validate_config(intents_input, GENERAL_SECTION_SCHEMA)
 
+def test_rejectlist_config():
+    reject_input = {
+        'discord_token': 'abctoken',
+        'rejectlist_guilds': [
+            '12345'
+        ]
+    }
+    validate_config(reject_input, GENERAL_SECTION_SCHEMA)
+
 def test_get_logger():
     # Test default options
     logger = get_logger('foo', {})
@@ -157,4 +166,3 @@ def test_retry_discord(mocker):
     with pytest.raises(DiscordServerError) as exc:
         retry_discord_message_command(test_send_message)
     assert mock_time.call_count == 3
-

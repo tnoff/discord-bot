@@ -210,11 +210,17 @@ def main(): #pylint:disable=too-many-statements
 
     cog_list = load_plugins(logger, cog_list, bot, settings, db_engine)
 
+    rejectlist_guilds = settings['general'].get('rejectlist_guilds', [])
+
     @bot.event
     async def on_ready():
         logger.info(f'Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
         guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
         for guild in guilds:
+            if str(guild.id) in rejectlist_guilds:
+                logger.info(f'Bot currently in guild {guild.id} thats within reject list, leaving server')
+                await guild.leave()
+                continue
             logger.info(f'Bot associated with guild {guild.id} with name "{guild.name}"')
 
 

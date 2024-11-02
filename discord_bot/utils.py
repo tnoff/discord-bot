@@ -74,6 +74,12 @@ GENERAL_SECTION_SCHEMA = {
                 'type': 'string',
             },
         },
+        'rejectlist_guilds': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            }
+        }
     },
 }
 
