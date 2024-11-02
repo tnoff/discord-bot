@@ -1865,6 +1865,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         while not self.bot.is_closed():
             try:
                 await self.__cleanup_players()
+            except ExitEarlyException:
+                return
             except Exception as e:
                 self.logger.exception(e)
                 self.logger.error(format_exc())
