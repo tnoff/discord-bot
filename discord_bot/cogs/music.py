@@ -1267,6 +1267,9 @@ class DownloadClient():
             if 'Video unavailable' in str(error):
                 raise VideoUnavailableException('Video is unavailable, cannot download') from error
             return None
+        except FileNotFoundError as e:
+            self.logger.warning(f'Music :: Unable to find file while downloading {str(e)}')
+            return None
         # Make sure we get the first entry here
         # Since we don't pass "url" directly anymore
         try:
@@ -1778,6 +1781,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.cache_file.remove_extra_files()
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        # Keep track of when bot is in shutdown mode
+        self.bot_shutdown = False
 
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -1815,6 +1820,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Run when cog stops
         '''
         self.logger.debug('Music :: Calling shutdown on Music')
+        self.bot_shutdown = True
 
         guilds = list(self.players.keys())
         self.logger.debug(f'Music :: Calling shutdown on guild players {guilds}')
@@ -1828,7 +1834,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._cleanup_task.cancel()
         if self._download_task:
             self._download_task.cancel()
-        self.last_download_lockfile.unlink()
+        if self.last_download_lockfile.exists():
+            self.last_download_lockfile.unlink()
 
         if self.download_dir.exists() and not self.enable_cache:
             rm_tree(self.download_dir)
@@ -1869,6 +1876,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Check for players with no members, cleanup bot in channels that do
         '''
+        await sleep(.01)
+        if self.bot_shutdown:
+            raise ExitEarlyException('Bot in shutdown, exiting early')
         guilds = []
         for _guild_id, player in self.players.items():
             has_members = False
@@ -1880,8 +1890,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guilds.append(player.voice_channel.guild)
         for guild in guilds:
             self.logger.warning(f'No members connected to voice channel {guild.id}, stopping bot')
-            await self.cleanup(guild)
-        await sleep(60)
+            await self.cleanup(guild, external_shutdown_called=True, no_members_present=True)
 
     async def download_files(self):
         '''
@@ -2031,6 +2040,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Main runner
         '''
         await sleep(.01)
+        if self.bot_shutdown:
+            raise ExitEarlyException('Bot shutdown called, exiting early')
         try:
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:
@@ -2154,12 +2165,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Music ::: Adding new history item {item["webpage_url"]} to playlist {playlist.id}')
             self.__playlist_add_item(playlist, item['id'], item['webpage_url'], item['title'], item['uploader'])
 
-    async def cleanup(self, guild, external_shutdown_called=False):
+    async def cleanup(self, guild, external_shutdown_called=False, no_members_present=False):
         '''
         Cleanup guild player
 
         guild : Guild object
         external_shutdown_called: Whether called by something other than a user
+        no_members_present: Called when no members present in server
         '''
         self.logger.info(f'Music :: Starting cleanup on guild {guild.id}')
         self.download_queue.block(guild.id)
@@ -2174,8 +2186,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except AttributeError:
             pass
         if external_shutdown_called:
-            await retry_discord_message_command(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
-                                                delete_after=self.delete_after)
+            if no_members_present:
+                await retry_discord_message_command(player.text_channel.send, content='No members in guild, removing myself',
+                                                    delete_after=self.delete_after)
+            else:
+                await retry_discord_message_command(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
+                                                    delete_after=self.delete_after)
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
         history_items = await player.clear_queues()
