@@ -1816,7 +1816,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.logger.debug('Music :: Calling shutdown on Music')
 
-        guilds = list(self.players.keys)
+        guilds = list(self.players.keys())
         self.logger.debug(f'Music :: Calling shutdown on guild players {guilds}')
         for guild_id in guilds:
             self.logger.info(f'Music :: Calling shutdown on player in guild {guild_id}')
