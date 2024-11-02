@@ -122,7 +122,7 @@ def load_plugins(logger, cog_list, bot, settings, db_engine):
         # Ex: cogs.plugins.general
         import_name = str(proper_path).replace(pathlib.os.sep, '.')
         # Import, and then get "Cog" object
-        logger.debug(f'Attempting to import cog from "{import_name}"')
+        logger.debug(f'Main :: Attempting to import cog from "{import_name}"')
         module = importlib.import_module(import_name)
         # Find all classes with 'Cog' in name, avoid 'CogHelper'
         for key, value in module.__dict__.items():
@@ -134,7 +134,7 @@ def load_plugins(logger, cog_list, bot, settings, db_engine):
                 try:
                     cog_list.append(imported_cog(bot, logger, settings, db_engine))
                 except CogMissingRequiredArg:
-                    logger.warning(f'Unable to add cog "{import_name}" due to missing required args')
+                    logger.warning(f'Main :: Unable to add cog "{import_name}" due to missing required args')
     return cog_list
 
 def main(): #pylint:disable=too-many-statements
@@ -182,11 +182,11 @@ def main(): #pylint:disable=too-many-statements
     print('Starting logging', file=stderr)
     logger = get_logger(__name__, settings['general'].get('logging', {}))
 
-    logger.debug('Startup: Generating Intents')
+    logger.debug('Main :: Generating Intents')
     intents = Intents.default()
     try:
         intent_list = settings['general']['intents']
-        logger.debug('Startup: Adding extra intents:', intent_list)
+        logger.debug('Main :: Adding extra intents:', intent_list)
         for intent in intent_list:
             setattr(intents, intent, True)
     except KeyError:
@@ -206,22 +206,26 @@ def main(): #pylint:disable=too-many-statements
         try:
             cog_list.append(cog(bot, logger, settings, db_engine))
         except CogMissingRequiredArg:
-            logger.error('Error Importing Cog:', cog)
+            logger.error('Main :: Error Importing Cog:', cog)
 
     cog_list = load_plugins(logger, cog_list, bot, settings, db_engine)
 
-    rejectlist_guilds = settings['general'].get('rejectlist_guilds', [])
+    # Make sure we cast to string here just to keep it consistent
+    rejectlist_guilds = []
+    for guild in settings['general'].get('rejectlist_guilds', []):
+        rejectlist_guilds.append(str(guild))
+    logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
 
     @bot.event
     async def on_ready():
-        logger.info(f'Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
+        logger.info(f'Main :: Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
         guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
         for guild in guilds:
             if str(guild.id) in rejectlist_guilds:
-                logger.info(f'Bot currently in guild {guild.id} thats within reject list, leaving server')
+                logger.info(f'Main :: Bot currently in guild {guild.id} thats within reject list, leaving server')
                 await guild.leave()
                 continue
-            logger.info(f'Bot associated with guild {guild.id} with name "{guild.name}"')
+            logger.info(f'Main :: Bot associated with guild {guild.id} with name "{guild.name}"')
 
 
     async def main_loop():
@@ -232,9 +236,14 @@ def main(): #pylint:disable=too-many-statements
                 # Start bot
                 await bot.start(token)
         except CancelledError:
-            logger.info('Main loop called with sigterm')
+            logger.info('Main :: Main loop called with sigterm')
             for cog in cog_list:
-                logger.info(f'Attempting to remove cog {cog}')
+                try:
+                    logger.debug(f'Main :: Calling cog unload directly on cog {cog}')
+                    await cog.cog_unload()
+                except Exception as e:
+                    logger.error(f'Main :: Error calling cog unload, error {str(e)}')
+                logger.info(f'Main :: Attempting to remove cog {cog}')
                 await bot.remove_cog(cog.qualified_name)
 
     try:
@@ -245,10 +254,10 @@ def main(): #pylint:disable=too-many-statements
         loop.run_forever()
     except KeyboardInterrupt:
         print('Received keyboard interrupt')
-        logger.error('Received keyboard interrupt')
+        logger.error('Main :: Received keyboard interrupt')
     finally:
         print('Shutting down discord bot')
-        logger.info('Shutting off discord bot')
+        logger.info('Main :: Shutting off discord bot')
         loop.close()
 
 
