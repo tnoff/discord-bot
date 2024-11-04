@@ -1,4 +1,4 @@
-async-timeout==4.0.3
+async-timeout==5.0.0
 beautifulsoup4==4.12.3
 discord.py==2.4.0
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.8
