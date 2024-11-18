@@ -2,7 +2,7 @@ async-timeout==4.0.3
 beautifulsoup4==4.12.3
 discord.py==2.4.0
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.8
-elasticsearch[async]==8.15.1
+elasticsearch[async]==8.16.0
 jsonschema==4.23.0
 moviepy @ git+https://github.com/Zulko/moviepy.git@0f6f6d4
 pathlib>=1.0.1
