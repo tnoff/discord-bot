@@ -68,6 +68,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64,linux/arm64
+          cache-from: type=registry,ref=sjc.ocir.io/tnoff/discord:latest
+          cache-to: type=inline
           push: true
           context: .
           tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ steps.fix-version.outputs.submajor_version }},sjc.ocir.io/tnoff/discord:${{ steps.fix-full-version.outputs.full_version }},sjc.ocir.io/tnoff/discord:${{ steps.fix-full-version.outputs.full_version }}.${{ github.run_number }}
