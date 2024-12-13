@@ -18,7 +18,8 @@ from discord import FFmpegPCMAudio
 from discord.errors import ClientException, NotFound
 from discord.ext import commands
 from elasticsearch import AsyncElasticsearch, AuthenticationException, BadRequestError, NotFoundError
-from moviepy.editor import AudioFileClip, afx
+from moviepy.audio.fx import AudioNormalize
+from moviepy import AudioFileClip
 from numpy import sqrt
 from requests import get as requests_get
 from requests import post as requests_post
@@ -274,7 +275,7 @@ def edit_audio_file(file_path):
         # Assume we cant do file processing at this point
         return None
     # Find dead audio at start and end of file
-    cut = lambda i: audio_clip.subclip(i, i+1).to_soundarray(fps=1)
+    cut = lambda i: audio_clip.subclipped(i, i+1).to_soundarray(fps=1)
     volume = lambda array: sqrt(((1.0 * array) ** 2).mean())
     volumes = [volume(cut(i)) for i in range(0, int(audio_clip.duration-1))]
     start = 0
@@ -292,9 +293,9 @@ def edit_audio_file(file_path):
         start -= 1
     if end < audio_clip.duration - 1:
         end += 1
-    audio_clip = audio_clip.subclip(start_time=start, end_time=end + 1)
+    audio_clip = audio_clip.subclipped(start, end + 1)
     # Normalize audio
-    edited_audio = audio_clip.fx(afx.audio_normalize) #pylint:disable=no-member
+    edited_audio = audio_clip.with_effects([AudioNormalize()]) #pylint:disable=no-member
     edited_audio.write_audiofile(str(editing_path))
     editing_path.rename(finished_path)
     return finished_path
