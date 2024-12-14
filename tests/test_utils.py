@@ -1,8 +1,7 @@
 from tempfile import NamedTemporaryFile
-from time import sleep
 
 from jsonschema.exceptions import ValidationError
-from discord.errors import HTTPException, DiscordServerError, RateLimited
+from discord.errors import DiscordServerError, RateLimited
 import pytest
 
 from discord_bot.utils import GENERAL_SECTION_SCHEMA
@@ -10,6 +9,11 @@ from discord_bot.utils import validate_config
 from discord_bot.utils import get_logger
 from discord_bot.utils import retry_command
 from discord_bot.utils import retry_discord_message_command
+from discord_bot.utils import async_retry_command
+from discord_bot.utils import async_retry_discord_message_command
+
+class TestException(Exception):
+    pass
 
 def test_validate_minimal_config():
     minimal_input = {
@@ -88,7 +92,7 @@ def test_get_logger():
     # Test default options
     logger = get_logger('foo', {})
     assert logger.getEffectiveLevel() == 10
-    assert logger.hasHandlers() == True
+    assert logger.hasHandlers() is True
 
 
     with NamedTemporaryFile() as temp_file:
@@ -101,7 +105,7 @@ def test_get_logger():
         }
         logger = get_logger('foo', log_args)
         assert logger.getEffectiveLevel() == 30
-        assert logger.hasHandlers() == True
+        assert logger.hasHandlers() is True
 
 def test_retry_command(mocker):
     # Test very basic call command
@@ -112,47 +116,45 @@ def test_retry_command(mocker):
 
     # Pass a funcion that should fail everytime, make sure it retries
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    def test_command(x, y):
-        raise Exception('Test Exception')
-    with pytest.raises(Exception) as exc:
-        retry_command(test_command, *[2, 3])
+    def test_command_raises(x, y):
+        raise TestException('Test Exception')
+    with pytest.raises(TestException):
+        retry_command(test_command_raises, *[2, 3])
     assert mock_time.call_count == 3
     # Same test but set max retries this time
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(Exception) as exc:
-        retry_command(test_command, *[2, 3], **{'max_retries': 1})
+    with pytest.raises(TestException):
+        retry_command(test_command_raises, *[2, 3], **{'max_retries': 1})
     assert mock_time.call_count == 1
 
     # Lets try with a specific exception to pass in
-    class TestException(Exception):
-        pass
-    def test_command(x):
+    def test_command_raises_again(x):
         raise TestException('foo')
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(TestException) as exc:
-        retry_command(test_command, *[2], **{'accepted_exceptions': (TestException)})
+    with pytest.raises(TestException):
+        retry_command(test_command_raises_again, *[2], **{'accepted_exceptions': (TestException)})
     assert mock_time.call_count == 3
 
     # Check does not retry when another exception type passed
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(TestException) as exc:
-        retry_command(test_command, *[2], **{'accepted_exceptions': (TypeError)})
+    with pytest.raises(TestException):
+        retry_command(test_command_raises_again, *[2], **{'accepted_exceptions': (TypeError)})
     assert mock_time.call_count == 0
 
     # Test post exceptions
     stub = mocker.stub(name='test_post')
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(TestException) as exc:
-        retry_command(test_command, *[2], **{'accepted_exceptions': (TestException), 'post_exception_functions': [stub]})
+    with pytest.raises(TestException):
+        retry_command(test_command_raises_again, *[2], **{'accepted_exceptions': (TestException), 'post_exception_functions': [stub]})
     assert mock_time.call_count == 3
-    assert stub.called == True
+    assert stub.called is True
 
     # Try a post exception that throws another error
-    def test_throw(exc):
-        raise Exception('Test')
+    def test_throw(*_args, **_kwargs):
+        raise TestException('Test')
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(Exception) as exc:
-        retry_command(test_command, *[2], **{'accepted_exceptions': (TestException), 'post_exception_functions': [test_throw]})
+    with pytest.raises(TestException):
+        retry_command(test_throw, *[2], **{'accepted_exceptions': (TestException), 'post_exception_functions': [test_throw]})
     assert mock_time.call_count == 0
 
 def test_retry_discord(mocker):
@@ -163,6 +165,51 @@ def test_retry_discord(mocker):
     def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
     mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
-    with pytest.raises(DiscordServerError) as exc:
+    with pytest.raises(DiscordServerError):
         retry_discord_message_command(test_send_message)
+    assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async(mocker):
+    class FakeResponse():
+        def __init__(self):
+            self.status = 500
+            self.reason = 'Cat unplugged the machines'
+    async def test_send_message():
+        raise DiscordServerError(FakeResponse(), 'bar')
+    mock_time = mocker.patch('discord_bot.utils.async_sleep', return_value=False)
+    with pytest.raises(DiscordServerError):
+        await async_retry_command(test_send_message)
+    assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async_with_post(mocker):
+    class FakeResponse():
+        def __init__(self):
+            self.status = 500
+            self.reason = 'Cat unplugged the machines'
+    async def test_send_message():
+        raise DiscordServerError(FakeResponse(), 'bar')
+    async def test_post(_ex, _is_last):
+        return 'foo'
+    mock_time = mocker.patch('discord_bot.utils.async_sleep', return_value=False)
+    with pytest.raises(DiscordServerError):
+        await async_retry_command(test_send_message, post_exception_functions=[test_post])
+    assert mock_time.call_count == 3
+
+def test_retry_discord_rate_limited(mocker):
+    def test_send_message():
+        raise RateLimited(2)
+    mock_time = mocker.patch('discord_bot.utils.sleep', return_value=False)
+    with pytest.raises(RateLimited):
+        retry_discord_message_command(test_send_message)
+    assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async_429(mocker):
+    async def test_send_message():
+        raise RateLimited(2)
+    mock_time = mocker.patch('discord_bot.utils.async_sleep', return_value=False)
+    with pytest.raises(RateLimited):
+        await async_retry_discord_message_command(test_send_message)
     assert mock_time.call_count == 3

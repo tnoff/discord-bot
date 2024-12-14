@@ -24,15 +24,13 @@ from numpy import sqrt
 from requests import get as requests_get
 from requests import post as requests_post
 from sqlalchemy import asc
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
-from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.exc import IntegrityError
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import BASE
+from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils import retry_discord_message_command
 
@@ -354,93 +352,6 @@ def fix_now_playing_message(webpage_url, requester_name):
     if TWITTER_VIDEO_PREFIX in webpage_url:
         webpage_url = webpage_url.replace(TWITTER_VIDEO_PREFIX, FXTWITTER_VIDEO_PREFIX)
     return  f'Now playing {webpage_url} requested by {requester_name}'
-
-#
-# Music Tables
-#
-
-class Playlist(BASE):
-    '''
-    Playlist
-    '''
-    __tablename__ = 'playlist'
-    __table_args__ = (
-        UniqueConstraint('name', 'server_id',
-                         name='_server_playlist'),
-    )
-    id = Column(Integer, primary_key=True)
-    name = Column(String(256))
-    server_id = Column(String(128))
-    last_queued = Column(DateTime, nullable=True)
-    created_at = Column(DateTime)
-    is_history = Column(Boolean)
-
-
-class PlaylistItem(BASE):
-    '''
-    Playlist Item
-    '''
-    __tablename__ = 'playlist_item'
-    __table_args__ = (
-        UniqueConstraint('video_id', 'playlist_id',
-                         name='_unique_playlist_video'),
-    )
-    id = Column(Integer, primary_key=True)
-    title = Column(String(256))
-    video_id = Column(String(32))
-    video_url = Column(String(256))
-    uploader = Column(String(256))
-    playlist_id = Column(Integer, ForeignKey('playlist.id'))
-    created_at = Column(DateTime)
-
-
-class VideoCache(BASE):
-    '''
-    Cached downloaded videos
-    '''
-    __tablename__ = 'video_cache'
-    id = Column(Integer, primary_key=True)
-    # YTDLP Keys
-    video_id = Column(String(32))
-    video_url = Column(String(256))
-    title = Column(String(1024))
-    uploader = Column(String(1024))
-    duration = Column(Integer) # In seconds
-    extractor = Column(String(256))
-    # Other metadata
-    last_iterated_at = Column(DateTime)
-    created_at = Column(DateTime)
-    count = Column(Integer)
-    # File paths
-    base_path = Column(String(2048))
-    original_path = Column(String(2048))
-    # Status metatada
-    video_available = Column(Boolean, default=True)
-    # Exceeds max video length
-    # Track the length the max set here in case it changes
-    exceeds_max_length = Column(Integer, nullable=True)
-
-
-class Guild(BASE):
-    '''
-    Discord Guild
-    '''
-    __tablename__ = 'guild'
-    id = Column(Integer, primary_key=True)
-    server_id = Column(String(128))
-
-class VideoCacheGuild(BASE):
-    '''
-    Map video cache to a guild
-    '''
-    __tablename__ = 'video_cache_guild'
-    __table_args__ = (
-        UniqueConstraint('video_cache_id', 'guild_id',
-                         name='_unique_cache_guild'),
-    )
-    id = Column(Integer, primary_key=True)
-    guild_id = Column(Integer, ForeignKey('guild.id'))
-    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
 
 
 #

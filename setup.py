@@ -33,7 +33,7 @@ setuptools.setup(
     install_requires=required,
     entry_points={
         'console_scripts' : [
-            'discord-bot = discord_bot.run_bot:main',
+            'discord-bot = discord_bot.cli:main',
         ]
     },
     packages=setuptools.find_packages(exclude=['tests', 'docs']),

@@ -9,16 +9,12 @@ from typing import Optional
 from discord import TextChannel
 from discord.ext import commands
 from discord.errors import NotFound, DiscordServerError
-from sqlalchemy import Column, DateTime, Integer, String
-from sqlalchemy import ForeignKey, UniqueConstraint
+
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.database import BASE
+from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils import retry_discord_message_command, async_retry_discord_message_command
-
-# Make length of a leader or follower word
-MAX_WORD_LENGTH = 255
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -83,36 +79,6 @@ def clean_message(content, emojis):
         corpus.append(word.lower())
     return corpus
 
-#
-# Markov Tables
-#
-
-class MarkovChannel(BASE):
-    '''
-    Markov channel
-    '''
-    __tablename__ = 'markov_channel'
-    __table_args__ = (
-        UniqueConstraint('channel_id', 'server_id',
-                         name='_unique_markov_channel'),
-    )
-    id = Column(Integer, primary_key=True)
-    channel_id = Column(String(128))
-    server_id = Column(String(128))
-    last_message_id = Column(String(128))
-
-class MarkovRelation(BASE):
-    '''
-    Markov Relation
-    '''
-    __tablename__ = 'markov_relation'
-    id = Column(Integer, primary_key=True)
-    channel_id = Column(Integer, ForeignKey('markov_channel.id'))
-    leader_word = Column(String(MAX_WORD_LENGTH))
-    follower_word = Column(String(MAX_WORD_LENGTH))
-    created_at = Column(DateTime)
-
-
 class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
@@ -131,6 +97,8 @@ class Markov(CogHelper):
         self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
 
         self.lock_file = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        self._task = None
+
 
     async def cog_load(self):
         self._task = self.bot.loop.create_task(self.main_loop())
@@ -142,7 +110,7 @@ class Markov(CogHelper):
             self.lock_file.unlink()
 
     def __ensure_word(self, word):
-        if len(word) >= MAX_WORD_LENGTH:
+        if len(word) >= 255:
             self.logger.warning(f'Markov :: Cannot add word "{word}", is too long')
             return None
         return word

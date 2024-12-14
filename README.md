@@ -87,7 +87,7 @@ include:
 To run the bot via the command line
 
 ```
-$ discord-bot /path/to/config/file run
+$ discord-bot /path/to/config/file
 ```
 
 ## Help Page
@@ -108,6 +108,16 @@ intents:
   - members
 ```
 
+## Remove Bot From Server
+
+Use config values to remove bot from server if you cannot remove it yourself. This will take effect on the next restart of the bot.
+
+```
+general:
+  rejectlist_guilds:
+    - guild_id_1234505018501
+```
+
 ## Cog Docs
 
 - [Common Cog](./docs/common.md)
@@ -116,128 +126,3 @@ intents:
 - [Music Cog](./docs/music.md)
 - [Role Cog](./docs/role.md)
 - [Urban Cog](./docs/urban.md)
-
-## Database dump and load
-
-Dump database contents to a json file, and load database contents from that same json file
-
-
-Prints json contents to screen
-```
-$ discord-bot /path/to/config/file db_dumps
-# To save to a file
-$ discord-bot /path/to/config/file db_dumps > db.json
-```
-
-Loads that same json to the db
-```
-$ discord-bot /path/to/config/file db_load db.json
-```
-
-## Plugins
-
-
-You can add custom plugins in the `cogs/plugins` directly, that will be loaded automatically. The Cogs must inherit from the `CogHelper` class, and take the arguments `bot`,  `logger`, and `settings` as arguments. `db_engine` may also be passed as an optional arg.
-
-You can also use the `BASE` declarative base from the database file in any plugin file, in order to create database tables.
-
-If you place a `requirements.txt` file in the plugins directly, these should be installed during the `pip install` of the package.
-
-Once you import CogHelper, you can add commands similar to how you would a Cog.
-
-Example:
-
-```
-from asyncio import sleep
-from discord_bot.cogs.common import CogHelper
-
-
-class TestCog(CogHelper):
-    def __init__(self, bot, logger, settings, db_engine):
-        super().__init__(bot, logger, settings, db_engine)
-        self.loop_sleep_interval = settings['test'].get('loop_sleep_interval', 3600)
-
-    async def cog_load(self):
-        self._task = self.bot.loop.create_task(self.main_loop())
-
-    async def cog_unload(self):
-        if self._task:
-            self._task.cancel()
-
-    async def main_loop(self):
-        '''
-        Our main loop.
-        '''
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.__main_loop()
-            except ExitEarlyException:
-                return
-            except Exception as e:
-                self.logger.exception(e)
-                print(f'Player loop exception {str(e)}')
-                return
-
-    async def __main_loop(self):
-        '''
-        Main loop runner
-        '''
-        # Do stuff
-        await sleep(self.loop_sleep_interval) # Every 5 minutes
-
-```
-
-### Aditional Settings
-
-
-Additional settings can be added for plugins. The settings will be available in the `settings` variable passed into the plugin, and will be available under the key of the config section.
-
-For example:
-
-```
-general:
-  discord_token: foo
-  log_file: discord.log
-test:
-  foo: bar
-```
-
-Will have the following settings value added to the config
-
-```
-{
-  'general': {
-    'discord_token': 'foo',
-    'log_file': 'discord.log'
-  },
-  'test': {
-    'foo': 'bar',
-  }
-}
-```
-
-### Allowed Roles
-
-You can set access to discord commands in specific servers to allowed roles within the config. You'll need to specify the server id (sometimes called 'guild id'), any specific channel ids, and the role names.
-
-You can specificy specific channel ids, or pass in 'all' for default options for any channel in the server.
-
-Roles should be separated by the string ';;;'.
-
-The format should look like:
-```
-general:
-  allowed_roles:
-    <server-id>:
-      all: "@everyone;;;admin"
-      <channel-id>: admin
-```
-
-You can then use the `check_user_role` function to check whether users can perform commands in your cog:
-
-```
-if not await self.check_user_role(ctx):
-    return await async_retry_discord_message_command(ctx.send, 'Unable to verify user role, ignoring command', delete_after=self.delete_after)
-```
