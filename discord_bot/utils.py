@@ -8,8 +8,6 @@ from jsonschema import validate
 
 from discord.errors import HTTPException, DiscordServerError, RateLimited
 
-DATETIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
-
 GENERAL_SECTION_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -81,7 +79,15 @@ GENERAL_SECTION_SCHEMA = {
             }
         }
     },
+    'required': [
+        'discord_token',
+    ]
 }
+
+class SkipRetrySleep(Exception):
+    '''
+    Call this to skip generic retry logic
+    '''
 
 def validate_config(config_section, schema):
     '''
@@ -95,7 +101,7 @@ def get_logger(logger_name, logging_section):
     '''
     logger = getLogger(logger_name)
     formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                          datefmt=DATETIME_FORMAT)
+                          datefmt='%Y-%m-%d-%H-%M-%S')
     # If no logging section given, return generic logger
     # That logs to stdout
     if not logging_section:
@@ -120,17 +126,22 @@ def retry_command(func, *args, **kwargs):
     max_retries = kwargs.pop('max_retries', 3)
     accepted_exceptions = kwargs.pop('accepted_exceptions', (Exception))
     post_functions = kwargs.pop('post_exception_functions', [])
-    retry = 0
+    retry = -1
     while True:
         retry += 1
+        should_sleep = True
         try:
             return func(*args, **kwargs)
         except accepted_exceptions as ex:
-            for pf in post_functions:
-                pf(ex)
-            if retry <= max_retries:
-                sleep_for = 2 ** (retry - 1)
-                sleep(sleep_for)
+            try:
+                for pf in post_functions:
+                    pf(ex, retry == max_retries)
+            except SkipRetrySleep:
+                should_sleep = False
+            if retry < max_retries:
+                if should_sleep:
+                    sleep_for = 2 ** (retry - 1)
+                    sleep(sleep_for)
                 continue
             raise
 
@@ -141,17 +152,22 @@ async def async_retry_command(func, *args, **kwargs):
     max_retries = kwargs.pop('max_retries', 3)
     accepted_exceptions = kwargs.pop('accepted_exceptions', (Exception))
     post_functions = kwargs.pop('post_exception_functions', [])
-    retry = 0
+    retry = -1
     while True:
         retry += 1
+        should_sleep = True
         try:
             return await func(*args, **kwargs)
         except accepted_exceptions as ex:
-            for pf in post_functions:
-                pf(ex)
-            if retry <= max_retries:
-                sleep_for = 2 ** (retry - 1)
-                await async_sleep(sleep_for)
+            try:
+                for pf in post_functions:
+                    await pf(ex, retry == max_retries)
+            except SkipRetrySleep:
+                should_sleep = False
+            if retry < max_retries:
+                if should_sleep:
+                    sleep_for = 2 ** (retry - 1)
+                    await async_sleep(sleep_for)
                 continue
             raise
 
@@ -159,9 +175,10 @@ def retry_discord_message_command(func, *args, **kwargs):
     '''
     Retry discord send message command, catch case of rate limiting
     '''
-    def check_429(ex):
-        if isinstance(ex, RateLimited) and '429' not in str(ex):
-            raise #pylint:disable=misplaced-bare-raise
+    def check_429(ex, is_last_retry):
+        if isinstance(ex, RateLimited) and not is_last_retry:
+            sleep(ex.retry_after)
+            raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
     exceptions = (HTTPException, RateLimited, DiscordServerError)
     return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
@@ -170,9 +187,10 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
     '''
     Retry discord send message command, catch case of rate limiting
     '''
-    def check_429(ex):
-        if isinstance(ex, RateLimited) and '429' not in str(ex):
-            raise #pylint:disable=misplaced-bare-raise
+    async def check_429(ex, is_last_retry):
+        if isinstance(ex, RateLimited) and not is_last_retry:
+            await async_sleep(ex.retry_after)
+            raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
     exceptions = (HTTPException, RateLimited, DiscordServerError)
     return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)

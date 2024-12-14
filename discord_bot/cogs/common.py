@@ -1,16 +1,20 @@
-from discord.ext import commands
+from logging import RootLogger
+from discord.ext.commands import Cog, Bot
 from jsonschema import ValidationError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine.base import Engine
+
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils import validate_config
 
-class CogHelper(commands.Cog):
+class CogHelper(Cog):
     '''
     Cogs usually have the following bits
     '''
 
-    def __init__(self, bot, logger, settings, db_engine, settings_prefix=None, section_schema=None):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine,
+                 settings_prefix: str = None, section_schema: dict  = None):
         '''
         Init a basic cog
         bot                 :   Discord bot object
@@ -31,9 +35,6 @@ class CogHelper(commands.Cog):
         self.db_session = None
         if self.db_engine:
             self.db_session = sessionmaker(bind=db_engine)()
-
-        # Task object for loops
-        self._task = None
 
         # Setup config
         if section_schema:

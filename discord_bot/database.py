@@ -1,36 +1,121 @@
-from datetime import datetime, date
-from json import JSONEncoder, dumps
-
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.ext.declarative import DeclarativeMeta
-from sqlalchemy.orm.decl_api import registry
-
-from discord_bot.exceptions import UnhandledColumnType
-from discord_bot.utils import DATETIME_FORMAT
+from sqlalchemy import Column, DateTime, Integer, String, Boolean
+from sqlalchemy import ForeignKey, UniqueConstraint
 
 BASE = declarative_base()
 
-# https://coded3.com/how-to-serialize-sqlalchemy-result-to-json/
-class AlchemyEncoder(JSONEncoder):
+#
+# Markov Tables
+#
+
+class MarkovChannel(BASE):
     '''
-    Encode sqlalchemy data as JSON
+    Markov channel
     '''
-    def default(self, o):
-        if isinstance(o.__class__, DeclarativeMeta):
-            # an SQLAlchemy class
-            fields = {}
-            for field in [x for x in dir(o) if not x.startswith('_') and x != 'metadata']:
-                data = getattr(o, field)
-                if isinstance(data, registry):
-                    continue
-                try:
-                    dumps(data)
-                    fields[field] = data
-                except TypeError as exc:
-                    if isinstance(data, (date, datetime)):
-                        fields[field] = data.strftime(DATETIME_FORMAT)
-                    else:
-                        raise UnhandledColumnType(f'Field {field} and data {data} are not handled by AlchemyEncoder') from exc
-            # a json-encodable dict
-            return fields
-        return JSONEncoder.default(self, o)
+    __tablename__ = 'markov_channel'
+    __table_args__ = (
+        UniqueConstraint('channel_id', 'server_id',
+                         name='_unique_markov_channel'),
+    )
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(String(128))
+    server_id = Column(String(128))
+    last_message_id = Column(String(128))
+
+class MarkovRelation(BASE):
+    '''
+    Markov Relation
+    '''
+    __tablename__ = 'markov_relation'
+    id = Column(Integer, primary_key=True)
+    channel_id = Column(Integer, ForeignKey('markov_channel.id'))
+    leader_word = Column(String(255))
+    follower_word = Column(String(255))
+    created_at = Column(DateTime)
+
+#
+# Music Tables
+#
+
+class Playlist(BASE):
+    '''
+    Playlist
+    '''
+    __tablename__ = 'playlist'
+    __table_args__ = (
+        UniqueConstraint('name', 'server_id',
+                         name='_server_playlist'),
+    )
+    id = Column(Integer, primary_key=True)
+    name = Column(String(256))
+    server_id = Column(String(128))
+    last_queued = Column(DateTime, nullable=True)
+    created_at = Column(DateTime)
+    is_history = Column(Boolean)
+
+
+class PlaylistItem(BASE):
+    '''
+    Playlist Item
+    '''
+    __tablename__ = 'playlist_item'
+    __table_args__ = (
+        UniqueConstraint('video_id', 'playlist_id',
+                         name='_unique_playlist_video'),
+    )
+    id = Column(Integer, primary_key=True)
+    title = Column(String(256))
+    video_id = Column(String(32))
+    video_url = Column(String(256))
+    uploader = Column(String(256))
+    playlist_id = Column(Integer, ForeignKey('playlist.id'))
+    created_at = Column(DateTime)
+
+
+class VideoCache(BASE):
+    '''
+    Cached downloaded videos
+    '''
+    __tablename__ = 'video_cache'
+    id = Column(Integer, primary_key=True)
+    # YTDLP Keys
+    video_id = Column(String(32))
+    video_url = Column(String(256))
+    title = Column(String(1024))
+    uploader = Column(String(1024))
+    duration = Column(Integer) # In seconds
+    extractor = Column(String(256))
+    # Other metadata
+    last_iterated_at = Column(DateTime)
+    created_at = Column(DateTime)
+    count = Column(Integer)
+    # File paths
+    base_path = Column(String(2048))
+    original_path = Column(String(2048))
+    # Status metatada
+    video_available = Column(Boolean, default=True)
+    # Exceeds max video length
+    # Track the length the max set here in case it changes
+    exceeds_max_length = Column(Integer, nullable=True)
+
+
+class Guild(BASE):
+    '''
+    Discord Guild
+    '''
+    __tablename__ = 'guild'
+    id = Column(Integer, primary_key=True)
+    server_id = Column(String(128))
+
+class VideoCacheGuild(BASE):
+    '''
+    Map video cache to a guild
+    '''
+    __tablename__ = 'video_cache_guild'
+    __table_args__ = (
+        UniqueConstraint('video_cache_id', 'guild_id',
+                         name='_unique_cache_guild'),
+    )
+    id = Column(Integer, primary_key=True)
+    guild_id = Column(Integer, ForeignKey('guild.id'))
+    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))

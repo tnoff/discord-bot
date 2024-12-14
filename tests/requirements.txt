@@ -1,4 +1,6 @@
-pylint
-pytest
-pytest-cov
-pytest-mock
+pylint==3.3.2
+pytest==8.3.4
+pytest-cov==6.0.0
+pytest-mock==3.14.0
+tox==4.23.2
+pytest-asyncio==0.25.0
