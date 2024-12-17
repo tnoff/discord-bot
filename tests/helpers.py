@@ -32,6 +32,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
             self.cogs = []
             self.guilds = guilds or []
             self.token = None
+            self.loop = asyncio.get_event_loop()
 
         def fetch_guilds(self, **_kwargs):
             return AsyncIteratorGuild(guilds)
@@ -39,11 +40,13 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
         def event(self, func):
             self.startup_functions.append(func)
 
+        def is_closed(self):
+            return False
+
         async def start(self, token):
             self.token = token
             for func in self.startup_functions:
                 await func()
-            print('Sleeping for seconds', start_sleep)
             await asyncio.sleep(start_sleep)
 
         async def __aenter__(self):
@@ -54,6 +57,10 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
 
         async def add_cog(self, cog):
             self.cogs.append(cog)
+        
+        async def wait_until_ready(self):
+            return True
+
     return FakeBot
 
 class FakeAuthor():

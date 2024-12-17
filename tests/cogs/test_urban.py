@@ -15,7 +15,7 @@ def test_urban_dictionary_startup():
             }
         }
     }
-    fake_bot = fake_bot_yielder()
+    fake_bot = fake_bot_yielder()()
     with pytest.raises(CogMissingRequiredArg) as exc:
         UrbanDictionary(fake_bot, logging, config, None)
     assert 'Urban not enabled' in str(exc.value)
@@ -29,7 +29,7 @@ async def test_urban_lookup(requests_mock):
             }
         }
     }
-    fake_bot = fake_bot_yielder()
+    fake_bot = fake_bot_yielder()()
     requests_mock.get(f'{BASE_URL}define.php?term=foo bar', text=HTML_DATA)
     cog = UrbanDictionary(fake_bot, logging, config, None)
     result = await cog.word_lookup(cog, FakeContext(), word='foo bar') #pylint:disable=too-many-function-args

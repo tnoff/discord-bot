@@ -1,4 +1,5 @@
 from asyncio import sleep
+from logging import RootLogger
 from datetime import datetime, timedelta
 
 from pytz import UTC
@@ -6,6 +7,8 @@ from pytz import UTC
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils import retry_discord_message_command, async_retry_discord_message_command
+from discord.ext.commands import Bot, Context
+from sqlalchemy.engine.base import Engine
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7
@@ -25,10 +28,10 @@ DELETE_MESSAGES_SCHEMA  = {
                 'type': 'object',
                 'properties': {
                     'server_id': {
-                        'type': 'integer',
+                        'type': 'string',
                     },
                     'channel_id': {
-                        'type': 'integer'
+                        'type': 'string'
                     },
                     'delete_after': {
                         'type': 'integer'
@@ -50,7 +53,7 @@ class DeleteMessages(CogHelper):
     '''
     Delete Messages in Channels after X days
     '''
-    def __init__(self, bot, logger, settings, db_engine):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
         super().__init__(bot, logger, settings, None, settings_prefix='delete_messages', section_schema=DELETE_MESSAGES_SCHEMA)
 
         if not self.settings.get('general', {}).get('include', {}).get('delete_messages', False):
@@ -75,6 +78,7 @@ class DeleteMessages(CogHelper):
 
         while not self.bot.is_closed():
             try:
+                print('Starting main loop')
                 await self.__main_loop()
             except Exception as e:
                 self.logger.exception(e)
@@ -84,8 +88,8 @@ class DeleteMessages(CogHelper):
         '''
         Main loop runner
         '''
+        print('Entering main loop')
         for channel_dict in self.discord_channels:
-            await sleep(.01)
             self.logger.debug(f'Delete Messages :: Checking Channel ID {channel_dict["channel_id"]}')
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, channel_dict["channel_id"])
 

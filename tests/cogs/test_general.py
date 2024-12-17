@@ -52,7 +52,7 @@ async def test_roll_invalid_input(mocker):
 
 @pytest.mark.asyncio
 async def test_meta():
-    fake_bot = fake_bot_yielder()
+    fake_bot = fake_bot_yielder()()
     cog = General(fake_bot, logging, {}, None)
     result = await cog.meta(cog, FakeContext()) #pylint:disable=too-many-function-args
     assert result == '```Server id: fake-guild-1234\nChannel id: fake-channel-id-123\nUser id: fake-user-id-123```'
