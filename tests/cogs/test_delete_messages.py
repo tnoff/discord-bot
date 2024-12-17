@@ -6,7 +6,7 @@ from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.exceptions import CogMissingRequiredArg
 
 from tests.data.urban_data import HTML_DATA
-from tests.helpers import fake_bot_yielder, FakeContext
+from tests.helpers import fake_bot_yielder, FakeChannel
 
 def test_delete_messages_start_failed():
     config = {
@@ -74,7 +74,7 @@ async def test_delete_messages_main_loop(mocker):
             ]
         }
     }
-    fake_bot = fake_bot_yielder()()
+    fake_bot = fake_bot_yielder(fake_channel=FakeChannel())()
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_bot, logging, config, None)
     await cog.delete_messages_loop()

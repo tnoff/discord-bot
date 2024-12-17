@@ -1,5 +1,13 @@
 import asyncio
 
+class AsyncIterator():
+    def __init__(self, items):
+        self.items = items
+
+    async def __aiter__(self):
+        for item in self.items:
+            yield item
+
 class FakeBotUser():
     def __init__(self):
         self.id = 'fake-user-1234'
@@ -16,15 +24,18 @@ class FakeGuild():
     async def leave(self):
         self.left_guild = True
 
-class AsyncIteratorGuild():
-    def __init__(self, items):
-        self.items = items
 
-    async def __aiter__(self):
-        for item in self.items:
-            yield item
+class FakeAuthor():
+    def __init__(self):
+        self.id = 'fake-user-id-123'
+        self.name = 'fake-user-name-123'
+        self.display_name = 'fake-display-name-123'
 
-def fake_bot_yielder(start_sleep=0, guilds=None):
+class FakeChannel():
+    def __init__(self):
+        self.id = 'fake-channel-id-123'
+
+def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     class FakeBot():
         def __init__(self, *_args, **_kwargs):
             self.startup_functions = []
@@ -32,10 +43,13 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
             self.cogs = []
             self.guilds = guilds or []
             self.token = None
-            self.loop = asyncio.get_event_loop()
+            self.fake_channel = fake_channel
+
+        async def fetch_channel(self, _channel_id):
+            return fake_channel
 
         def fetch_guilds(self, **_kwargs):
-            return AsyncIteratorGuild(guilds)
+            return AsyncIterator(guilds)
 
         def event(self, func):
             self.startup_functions.append(func)
@@ -63,15 +77,6 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
 
     return FakeBot
 
-class FakeAuthor():
-    def __init__(self):
-        self.id = 'fake-user-id-123'
-        self.name = 'fake-user-name-123'
-        self.display_name = 'fake-display-name-123'
-
-class FakeChannel():
-    def __init__(self):
-        self.id = 'fake-channel-id-123'
 
 class FakeContext():
     def __init__(self):
