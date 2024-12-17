@@ -57,7 +57,7 @@ def test_delete_messages_start_config():
     assert cog.discord_channels == [{'server_id': 'fake-guild-123', 'channel_id': 'fake-channel-123'}]
 
 @pytest.mark.asyncio
-async def test_delete_messages_main_loop():
+async def test_delete_messages_main_loop(mocker):
     config = {
         'general': {
             'include': {
@@ -75,12 +75,7 @@ async def test_delete_messages_main_loop():
         }
     }
     fake_bot = fake_bot_yielder()()
-    print('Fake bot', fake_bot)
-    print('Fake bot loop', fake_bot.loop)
+    mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_bot, logging, config, None)
-    await cog.cog_load()
-    assert cog._task is not None
-
-    await asyncio.sleep(.01)
-    await cog.cog_unload()
+    await cog.delete_messages_loop()
     assert True == False

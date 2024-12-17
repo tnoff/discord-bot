@@ -78,17 +78,15 @@ class DeleteMessages(CogHelper):
 
         while not self.bot.is_closed():
             try:
-                print('Starting main loop')
-                await self.__main_loop()
+                await self.delete_messages_loop()
             except Exception as e:
                 self.logger.exception(e)
                 print(f'Player loop exception {str(e)}')
 
-    async def __main_loop(self):
+    async def delete_messages_loop(self):
         '''
         Main loop runner
         '''
-        print('Entering main loop')
         for channel_dict in self.discord_channels:
             self.logger.debug(f'Delete Messages :: Checking Channel ID {channel_dict["channel_id"]}')
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, channel_dict["channel_id"])
