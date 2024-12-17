@@ -1,15 +1,14 @@
 from asyncio import sleep
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from random import choice
-from pathlib import Path
+from logging import RootLogger
 from re import match, sub, MULTILINE
-from tempfile import NamedTemporaryFile
-from typing import Optional
+from typing import Optional, List
 
 from discord import TextChannel
-from discord.ext import commands
+from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
-
+from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
@@ -39,10 +38,16 @@ MARKOV_SECTION_SCHEMA = {
             'type': 'number',
 
         },
+        'server_reject_list': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+            }
+        },
     }
 }
 
-def clean_message(content, emojis):
+def clean_message(content: str, emojis: List[str]):
     '''
     Clean channel message
     content :   Full message content to clean
@@ -83,7 +88,7 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    def __init__(self, bot, logger, settings, db_engine):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine):
         super().__init__(bot, logger, settings, db_engine, settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
 
         if not db_engine:
@@ -96,7 +101,6 @@ class Markov(CogHelper):
         self.history_retention_days = self.settings.get('markov', {}).get('history_retention_days', MARKOV_HISTORY_RETENTION_DAYS_DEFAULT)
         self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
 
-        self.lock_file = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         self._task = None
 
 
@@ -106,36 +110,45 @@ class Markov(CogHelper):
     async def cog_unload(self):
         if self._task:
             self._task.cancel()
-        if self.lock_file.exists():
-            self.lock_file.unlink()
-
-    def __ensure_word(self, word):
-        if len(word) >= 255:
-            self.logger.warning(f'Markov :: Cannot add word "{word}", is too long')
-            return None
-        return word
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
-    def __build_and_save_relations(self, corpus, markov_channel, message_timestamp):
+    def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
+        '''
+        Build and save relations to db
+        corpus : List of strings from message, after cleaning
+        markov_channel_id : Markov Channel ID (ID from DB)
+        message_timestamp: Timestamp for db
+        '''
+        def ensure_word(word):
+            if len(word) >= 255:
+                self.logger.warning(f'Markov :: Cannot add word "{word}", is too long')
+                return None
+            return word
+
         for (k, word) in enumerate(corpus):
             if k != len(corpus) - 1: # Deal with last word
                 next_word = corpus[k+1]
             else:
                 next_word = corpus[0] # To loop back to the beginning
-            leader_word = self.__ensure_word(word)
+            leader_word = ensure_word(word)
             if leader_word is None:
                 continue
-            follower_word = self.__ensure_word(next_word)
+            follower_word = ensure_word(next_word)
             if follower_word is None:
                 continue
-            new_relation = MarkovRelation(channel_id=markov_channel.id,
+            new_relation = MarkovRelation(channel_id=markov_channel_id,
                                           leader_word=leader_word,
                                           follower_word=follower_word,
                                           created_at=message_timestamp)
             self.db_session.add(new_relation)
             self.db_session.commit()
 
-    def _delete_channel_relations(self, channel_id):
+    def delete_channel_relations(self, channel_id: str):
+        '''
+        Delete all relations related to channel
+        
+        channel_id: Markov Channel ID (DB ID)
+        '''
         self.db_session.query(MarkovRelation).filter(MarkovRelation.channel_id == channel_id).delete()
 
     async def main_loop(self):
@@ -146,7 +159,7 @@ class Markov(CogHelper):
 
         while not self.bot.is_closed():
             try:
-                await self.__main_loop()
+                await self.markov_message_check()
             except DiscordServerError as e:
                 self.logger.warning(f'Markov :: Loop hit discord server exception, retrying {str(e)}')
                 await sleep(self.loop_sleep_interval)
@@ -158,15 +171,14 @@ class Markov(CogHelper):
                 print(f'Player loop exception {str(e)}')
                 return
 
-    async def __main_loop(self):
+    async def markov_message_check(self):
         '''
         Main loop runner
         '''
-        retention_cutoff = datetime.utcnow() - timedelta(days= self.history_retention_days)
+        retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
         self.logger.debug(f'Markov :: Entering message gather loop, using cutoff {retention_cutoff}')
 
         for markov_channel in self.db_session.query(MarkovChannel).all():
-            await sleep(.01) # Sleep one second just in case someone called a command
             self.logger.debug(f'Markov :: Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, markov_channel.channel_id)
             server = await async_retry_discord_message_command(self.bot.fetch_guild, markov_channel.server_id)
@@ -187,7 +199,7 @@ class Markov(CogHelper):
                                         f' in channel {markov_channel.id}')
                     # Last message on record not found
                     # If this happens, wipe the channel clean and restart
-                    self._delete_channel_relations(markov_channel.id)
+                    self.delete_channel_relations(markov_channel.id)
                     markov_channel.last_message_id = None
                     self.db_session.commit()
                     # Skip this channel for now
@@ -212,7 +224,7 @@ class Markov(CogHelper):
                 if corpus:
                     self.logger.info(f'Attempting to add corpus "{corpus}" '
                                     f'to channel {markov_channel.channel_id}')
-                    self.__build_and_save_relations(corpus, markov_channel, message.created_at)
+                    self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
                 markov_channel.last_message_id = str(message.id)
                 self.db_session.commit()
             self.logger.debug(f'Markov :: Done with channel {markov_channel.channel_id}')
@@ -223,8 +235,8 @@ class Markov(CogHelper):
         self.logger.debug('Markov :: Deleted expired/old markov relations')
         await sleep(self.loop_sleep_interval)
 
-    @commands.group(name='markov', invoke_without_command=False)
-    async def markov(self, ctx):
+    @group(name='markov', invoke_without_command=False)
+    async def markov(self, ctx: Context):
         '''
         Markov functions
         '''
@@ -232,7 +244,7 @@ class Markov(CogHelper):
             await ctx.send('Invalid sub command passed...')
 
     @markov.command(name='on')
-    async def on(self, ctx):
+    async def on(self, ctx: Context):
         '''
         Turn markov on for channel
         '''
@@ -261,14 +273,10 @@ class Markov(CogHelper):
         return await ctx.send('Markov turned on for channel')
 
     @markov.command(name='off')
-    async def off(self, ctx):
+    async def off(self, ctx: Context):
         '''
         Turn markov off for channel
         '''
-
-        if ctx.guild.id in self.server_reject_list:
-            return await ctx.send('Unable to turn off markov for server, in reject list')
-
         # Ensure channel not already on
         markov_channel = self.db_session.query(MarkovChannel).\
             filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
@@ -278,13 +286,13 @@ class Markov(CogHelper):
             return await ctx.send('Channel does not have markov turned on')
         self.logger.info(f'Markov :: Turning off markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
-        self._delete_channel_relations(markov_channel.id)
+        self.delete_channel_relations(markov_channel.id)
         self.db_session.delete(markov_channel)
         self.db_session.commit()
         return await ctx.send('Markov turned off for channel')
 
     @markov.command(name='speak')
-    async def speak(self, ctx, #pylint:disable=too-many-locals
+    async def speak(self, ctx: Context, #pylint:disable=too-many-locals
                     first_word: Optional[str] = '',
                     sentence_length: Optional[int] = 32):
         '''
@@ -298,7 +306,6 @@ class Markov(CogHelper):
         Note that for first_word, multiple words can be given, but they must be in quotes
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
-
         if ctx.guild.id in self.server_reject_list:
             return await ctx.send('Unable to use markov for server, in reject list')
 
@@ -313,7 +320,6 @@ class Markov(CogHelper):
             for start_words in starting_words[:-1]:
                 all_words.append(start_words.lower())
             first = starting_words[-1].lower()
-
 
         query = self.db_session.query(MarkovRelation.id).\
                     join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id).\
@@ -330,8 +336,8 @@ class Markov(CogHelper):
         word = self.db_session.query(MarkovRelation).get(choice(possible_words)).leader_word
         all_words.append(word)
 
-        # Save a cache layer to reduce db calls
-        for _ in range(sentence_length + 1):
+        remaining_word_num = sentence_length - len(all_words)
+        for _ in range(remaining_word_num):
             # Get all leader ids first so you can pass it in
             relation_ids = self.db_session.query(MarkovRelation.id).\
                     join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id).\

@@ -1,6 +1,9 @@
+from logging import RootLogger
+
 from bs4 import BeautifulSoup
 from dappertable import shorten_string_cjk
-from discord.ext import commands
+from discord.ext.commands import Bot, command, Context
+from sqlalchemy.engine.base import Engine
 from requests import get as requests_get
 
 from discord_bot.cogs.common import CogHelper
@@ -14,14 +17,14 @@ class UrbanDictionary(CogHelper):
     Class that looks up urban dictionary definitions
     '''
 
-    def __init__(self, bot, logger, settings, db_engine):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
         super().__init__(bot, logger, settings, None)
 
         if not self.settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
 
-    @commands.command(name='urban')
-    async def word_lookup(self, ctx, *, word: str):
+    @command(name='urban')
+    async def word_lookup(self, ctx: Context, *, word: str):
         '''
         Lookup word on urban dictionary
 
@@ -45,4 +48,4 @@ class UrbanDictionary(CogHelper):
         for (count, define) in enumerate(definitions[:2]):
             definition = shorten_string_cjk(define, 400)
             text = f'{text}{count+1}. {definition}\n'
-        await ctx.send(f'```{text}```')
+        return await ctx.send(f'```{text}```')
