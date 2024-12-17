@@ -1,7 +1,8 @@
+from logging import RootLogger
+
 from bs4 import BeautifulSoup
 from dappertable import shorten_string_cjk
 from discord.ext.commands import Bot, command, Context
-from logging import RootLogger
 from sqlalchemy.engine.base import Engine
 from requests import get as requests_get
 
@@ -16,14 +17,14 @@ class UrbanDictionary(CogHelper):
     Class that looks up urban dictionary definitions
     '''
 
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
         super().__init__(bot, logger, settings, None)
 
         if not self.settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
 
     @command(name='urban')
-    async def word_lookup(self, ctx, *, word: str):
+    async def word_lookup(self, ctx: Context, *, word: str):
         '''
         Lookup word on urban dictionary
 
