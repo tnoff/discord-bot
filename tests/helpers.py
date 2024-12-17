@@ -55,3 +55,22 @@ def fake_bot_yielder(start_sleep=0, guilds=None):
         async def add_cog(self, cog):
             self.cogs.append(cog)
     return FakeBot
+
+class FakeAuthor():
+    def __init__(self):
+        self.id = 'fake-user-id-123'
+        self.name = 'fake-user-name-123'
+        self.display_name = 'fake-display-name-123'
+
+class FakeChannel():
+    def __init__(self):
+        self.id = 'fake-channel-id-123'
+
+class FakeContext():
+    def __init__(self):
+        self.author = FakeAuthor()
+        self.guild = FakeGuild()
+        self.channel = FakeChannel()
+
+    async def send(self, message):
+        return message
