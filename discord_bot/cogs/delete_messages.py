@@ -1,14 +1,14 @@
 from asyncio import sleep
 from logging import RootLogger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from pytz import UTC
+from discord.ext.commands import Bot
+from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils import retry_discord_message_command, async_retry_discord_message_command
-from discord.ext.commands import Bot, Context
-from sqlalchemy.engine.base import Engine
+
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7
@@ -92,7 +92,7 @@ class DeleteMessages(CogHelper):
             channel = await async_retry_discord_message_command(self.bot.fetch_channel, channel_dict["channel_id"])
 
             delete_after = channel_dict.get('delete_after', DELETE_AFTER_DEFAULT)
-            cutoff_period = (datetime.utcnow() - timedelta(days=delete_after)).replace(tzinfo=UTC)
+            cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
             messages = [m async for m in retry_discord_message_command(channel.history, limit=128, oldest_first=True)]
             for message in messages:
                 if message.created_at < cutoff_period:
