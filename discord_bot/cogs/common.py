@@ -41,7 +41,7 @@ class CogHelper(Cog):
             try:
                 validate_config(self.settings[settings_prefix], section_schema)
             except ValidationError as exc:
-                raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}') from exc
+                raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}', str(exc)) from exc
             except KeyError:
                 self.settings[settings_prefix] = {}
                 self.enable_loop = False

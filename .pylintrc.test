@@ -20,3 +20,4 @@ disable=line-too-long,
         unnecessary-lambda-assignment,
         missing-class-docstring,
         duplicate-code,
+        redefined-builtin

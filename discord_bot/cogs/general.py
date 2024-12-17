@@ -15,9 +15,9 @@ class General(CogHelper):
     '''
     General use commands
     '''
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine):
-        super().__init__(bot, logger, settings, db_engine)
-        if not self.settings.get('include', {}).get('default', True):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
+        super().__init__(bot, logger, settings, None)
+        if not self.settings.get('general', {}).get('include', {}).get('default', True):
             raise CogMissingRequiredArg('Default cog not enabled')
 
     @command(name='hello')
@@ -28,7 +28,7 @@ class General(CogHelper):
         return await ctx.send(f'Waddup {ctx.author.display_name}')
 
     @command(name='roll')
-    async def roll(self, ctx: Context, input_value: str):
+    async def roll(self, ctx: Context, *, input_value: str):
         '''
         Dice rolls
 
