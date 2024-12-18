@@ -9,15 +9,20 @@ class AsyncIterator():
         for item in self.items:
             yield item
 
+class FakeEmjoi():
+    def __init__(self):
+        self.id = 1234
+
 class FakeMessage():
     def __init__(self):
         self.id = 'fake-message-1234'
         self.created_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         self.deleted = False
+        self.content = 'fake message content that was typed by a real human'
+        self.author = FakeAuthor()
 
     async def delete(self):
         self.deleted = True
-        print('Calling delete')
         return True
 
 class FakeBotUser():
@@ -28,19 +33,24 @@ class FakeBotUser():
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self):
+    def __init__(self, emojis=None):
         self.id = 'fake-guild-1234'
         self.name = 'fake-guild-name'
+        self.emojis = emojis
         self.left_guild = False
 
     async def leave(self):
         self.left_guild = True
+
+    async def fetch_emojis(self, **_kwargs):
+        return self.emojis
 
 class FakeAuthor():
     def __init__(self):
         self.id = 'fake-user-id-123'
         self.name = 'fake-user-name-123'
         self.display_name = 'fake-display-name-123'
+        self.bot = False
 
 class FakeChannel():
     def __init__(self, fake_message=None):
@@ -62,6 +72,12 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
         async def fetch_channel(self, _channel_id):
             return fake_channel
+
+        async def fetch_guild(self, guild_id):
+            for guild in self.guilds:
+                if guild.id == guild_id:
+                    return guild
+            return None
 
         def fetch_guilds(self, **_kwargs):
             return AsyncIterator(guilds)
@@ -94,9 +110,9 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
 
 class FakeContext():
-    def __init__(self):
+    def __init__(self, fake_guild=None):
         self.author = FakeAuthor()
-        self.guild = FakeGuild()
+        self.guild = fake_guild or FakeGuild()
         self.channel = FakeChannel()
 
     async def send(self, message):
