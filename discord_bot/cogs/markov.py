@@ -2,13 +2,10 @@ from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from random import choice
 from logging import RootLogger
-from pathlib import Path
 from re import match, sub, MULTILINE
-from tempfile import NamedTemporaryFile
 from typing import Optional, List
 
 from discord import TextChannel
-from discord.abc import GuildChannel
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from sqlalchemy.engine.base import Engine
@@ -116,6 +113,12 @@ class Markov(CogHelper):
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
     def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
+        '''
+        Build and save relations to db
+        corpus : List of strings from message, after cleaning
+        markov_channel_id : Markov Channel ID (ID from DB)
+        message_timestamp: Timestamp for db
+        '''
         def ensure_word(word):
             if len(word) >= 255:
                 self.logger.warning(f'Markov :: Cannot add word "{word}", is too long')
@@ -140,7 +143,12 @@ class Markov(CogHelper):
             self.db_session.add(new_relation)
             self.db_session.commit()
 
-    def delete_channel_relations(self, channel_id):
+    def delete_channel_relations(self, channel_id: str):
+        '''
+        Delete all relations related to channel
+        
+        channel_id: Markov Channel ID (DB ID)
+        '''
         self.db_session.query(MarkovRelation).filter(MarkovRelation.channel_id == channel_id).delete()
 
     async def main_loop(self):

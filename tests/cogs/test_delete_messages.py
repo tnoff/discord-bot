@@ -1,13 +1,11 @@
-import asyncio
-from datetime import datetime, timezone
 import logging
+
+from freezegun import freeze_time
 import pytest
 
 from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.exceptions import CogMissingRequiredArg
-from freezegun import freeze_time
 
-from tests.data.urban_data import HTML_DATA
 from tests.helpers import fake_bot_yielder, FakeChannel
 
 def test_delete_messages_start_failed():

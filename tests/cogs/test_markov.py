@@ -69,11 +69,11 @@ async def test_turn_on():
         }
         fake_bot = fake_bot_yielder()()
         cog = Markov(fake_bot, logging, config, engine)
-        result = await cog.on(cog, FakeContext())
+        result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov turned on for channel'
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovChannel).count() == 1
-        result = await cog.on(cog, FakeContext())
+        result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Channel already has markov turned on'
 
 @pytest.mark.asyncio
@@ -98,9 +98,9 @@ async def test_server_reject_list():
         }
         fake_bot = fake_bot_yielder()()
         cog = Markov(fake_bot, logging, config, engine)
-        result = await cog.on(cog, FakeContext(fake_guild=fake_guild))
+        result = await cog.on(cog, FakeContext(fake_guild=fake_guild)) #pylint: disable=too-many-function-args
         assert result == 'Unable to turn on markov for server, in reject list'
-        result = await cog.speak(cog, FakeContext(fake_guild=fake_guild))
+        result = await cog.speak(cog, FakeContext(fake_guild=fake_guild)) #pylint: disable=too-many-function-args
         assert result == 'Unable to use markov for server, in reject list'
 
 @pytest.mark.asyncio
@@ -119,7 +119,7 @@ async def test_turn_off():
         }
         fake_bot = fake_bot_yielder()()
         cog = Markov(fake_bot, logging, config, engine)
-        result = await cog.off(cog, FakeContext())
+        result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Channel does not have markov turned on'
 
 @pytest.mark.asyncio
@@ -138,8 +138,8 @@ async def test_turn_on_and_off():
         }
         fake_bot = fake_bot_yielder()()
         cog = Markov(fake_bot, logging, config, engine)
-        await cog.on(cog, FakeContext())
-        result = await cog.off(cog, FakeContext())
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov turned off for channel'
 
 @pytest.mark.asyncio
@@ -161,8 +161,8 @@ async def test_turn_on_and_sync(mocker):
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
         cog = Markov(fake_bot, logging, config, engine)
-        await cog.on(cog, FakeContext())
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
-        await cog.markov_message_check()
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() > 0

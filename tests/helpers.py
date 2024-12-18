@@ -102,7 +102,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
         async def add_cog(self, cog):
             self.cogs.append(cog)
-        
+
         async def wait_until_ready(self):
             return True
 
