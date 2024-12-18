@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime, timezone
 
+from discord.errors import NotFound
+
 class AsyncIterator():
     def __init__(self, items):
         self.items = items
@@ -9,16 +11,23 @@ class AsyncIterator():
         for item in self.items:
             yield item
 
+class FakeResponse():
+    def __init__(self):
+        self.status = 404
+        self.reason = 'Cant find nothing'
+
 class FakeEmjoi():
     def __init__(self):
         self.id = 1234
 
 class FakeMessage():
-    def __init__(self):
-        self.id = 'fake-message-1234'
+    def __init__(self, id=None, content=None):
+        self.id = id or 'fake-message-1234'
         self.created_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         self.deleted = False
-        self.content = 'fake message content that was typed by a real human'
+        self.content = content
+        if content is None:
+            self.content = 'fake message content that was typed by a real human'
         self.author = FakeAuthor()
 
     async def delete(self):
@@ -53,12 +62,23 @@ class FakeAuthor():
         self.bot = False
 
 class FakeChannel():
-    def __init__(self, fake_message=None):
+    def __init__(self, fake_message=None, no_messages=False):
         self.id = 'fake-channel-id-123'
-        self.fake_message = fake_message or FakeMessage()
+        if no_messages:
+            self.messages = []
+        else:
+            fake_message = fake_message or FakeMessage()
+            self.messages = [fake_message]
 
     def history(self, **_kwargs):
-        return AsyncIterator([self.fake_message])
+        return AsyncIterator(self.messages)
+
+    async def fetch_message(self, message_id):
+        for message in self.messages:
+            if message.id == message_id:
+                return message
+        raise NotFound(FakeResponse(), 'Unable to find message')
+
 
 def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     class FakeBot():

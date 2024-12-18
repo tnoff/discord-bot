@@ -80,7 +80,7 @@ async def test_delete_messages_main_loop(mocker):
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_bot, logging, config, None)
     await cog.delete_messages_loop()
-    assert fake_channel.fake_message.deleted is True
+    assert fake_channel.messages[0].deleted is True
 
 @pytest.mark.asyncio
 @freeze_time('2024-01-01 12:00:00', tz_offset=0)
@@ -107,4 +107,4 @@ async def test_delete_messages_main_loop_no_delete(mocker):
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_bot, logging, config, None)
     await cog.delete_messages_loop()
-    assert fake_channel.fake_message.deleted is False
+    assert fake_channel.messages[0].deleted is False

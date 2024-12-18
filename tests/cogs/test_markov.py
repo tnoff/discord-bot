@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from discord_bot.cogs.markov import clean_message, Markov
 from discord_bot.database import BASE, MarkovChannel, MarkovRelation
 
-from tests.helpers import fake_bot_yielder, FakeContext, FakeGuild, FakeEmjoi, FakeChannel
+from tests.helpers import fake_bot_yielder, FakeContext, FakeGuild, FakeEmjoi, FakeChannel, FakeMessage
 
 def test_clean_message():
     message = 'This is an example message'
@@ -166,3 +166,137 @@ async def test_turn_on_and_sync(mocker):
         await cog.markov_message_check() #pylint: disable=too-many-function-args
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() > 0
+
+@pytest.mark.asyncio
+async def test_turn_on_and_sync_no_messages(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_channel = FakeChannel(no_messages=True)
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        session = sessionmaker(bind=engine)()
+        assert session.query(MarkovRelation).count() == 0
+
+@pytest.mark.asyncio
+async def test_turn_on_and_sync_multiple_times(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_message = FakeMessage(content='this is a basic test')
+        new_fake_message = FakeMessage(content='another basic message')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        fake_channel.messages.append(new_fake_message)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        session = sessionmaker(bind=engine)()
+        assert session.query(MarkovRelation).count() == 13
+
+@pytest.mark.asyncio
+async def test_turn_on_and_sync_message_dissapears(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_message = FakeMessage(content='this is a basic test')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        fake_channel.messages = []
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        session = sessionmaker(bind=engine)()
+        assert session.query(MarkovRelation).count() == 0
+
+@pytest.mark.asyncio
+async def test_turn_on_and_sync_bot_command(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_message = FakeMessage(content='!test command')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        session = sessionmaker(bind=engine)()
+        assert session.query(MarkovRelation).count() == 0
+
+@pytest.mark.asyncio
+async def test_turn_on_and_sync_no_content(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_message = FakeMessage(content='')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+        await cog.markov_message_check() #pylint: disable=too-many-function-args
+        session = sessionmaker(bind=engine)()
+        assert session.query(MarkovRelation).count() == 0
