@@ -95,12 +95,7 @@ class DeleteMessages(CogHelper):
             cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
             messages = [m async for m in retry_discord_message_command(channel.history, limit=128, oldest_first=True)]
             for message in messages:
-                print('Message', message)
-                print('Created at', message.created_at)
-                print('Comparison', message.created_at < cutoff_period)
-                '''
                 if message.created_at < cutoff_period:
                     self.logger.info(f'Deleting message id {message.id}, in channel {channel.id}, in server {channel_dict["server_id"]}')
                     await async_retry_discord_message_command(message.delete)
-                '''
         await sleep(self.loop_sleep_interval)

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 
 class AsyncIterator():
     def __init__(self, items):
@@ -7,6 +8,17 @@ class AsyncIterator():
     async def __aiter__(self):
         for item in self.items:
             yield item
+
+class FakeMessage():
+    def __init__(self):
+        self.id = 'fake-message-1234'
+        self.created_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        self.deleted = False
+
+    async def delete(self):
+        self.deleted = True
+        print('Calling delete')
+        return True
 
 class FakeBotUser():
     def __init__(self):
@@ -24,7 +36,6 @@ class FakeGuild():
     async def leave(self):
         self.left_guild = True
 
-
 class FakeAuthor():
     def __init__(self):
         self.id = 'fake-user-id-123'
@@ -32,8 +43,12 @@ class FakeAuthor():
         self.display_name = 'fake-display-name-123'
 
 class FakeChannel():
-    def __init__(self):
+    def __init__(self, fake_message=None):
         self.id = 'fake-channel-id-123'
+        self.fake_message = fake_message or FakeMessage()
+
+    def history(self, **_kwargs):
+        return AsyncIterator([self.fake_message])
 
 def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     class FakeBot():
