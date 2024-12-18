@@ -19,4 +19,4 @@ RUN virtualenv "${VENVDIR}"
 RUN ${VENVDIR}/bin/pip install psycopg2 "${TMPDIR}"
 RUN rm -rf "${TMPDIR}"
 
-CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf", "run"]
+CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf"]
