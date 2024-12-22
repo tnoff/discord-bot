@@ -180,7 +180,7 @@ def retry_discord_message_command(func, *args, **kwargs):
             sleep(ex.retry_after)
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
-    exceptions = (HTTPException, RateLimited, DiscordServerError)
+    exceptions = (HTTPException, RateLimited, DiscordServerError, TimeoutError)
     return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 async def async_retry_discord_message_command(func, *args, **kwargs):
@@ -192,5 +192,5 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
             await async_sleep(ex.retry_after)
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
-    exceptions = (HTTPException, RateLimited, DiscordServerError)
+    exceptions = (HTTPException, RateLimited, DiscordServerError, TimeoutError)
     return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
