@@ -21,18 +21,18 @@ def test_delete_messages_start_failed():
         DeleteMessages(fake_bot, logging, config, None)
     assert 'Delete messages not enabled' in str(exc.value)
 
-def test_delete_messages_start():
+def test_delete_messages_requires_config():
     config = {
         'general': {
             'include': {
                 'delete_messages': True
             }
-        }
+        },
     }
     fake_bot = fake_bot_yielder()()
-    cog = DeleteMessages(fake_bot, logging, config, None)
-    assert cog.loop_sleep_interval is not None
-    assert cog.discord_channels == []
+    with pytest.raises(CogMissingRequiredArg) as exc:
+        DeleteMessages(fake_bot, logging, config, None)
+    assert 'Invalid config given' in str(exc.value)
 
 def test_delete_messages_start_config():
     config = {

@@ -35,6 +35,12 @@ class FakeMessage():
         self.deleted = True
         return True
 
+class FakeRole():
+    def __init__(self, id=None, name=None):
+        self.id = id or 'fake-role-1234'
+        self.name = name or 'fake-role-name'
+        self.members = []
+
 class FakeBotUser():
     def __init__(self):
         self.id = 'fake-user-1234'
@@ -43,11 +49,13 @@ class FakeBotUser():
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self, emojis=None):
+    def __init__(self, emojis=None, members=None, roles=None):
         self.id = 'fake-guild-1234'
         self.name = 'fake-guild-name'
         self.emojis = emojis
         self.left_guild = False
+        self.members = members or []
+        self.roles = roles or []
 
     async def leave(self):
         self.left_guild = True
@@ -55,12 +63,31 @@ class FakeGuild():
     async def fetch_emojis(self, **_kwargs):
         return self.emojis
 
+    async def fetch_member(self, member_id):
+        for member in self.members:
+            if member_id == member.id:
+                return member
+        raise NotFound(FakeResponse(), 'Unable to find user')
+
+    def get_role(self, role_id):
+        for role in self.roles:
+            if role.id == role_id:
+                return role
+        raise NotFound(FakeResponse(), 'Unable to find role')
+
 class FakeAuthor():
-    def __init__(self):
-        self.id = 'fake-user-id-123'
+    def __init__(self, id=None, roles=None):
+        self.id = id or 'fake-user-id-123'
         self.name = 'fake-user-name-123'
         self.display_name = 'fake-display-name-123'
         self.bot = False
+        self.roles = roles or []
+
+    async def add_roles(self, role):
+        self.roles.append(role)
+
+    async def remove_roles(self, role):
+        self.roles.remove(role)
 
 class FakeChannel():
     def __init__(self, fake_message=None, no_messages=False):
@@ -81,6 +108,10 @@ class FakeChannel():
                 return message
         raise NotFound(FakeResponse(), 'Unable to find message')
 
+class FakeIntents():
+    def __init__(self):
+        self.members = True
+
 
 def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     class FakeBot():
@@ -91,6 +122,9 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
             self.guilds = guilds or []
             self.token = None
             self.fake_channel = fake_channel
+            if guilds:
+                self.guild = guilds[0]
+            self.intents = FakeIntents()
 
         async def fetch_channel(self, _channel_id):
             return self.fake_channel
@@ -132,8 +166,8 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
 
 class FakeContext():
-    def __init__(self, fake_guild=None):
-        self.author = FakeAuthor()
+    def __init__(self, fake_guild=None, author=None):
+        self.author = author or FakeAuthor()
         self.guild = fake_guild or FakeGuild()
         self.channel = FakeChannel()
         self.messages_sent = []

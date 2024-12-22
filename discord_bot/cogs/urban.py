@@ -18,10 +18,9 @@ class UrbanDictionary(CogHelper):
     '''
 
     def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
-        super().__init__(bot, logger, settings, None)
-
-        if not self.settings.get('general', {}).get('include', {}).get('urban', False):
+        if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
+        super().__init__(bot, logger, settings, None)
 
     @command(name='urban')
     async def word_lookup(self, ctx: Context, *, word: str):
