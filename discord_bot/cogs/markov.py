@@ -160,7 +160,7 @@ class Markov(CogHelper):
         while not self.bot.is_closed():
             try:
                 await self.markov_message_check()
-            except DiscordServerError as e:
+            except (DiscordServerError, TimeoutError) as e:
                 self.logger.warning(f'Markov :: Loop hit discord server exception, retrying {str(e)}')
                 await sleep(self.loop_sleep_interval)
                 continue
