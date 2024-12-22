@@ -1,11 +1,13 @@
+from logging import RootLogger
 from re import search
 
 from dappertable import DapperTable
 
 from discord.errors import NotFound
-from discord.ext import commands
+from discord.ext.commands import Bot, Context, group
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
+from sqlalchemy.engine.base import Engine
 
 # Role config schema
 ROLE_SECTION_SCHEMA = {
@@ -24,6 +26,7 @@ ROLE_SECTION_SCHEMA = {
                         },
                     },
                 },
+                'required': ['hide_list'],
             },
             'management_rules': {
                 'type': 'object',
@@ -76,10 +79,10 @@ class RoleAssignment(CogHelper):
     '''
     Class that can add roles in more managed fashion
     '''
-    def __init__(self, bot, logger, settings, db_engine):
-        super().__init__(bot, logger, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
-        if not self.settings.get('general', {}).get('include', {}).get('role', False):
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
+        if not settings.get('general', {}).get('include', {}).get('role', False):
             raise CogMissingRequiredArg('Role not enabled')
+        super().__init__(bot, logger, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
         self.settings = settings['role']
 
     def __clean_input(self, stringy):
@@ -208,7 +211,7 @@ class RoleAssignment(CogHelper):
             pass
         return False
 
-    @commands.group(name='role', invoke_without_command=False)
+    @group(name='role', invoke_without_command=False)
     async def role(self, ctx):
         '''
         Role functions.

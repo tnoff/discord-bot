@@ -16,9 +16,9 @@ class General(CogHelper):
     General use commands
     '''
     def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
-        super().__init__(bot, logger, settings, None)
-        if not self.settings.get('general', {}).get('include', {}).get('default', True):
+        if not settings.get('general', {}).get('include', {}).get('default', True):
             raise CogMissingRequiredArg('Default cog not enabled')
+        super().__init__(bot, logger, settings, None)
 
     @command(name='hello')
     async def hello(self, ctx: Context):
