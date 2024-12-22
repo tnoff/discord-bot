@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0
+
+General:
+- Added test cases, bring test coverage to near 40%
+
+Markov:
+- Add command `!markov list-channels` to show where server is active in that server
+
+Role:
+- Rework config options to be more straight forward
+- Update README to reflect those changes
+
 ## 2.1.0
 
 General:
@@ -13,7 +25,7 @@ General:
 Music:
 - Add regexes to twitter/youtube links to catch slightly different urls
 - Add in elasticsearch cache on top of video cache
--- Check results to see if any search strings passed in match
+- Check results to see if any search strings passed in match
 - Add in `!random-play cache` for only cached files
 - Have cached videos skip download queue entirely
 - Add better options for youtube download backoff
