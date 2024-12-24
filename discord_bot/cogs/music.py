@@ -89,6 +89,9 @@ SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9
 YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
+YOUTUBE_SHORT_REGEX = r'^https:\/\/(www\.)?youtube.com\/shorts\/(?P<video_id>.{11})'
+YOUTUBE_SHORT_PREFIX = 'https://www.youtube.com/shorts/'
+
 OFFICIAL_TITLES_REGEX = r'\ (\(|\[)\ ?(OFFICIAL|Official)?\ ?(Audio|AUDIO|Music|MUSIC|Video|VIDEO|Visualiser|VISUALIZER|Lyric|LYRIC)\ ?(Video|VIDEO)?\ ?(\)|\])'
 # https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_reserved_characters
 KIBANA_SPECIAL_CHARS = '+ - & | ! ( ) { } [ ] ^ " ~ * ? : \\ /'
@@ -1254,6 +1257,7 @@ class DownloadClient():
         spotify_playlist_matcher = re_match(SPOTIFY_PLAYLIST_REGEX, search)
         spotify_album_matcher = re_match(SPOTIFY_ALBUM_REGEX, search)
         playlist_matcher = re_match(YOUTUBE_PLAYLIST_REGEX, search)
+        youtube_short_match = re_match(YOUTUBE_SHORT_REGEX, search)
         youtube_video_match = re_match(YOUTUBE_VIDEO_REGEX, search)
 
         if spotify_playlist_matcher and self.spotify_client:
@@ -1282,6 +1286,8 @@ class DownloadClient():
                     random_shuffle(search_strings)
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from youtube playlist "{search}"')
             return 'direct', search_strings
+        if youtube_short_match:
+            return 'direct', [f'{YOUTUBE_SHORT_REGEX}{youtube_short_match.group("video_id")}']
         if youtube_video_match:
             return 'direct', [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
         if FXTWITTER_VIDEO_PREFIX in search:
