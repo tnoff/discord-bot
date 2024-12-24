@@ -226,6 +226,11 @@ class KnownVideoTooLong(Exception):
     Video Known To be too long
     '''
 
+class VideoAgeRestrictedException(Exception):
+    '''
+    Video has age restrictions, cannot download
+    '''
+
 #
 # Common Functions
 #
@@ -1181,6 +1186,8 @@ class DownloadClient():
                 raise PrivateVideoException('Video is private, cannot download') from error
             if 'Video unavailable' in str(error):
                 raise VideoUnavailableException('Video is unavailable, cannot download') from error
+            if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
+                raise VideoAgeRestrictedException('Video Aged restricted, cannot download') from error
             return None
         except FileNotFoundError as e:
             self.logger.warning(f'Music :: Unable to find file while downloading {str(e)}')
@@ -2011,7 +2018,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop, download=download_file)
                 self.last_download_lockfile.write_text(str(int(datetime.utcnow().timestamp())))
-            except (PrivateVideoException, VideoUnavailableException):
+            except (PrivateVideoException, VideoUnavailableException, VideoAgeRestrictedException):
                 # Try to mark search as unavailable for later
                 self.cache_file.mark_url_unavailable(source_dict['search_string'])
                 await self.__return_bad_video(source_dict, video_non_exist_callback_functions)
