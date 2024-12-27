@@ -67,7 +67,8 @@ async def test_turn_on():
                 }
             },
         }
-        fake_bot = fake_bot_yielder()()
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
         cog = Markov(fake_bot, logging, config, engine)
         result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov turned on for channel'
@@ -117,7 +118,8 @@ async def test_turn_off():
                 }
             },
         }
-        fake_bot = fake_bot_yielder()()
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
         cog = Markov(fake_bot, logging, config, engine)
         result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Channel does not have markov turned on'
@@ -136,7 +138,8 @@ async def test_turn_on_and_off():
                 }
             },
         }
-        fake_bot = fake_bot_yielder()()
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
         cog = Markov(fake_bot, logging, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
@@ -455,8 +458,57 @@ async def test_speak_no_words():
         }
         fake_emoji = FakeEmjoi()
         fake_guild = FakeGuild(emojis=[fake_emoji])
-        fake_bot = fake_bot_yielder(guilds=[fake_guild])()
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
         cog = Markov(fake_bot, logging, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         result = await cog.speak(cog, FakeContext(), sentence_length=5)
         assert result == 'No markov words to pick from'
+
+@pytest.mark.asyncio
+async def test_list_channels_none_on():
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_bot = fake_bot_yielder(guilds=[fake_guild])()
+        cog = Markov(fake_bot, logging, config, engine)
+        result = await cog.list_channels(cog, FakeContext()) #pylint: disable=too-many-function-args
+        assert result == 'Markov not enabled for any channels in server'
+
+@pytest.mark.asyncio
+async def test_list_channels_with_valid_output():
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_emoji = FakeEmjoi()
+        fake_guild = FakeGuild(emojis=[fake_emoji])
+        fake_context = FakeContext()
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        await cog.on(cog, fake_context) #pylint: disable=too-many-function-args
+        # Clear messages sent before next bit
+        fake_context.messages_sent = []
+        result = await cog.list_channels(cog, fake_context) #pylint: disable=too-many-function-args
+        assert fake_context.messages_sent == ['Channel\n----------------------------------------------------------------\n<#fake-channel-id-123>']
+        assert result is True

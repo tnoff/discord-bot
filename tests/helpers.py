@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
+from discord import ChannelType
 from discord.errors import NotFound
 
 class AsyncIterator():
@@ -69,6 +70,7 @@ class FakeChannel():
         else:
             fake_message = fake_message or FakeMessage()
             self.messages = [fake_message]
+        self.type = ChannelType.text
 
     def history(self, **_kwargs):
         return AsyncIterator(self.messages)
@@ -91,7 +93,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
             self.fake_channel = fake_channel
 
         async def fetch_channel(self, _channel_id):
-            return fake_channel
+            return self.fake_channel
 
         async def fetch_guild(self, guild_id):
             for guild in self.guilds:
@@ -134,6 +136,8 @@ class FakeContext():
         self.author = FakeAuthor()
         self.guild = fake_guild or FakeGuild()
         self.channel = FakeChannel()
+        self.messages_sent = []
 
     async def send(self, message):
+        self.messages_sent.append(message)
         return message
