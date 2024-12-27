@@ -5,7 +5,8 @@ from logging import RootLogger
 from re import match, sub, MULTILINE
 from typing import Optional, List
 
-from discord import TextChannel
+from dappertable import DapperTable
+from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from sqlalchemy.engine.base import Engine
@@ -261,7 +262,7 @@ class Markov(CogHelper):
             return await ctx.send('Channel already has markov turned on')
 
         channel = await self.bot.fetch_channel(ctx.channel.id)
-        if not isinstance(channel, TextChannel):
+        if channel.type != ChannelType.text:
             await ctx.send('Channel is not text channel, cannot turn on markov')
 
         new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
@@ -290,6 +291,27 @@ class Markov(CogHelper):
         self.db_session.delete(markov_channel)
         self.db_session.commit()
         return await ctx.send('Markov turned off for channel')
+
+    @markov.command(name='list-channels')
+    async def list_channels(self, ctx: Context):
+        '''
+        List channels markov is enabled for in this server
+        '''
+        markov_channels = self.db_session.query(MarkovChannel.channel_id).\
+            filter(MarkovChannel.server_id == str(ctx.guild.id))
+
+        if not markov_channels.count():
+            return await ctx.send('Markov not enabled for any channels in server')
+
+        table = DapperTable([{
+            'name': 'Channel',
+            'length': 64,
+        }], rows_per_message=15)
+        for channel_id in markov_channels:
+            table.add_row([f'<#{channel_id[0]}>'])
+        for output in table.print():
+            await ctx.send(output)
+        return True
 
     @markov.command(name='speak')
     async def speak(self, ctx: Context, #pylint:disable=too-many-locals
