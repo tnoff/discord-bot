@@ -1294,7 +1294,7 @@ class DownloadClient():
             self.logger.debug(f'Music :: Gathered {len(search_strings)} from youtube playlist "{search}"')
             return 'direct', search_strings
         if youtube_short_match:
-            return 'direct', [f'{YOUTUBE_SHORT_REGEX}{youtube_short_match.group("video_id")}']
+            return 'direct', [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}']
         if youtube_video_match:
             return 'direct', [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}']
         if FXTWITTER_VIDEO_PREFIX in search:
