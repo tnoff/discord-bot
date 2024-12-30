@@ -36,6 +36,7 @@ from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild,
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import retry_discord_message_command, rm_tree
 from discord_bot.utils.queue import Queue, PutsBlocked
+from discord_bot.utils.distributed_queue import DistributedQueue
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -477,92 +478,6 @@ class YoutubeAPI():
             except KeyError:
                 return req, results
         return req, results
-
-#
-# Download Queue
-#
-
-class DownloadQueue():
-    '''
-    Keeps track of multiple download queues and switches between them
-    '''
-    def __init__(self, max_size, logger):
-        '''
-        max_size : Max size of each individual queue
-        '''
-        self.queues = {}
-        self.max_size = max_size
-        self.logger = logger
-
-    def block(self, guild_id):
-        '''
-        Block downloads for guild id
-        '''
-        try:
-            self.queues[guild_id]['queue'].block()
-            return True
-        except KeyError:
-            return False
-
-    def put_nowait(self, entry):
-        '''
-        Put into the download queue for proper download queue
-
-        entry: Standard source dict object
-        '''
-        # TODO standardize source dict and source download objects if they aren't already
-        guild_id = entry['guild_id']
-        if guild_id not in self.queues:
-            self.queues[guild_id] = {
-                'created_at': datetime.utcnow(),
-                'last_download_at': None,
-                'queue': Queue(maxsize=self.max_size),
-            }
-        self.queues[guild_id]['queue'].put_nowait(entry)
-        return True
-
-    def get_nowait(self):
-        '''
-        Get download item from queue thats been waiting longest
-        '''
-        oldest_guild = None
-        oldest_timestamp = None
-        for guild_id, data in self.queues.items():
-            # Skip empty queues
-            if data['queue'].size() < 1:
-                continue
-            # Find queue with smallest timestamp and return
-            if oldest_guild is None:
-                oldest_guild = guild_id
-                oldest_timestamp = data['last_download_at'] or data['created_at']
-                continue
-            check_value = data['last_download_at'] or data['created_at']
-            if check_value < oldest_timestamp:
-                oldest_guild = guild_id
-                oldest_timestamp = check_value
-        if not oldest_guild:
-            raise QueueEmpty('No queues with any items')
-        item = self.queues[oldest_guild]['queue'].get_nowait()
-        self.queues[oldest_guild]['last_download_at'] = datetime.utcnow()
-        return item
-
-    async def clear_queue(self, guild_id):
-        '''
-        Clear queue for guild
-        '''
-        while True:
-            try:
-                item = self.queues[guild_id]['queue'].get_nowait()
-            except (KeyError, QueueEmpty):
-                try:
-                    del self.queues[guild_id]
-                    return True
-                except KeyError:
-                    return False
-            try:
-                await retry_discord_message_command(item['message'].delete)
-            except (KeyError, NotFound):
-                pass
 
 #
 # ElasticSearch Client
@@ -1565,7 +1480,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.delete_after = self.settings.get('music', {}).get('message_delete_after', DELETE_AFTER_DEFAULT)
         self.queue_max_size = self.settings.get('music', {}).get('queue_max_size', QUEUE_MAX_SIZE_DEFAULT)
-        self.download_queue = DownloadQueue(self.queue_max_size, self.logger)
+        self.download_queue = DistributedQueue(self.queue_max_size)
         self.server_playlist_max_size = self.settings.get('music', {}).get('server_playlist_max_size', SERVER_PLAYLIST_MAX_SIZE_DEFAULT)
         self.max_video_length = self.settings.get('music', {}).get('max_video_length', MAX_VIDEO_LENGTH_DEFAULT)
         self.disconnect_timeout = self.settings.get('music', {}).get('disconnect_timeout', DISCONNECT_TIMEOUT_DEFAULT)
@@ -2031,7 +1946,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.__update_history_playlist(playlist, history_items)
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
-        await self.download_queue.clear_queue(guild.id)
+        download_items = await self.download_queue.clear_queue(guild.id)
+        for item in download_items:
+            await retry_discord_message_command(item['message'].delete)
 
         guild_path = self.download_dir / f'{guild.id}'
         if guild_path.exists():
@@ -2173,7 +2090,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     continue
                 entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{search_string_message}"')
                 self.logger.debug(f'Music :: Handing off entry {search_string_message} to download queue')
-                self.download_queue.put_nowait(entry)
+                self.download_queue.put_nowait(entry['guild_id'], entry)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 try:
@@ -2603,7 +2520,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             entry['download_file'] = False
             # Pylint disable as gets injected later
             entry['post_download_callback_functions'] = [partial(self.__add_playlist_item_function, ctx, search, playlist)] #pylint: disable=no-value-for-parameter
-            self.download_queue.put_nowait(entry)
+            self.download_queue.put_nowait(entry['guild_id'], entry)
 
     @playlist.command(name='item-search')
     async def playlist_item_search(self, ctx, playlist_index, *, search: str):
@@ -2982,7 +2899,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     continue
                 self.logger.debug(f'Music :: Handing off "{item.video_url}" to download queue')
                 entry['message'] = await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"')
-                self.download_queue.put_nowait(entry)
+                self.download_queue.put_nowait(entry['guild_id'], entry)
             except QueueFull:
                 try:
                     await retry_discord_message_command(entry['message'].edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
