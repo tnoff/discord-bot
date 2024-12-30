@@ -20,11 +20,12 @@ def get_editing_path(path: Path) -> Path:
     '''
     return path.parent / (path.stem + '.edited.mp3')
 
-def edit_audio_file(file_path: Path) -> Path:
+def edit_audio_file(file_path: Path, delete_old_file: bool = True) -> Path:
     '''
     Normalize audio for file
 
     file_path: Audio file to edit
+    delete_old_file : Delete old file if it exists
     '''
     finished_path = get_finished_path(file_path)
     # If exists, assume it was already edited successfully
@@ -61,4 +62,6 @@ def edit_audio_file(file_path: Path) -> Path:
     edited_audio = audio_clip.with_effects([AudioNormalize()]) #pylint:disable=no-member
     edited_audio.write_audiofile(str(editing_path))
     editing_path.rename(finished_path)
+    if delete_old_file:
+        file_path.unlink(missing_ok=True)
     return finished_path

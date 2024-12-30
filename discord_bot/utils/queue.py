@@ -1,5 +1,4 @@
 from asyncio import Queue as asyncio_queue
-from copy import deepcopy
 from random import shuffle as random_shuffle
 
 class PutsBlocked(Exception):
@@ -96,4 +95,7 @@ class Queue(asyncio_queue):
         '''
         Get a copy of all items in the queue
         '''
-        return deepcopy(self._queue)
+        items = []
+        for item in self._queue:
+            items.append(item)
+        return items

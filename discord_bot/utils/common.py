@@ -150,7 +150,6 @@ async def async_retry_command(func, *args, **kwargs):
     '''
     Use retries for the command, mostly deals with db issues
     '''
-    print('Retry command', func, args, kwargs)
     max_retries = kwargs.pop('max_retries', 3)
     accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
