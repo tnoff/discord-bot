@@ -20,7 +20,7 @@ from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
-from discord_bot.utils import get_logger, validate_config, GENERAL_SECTION_SCHEMA
+from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
 POSSIBLE_COGS = [
     DeleteMessages,

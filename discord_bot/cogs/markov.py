@@ -14,7 +14,7 @@ from sqlalchemy.engine.base import Engine
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils import retry_discord_message_command, async_retry_discord_message_command
+from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365

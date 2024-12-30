@@ -6,7 +6,7 @@ from sqlalchemy.engine.base import Engine
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils import validate_config
+from discord_bot.utils.common import validate_config
 
 class CogHelper(Cog):
     '''
