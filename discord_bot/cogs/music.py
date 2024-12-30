@@ -1,3 +1,6 @@
+# Music bot setup
+# Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
+
 from asyncio import sleep
 from asyncio import Event, Queue, QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
 from copy import deepcopy
@@ -32,7 +35,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils import retry_discord_message_command
+from discord_bot.utils import retry_discord_message_command, rm_tree
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -305,19 +308,6 @@ def edit_audio_file(file_path):
     edited_audio.write_audiofile(str(editing_path))
     editing_path.rename(finished_path)
     return finished_path
-
-
-def rm_tree(pth):
-    '''
-    Remove all files in a tree
-    '''
-    # https://stackoverflow.com/questions/50186904/pathlib-recursively-remove-directory
-    for child in pth.glob('*'):
-        if child.is_file():
-            child.unlink()
-        else:
-            rm_tree(child)
-    pth.rmdir()
 
 def remove_double_spaces(stringy):
     '''
@@ -737,8 +727,7 @@ class ElasticSearchClient():
             return top_result['_id']
         return None
 
-# Music bot setup
-# Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
+
 class MyQueue(Queue):
     '''
     Custom implementation of asyncio Queue

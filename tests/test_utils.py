@@ -1,4 +1,5 @@
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from jsonschema.exceptions import ValidationError
 from discord.errors import DiscordServerError, RateLimited
@@ -11,6 +12,7 @@ from discord_bot.utils import retry_command
 from discord_bot.utils import retry_discord_message_command
 from discord_bot.utils import async_retry_command
 from discord_bot.utils import async_retry_discord_message_command
+from discord_bot.utils import rm_tree
 
 class TestException(Exception):
     pass
@@ -213,3 +215,14 @@ async def test_retry_command_async_429(mocker):
     with pytest.raises(RateLimited):
         await async_retry_discord_message_command(test_send_message)
     assert mock_time.call_count == 3
+
+def test_rm_tree():
+    with TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
+        with TemporaryDirectory(ignore_cleanup_errors=True, dir=tmp_dir) as tmp_dir2:
+            with NamedTemporaryFile(dir=tmp_dir2, delete=False) as tmp_file:
+                path = Path(tmp_file.name)
+                path.write_text('tmp-file', encoding='utf-8')
+
+                rm_tree(Path(tmp_dir))
+                assert not path.exists()
+                assert not Path(tmp_dir).exists()
