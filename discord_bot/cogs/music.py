@@ -20,7 +20,7 @@ from discord import FFmpegPCMAudio
 from discord.errors import ClientException, NotFound
 from discord.ext import commands
 from elasticsearch import AsyncElasticsearch, AuthenticationException, BadRequestError, NotFoundError
-from requests import get as requests_get
+from googleapiclient.errors import HttpError
 from sqlalchemy import asc
 from sqlalchemy.exc import IntegrityError
 from spotipy.exceptions import SpotifyException
@@ -36,6 +36,7 @@ from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import Queue, PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.clients.spotify import SpotifyClient
+from discord_bot.utils.clients.youtube import YoutubeClient
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -287,51 +288,6 @@ def fix_now_playing_message(webpage_url, requester_name):
     if TWITTER_VIDEO_PREFIX in webpage_url:
         webpage_url = webpage_url.replace(TWITTER_VIDEO_PREFIX, FXTWITTER_VIDEO_PREFIX)
     return  f'Now playing {webpage_url} requested by {requester_name}'
-
-#
-# Youtube API Client
-#
-
-class YoutubeAPI():
-    '''
-    Get info from youtube api
-    '''
-    def __init__(self, api_key):
-        '''
-        Init youtube api client
-        api_key     :   Google developer api key
-        '''
-        self.api_key = api_key
-
-    def playlist_list_items(self, playlist_id):
-        '''
-        List all video Ids in playlist
-        playlist_id     :   ID of youtube playlist
-        '''
-        token = None
-        results = []
-        while True:
-            url = f'{YOUTUBE_BASE_URL}?key={self.api_key}&playlistId={playlist_id}&part=snippet,status'
-            if token:
-                url = f'{url}&pageToken={token}'
-            req = requests_get(url, timeout=REQUESTS_TIMEOUT)
-            if req.status_code != 200:
-                return req, results
-            for item in req.json()['items']:
-                if item['kind'] != 'youtube#playlistItem':
-                    continue
-                resource = item['snippet']['resourceId']
-                if resource['kind'] != 'youtube#video':
-                    continue
-                # Skip private videos
-                if item['status']['privacyStatus'] in ['private', 'privacyStatusUnspecified']:
-                    continue
-                results.append(f'{YOUTUBE_VIDEO_PREFIX}{resource["videoId"]}')
-            try:
-                token = req.json()['nextPageToken']
-            except KeyError:
-                return req, results
-        return req, results
 
 #
 # ElasticSearch Client
@@ -921,9 +877,10 @@ class DownloadClient():
     def __check_youtube_source(self, playlist_id=None):
         if playlist_id:
             self.logger.debug(f'Music :: Checking youtube playlist id {playlist_id}')
-            response, data = self.youtube_client.playlist_list_items(playlist_id)
-            if response.status_code != 200:
-                self.logger.warning(f'Music :: Unable to find youtube playlist {response.status_code}, {response.text}')
+            try:
+                data = self.youtube_client.playlist_get(playlist_id)
+            except HttpError as e:
+                self.logger.warning(f'Music :: Unable to find youtube playlist: {str(e)}')
                 return []
             return data
         return []
@@ -1364,7 +1321,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.youtube_client = None
         if youtube_api_key:
-            self.youtube_client = YoutubeAPI(youtube_api_key)
+            self.youtube_client = YoutubeClient(youtube_api_key)
 
         self.elasticsearch_client = None
         if self.elasticsearch_url and self.elasticsearch_auth:

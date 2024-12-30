@@ -4,6 +4,7 @@ click==8.1.8
 discord.py==2.4.0
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.9
 elasticsearch[async]==8.17.0
+google-api-python-client==2.156.0
 jsonschema==4.23.0
 moviepy==2.1.1
 pathlib==1.0.1
