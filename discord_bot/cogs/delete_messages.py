@@ -7,7 +7,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command
+from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command, return_loop_runner
 
 
 # Default for deleting messages after X days
@@ -63,24 +63,11 @@ class DeleteMessages(CogHelper):
         self._task = None
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(self.main_loop())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.delete_messages_loop, self.bot, self.logger)())
 
     async def cog_unload(self):
         if self._task:
             self._task.cancel()
-
-    async def main_loop(self):
-        '''
-        Our main loop.
-        '''
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.delete_messages_loop()
-            except Exception as e:
-                self.logger.exception(e)
-                print(f'Player loop exception {str(e)}')
 
     async def delete_messages_loop(self):
         '''

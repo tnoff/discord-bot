@@ -13,8 +13,8 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
-from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command
+from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command, return_loop_runner
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -106,7 +106,7 @@ class Markov(CogHelper):
 
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(self.main_loop())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, continue_exceptions=(DiscordServerError, TimeoutError))())
 
     async def cog_unload(self):
         if self._task:
@@ -151,26 +151,6 @@ class Markov(CogHelper):
         channel_id: Markov Channel ID (DB ID)
         '''
         self.db_session.query(MarkovRelation).filter(MarkovRelation.channel_id == channel_id).delete()
-
-    async def main_loop(self):
-        '''
-        Our main loop.
-        '''
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.markov_message_check()
-            except (DiscordServerError, TimeoutError) as e:
-                self.logger.warning(f'Markov :: Loop hit discord server exception, retrying {str(e)}')
-                await sleep(self.loop_sleep_interval)
-                continue
-            except ExitEarlyException:
-                return
-            except Exception as e:
-                self.logger.exception(e)
-                print(f'Player loop exception {str(e)}')
-                return
 
     async def markov_message_check(self):
         '''

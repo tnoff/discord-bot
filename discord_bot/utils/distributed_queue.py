@@ -7,17 +7,19 @@ class DistributedQueue():
     '''
     Balance between queues in multiple servers/guilds
     '''
-    def __init__(self, max_size: int):
+    def __init__(self, max_size: int, number_shuffles: int = 5):
         '''
         Distribute Traffic between multiple queues for different servers
 
 
         max_size : Max size of each individual queue
+        number_shuffles : Number of shuffles for queues
         '''
         self.queues = {}
         self.max_size = max_size
+        self.number_shuffles = number_shuffles
 
-    def block(self, guild_id: str):
+    def block(self, guild_id: int):
         '''
         Block downloads for guild id
         '''
@@ -27,7 +29,7 @@ class DistributedQueue():
         except KeyError:
             return False
 
-    def put_nowait(self, guild_id: str, entry):
+    def put_nowait(self, guild_id: int, entry):
         '''
         Put into the download queue for proper download queue
 
@@ -38,7 +40,7 @@ class DistributedQueue():
             self.queues[guild_id] = {
                 'created_at': datetime.now(timezone.utc),
                 'last_iterated_at': None,
-                'queue': Queue(maxsize=self.max_size),
+                'queue': Queue(maxsize=self.max_size, num_shuffles=self.number_shuffles),
             }
         self.queues[guild_id]['queue'].put_nowait(entry)
         return True
@@ -50,11 +52,9 @@ class DistributedQueue():
         oldest_timestamp = None
         oldest_guild = None
         item = None
-        remove_guilds = []
         for guild_id, data in self.queues.items():
             # If no queue data, continue
             if data['queue'].size() < 1:
-                remove_guilds.append(guild_id)
                 continue
             # Get timestamp to check against
             check_time = data['last_iterated_at'] or data['created_at']
@@ -64,11 +64,6 @@ class DistributedQueue():
                 oldest_timestamp = check_time
                 oldest_guild = guild_id
                 continue
-        # Remove guild items with no data
-        for guild_id in remove_guilds:
-            # Double check its empty again
-            if self.queues[guild_id]['queue'].empty():
-                self.queues.pop(guild_id)
 
         # Check if no available queues
         if oldest_timestamp is None:
@@ -77,9 +72,12 @@ class DistributedQueue():
         # Update timestamps
         item = self.queues[oldest_guild]['queue'].get_nowait()
         self.queues[oldest_guild]['last_iterated_at'] = datetime.now(timezone.utc)
+        # Check if queue now empty and we can remove
+        if self.queues[oldest_guild]['queue'].empty():
+            self.queues.pop(oldest_guild)
         return item
 
-    def clear_queue(self, guild_id: str):
+    def clear_queue(self, guild_id: int):
         '''
         Clear queue for guild
         '''

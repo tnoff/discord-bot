@@ -29,7 +29,7 @@ class SpotifyClient():
 
             items.append({
                 'track_name': track['name'],
-                'track_artists': ', '.join(i['name'] for i in track['artists'])
+                'track_artists': ' '.join(i['name'] for i in track['artists'])
             })
         return items
 

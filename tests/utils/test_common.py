@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
@@ -5,6 +6,7 @@ from jsonschema.exceptions import ValidationError
 from discord.errors import DiscordServerError, RateLimited
 import pytest
 
+from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.common import GENERAL_SECTION_SCHEMA
 from discord_bot.utils.common import validate_config
 from discord_bot.utils.common import get_logger
@@ -13,6 +15,9 @@ from discord_bot.utils.common import retry_discord_message_command
 from discord_bot.utils.common import async_retry_command
 from discord_bot.utils.common import async_retry_discord_message_command
 from discord_bot.utils.common import rm_tree
+from discord_bot.utils.common import return_loop_runner
+
+from tests.helpers import fake_bot_yielder
 
 class TestException(Exception):
     pass
@@ -226,3 +231,32 @@ def test_rm_tree():
                 rm_tree(Path(tmp_dir))
                 assert not path.exists()
                 assert not Path(tmp_dir).exists()
+
+@pytest.mark.asyncio(scope="session")
+async def test_return_loop_runner():
+    def fake_func():
+        raise ExitEarlyException('exiting')
+    fake_bot = fake_bot_yielder()()
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is False
+
+@pytest.mark.asyncio(scope="session")
+async def test_return_loop_runner_standard_exception():
+    def fake_func():
+        raise Exception('exiting') #pylint:disable=broad-exception-raised
+    fake_bot = fake_bot_yielder()()
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is False
+
+@pytest.mark.asyncio(scope="session")
+async def test_return_loop_runner_continue_exception():
+
+    fake_bot = fake_bot_yielder()()
+    class FakeException(Exception):
+        pass
+    def fake_func():
+        fake_bot.bot_closed = True
+        raise FakeException('foo')
+    runner = return_loop_runner(fake_func, fake_bot, logging, continue_exceptions=FakeException)
+    runner()
+    assert not fake_bot.is_closed()
