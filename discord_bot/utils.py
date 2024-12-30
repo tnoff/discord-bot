@@ -1,6 +1,7 @@
 from asyncio import sleep as async_sleep
 from logging import getLogger, Formatter, StreamHandler
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from sys import stdout
 from time import sleep
 
@@ -194,3 +195,16 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
     post_exception_functions = [check_429]
     exceptions = (HTTPException, RateLimited, DiscordServerError, TimeoutError)
     return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+
+def rm_tree(pth: Path) -> bool:
+    '''
+    Remove all files in a tree
+    '''
+    # https://stackoverflow.com/questions/50186904/pathlib-recursively-remove-directory
+    for child in pth.glob('*'):
+        if child.is_file():
+            child.unlink()
+        else:
+            rm_tree(child)
+    pth.rmdir()
+    return True
