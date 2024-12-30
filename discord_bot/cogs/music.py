@@ -1391,7 +1391,11 @@ class MusicPlayer:
         # Clear any messages in the current queue
         self.np_message = ''
         for queue_message in self.queue_messages:
-            await retry_discord_message_command(queue_message.delete)
+            # Ignore delete if message not found
+            try:
+                await retry_discord_message_command(queue_message.delete)
+            except NotFound:
+                pass
         self.queue_messages = []
         if self.lock_file.exists():
             self.lock_file.unlink()
