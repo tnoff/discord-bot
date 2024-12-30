@@ -2,8 +2,7 @@
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
 
 from asyncio import sleep
-from asyncio import Event, Queue, QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
-from copy import deepcopy
+from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
 from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -36,6 +35,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import retry_discord_message_command, rm_tree
+from discord_bot.utils.queue import Queue, PutsBlocked
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -178,11 +178,6 @@ MUSIC_SECTION_SCHEMA = {
 #
 # Exceptions
 #
-
-class PutsBlocked(Exception):
-    '''
-    Puts Blocked on Queue
-    '''
 
 class VideoTooLong(Exception):
     '''
@@ -521,7 +516,7 @@ class DownloadQueue():
             self.queues[guild_id] = {
                 'created_at': datetime.utcnow(),
                 'last_download_at': None,
-                'queue': MyQueue(maxsize=self.max_size),
+                'queue': Queue(maxsize=self.max_size),
             }
         self.queues[guild_id]['queue'].put_nowait(entry)
         return True
@@ -726,87 +721,6 @@ class ElasticSearchClient():
             await self.client.update(index='youtube', id=top_result['_id'], doc={'last_iterated_at': datetime.utcnow()})
             return top_result['_id']
         return None
-
-
-class MyQueue(Queue):
-    '''
-    Custom implementation of asyncio Queue
-    '''
-    def __init__(self, maxsize=0):
-        self.shutdown = False
-        super().__init__(maxsize=maxsize)
-
-    def block(self):
-        '''
-        Block future puts, for when queue should be in shutdown
-        '''
-        self.shutdown = True
-
-    def unblock(self):
-        '''
-        Unblock queue
-        '''
-        self.shutdown = False
-
-    def put_nowait(self, item):
-        if self.shutdown:
-            raise PutsBlocked('Puts Blocked on Queue')
-        super().put_nowait(item)
-
-    async def put(self, item):
-        if self.shutdown:
-            raise PutsBlocked('Puts Blocked on Queue')
-        await super().put(item)
-
-    def shuffle(self):
-        '''
-        Shuffle queue
-        '''
-        for _ in range(NUM_SHUFFLES):
-            random_shuffle(self._queue)
-        return True
-
-    def size(self):
-        '''
-        Get size of queue
-        '''
-        return self.qsize()
-
-    def clear(self):
-        '''
-        Remove all items from queue
-        '''
-        while self.qsize():
-            self._queue.popleft()
-
-    def remove_item(self, queue_index):
-        '''
-        Remove item from queue
-        '''
-        if queue_index < 1 or queue_index > self.qsize():
-            return None
-        # Rotate, remove top, then rotate back
-        for _ in range(1, queue_index):
-            self._queue.rotate(-1)
-        item = self._queue.popleft()
-        for _ in range(1, queue_index):
-            self._queue.rotate(1)
-        return item
-
-    def bump_item(self, queue_index):
-        '''
-        Bump item to top of queue
-        '''
-        item = self.remove_item(queue_index)
-        if item is not None:
-            self._queue.appendleft(item)
-        return item
-
-    def items(self):
-        '''
-        Get a copy of all items in the queue
-        '''
-        return deepcopy(self._queue)
 
 #
 # Source File
@@ -1336,8 +1250,8 @@ class MusicPlayer:
 
 
         # Queues
-        self.play_queue = MyQueue(maxsize=queue_max_size)
-        self.history = MyQueue(maxsize=queue_max_size)
+        self.play_queue = Queue(maxsize=queue_max_size)
+        self.history = Queue(maxsize=queue_max_size)
         self.next = Event()
 
         # For showing messages
