@@ -35,7 +35,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils import retry_discord_message_command, rm_tree
+from discord_bot.utils.common import retry_discord_message_command, rm_tree
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
