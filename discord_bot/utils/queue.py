@@ -1,5 +1,4 @@
 from asyncio import Queue as asyncio_queue
-from copy import deepcopy
 from random import shuffle as random_shuffle
 
 class PutsBlocked(Exception):
@@ -62,8 +61,10 @@ class Queue(asyncio_queue):
         '''
         Remove all items from queue
         '''
+        items = []
         while self.qsize():
-            self._queue.popleft()
+            items.append(self._queue.popleft())
+        return items
 
     def remove_item(self, queue_index: int):
         '''
@@ -96,4 +97,7 @@ class Queue(asyncio_queue):
         '''
         Get a copy of all items in the queue
         '''
-        return deepcopy(self._queue)
+        items = []
+        for item in self._queue:
+            items.append(item)
+        return items

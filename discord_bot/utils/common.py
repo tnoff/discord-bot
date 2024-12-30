@@ -1,13 +1,18 @@
 from asyncio import sleep as async_sleep
-from logging import getLogger, Formatter, StreamHandler
+from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sys import stdout
 from time import sleep
+from traceback import format_exc
+from typing import Callable
 
 from jsonschema import validate
 
 from discord.errors import DiscordServerError, RateLimited
+from discord.ext.commands import Bot
+
+from discord_bot.exceptions import ExitEarlyException
 
 GENERAL_SECTION_SCHEMA = {
     'type': 'object',
@@ -150,7 +155,6 @@ async def async_retry_command(func, *args, **kwargs):
     '''
     Use retries for the command, mostly deals with db issues
     '''
-    print('Retry command', func, args, kwargs)
     max_retries = kwargs.pop('max_retries', 3)
     accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
@@ -209,3 +213,33 @@ def rm_tree(pth: Path) -> bool:
             rm_tree(child)
     pth.rmdir()
     return True
+
+def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
+    '''
+    Return a basic standard bot loop
+
+    function : Function to run, must by async
+    bot : Bot object
+    logger : Logger for exceptions
+    continue_exceptions: Do not exit on these exceptions
+    exit_exceptions : Exit on these exceptions
+    '''
+    continue_exceptions = continue_exceptions or ()
+    async def loop_runner(): #pylint:disable=duplicate-code
+        await bot.wait_until_ready()
+
+        while not bot.is_closed():
+            try:
+                await function()
+            except continue_exceptions:
+                continue
+            except exit_exceptions:
+                return False
+            except Exception as e:
+                logger.exception(e)
+                logger.error(format_exc())
+                logger.error(str(e))
+                print(f'Player loop exception {str(e)}')
+                print('Formatted exception:', format_exc())
+                return False
+    return loop_runner

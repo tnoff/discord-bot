@@ -68,7 +68,7 @@ def test_spotify_playlist_get(mocker):
     s = SpotifyClient('foo', 'bar')
     result = s.playlist_get('foo')
     assert len(result) == 2
-    assert result[0]['track_artists'] == 'artist1, artist2'
+    assert result[0]['track_artists'] == 'artist1 artist2'
     assert result[0]['track_name'] == 'Example Song'
 
 def test_spotify_album_get(mocker):
@@ -76,12 +76,12 @@ def test_spotify_album_get(mocker):
     s = SpotifyClient('foo', 'bar')
     result = s.album_get('foo')
     assert len(result) == 2
-    assert result[0]['track_artists'] == 'artist1, artist2'
+    assert result[0]['track_artists'] == 'artist1 artist2'
     assert result[0]['track_name'] == 'Example Song'
 
 def test_spotify_track_get(mocker):
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', side_effect=MockSpotify)
     s = SpotifyClient('foo', 'bar')
     result = s.track_get('foo')
-    assert result[0]['track_artists'] == 'artist1, artist2'
+    assert result[0]['track_artists'] == 'artist1 artist2'
     assert result[0]['track_name'] == 'Example Song'

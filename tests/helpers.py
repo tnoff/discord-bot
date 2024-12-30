@@ -30,10 +30,16 @@ class FakeMessage():
         if content is None:
             self.content = 'fake message content that was typed by a real human'
         self.author = FakeAuthor()
+        self.delete_after = None
 
     async def delete(self):
         self.deleted = True
         return True
+
+    async def edit(self, content, delete_after=None):
+        self.content = content
+        self.delete_after = delete_after
+        return None
 
 class FakeRole():
     def __init__(self, id=None, name=None):
@@ -49,13 +55,14 @@ class FakeBotUser():
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self, emojis=None, members=None, roles=None):
+    def __init__(self, emojis=None, members=None, roles=None, voice=None):
         self.id = 'fake-guild-1234'
         self.name = 'fake-guild-name'
         self.emojis = emojis
         self.left_guild = False
         self.members = members or []
         self.roles = roles or []
+        self.voice_client = voice
 
     async def leave(self):
         self.left_guild = True
@@ -76,11 +83,11 @@ class FakeGuild():
         raise NotFound(FakeResponse(), 'Unable to find role')
 
 class FakeAuthor():
-    def __init__(self, id=None, roles=None):
+    def __init__(self, id=None, roles=None, bot=False):
         self.id = id or 'fake-user-id-123'
         self.name = 'fake-user-name-123'
         self.display_name = 'fake-display-name-123'
-        self.bot = False
+        self.bot = bot
         self.roles = roles or []
 
     async def add_roles(self, role):
@@ -90,14 +97,16 @@ class FakeAuthor():
         self.roles.remove(role)
 
 class FakeChannel():
-    def __init__(self, fake_message=None, no_messages=False, channel_type=ChannelType.text):
-        self.id = 'fake-channel-id-123'
+    def __init__(self, id=None, fake_message=None, no_messages=False, channel_type=ChannelType.text, members=None, guild=None):
+        self.id = id or 'fake-channel-id-123'
         if no_messages:
             self.messages = []
         else:
             fake_message = fake_message or FakeMessage()
             self.messages = [fake_message]
         self.type = channel_type
+        self.members = members
+        self.guild = guild or FakeGuild()
 
     def history(self, **_kwargs):
         return AsyncIterator(self.messages)
@@ -107,6 +116,13 @@ class FakeChannel():
             if message.id == message_id:
                 return message
         raise NotFound(FakeResponse(), 'Unable to find message')
+
+    async def connect(self):
+        return True
+
+    async def send(self, message_content, **_kwargs):
+        self.messages.append(message_content)
+        return message_content
 
 class FakeIntents():
     def __init__(self):
@@ -125,6 +141,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
             if guilds:
                 self.guild = guilds[0]
             self.intents = FakeIntents()
+            self.bot_closed = False
 
         async def fetch_channel(self, _channel_id):
             return self.fake_channel
@@ -142,7 +159,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
             self.startup_functions.append(func)
 
         def is_closed(self):
-            return False
+            return self.bot_closed
 
         async def start(self, token):
             self.token = token
@@ -164,13 +181,27 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
     return FakeBot
 
+class FakeVoiceClient():
+    def __init__(self, channel=None):
+        self.channel = channel or FakeChannel()
+
+    def play(self, *_args, after=None, **_kwargs):
+        if after:
+            after()
+        return True
+
+    async def move_to(self, channel):
+        self.channel = channel
+        return True
 
 class FakeContext():
-    def __init__(self, fake_guild=None, author=None):
+    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None):
         self.author = author or FakeAuthor()
         self.guild = fake_guild or FakeGuild()
         self.channel = FakeChannel()
         self.messages_sent = []
+        self.bot = fake_bot
+        self.voice_client = voice_client
 
     async def send(self, message):
         self.messages_sent.append(message)
