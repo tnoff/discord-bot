@@ -1891,7 +1891,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.__update_history_playlist(playlist, history_items)
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
-        download_items = await self.download_queue.clear_queue(guild.id)
+        download_items = self.download_queue.clear_queue(guild.id)
         for item in download_items:
             await retry_discord_message_command(item['message'].delete)
 
