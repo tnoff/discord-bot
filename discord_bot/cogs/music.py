@@ -21,9 +21,9 @@ from discord.errors import ClientException, NotFound
 from discord.ext import commands
 from elasticsearch import AsyncElasticsearch, AuthenticationException, BadRequestError, NotFoundError
 from requests import get as requests_get
-from requests import post as requests_post
 from sqlalchemy import asc
 from sqlalchemy.exc import IntegrityError
+from spotipy.exceptions import SpotifyException
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
@@ -35,6 +35,7 @@ from discord_bot.utils.common import retry_discord_message_command, rm_tree
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import Queue, PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
+from discord_bot.utils.clients.spotify import SpotifyClient
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -193,11 +194,6 @@ class PlaylistMaxLength(Exception):
     Playlist hit max length
     '''
 
-class SpotifyException(Exception):
-    '''
-    Spotify Client Exceptions
-    '''
-
 class LockfileException(Exception):
     '''
     Lock file Exceptions
@@ -291,93 +287,6 @@ def fix_now_playing_message(webpage_url, requester_name):
     if TWITTER_VIDEO_PREFIX in webpage_url:
         webpage_url = webpage_url.replace(TWITTER_VIDEO_PREFIX, FXTWITTER_VIDEO_PREFIX)
     return  f'Now playing {webpage_url} requested by {requester_name}'
-
-
-#
-# Spotify Client
-#
-
-class SpotifyClient():
-    '''
-    Spotify Client for basic API Use
-    '''
-    def __init__(self, client_id, client_secret):
-        '''
-        Init spotify client
-        '''
-        self._token = None
-        self._expiry = None
-        self.client_id = client_id
-        self.client_secret = client_secret
-
-    @property
-    def token(self):
-        '''
-        Fetch or generate token
-        '''
-        if self._token is None:
-            self._refresh_token()
-        elif self._expiry < datetime.now():
-            self._refresh_token()
-        return self._token
-
-    def _refresh_token(self):
-        '''
-        Refresh token from spotify auth url
-        '''
-        auth_response = requests_post(SPOTIFY_AUTH_URL, {
-            'grant_type': 'client_credentials',
-            'client_id': self.client_id,
-            'client_secret': self.client_secret,
-        }, timeout=REQUESTS_TIMEOUT)
-        if auth_response.status_code != 200:
-            raise SpotifyException(f'Error getting auth token {auth_response.status_code}, {auth_response.text}')
-        data = auth_response.json()
-        self._token = data['access_token']
-        self._expiry = datetime.now() + timedelta(seconds=data['expires_in'])
-
-    def __gather_track_info(self, first_url):
-        results = []
-        url = first_url
-        while True:
-            r = requests_get(url, headers={'Authorization': f'Bearer {self.token}'}, timeout=REQUESTS_TIMEOUT)
-            if r.status_code != 200:
-                return r, results
-            data = r.json()
-            # May or may not have 'tracks' key
-            try:
-                data = data['tracks']
-            except KeyError:
-                pass
-            for item in data['items']:
-                # May or may not have 'track' key
-                try:
-                    item = item['track']
-                except KeyError:
-                    pass
-                results.append({
-                    'track_name': item['name'],
-                    'track_artists': ', '.join(i['name'] for i in item['artists']),
-                })
-            try:
-                url = data['tracks']['next']
-            except KeyError:
-                return r, results
-        return r, results
-
-    def playlist_get(self, playlist_id):
-        '''
-        Get playlist track info
-        '''
-        url = f'{SPOTIFY_BASE_URL}playlists/{playlist_id}'
-        return self.__gather_track_info(url)
-
-    def album_get(self, album_id):
-        '''
-        Get album track info
-        '''
-        url = f'{SPOTIFY_BASE_URL}albums/{album_id}'
-        return self.__gather_track_info(url)
 
 #
 # Youtube API Client
@@ -991,15 +900,17 @@ class DownloadClient():
         data = []
         if playlist_id:
             self.logger.debug(f'Music :: Checking for spotify playlist {playlist_id}')
-            response, data = self.spotify_client.playlist_get(playlist_id)
-            if response.status_code != 200:
-                self.logger.warning(f'Music :: Unable to find spotify data {response.status_code}, {response.text}')
+            try:
+                data = self.spotify_client.playlist_get(playlist_id)
+            except SpotifyException as e:
+                self.logger.warning(f'Music :: Unable to get spotify data: {str(e)}')
                 return []
         if album_id:
             self.logger.debug(f'Music :: Checking for spotify album {album_id}')
-            response, data = self.spotify_client.album_get(album_id)
-            if response.status_code != 200:
-                self.logger.warning(f'Music :: Unable to find spotify data {response.status_code}, {response.text}')
+            try:
+                data = self.spotify_client.album_get(album_id)
+            except SpotifyException as e:
+                self.logger.warning(f'Music :: Unable to find spotify data: {str(e)}')
                 return []
         search_strings = []
         for item in data:
