@@ -20,9 +20,6 @@ from discord import FFmpegPCMAudio
 from discord.errors import ClientException, NotFound
 from discord.ext import commands
 from elasticsearch import AsyncElasticsearch, AuthenticationException, BadRequestError, NotFoundError
-from moviepy.audio.fx import AudioNormalize
-from moviepy import AudioFileClip
-from numpy import sqrt
 from requests import get as requests_get
 from requests import post as requests_post
 from sqlalchemy import asc
@@ -35,6 +32,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import retry_discord_message_command, rm_tree
+from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import Queue, PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 
@@ -251,59 +249,6 @@ def match_generator(max_video_length, banned_videos_list):
                 if vid_url == banned_video_dict['url']:
                     raise VideoBanned(f'Video id {vid_url} banned, message: {banned_video_dict["message"]}')
     return filter_function
-
-def get_finished_path(path):
-    '''
-    Get 'editing path' for editing files
-    '''
-    return path.parent / (path.stem + '.finished.mp3')
-
-def get_editing_path(path):
-    '''
-    Get 'editing path' for editing files
-    '''
-    return path.parent / (path.stem + '.edited.mp3')
-
-def edit_audio_file(file_path):
-    '''
-    Normalize audio for file
-    '''
-    finished_path = get_finished_path(file_path)
-    # If exists, assume it was already edited successfully
-    if finished_path.exists():
-        return finished_path
-    editing_path = get_editing_path(file_path)
-    try:
-        audio_clip = AudioFileClip(str(file_path))
-    except KeyError:
-        # Need to treat like a video
-        # Assume we cant do file processing at this point
-        return None
-    # Find dead audio at start and end of file
-    cut = lambda i: audio_clip.subclipped(i, i+1).to_soundarray(fps=1)
-    volume = lambda array: sqrt(((1.0 * array) ** 2).mean())
-    volumes = [volume(cut(i)) for i in range(0, int(audio_clip.duration-1))]
-    start = 0
-    while True:
-        if volumes[start] > 0:
-            break
-        start += 1
-    end = len(volumes) - 1
-    while True:
-        if volumes[end] > 0:
-            break
-        end -= 1
-    # From testing, it seems good to give this a little bit of a buffer, add 1 second to each end if possible
-    if start > 0:
-        start -= 1
-    if end < audio_clip.duration - 1:
-        end += 1
-    audio_clip = audio_clip.subclipped(start, end + 1)
-    # Normalize audio
-    edited_audio = audio_clip.with_effects([AudioNormalize()]) #pylint:disable=no-member
-    edited_audio.write_audiofile(str(editing_path))
-    editing_path.rename(finished_path)
-    return finished_path
 
 def remove_double_spaces(stringy):
     '''
