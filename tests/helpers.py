@@ -24,7 +24,7 @@ class FakeEmjoi():
 class FakeMessage():
     def __init__(self, id=None, content=None):
         self.id = id or 'fake-message-1234'
-        self.created_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        self.created_at = datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)
         self.deleted = False
         self.content = content
         if content is None:

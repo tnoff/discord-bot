@@ -1,6 +1,7 @@
 import logging
 from tempfile import NamedTemporaryFile
 
+from freezegun import freeze_time
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -146,6 +147,7 @@ async def test_turn_on_and_off():
         assert result == 'Markov turned off for channel'
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -171,6 +173,7 @@ async def test_turn_on_and_sync(mocker):
         assert session.query(MarkovRelation).count() > 0
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_no_messages(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -196,6 +199,7 @@ async def test_turn_on_and_sync_no_messages(mocker):
         assert session.query(MarkovRelation).count() == 0
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_multiple_times(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -224,7 +228,9 @@ async def test_turn_on_and_sync_multiple_times(mocker):
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() == 13
 
+
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_message_dissapears(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -247,12 +253,14 @@ async def test_turn_on_and_sync_message_dissapears(mocker):
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
+
         fake_channel.messages = []
         await cog.markov_message_check() #pylint: disable=too-many-function-args
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() == 0
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_bot_command(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -279,6 +287,7 @@ async def test_turn_on_and_sync_bot_command(mocker):
         assert session.query(MarkovRelation).count() == 0
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_no_content(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -305,6 +314,7 @@ async def test_turn_on_and_sync_no_content(mocker):
         assert session.query(MarkovRelation).count() == 0
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_and_sync_too_long_words(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -334,6 +344,7 @@ def mock_random(input_list):
     return input_list[0]
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_and_speak(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -362,6 +373,7 @@ async def test_turn_on_sync_and_speak(mocker):
         assert len(result.split(' ')) == 32
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_speak_invalid_first_word(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -389,6 +401,7 @@ async def test_turn_on_sync_speak_invalid_first_word(mocker):
         assert result == 'No markov word matching "non-existing"'
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_speak_multi_first_word(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -416,6 +429,7 @@ async def test_turn_on_sync_speak_multi_first_word(mocker):
         assert len(result.split(' ')) == 32
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_speak_sentence_length(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -443,6 +457,7 @@ async def test_turn_on_sync_speak_sentence_length(mocker):
         assert len(result.split(' ')) == 5
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_speak_no_words():
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -466,6 +481,7 @@ async def test_speak_no_words():
         assert result == 'No markov words to pick from'
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_list_channels_none_on():
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -487,6 +503,7 @@ async def test_list_channels_none_on():
         assert result == 'Markov not enabled for any channels in server'
 
 @pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_list_channels_with_valid_output():
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')

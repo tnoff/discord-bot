@@ -7,7 +7,7 @@ from time import sleep
 
 from jsonschema import validate
 
-from discord.errors import HTTPException, DiscordServerError, RateLimited
+from discord.errors import DiscordServerError, RateLimited
 
 GENERAL_SECTION_SCHEMA = {
     'type': 'object',
@@ -125,7 +125,7 @@ def retry_command(func, *args, **kwargs):
     Use retries for the command, mostly deals with db issues
     '''
     max_retries = kwargs.pop('max_retries', 3)
-    accepted_exceptions = kwargs.pop('accepted_exceptions', (Exception))
+    accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
     retry = -1
     while True:
@@ -150,8 +150,9 @@ async def async_retry_command(func, *args, **kwargs):
     '''
     Use retries for the command, mostly deals with db issues
     '''
+    print('Retry command', func, args, kwargs)
     max_retries = kwargs.pop('max_retries', 3)
-    accepted_exceptions = kwargs.pop('accepted_exceptions', (Exception))
+    accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
     retry = -1
     while True:
@@ -181,7 +182,7 @@ def retry_discord_message_command(func, *args, **kwargs):
             sleep(ex.retry_after)
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
-    exceptions = (HTTPException, RateLimited, DiscordServerError, TimeoutError)
+    exceptions = (RateLimited, DiscordServerError, TimeoutError)
     return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 async def async_retry_discord_message_command(func, *args, **kwargs):
@@ -193,7 +194,7 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
             await async_sleep(ex.retry_after)
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
-    exceptions = (HTTPException, RateLimited, DiscordServerError, TimeoutError)
+    exceptions = (RateLimited, DiscordServerError, TimeoutError)
     return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 def rm_tree(pth: Path) -> bool:
