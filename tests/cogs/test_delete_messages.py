@@ -57,7 +57,7 @@ def test_delete_messages_start_config():
     assert cog.discord_channels == [{'server_id': 'fake-guild-123', 'channel_id': 'fake-channel-123'}]
 
 @pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
+@freeze_time('2025-12-01 12:00:00', tz_offset=0)
 async def test_delete_messages_main_loop(mocker):
     config = {
         'general': {
