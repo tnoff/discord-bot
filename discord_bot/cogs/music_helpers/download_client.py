@@ -62,6 +62,16 @@ class PrivateVideoException(DownloadClientException):
     Private Video while downloading
     '''
 
+class VideoTooLong(DownloadClientException):
+    '''
+    Max length of video duration exceeded
+    '''
+
+class VideoBanned(DownloadClientException):
+    '''
+    Video is on banned list
+    '''
+
 class ExistingFileException(Exception):
     '''
     Throw when existing file found

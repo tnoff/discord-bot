@@ -24,7 +24,7 @@ from yt_dlp.postprocessor import PostProcessor
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, ExistingFileException
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, ExistingFileException, VideoBanned, VideoTooLong
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
@@ -112,16 +112,6 @@ MUSIC_SECTION_SCHEMA = {
 # Exceptions
 #
 
-class VideoTooLong(Exception):
-    '''
-    Max length of video duration exceeded
-    '''
-
-class VideoBanned(Exception):
-    '''
-    Video is on banned list
-    '''
-
 class PlaylistMaxLength(Exception):
     '''
     Playlist hit max length
@@ -146,12 +136,12 @@ def match_generator(max_video_length, banned_videos_list, video_cache_search: Ca
         '''
         duration = info.get('duration')
         if duration and max_video_length and duration > max_video_length:
-            raise VideoTooLong(f'Video exceeds max length of {max_video_length}')
+            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} exceeds max length of {max_video_length}, skipping')
         vid_url = info.get('webpage_url')
         if vid_url and banned_videos_list:
             for banned_video_dict in banned_videos_list:
                 if vid_url == banned_video_dict['url']:
-                    raise VideoBanned(f'Video id {vid_url} banned, message: {banned_video_dict["message"]}')
+                    raise VideoBanned('Video Banned', user_message=f'Video url "{vid_url}" is banned, skipping')
         # Check if video exists within cache, and raise
         extractor = info.get('extractor')
         vid_id = info.get('id')
@@ -795,8 +785,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not self.search_string_cache:
             return None
         self.logger.info(f'Music ::: Checking search cache for string "{source_dict.search_string}"')
+        return self.search_string_cache.check_cache(source_dict)
 
-    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException = None):
+    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException):
         message = f'Issue downloading video "{str(source_dict)}", skipping'
         if exception:
             message = exception.user_message
@@ -804,20 +795,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             delete_after=self.delete_after)
         for func in source_dict.video_non_exist_callback_functions:
             await func()
-        return
-
-    async def __return_long_video(self, source_dict: SourceDict):
-        await retry_discord_message_command(source_dict.message.edit,
-                                            content=f'Search "{str(source_dict)}" exceeds maximum of {self.max_video_length} seconds, skipping',
-                                            delete_after=self.delete_after)
-        self.logger.warning(f'Music ::: Video too long to play in queue, skipping "{source_dict.search_string}"')
-        return
-
-    async def __return_video_banned(self, source_dict: SourceDict, video_banned_exception):
-        await retry_discord_message_command(source_dict.message.edit,
-                                            content=f'{str(video_banned_exception)}',
-                                            delete_after=self.delete_after)
-        self.logger.warning(f'Music ::: Video on video banned list, unable to play "{source_dict.search_string}"')
         return
 
     async def __ensure_video_download_result(self, source_download: SourceDownload):
@@ -945,20 +922,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # File exists on disk already, create again from cache
                 self.logger.debug(f'Music :: Existing file found for download {str(source_dict)}, using existing file from url "{e.video_cache.video_url}"')
                 source_download = self.video_cache.generate_download_from_existing(source_dict, e.video_cache)
+                self.__update_download_lockfile(source_download)
             except (DownloadClientException) as e:
                 self.logger.error(f'Error downloading video "{source_dict.search_string}", {str(e)}')
                 # Try to mark search as unavailable for later
-                await self.__return_bad_video(source_dict, exception=e)
+                await self.__return_bad_video(source_dict, e)
                 self.__update_download_lockfile(source_download)
                 return
-            except VideoTooLong:
-                await self.__return_long_video(source_dict)
-                self.__update_download_lockfile(source_download)
-                return
-            except VideoBanned as vb:
-                await self.__return_video_banned(source_dict, vb)
-                self.__update_download_lockfile(source_download)
-                return
+            # TODO handle regular DownloadError here
         # Final none check in case we couldn't download video
         if not await self.__ensure_video_download_result(source_download):
             return
