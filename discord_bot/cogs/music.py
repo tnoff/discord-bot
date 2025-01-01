@@ -201,17 +201,18 @@ class MusicPlayer:
     '''
 
     def __init__(self, bot, guild, cog_cleanup, text_channel, voice_channel, logger,
-                 cache_enabled, queue_max_size, delete_after, history_playlist_id, disconnect_timeout):
+                 queue_max_size, disconnect_timeout, file_dir: Path):
+        '''
+        file_dir : Files for guild stored here
+        '''
         self.bot = bot
         self.logger = logger
         self.guild = guild
         self.text_channel = text_channel
         self.voice_channel = voice_channel
         self.cog_cleanup = cog_cleanup
-        self.video_cache_enabled = cache_enabled
-        self.delete_after = delete_after
-        self.history_playlist_id = history_playlist_id
         self.disconnect_timeout = disconnect_timeout
+        self.file_dir = file_dir
 
         # Queues
         self.play_queue = Queue(maxsize=queue_max_size)
@@ -400,6 +401,22 @@ class MusicPlayer:
                 print(f'Player loop exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
+    def add_to_play_queue(self, source_download: SourceDownload) -> bool:
+        '''
+        Add source download to this play queue
+        '''
+        self.play_queue.put_nowait(source_download)
+        return True
+
+    def get_symlinks(self) -> List[Path]:
+        '''
+        Get base paths of symlinks for player
+        '''
+        items = []
+        for item in self.play_queue.items():
+            items.append(item.base_path)
+        return items
+
     async def __player_loop(self):
         '''
         Player loop logic
@@ -447,7 +464,7 @@ class MusicPlayer:
             # Check if file is closed
             pass
         # Cleanup source files, if cache not enabled delete base/original as well
-        source.delete(delete_original=not self.video_cache_enabled)
+        source.delete()
 
         # Add video to history if possible
         if not self.video_skipped:
@@ -473,7 +490,7 @@ class MusicPlayer:
             try:
                 source = self.play_queue.get_nowait()
                 self.logger.debug(f'Music :: Removing item {source} from play queue')
-                source.delete(delete_original=not self.video_cache_enabled)
+                source.delete()
             except QueueEmpty:
                 break
 
@@ -529,6 +546,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.players = {}
         self._cleanup_task = None
         self._download_task = None
+        self._cache_cleanup_task = None
 
         # TODO make this configurable
         self.number_shuffles = 5
@@ -611,6 +629,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self._cleanup_task = self.bot.loop.create_task(self.cleanup_players())
         self._download_task = self.bot.loop.create_task(self.download_files())
+        if self.enable_cache:
+            self._cache_cleanup_task = self.bot.loop.create_task(self.cache_cleanup())
 
     async def cog_unload(self):
         '''
@@ -631,6 +651,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._cleanup_task.cancel()
         if self._download_task:
             self._download_task.cancel()
+        if self._cache_cleanup_task:
+            self._cache_cleanup_task.cancel()
         self.last_download_lockfile.unlink(missing_ok=True)
 
         if self.download_dir.exists() and not self.enable_cache:
@@ -689,6 +711,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for guild in guilds:
             self.logger.warning(f'No members connected to voice channel {guild.id}, stopping bot')
             await self.cleanup(guild, external_shutdown_called=True, no_members_present=True)
+
+    async def cache_cleanup(self):
+        '''
+        Cleanup cache and remove items marked for deletion
+        '''
+        await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            try:
+                await self.__cache_cleanup()
+            except ExitEarlyException:
+                return
+            except Exception as e:
+                self.logger.exception(e)
+                self.logger.error(format_exc())
+                self.logger.error(str(e))
+                print(f'Cleanup players exception {str(e)}')
+                print('Formatted exception:', format_exc())
+
+    async def __cache_cleanup(self):
+        '''
+        Cache cleanup runner
+
+        After cache files marked for deletion, check if they are in use before deleting
+        '''
+        await sleep(60)
+        if self.bot_shutdown:
+            raise ExitEarlyException('Bot in shutdown, exiting early')
+        base_paths = set()
+        for _guild_id, player in self.players.items():
+            for path in player.get_symlinks():
+                base_paths.add(str(path))
+        delete_videos = []
+        for video_cache in self.db_session.query(VideoCache).\
+            filter(VideoCache.ready_for_deletion == True).all():
+            # Check if video cache in use
+            if str(video_cache.base_path) in base_paths:
+                continue
+            delete_videos.append(video_cache.id)
+        if not delete_videos:
+            return False
+        self.logger.debug(f'Music :: Identified cache videos ready for deletion {delete_videos}')
+        self.video_cache.remove_video_cache(delete_videos)
+        return True
 
     async def download_files(self):
         '''
@@ -768,7 +834,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return self.video_cache.get_webpage_url_item(source_dict)
 
-    async def __add_source_to_player(self, source_download: SourceDownload, player, skip_update_queue_strings=False):
+    async def __add_source_to_player(self, source_download: SourceDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
         '''
         Add source to player queue
 
@@ -778,7 +844,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         skiP_update_queue_strings : Skip queue string update
         '''
         try:
-            player.play_queue.put_nowait(source_download)
+            source_download.ready_file(file_dir=player.file_dir, move_file=not self.enable_cache)
+            player.add_to_play_queue(source_download)
             self.logger.info(f'Music :: Adding "{source_download.webpage_url}" '
                              f'to queue in guild {source_download.source_dict.guild_id}')
             if not skip_update_queue_strings:
@@ -909,7 +976,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Remove from cache file if exists
             if self.video_cache:
                 self.logger.debug('Music ::: Checking cache files to remove in music player')
-                self.video_cache.remove()
+                self.video_cache.ready_remove()
 
     async def __check_database_session(self, ctx):
         '''
@@ -951,6 +1018,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Music ::: Adding new history item {item.webpage_url} to playlist {playlist.id}')
             self.__playlist_add_item(playlist, item.id, item.webpage_url, item.title, item.uploader)
 
+    def __get_history_playlist(self, guild_id: str):
+        '''
+        Get history playlist for guild
+
+        guild_id : Guild id
+        '''
+        history_playlist_id = None
+        if self.db_session:
+            history_playlist = self.db_session.query(Playlist).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == True).first()
+
+            if not history_playlist:
+                history_playlist = Playlist(name=f'{PLAYHISTORY_PREFIX}{guild_id}',
+                                            server_id=guild_id,
+                                            created_at=datetime.now(timezone.utc),
+                                            is_history=True)
+                self.db_session.add(history_playlist)
+                self.db_session.commit()
+            history_playlist_id = history_playlist.id
+        return history_playlist_id
+
     async def cleanup(self, guild, external_shutdown_called=False, no_members_present=False):
         '''
         Cleanup guild player
@@ -982,8 +1071,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
         history_items = await player.clear_queues()
         self.logger.debug(f'Music :: Grabbing history items {history_items} for {guild.id}')
-        if player.history_playlist_id:
-            playlist = self.db_session.query(Playlist).get(player.history_playlist_id)
+        history_playlist_id = self.__get_history_playlist(guild.id)
+        if history_playlist_id:
+            playlist = self.db_session.query(Playlist).get(history_playlist_id)
             self.__update_history_playlist(playlist, history_items)
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
@@ -1011,25 +1101,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Make directory for guild specific files
             guild_path = self.download_dir / f'{ctx.guild.id}'
             guild_path.mkdir(exist_ok=True, parents=True)
-            # Create history playlist if db session set
-            history_playlist_id = None
-            if self.db_session:
-                history_playlist = self.db_session.query(Playlist).\
-                    filter(Playlist.server_id == str(ctx.guild.id)).\
-                    filter(Playlist.is_history == True).first()
-
-                if not history_playlist:
-                    history_playlist = Playlist(name=f'{PLAYHISTORY_PREFIX}{ctx.guild.id}',
-                                                server_id=ctx.guild.id,
-                                                created_at=datetime.utcnow(),
-                                                is_history=True)
-                    self.db_session.add(history_playlist)
-                    self.db_session.commit()
-                history_playlist_id = history_playlist.id
             # Generate and start player
             player = MusicPlayer(ctx.bot, ctx.guild, partial(self.cleanup, ctx.guild), ctx.channel, voice_channel,
-                                 self.logger, self.video_cache is not None,
-                                 self.queue_max_size, self.delete_after, history_playlist_id, self.disconnect_timeout)
+                                 self.logger, self.queue_max_size, self.disconnect_timeout, guild_path)
             await player.start_tasks()
             self.players[ctx.guild.id] = player
 

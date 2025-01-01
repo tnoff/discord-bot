@@ -129,11 +129,17 @@ def test_remove():
                     }, sd2)
                     x.iterate_file(s)
                     x.iterate_file(t2)
-                    x.remove()
+                    x.ready_remove()
 
-                assert session.query(VideoCache).count() == 1
-                query = session.query(VideoCache).first()
-                assert query.video_url == 'https://foo.example2.com'
+                    assert session.query(VideoCache).count() == 2
+                    query = session.query(VideoCache).first()
+                    assert query.video_url == 'https://foo.example.com'
+                    assert query.ready_for_deletion is True
+
+                    x.remove_video_cache([query.id])
+                    assert session.query(VideoCache).count() == 1
+
+
 
 def test_search_existing_file():
     test_id = '1234'

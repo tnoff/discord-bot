@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List
 
 from sqlalchemy import asc
 from sqlalchemy.orm import Session
@@ -84,6 +85,8 @@ class VideoCacheClient():
         if video_cache:
             video_cache.count += 1
             video_cache.last_iterated_at = now
+            # Unmark deletion here just in case
+            video_cache.ready_for_deletion = False
             self.__ensure_guild_video(self.__ensure_guild(source_download.source_dict.guild_id), video_cache)
             self.db_session.commit()
             return True
@@ -98,6 +101,7 @@ class VideoCacheClient():
             created_at=now,
             base_path=str(source_download.base_path),
             count=1,
+            ready_for_deletion=False,
         )
         self.db_session.add(cache_item)
         self.db_session.commit()
@@ -146,15 +150,14 @@ class VideoCacheClient():
             return existing
         return None
 
-    def remove(self):
+    def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
         '''
-        Remove oldest video in cache
+        Remove video cache ids
+
+        video_cache_ids: List of ints
         '''
-        cache_count = self.db_session.query(VideoCache).count()
-        num_to_remove = cache_count - self.max_cache_files
-        if num_to_remove < 1:
-            return True
-        for video_cache in self.db_session.query(VideoCache).order_by(asc(VideoCache.last_iterated_at)).limit(num_to_remove):
+        for video_cache_id in video_cache_ids:
+            video_cache = self.db_session.query(VideoCache).get(video_cache_id)
             base_path = Path(video_cache.base_path)
             base_path.unlink(missing_ok=True)
             for video_cache_guild in self.db_session.query(VideoCacheGuild).filter(VideoCacheGuild.video_cache_id == video_cache.id):
@@ -162,4 +165,17 @@ class VideoCacheClient():
             self.db_session.commit()
             self.db_session.delete(video_cache)
             self.db_session.commit()
+        return True
+
+    def ready_remove(self):
+        '''
+        Mark videos in cache for deletion
+        '''
+        cache_count = self.db_session.query(VideoCache).count()
+        num_to_remove = cache_count - self.max_cache_files
+        if num_to_remove < 1:
+            return True
+        for video_cache in self.db_session.query(VideoCache).order_by(asc(VideoCache.last_iterated_at)).limit(num_to_remove):
+            video_cache.ready_for_deletion = True
+        self.db_session.commit()
         return True

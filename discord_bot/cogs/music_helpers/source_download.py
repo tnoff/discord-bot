@@ -1,5 +1,4 @@
 from pathlib import Path
-from shutil import copyfile
 from uuid import uuid4
 
 from discord_bot.cogs.music_helpers.common import YT_DLP_KEYS
@@ -28,31 +27,42 @@ class SourceDownload():
         self.file_path = file_path
         self.base_path = file_path
 
+    def ready_file(self, file_dir: Path = None, move_file: bool = False):
+        '''
+        Ready file for server
+
+        Copy file as symlink
+
+        file_dir : Relocate to specific file dir
+        move_file : Move file instead of a symlink
+        '''
+        guild_path = file_dir or self.file_path.parent / f'{self.source_dict.guild_id}'
+        guild_path.mkdir(exist_ok=True)
         if self.file_path:
             # The modified time of download videos can be the time when it was actually uploaded to youtube
             # Touch here to update the modified time, so that the cleanup check works as intendend
             # Rename file to a random uuid name, that way we can have diff videos with same/similar names
-            guild_path = file_path.parent / f'{source_dict.guild_id}'
-            guild_path.mkdir(exist_ok=True)
-            uuid_path = guild_path / f'{uuid4()}{"".join(i for i in file_path.suffixes)}'
+            uuid_path = guild_path / f'{uuid4()}{"".join(i for i in self.file_path.suffixes)}'
             # We should copy the file here, instead of symlink
             # That way we can handle a case in which the original download was removed from cache
-            try:
-                copyfile(str(self.base_path), str(uuid_path))
-                self.file_path = uuid_path
-            except FileNotFoundError:
+            if not self.base_path.exists():
                 # Usually happened if you stopped bot while downloading
-                pass
+                raise FileNotFoundError('Unable to locate base path')
+            if move_file:
+                self.base_path.rename(uuid_path)
+                self.file_path = uuid_path
+                self.base_path = uuid_path
+            else:
+                uuid_path.symlink_to(self.base_path)
+                self.file_path = uuid_path
 
-    def delete(self, delete_original=False):
+
+    def delete(self):
         '''
         Delete file
 
-        If delete original passed, delete base path and original file
         '''
         self.file_path.unlink(missing_ok=True)
-        if delete_original:
-            self.base_path.unlink(missing_ok=True)
 
     def __str__(self):
         '''
