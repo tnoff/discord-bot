@@ -61,8 +61,10 @@ class Queue(asyncio_queue):
         '''
         Remove all items from queue
         '''
+        items = []
         while self.qsize():
-            self._queue.popleft()
+            items.append(self._queue.popleft())
+        return items
 
     def remove_item(self, queue_index: int):
         '''

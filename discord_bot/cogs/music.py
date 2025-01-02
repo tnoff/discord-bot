@@ -2,22 +2,21 @@
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
 
 from asyncio import sleep
-from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
-from datetime import datetime, timedelta, timezone
+from asyncio import QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
+from datetime import datetime, timezone
 from functools import partial
+from logging import RootLogger
 from pathlib import Path
 from random import shuffle as random_shuffle
 from re import match as re_match
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import TemporaryDirectory
 from traceback import format_exc
 from typing import Callable, Optional, List
 
-from async_timeout import timeout
 from dappertable import shorten_string_cjk, DapperTable
-from discord import FFmpegPCMAudio
-from discord.errors import ClientException, NotFound
-from discord.ext import commands
+from discord.ext.commands import Bot, Context, group, command
 from sqlalchemy import asc
+from sqlalchemy.engine.base import Engine
 from sqlalchemy.exc import IntegrityError
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -25,6 +24,7 @@ from yt_dlp.postprocessor import PostProcessor
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, ExistingFileException, VideoBanned, VideoTooLong
+from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
@@ -176,359 +176,12 @@ class VideoEditing(PostProcessor):
             information['filepath'] = str(file_path)
         return [], information
 
-#
-# Music Player for channel
-#
-
-class MusicPlayer:
-    '''
-    A class which is assigned to each guild using the bot for Music.
-
-    This class implements a queue and loop, which allows for different guilds
-    to listen to different playlists simultaneously.
-
-    When the bot disconnects from the Voice it's instance will be destroyed.
-    '''
-
-    def __init__(self, bot, guild, cog_cleanup, text_channel, voice_channel, logger,
-                 queue_max_size, disconnect_timeout, file_dir: Path):
-        '''
-        file_dir : Files for guild stored here
-        '''
-        self.bot = bot
-        self.logger = logger
-        self.guild = guild
-        self.text_channel = text_channel
-        self.voice_channel = voice_channel
-        self.cog_cleanup = cog_cleanup
-        self.disconnect_timeout = disconnect_timeout
-        self.file_dir = file_dir
-
-        # Queues
-        self.play_queue = Queue(maxsize=queue_max_size)
-        self.history = Queue(maxsize=queue_max_size)
-        self.next = Event()
-
-        # For showing messages
-        self.lock_file = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
-
-        # Keep these for later
-        self._player_task = None
-        self.current_track_duration = 0
-        self.np_message = ''
-        self.video_skipped = False
-        self.queue_messages = [] # Show current queue
-        self.volume = 0.5
-        # Shutdown called externally
-        self.shutdown_called = False
-
-    async def start_tasks(self):
-        '''
-        Start background methods
-        '''
-        if not self._player_task:
-            self._player_task = self.bot.loop.create_task(self.player_loop())
-
-    async def acquire_lock(self, wait_timeout=600):
-        '''
-        Wait for and acquire lock
-        '''
-        start = datetime.now()
-        while True:
-            if (datetime.now() - start).seconds > wait_timeout:
-                raise LockfileException('Error acquiring player lock lock')
-            try:
-                if self.lock_file.read_text() == 'locked':
-                    await sleep(.5)
-                    continue
-                break
-            except FileNotFoundError:
-                # If file not found, delete
-                break
-        self.lock_file.write_text('locked')
-
-    async def release_lock(self):
-        '''
-        Release lock
-        '''
-        self.lock_file.write_text('unlocked')
-
-    async def should_delete_messages(self):
-        '''
-        Check if known queue messages match whats in channel history
-        '''
-        num_messages = len(self.queue_messages)
-        history = [message async for message in self.text_channel.history(limit=num_messages)]
-        for (count, hist_item) in enumerate(history):
-            mess = self.queue_messages[num_messages - 1 - count]
-            if mess.id != hist_item.id:
-                return True
-        return False
-
-    async def clear_queue_messages(self):
-        '''
-        Delete queue messages
-        '''
-        for queue_message in self.queue_messages:
-            await retry_discord_message_command(queue_message.delete)
-        self.queue_messages = []
-
-    def get_queue_message(self):
-        '''
-        Get full queue message
-        '''
-        items = []
-        if self.np_message:
-            items.append(self.np_message)
-        queue_items = self.play_queue.items()
-        if not queue_items:
-            return items
-        headers = [
-            {
-                'name': 'Pos',
-                'length': 3,
-            },
-            {
-                'name': 'Wait Time',
-                'length': 9,
-            },
-            {
-                'name': 'Title /// Uploader',
-                'length': 80,
-            },
-        ]
-        table = DapperTable(headers, rows_per_message=15)
-        duration = self.current_track_duration
-        for (count, item) in enumerate(queue_items):
-            uploader = item.uploader or ''
-            delta = timedelta(seconds=duration)
-            duration += item.duration
-            table.add_row([
-                f'{count + 1}',
-                f'{str(delta)}',
-                f'{item.title} /// {uploader}'
-            ])
-        for t in table.print():
-            items.append(f'```{t}```')
-        return items
-
-    async def move_queue_message_channel(self, new_channel):
-        '''
-        Move queue messages to new text channel
-        '''
-        await self.acquire_lock()
-        if self.play_queue.shutdown:
-            await self.release_lock()
-            return
-        self.logger.debug(f'Music :: Moving queue messages in guild {self.guild.id} from channel {self.text_channel.id} to channel {new_channel.id}')
-        new_messages = []
-        for message in self.queue_messages:
-            new_messages.append(await retry_discord_message_command(new_channel.send, message.content))
-        for queue_message in self.queue_messages:
-            try:
-                await retry_discord_message_command(queue_message.delete)
-            except NotFound:
-                pass
-        self.queue_messages = new_messages
-        self.text_channel = new_channel
-        await self.release_lock()
-
-    async def update_queue_strings(self):
-        '''
-        Update queue message in channel
-        '''
-        await self.acquire_lock()
-        if self.play_queue.shutdown:
-            await self.release_lock()
-            return
-
-        delete_messages = await self.should_delete_messages()
-        self.logger.debug(f'Music :: Updating queue messages in channel {self.text_channel.id} in guild {self.guild.id}')
-        new_queue_strings = self.get_queue_message() or []
-        if delete_messages:
-            for queue_message in self.queue_messages:
-                try:
-                    await retry_discord_message_command(queue_message.delete)
-                except NotFound:
-                    pass
-            self.queue_messages = []
-        elif len(self.queue_messages) > len(new_queue_strings):
-            for _ in range(len(self.queue_messages) - len(new_queue_strings)):
-                queue_message = self.queue_messages.pop(-1)
-                await retry_discord_message_command(queue_message.delete)
-        for (count, queue_message) in enumerate(self.queue_messages):
-            # Check if queue message is the same before updating
-            if queue_message.content == new_queue_strings[count]:
-                continue
-            await retry_discord_message_command(queue_message.edit, content=new_queue_strings[count])
-        if len(self.queue_messages) < len(new_queue_strings):
-            for table in new_queue_strings[-(len(new_queue_strings) - len(self.queue_messages)):]:
-                self.queue_messages.append(await retry_discord_message_command(self.text_channel.send, table))
-        await self.release_lock()
-
-    def set_next(self, *_args, **_kwargs):
-        '''
-        Used for loop to call once voice channel done
-        '''
-        self.logger.info(f'Music :: Set next called on player in guild "{self.guild.id}"')
-        self.next.set()
-
-    async def player_loop(self):
-        '''
-        Our main player loop.
-        '''
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.__player_loop()
-            except ExitEarlyException:
-                return
-            except Exception as e:
-                self.logger.exception(e)
-                self.logger.error(format_exc())
-                self.logger.error(str(e))
-                print(f'Player loop exception {str(e)}')
-                print('Formatted exception:', format_exc())
-
-    def add_to_play_queue(self, source_download: SourceDownload) -> bool:
-        '''
-        Add source download to this play queue
-        '''
-        self.play_queue.put_nowait(source_download)
-        return True
-
-    def get_symlinks(self) -> List[Path]:
-        '''
-        Get base paths of symlinks for player
-        '''
-        items = []
-        for item in self.play_queue.items():
-            items.append(item.base_path)
-        return items
-
-    async def __player_loop(self):
-        '''
-        Player loop logic
-        '''
-        self.next.clear()
-
-        try:
-            # Wait for the next video. If we timeout cancel the player and disconnect...
-            async with timeout(self.disconnect_timeout):
-                source = await self.play_queue.get()
-        except asyncio_timeout:
-            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
-            await self.destroy()
-            raise ExitEarlyException('Bot timeout, exiting') #pylint:disable=raise-missing-from
-
-        # Double check file didnt go away
-        if not source.file_path.exists():
-            await retry_discord_message_command(self.text_channel.send, f'Unable to play "{source.title}", local file dissapeared')
-            return
-
-        self.current_track_duration = source.duration
-
-        audio_source = FFmpegPCMAudio(str(source.file_path))
-        self.video_skipped = False
-        audio_source.volume = self.volume
-        try:
-            self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
-        except (AttributeError, ClientException):
-            self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
-            if not self.shutdown_called:
-                await self.destroy()
-            raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
-        self.logger.info(f'Music :: Now playing "{source.webpage_url}" requested '
-                            f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
-                            f'"{source.webpage_url}"')
-        self.np_message = f'Now playing {source.webpage_url} requested by {source.source_dict.requester_name}'
-        await self.update_queue_strings()
-
-        await self.next.wait()
-        self.np_message = ''
-        # Make sure the FFmpeg process is cleaned up.
-        try:
-            audio_source.cleanup()
-        except ValueError:
-            # Check if file is closed
-            pass
-        # Cleanup source files, if cache not enabled delete base/original as well
-        source.delete()
-
-        # Add video to history if possible
-        if not self.video_skipped:
-            try:
-                self.history.put_nowait(source)
-            except QueueFull:
-                await self.history.get()
-                self.history.put_nowait(source)
-
-        # If play queue empty, set np message to nill
-        if self.play_queue.empty():
-            await self.update_queue_strings()
-
-    async def clear_queues(self):
-        '''
-        Cleanup all resources for player
-        '''
-        self.logger.info(f'Music :: Clearing out resources for player in {self.guild.id}')
-        self.play_queue.block()
-        # Delete any messages from download queue
-        # Delete any files in play queue that are already added
-        while True:
-            try:
-                source = self.play_queue.get_nowait()
-                self.logger.debug(f'Music :: Removing item {source} from play queue')
-                source.delete()
-            except QueueEmpty:
-                break
-
-        # Grab history items
-        history_items = []
-        while True:
-            try:
-                item = self.history.get_nowait()
-                self.logger.debug(f'Music :: Gathering history item {item} from history queue')
-                # If item wasn't history originally, track it for the history playlist
-                if not item.source_dict.added_from_history:
-                    history_items.append(item)
-            except QueueEmpty:
-                break
-        # Clear out all the queues
-        self.logger.debug('Music :: Calling clear on queues and queue messages')
-        self.history.clear()
-        self.play_queue.clear()
-        # Clear any messages in the current queue
-        self.np_message = ''
-        for queue_message in self.queue_messages:
-            # Ignore delete if message not found
-            try:
-                await retry_discord_message_command(queue_message.delete)
-            except NotFound:
-                pass
-        self.queue_messages = []
-        self.lock_file.unlink(missing_ok=True)
-
-        if self._player_task:
-            self._player_task.cancel()
-            self._player_task = None
-        return history_items
-
-    async def destroy(self):
-        '''
-        Disconnect and cleanup the player.
-        '''
-        self.logger.info(f'Music :: Removing music bot from guild id {self.guild.id}')
-        await self.cog_cleanup()
-
-
 class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
 
-    def __init__(self, bot, logger, settings, db_engine): #pylint:disable=too-many-statements
+    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
         super().__init__(bot, logger, settings, db_engine, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
@@ -537,13 +190,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._download_task = None
         self._cache_cleanup_task = None
+        self._message_task = None
+
+        # Keep track of when bot is in shutdown mode
+        self.bot_shutdown = False
+        self.final_bot_shutdown = False
 
         # TODO make this configurable
         self.number_shuffles = 5
 
-        self.delete_after = self.settings.get('music', {}).get('message_delete_after', 300) # seconds
+
         self.queue_max_size = self.settings.get('music', {}).get('queue_max_size', 128)
         self.download_queue = DistributedQueue(self.queue_max_size, number_shuffles=self.number_shuffles)
+
+        self.message_queue = Queue()
+
+        self.delete_after = self.settings.get('music', {}).get('message_delete_after', 300) # seconds
         self.server_playlist_max_size = self.settings.get('music', {}).get('server_playlist_max_size', 64)
         self.max_video_length = self.settings.get('music', {}).get('max_video_length', 60 * 15) # seconds
         self.disconnect_timeout = self.settings.get('music', {}).get('disconnect_timeout', 60 * 15) # seconds
@@ -553,9 +215,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.max_cache_files = self.settings.get('music', {}).get('max_cache_files', 2048)
         self.max_search_cache_entries = self.settings.get('music', {}).get('max_search_cache_entries', 4096)
         self.banned_videos_list = self.settings.get('music', {}).get('banned_videos_list', [])
+
         spotify_client_id = self.settings.get('music', {}).get('spotify_client_id', None)
         spotify_client_secret = self.settings.get('music', {}).get('spotify_client_secret', None)
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
+
         ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
         self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', 30) # seconds
 
@@ -584,8 +248,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.search_string_cache = SearchCacheClient(self.db_session, self.max_search_cache_entries)
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
-        # Keep track of when bot is in shutdown mode
-        self.bot_shutdown = False
+
 
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -602,7 +265,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for key, val in ytdlp_options.items():
             ytdlopts[key] = val
         # Add any filter functions, do some logic so we only pass a single function into the processor
-        if self.max_video_length or self.banned_videos_list:
+        if self.max_video_length or self.banned_videos_list or self.video_cache:
             callback_function = None
             if self.video_cache:
                 callback_function = partial(self.video_cache.search_existing_file)
@@ -619,6 +282,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self._cleanup_task = self.bot.loop.create_task(self.cleanup_players())
         self._download_task = self.bot.loop.create_task(self.download_files())
+        self._message_task = self.bot.loop.create_task(self.send_messages())
         if self.enable_cache:
             self._cache_cleanup_task = self.bot.loop.create_task(self.cache_cleanup())
 
@@ -635,6 +299,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Music :: Calling shutdown on player in guild {guild_id}')
             guild = await self.bot.fetch_guild(guild_id)
             await self.cleanup(guild, external_shutdown_called=True)
+        # Wait till final shutdown for messages
+        # This way we have time to cleanup any messages left hanging around
+        # TODO something should have a wait here to see how much we can cleanup
+        self.final_bot_shutdown = True
 
         self.logger.debug('Music :: Cancelling main tasks')
         if self._cleanup_task:
@@ -643,26 +311,44 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._download_task.cancel()
         if self._cache_cleanup_task:
             self._cache_cleanup_task.cancel()
+        if self._message_task:
+            self._message_task.cancel()
         self.last_download_lockfile.unlink(missing_ok=True)
 
         if self.download_dir.exists() and not self.enable_cache:
             rm_tree(self.download_dir)
 
-    def wait_for_download_time(self, wait=10):
+    async def send_messages(self):
         '''
-        Whether or not to continue waiting for next download
-        wait        : How long we should wait between next download
+        Send queued messages
+        '''
+        await self.bot.wait_until_ready()
 
-        Returns how long we need to wait for next run
+        while not self.bot.is_closed():
+            try:
+                await self.__send_messages()
+            except ExitEarlyException:
+                return
+            except Exception as e:
+                self.logger.exception(e)
+                self.logger.error(format_exc())
+                self.logger.error(str(e))
+                print(f'Cleanup players exception {str(e)}')
+                print('Formatted exception:', format_exc())
+
+    async def __send_messages(self):
         '''
+        Send messages runner
+        '''
+        await sleep(.01)
+        if self.final_bot_shutdown:
+            raise ExitEarlyException('Bot in shutdown, exiting early')
         try:
-            last_updated_at = self.last_download_lockfile.read_text()
-            now = int(datetime.utcnow().timestamp())
-            total_diff = now - int(last_updated_at)
-            # Make sure if value is negative we default to 0 here
-            return max((wait - total_diff), 0)
-        except (FileNotFoundError, ValueError):
-            return 0
+            message_func = self.message_queue.get_nowait()
+        except QueueEmpty:
+            return
+        await retry_discord_message_command(message_func)
+        return True
 
     async def cleanup_players(self):
         '''
@@ -766,6 +452,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 print(f'Download files exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
+    def wait_for_download_time(self, wait=10):
+        '''
+        Whether or not to continue waiting for next download
+        wait        : How long we should wait between next download
+
+        Returns how long we need to wait for next run
+        '''
+        try:
+            last_updated_at = self.last_download_lockfile.read_text()
+            now = int(datetime.now(timezone.utc).timestamp())
+            total_diff = now - int(last_updated_at)
+            # Make sure if value is negative we default to 0 here
+            return max((wait - total_diff), 0)
+        except (FileNotFoundError, ValueError):
+            return 0
+
     async def __cache_search(self, source_download: SourceDownload):
         '''
         Cache search string in db session
@@ -777,30 +479,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.search_string_cache.iterate(source_download)
         return True
 
-    async def __check_search_cache(self, source_dict: SourceDict):
-        '''
-        Check search string cache for item
-        source_dict : Standard source dict object
-        '''
-        if not self.search_string_cache:
-            return None
-        self.logger.info(f'Music ::: Checking search cache for string "{source_dict.search_string}"')
-        return self.search_string_cache.check_cache(source_dict)
-
     async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException):
-        message = f'Issue downloading video "{str(source_dict)}", skipping'
-        if exception:
-            message = exception.user_message
-        await retry_discord_message_command(source_dict.message.edit, content=message,
-                                            delete_after=self.delete_after)
+        message = exception.user_message
+        self.message_queue.put_nowait(partial(source_dict.message.edit, content=message, delete_after=self.delete_after))
         for func in source_dict.video_non_exist_callback_functions:
             await func()
         return
 
     async def __ensure_video_download_result(self, source_download: SourceDownload):
         if source_download is None:
-            await retry_discord_message_command(source_download.source_dict.message.edit, content=f'Issue downloading video "{str(source_download.source_dict)}", skipping',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(source_download.source_dict.message.edit, content=f'Issue downloading video "{str(source_download.source_dict)}", skipping',
+                                                  delete_after=self.delete_after))
             return False
         return True
 
@@ -827,34 +516,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                              f'to queue in guild {source_download.source_dict.guild_id}')
             if not skip_update_queue_strings:
                 await player.update_queue_strings()
-            try:
-                await retry_discord_message_command(source_download.source_dict.message.delete)
-            except KeyError:
-                # If no message given, assume it came from cache
-                pass
+            self.message_queue.put_nowait(partial(source_download.source_dict.delete_message))
             if self.video_cache:
                 self.logger.info(f'Music :: Iterating file on base path {str(source_download.base_path)}')
                 self.video_cache.iterate_file(source_download)
             return True
         except QueueFull:
             self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_download.source_dict.search_string}"')
-            try:
-                await retry_discord_message_command(source_download.source_dict.message.edit,
-                                                    content=f'Play queue is full, cannot add "{str(source_download.source_dict)}"',
-                                                    delete_after=self.delete_after)
-            except KeyError:
-                # If no message given, assume it came from cache
-                pass
+            self.message_queue.put_nowait(partial(source_download.source_dict.message.edit,
+                                            content=f'Play queue is full, cannot add "{str(source_download.source_dict)}"',
+                                            delete_after=self.delete_after))
             source_download.delete()
             return False
             # Dont return to loop, file was downloaded so we can iterate on cache at least
         except PutsBlocked:
             self.logger.warning(f'Music :: Puts Blocked on queue in guild "{source_download.source_dict.guild_id}", assuming shutdown')
-            try:
-                await retry_discord_message_command(source_download.source_dict.message.delete)
-            except KeyError:
-                # If no message given, assume it came from cache
-                pass
+            self.message_queue.put_nowait(partial(source_download.source_dict.delete_message))
             source_download.delete()
             return False
 
@@ -885,21 +562,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 player = self.players[source_dict.guild_id]
             except KeyError:
-                await retry_discord_message_command(source_dict.message.delete)
+                self.message_queue.put_nowait(partial(source_dict.delete_message))
                 return
 
             # Check if queue in shutdown, if so return
             if player.play_queue.shutdown:
                 self.logger.warning(f'Music ::: Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-                await retry_discord_message_command(source_dict.message.delete)
-                return
-
-            # Check if queue is full before attempting to download file
-            if player.play_queue.full():
-                self.logger.warning(f'Music ::: Play queue full, aborting download of item "{source_dict.search_string}"')
-                await retry_discord_message_command(source_dict.message.edit,
-                                                    content=f'Play queue is full, cannot add "{str(source_dict)}"',
-                                                    delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(source_dict.delete_message))
                 return
 
         self.logger.debug(f'Music ::: Gathered new item to download "{source_dict.search_string}", guild "{source_dict.guild_id}"')
@@ -949,16 +618,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug('Music ::: Checking cache files to remove in music player')
                 self.video_cache.ready_remove()
 
-    async def __check_database_session(self, ctx):
+    async def __check_database_session(self, ctx: Context):
         '''
         Check if database session is in use
         '''
         if not self.db_session:
-            await retry_discord_message_command(ctx.send, 'Functionality not available, database is not enabled')
+            self.message_queue.put_nowait(partial(ctx.send, 'Functionality not available, database is not enabled'))
             return False
         return True
 
-    def __update_history_playlist(self, playlist, history_items: List[SourceDownload]):
+    def __update_history_playlist(self, playlist: Playlist, history_items: List[SourceDownload]):
         '''
         Add history items to playlist
         playlist        : Playlist history object
@@ -986,7 +655,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.db_session.delete(existing_item)
                 self.db_session.commit()
         for item in history_items:
-            self.logger.info(f'Music ::: Adding new history item {item.webpage_url} to playlist {playlist.id}')
+            self.logger.info(f'Music ::: Adding new history item "{item.webpage_url}" to playlist {playlist.id}')
             self.__playlist_add_item(playlist, item.id, item.webpage_url, item.title, item.uploader)
 
     def __get_history_playlist(self, guild_id: str):
@@ -1031,16 +700,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await guild.voice_client.disconnect()
         except AttributeError:
             pass
+        # Send messages if this was called externally somehow
         if external_shutdown_called:
             if no_members_present:
-                await retry_discord_message_command(player.text_channel.send, content='No members in guild, removing myself',
-                                                    delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(player.text_channel.send, content='No members in guild, removing myself',
+                                                      delete_after=self.delete_after))
             else:
-                await retry_discord_message_command(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
-                                                    delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
+                                                      delete_after=self.delete_after))
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
-        history_items = await player.clear_queues()
+        history_items = await player.cleanup()
         self.logger.debug(f'Music :: Grabbing history items {history_items} for {guild.id}')
         history_playlist_id = self.__get_history_playlist(guild.id)
         if history_playlist_id:
@@ -1050,7 +720,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         download_items = self.download_queue.clear_queue(guild.id)
         for source_dict in download_items:
-            await retry_discord_message_command(source_dict.message.delete)
+            self.message_queue.put_nowait(partial(source_dict.delete_message))
 
         guild_path = self.download_dir / f'{guild.id}'
         if guild_path.exists():
@@ -1080,28 +750,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         return player
 
-    async def __check_author_voice_chat(self, ctx, check_voice_chats=True):
+    async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
         '''
         Check that command author in proper voice chat
         '''
         try:
             channel = ctx.author.voice.channel
         except AttributeError:
-            await retry_discord_message_command(ctx.send, f'"{ctx.author.display_name}" not in voice chat channel. Please join one and try again',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'"{ctx.author.display_name}" not in voice chat channel. Please join one and try again',
+                                                  delete_after=self.delete_after))
             return None
 
         if not check_voice_chats:
             return channel
 
         if channel.guild.id is not ctx.guild.id:
-            await retry_discord_message_command(ctx.send, 'User not joined to channel bot is in, ignoring command',
-                                     delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'User not joined to channel bot is in, ignoring command',
+                                                  delete_after=self.delete_after))
             return False
         return channel
 
-    @commands.command(name='join', aliases=['awaken'])
-    async def connect_(self, ctx):
+    @command(name='join', aliases=['awaken'])
+    async def connect_(self, ctx: Context):
         '''
         Connect to voice channel.
         '''
@@ -1117,17 +787,29 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await vc.move_to(channel)
             except asyncio_timeout:
                 self.logger.warning(f'Music :: Moving to channel {channel.id} timed out')
-                return await retry_discord_message_command(ctx.send, f'Moving to channel: <{channel}> timed out.')
+                self.message_queue.put_nowait(partial(ctx.send, f'Moving to channel: <{channel}> timed out.'))
+                return
         else:
             try:
                 await channel.connect()
             except asyncio_timeout:
                 self.logger.warning(f'Music :: Connecting to channel {channel.id} timed out')
-                return await retry_discord_message_command(ctx.send, f'Connecting to channel: <{channel}> timed out.')
+                self.message_queue.put_nowait(partial(ctx.send, f'Connecting to channel: <{channel}> timed out.'))
+                return
 
         await retry_discord_message_command(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)
 
-    @commands.command(name='play')
+    async def __check_search_cache(self, source_dict: SourceDict):
+        '''
+        Check search string cache for item
+        source_dict : Standard source dict object
+        '''
+        if not self.search_string_cache:
+            return None
+        self.logger.info(f'Music ::: Checking search cache for string "{source_dict.search_string}"')
+        return self.search_string_cache.check_cache(source_dict)
+
+    @command(name='play')
     async def play_(self, ctx, *, search: str):
         '''
         Request a video and add it to the download queue, which will then play after the download
@@ -1152,15 +834,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx, vc.channel)
 
-        if player.play_queue.full():
-            return await retry_discord_message_command(ctx.send, 'Queue is full, cannot add more videos',
-                                                       delete_after=self.delete_after)
-
         try:
             entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop)
         except DownloadClientException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            return await retry_discord_message_command(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after))
+            return
         for (count, source_dict) in enumerate(entries):
             try:
                 # Check if item is already search cache
@@ -1181,24 +860,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_queue.put_nowait(source_dict.guild_id, source_dict)
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                try:
-                    await retry_discord_message_command(source_dict.message.delete)
-                except KeyError:
-                    # message not passed, just skip
-                    pass
+                self.message_queue.put_nowait(partial(source_dict.delete_message))
                 break
             except QueueFull:
-                try:
-                    await retry_discord_message_command(source_dict.message.edit, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
-                except KeyError:
+                if source_dict.message:
+                    self.message_queue.put_nowait(partial(source_dict.message.edit, content=f'Unable to add "{search}" to queue, download queue is full',
+                                                          delete_after=self.delete_after))
+                else:
                     # Message not passed, sent to channel instead
-                    await retry_discord_message_command(ctx.send, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after)
+                    self.message_queue.put_nowait(partial(ctx.send, content=f'Unable to add "{search}" to queue, download queue is full', delete_after=self.delete_after))
                 break
         # Update queue strings finally just to be safe
         await player.update_queue_strings()
 
-
-    @commands.command(name='skip')
+    @command(name='skip')
     async def skip_(self, ctx):
         '''
         Skip the video.
@@ -1219,7 +894,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         await retry_discord_message_command(ctx.send, 'Skipping video',
                                             delete_after=self.delete_after)
 
-    @commands.command(name='clear')
+    @command(name='clear')
     async def clear(self, ctx):
         '''
         Clear all items from queue
@@ -1233,18 +908,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                        delete_after=self.delete_after)
 
         player = await self.get_player(ctx, vc.channel)
-        if player.play_queue.empty():
+        if player.check_queue_empty():
             return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                                       delete_after=self.delete_after)
         self.logger.info(f'Music :: Clear called in guild {ctx.guild.id}, first stopping tasks')
-        # Try and keep this as simple as possible, get the size and remove that many videos
-        for _ in range(player.play_queue.size()):
-            item = player.play_queue.remove_item(1)
+        for item in player.clear_queue():
             item.delete()
         await player.update_queue_strings()
         return await retry_discord_message_command(ctx.send, 'Cleared player queue', delete_after=self.delete_after)
 
-    @commands.command(name='history')
+    @command(name='history')
     async def history_(self, ctx):
         '''
         Show recently played videos
@@ -1284,7 +957,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for mess in messages:
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
-    @commands.command(name='shuffle')
+    @command(name='shuffle')
     async def shuffle_(self, ctx):
         '''
         Shuffle video queue.
@@ -1298,17 +971,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                        delete_after=self.delete_after)
 
         player = await self.get_player(ctx, vc.channel)
-        if player.play_queue.empty():
+        if player.check_queue_empty():
             return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
-                                                       delete_after=self.delete_after)
-        # Check if player is in shutdown, assume we're shutting down or clearing queue
-        if player.play_queue.shutdown:
-            return await retry_discord_message_command(ctx.send, 'Unable to shuffle queue, player in shutdown',
                                                        delete_after=self.delete_after)
         player.play_queue.shuffle()
         await player.update_queue_strings()
 
-    @commands.command(name='remove')
+    @command(name='remove')
     async def remove_item(self, ctx, queue_index):
         '''
         Remove item from queue.
@@ -1325,13 +994,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             delete_after=self.delete_after)
 
         player = await self.get_player(ctx, vc.channel)
-        if player.play_queue.empty():
+        if player.check_queue_empty():
             return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                             delete_after=self.delete_after)
-        # Check if player is in shutdown, assume we're shutting down or clearing queue
-        if player.play_queue.shutdown:
-            return await retry_discord_message_command(ctx.send, 'Unable to remove item, player in shutdown',
-                                                       delete_after=self.delete_after)
 
         try:
             queue_index = int(queue_index)
@@ -1348,7 +1013,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         item.delete()
         await player.update_queue_strings()
 
-    @commands.command(name='bump')
+    @command(name='bump')
     async def bump_item(self, ctx, queue_index):
         '''
         Bump item to top of queue
@@ -1365,13 +1030,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             delete_after=self.delete_after)
 
         player = await self.get_player(ctx, vc.channel)
-        if player.play_queue.empty():
+        if player.check_queue_empty():
             return await retry_discord_message_command(ctx.send, 'There are currently no more queued videos.',
                                             delete_after=self.delete_after)
-        # Check if player is in shutdown, assume we're shutting down or clearing queue
-        if player.play_queue.shutdown:
-            return await retry_discord_message_command(ctx.send, 'Unable to bump item, player in shutdown',
-                                                       delete_after=self.delete_after)
         try:
             queue_index = int(queue_index)
         except ValueError:
@@ -1387,7 +1048,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await player.update_queue_strings()
 
-    @commands.command(name='stop')
+    @command(name='stop')
     async def stop_(self, ctx):
         '''
         Stop the currently playing video and disconnect bot from voice chat.
@@ -1404,7 +1065,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player.shutdown_called = True
         await self.cleanup(ctx.guild)
 
-    @commands.command(name='move-messages')
+    @command(name='move-messages')
     async def move_messages_here(self, ctx):
         '''
         Move queue messages to this text chanel
@@ -1443,7 +1104,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)
             return None
 
-    @commands.group(name='playlist', invoke_without_command=False)
+    @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
         '''
         Playlist functions.
@@ -1497,7 +1158,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
         playlist_items = self.db_session.query(Playlist).\
             filter(Playlist.server_id == str(ctx.guild.id)).order_by(Playlist.created_at.asc())
         playlist_items = [p for p in playlist_items if PLAYHISTORY_PREFIX not in p.name]
@@ -1586,14 +1247,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, f'Added item "{source_download.title}" to playlist {playlist.name}', delete_after=self.delete_after)
         else:
             await retry_discord_message_command(ctx.send, content=f'Unable to add playlist item "{search}" , likely already exists', delete_after=self.delete_after)
-        return await retry_discord_message_command(source_download.source_dict.message.delete)
+        return await retry_discord_message_command(source_download.source_dict.delete_message)
 
     async def __playlist_item_add(self, ctx, playlist_index, search):
 
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         vc = ctx.voice_client
 
@@ -1630,8 +1291,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions',
-                                      delete_after=self.delete_after)
+            return
 
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1671,7 +1331,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
 
     @playlist.command(name='item-remove')
-    async def playlist_item_remove(self, ctx, playlist_index, video_index):
+    async def playlist_item_remove(self, ctx: Context, playlist_index: int, video_index: int):
         '''
         Add item to playlist
 
@@ -1683,7 +1343,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1711,7 +1371,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                             delete_after=self.delete_after)
 
     @playlist.command(name='show')
-    async def playlist_show(self, ctx, playlist_index):
+    async def playlist_show(self, ctx: Context, playlist_index: int):
         '''
         Show Items in playlist
 
@@ -1721,7 +1381,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1753,10 +1413,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.db_session.commit()
         messages = [f'```{t}```' for t in table.print()]
         for mess in messages:
-            await retry_discord_message_command(ctx.send, mess, delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, mess, delete_after=self.delete_after))
 
     @playlist.command(name='delete')
-    async def playlist_delete(self, ctx, playlist_index):
+    async def playlist_delete(self, ctx: Context, playlist_index: int):
         '''
         Delete playlist
 
@@ -1765,11 +1425,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         return await self.__playlist_delete(ctx, playlist_index)
 
-    async def __playlist_delete(self, ctx, playlist_index):
+    async def __playlist_delete(self, ctx: Context, playlist_index: int):
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1779,11 +1439,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             filter(PlaylistItem.playlist_id == playlist.id).delete()
         self.db_session.delete(playlist)
         self.db_session.commit()
-        return await retry_discord_message_command(ctx.send, f'Deleted playlist {playlist_index}',
-                                                   delete_after=self.delete_after)
+        self.message_queue.put_nowait(partial(ctx.send, f'Deleted playlist {playlist_index}',
+                                              delete_after=self.delete_after))
+        return
 
     @playlist.command(name='rename')
-    async def playlist_rename(self, ctx, playlist_index, *, playlist_name: str):
+    async def playlist_rename(self, ctx: Context, playlist_index: int, *, playlist_name: str):
         '''
         Rename playlist to new name
 
@@ -1795,7 +1456,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1803,10 +1464,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Music :: Renaming playlist {playlist.id} to name "{playlist_name}"')
         playlist.name = playlist_name
         self.db_session.commit()
-        return await retry_discord_message_command(ctx.send, f'Renamed playlist {playlist_index} to name "{playlist_name}"', delete_after=self.delete_after)
+        self.message_queue.put_nowait(partial(ctx.send, f'Renamed playlist {playlist_index} to name "{playlist_name}"',
+                                              delete_after=self.delete_after))
+        return
 
     @playlist.command(name='save-queue')
-    async def playlist_queue_save(self, ctx, *, name: str):
+    async def playlist_queue_save(self, ctx: Context, *, name: str):
         '''
         Save contents of queue to a new playlist
 
@@ -1816,7 +1479,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_queue_save(ctx, name)
 
     @playlist.command(name='save-history')
-    async def playlist_history_save(self, ctx, *, name: str):
+    async def playlist_history_save(self, ctx: Context, *, name: str):
         '''
         Save contents of history to a new playlist
 
@@ -1825,7 +1488,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         return await self.__playlist_queue_save(ctx, name, is_history=True)
 
-    async def __playlist_queue_save(self, ctx, name, is_history=False):
+    async def __playlist_queue_save(self, ctx: Context, name: str, is_history=False):
         playlist = await self.__playlist_create(ctx, name)
         if not playlist:
             return None
@@ -1844,27 +1507,29 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Music :: Saving queue contents to playlist "{name}", is_history? {is_history}')
 
         if len(queue_copy) == 0:
-            return await retry_discord_message_command(ctx.send, 'There are no videos to add to playlist',
-                                                       delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'There are no videos to add to playlist',
+                                                  delete_after=self.delete_after))
+            return
 
         for data in queue_copy:
             try:
                 playlist_item = self.__playlist_add_item(playlist, data.id, data.webpage_url, data.title, data.uploader)
             except PlaylistMaxLength:
-                retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size', delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size',
+                                                      delete_after=self.delete_after))
                 break
             if playlist_item:
-                await retry_discord_message_command(ctx.send, f'Added item "{data.title}" to playlist', delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, f'Added item "{data.title}" to playlist', delete_after=self.delete_after))
                 continue
-            await retry_discord_message_command(ctx.send, f'Unable to add playlist item "{data.title}", likely already exists', delete_after=self.delete_after)
-        await retry_discord_message_command(ctx.send, f'Finished adding items to playlist "{name}"', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Unable to add playlist item "{data.title}", likely already exists', delete_after=self.delete_after))
+        self.message_queue.put_nowait(partial(ctx.send, f'Finished adding items to playlist "{name}"', delete_after=self.delete_after))
         if is_history:
             player.history.clear()
-            await retry_discord_message_command(ctx.send, 'Cleared history', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'Cleared history', delete_after=self.delete_after))
         return
 
     @playlist.command(name='queue')
-    async def playlist_queue(self, ctx, playlist_index, sub_command: Optional[str] = ''):
+    async def playlist_queue(self, ctx: Context, playlist_index: int, sub_command: Optional[str] = ''):
         '''
         Add playlist to queue
 
@@ -1877,7 +1542,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
         # Make sure sub command is valid
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1892,8 +1557,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 max_num = int(number_matcher.group('number'))
         return await self.__playlist_queue(ctx, playlist, shuffle, max_num)
 
-    @commands.command(name='random-play')
-    async def playlist_random_play(self, ctx, sub_command: Optional[str] = ''):
+    @command(name='random-play')
+    async def playlist_random_play(self, ctx: Context, sub_command: Optional[str] = ''):
         '''
         Play random videos from history
 
@@ -1904,7 +1569,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
         max_num = 32 # Default
         from_cache = False
         if sub_command:
@@ -1924,7 +1589,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 filter(Playlist.is_history == True).first()
 
             if not history_playlist:
-                return await retry_discord_message_command(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, 'Unable to find history for server', delete_after=self.delete_after))
+                return
             return await self.__playlist_queue(ctx, history_playlist, True, max_num, is_history=True)
         # Turn this into a list so it can do the shuffle functions and other things
         cache_items = [i for i in self.db_session.query(VideoCache).\
@@ -1943,24 +1609,24 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = await self.get_player(ctx, vc.channel)
         broke_early = await self.__playlist_enqueue_items(ctx, cache_items, True, player)
         if broke_early:
-            await retry_discord_message_command(ctx.send, 'Added as many videos in cache to queue as possible, but hit limit',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'Added as many videos in cache to queue as possible, but hit limit',
+                                                  delete_after=self.delete_after))
         elif max_num:
-            await retry_discord_message_command(ctx.send, f'Added {max_num} videos from cache to queue',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Added {max_num} videos from cache to queue',
+                                                  delete_after=self.delete_after))
         else:
-            await retry_discord_message_command(ctx.send, 'Added all videos in playlist cache to queue',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'Added all videos in playlist cache to queue',
+                                                  delete_after=self.delete_after))
         return
 
-    async def __delete_non_existing_item(self, item, ctx):
+    async def __delete_non_existing_item(self, item: PlaylistItem, ctx: Context):
         self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
-        await retry_discord_message_command(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
-                                            delete_after=self.delete_after)
+        self.message_queue.put_nowait(partial(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
+                                              delete_after=self.delete_after))
         self.db_session.delete(item)
         self.db_session.commit()
 
-    async def __playlist_enqueue_items(self, ctx, playlist_items, is_history, player):
+    async def __playlist_enqueue_items(self, ctx: Context, playlist_items: List[PlaylistItem], is_history: bool, player: MusicPlayer):
         '''
         Enqueue items from a playlist
         ctx: Standard discord context
@@ -1991,28 +1657,24 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 source_dict.set_message(await retry_discord_message_command(ctx.send, f'Downloading and processing "{item.title}"'))
                 self.download_queue.put_nowait(source_dict.guild_id, source_dict)
             except QueueFull:
-                try:
-                    await retry_discord_message_command(source_dict.message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
-                                                        delete_after=self.delete_after)
-                except KeyError:
+                if source_dict.message:
+                    self.message_queue.put_nowait(partial(source_dict.message.edit, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                          delete_after=self.delete_after))
+                else:
                     # Message not send originally
-                    await retry_discord_message_command(ctx.send, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
-                                                        delete_after=self.delete_after)
+                    self.message_queue.put_nowait(partial(ctx.send, content=f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                          delete_after=self.delete_after))
                 broke_early = True
                 break
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                try:
-                    await retry_discord_message_command(source_dict.message.delete)
-                except KeyError:
-                    # Message not sent, just skip
-                    pass
+                self.message_queue.put_nowait(partial(source_dict.delete_message))
                 break
         # Update queue strings finally just to be safe
         await player.update_queue_strings()
         return broke_early
 
-    async def __playlist_queue(self, ctx, playlist, shuffle, max_num, is_history=False):
+    async def __playlist_queue(self, ctx: Context, playlist: Playlist, shuffle: bool, max_num: int, is_history=False):
         vc = ctx.voice_client
         if not vc:
             await ctx.invoke(self.connect_)
@@ -2026,20 +1688,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for item in query:
             playlist_items.append(item)
             if not item.created_at:
-                item.created_at = datetime.utcnow()
+                item.created_at = datetime.now(timezone.utc)
                 self.db_session.add(item)
                 self.db_session.commit()
 
         if shuffle:
-            await retry_discord_message_command(ctx.send, 'Shuffling playlist items',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, 'Shuffling playlist items',
+                                                  delete_after=self.delete_after))
             for _ in range(self.number_shuffles):
                 random_shuffle(playlist_items)
 
         if max_num:
             if max_num < 0:
-                await retry_discord_message_command(ctx.send, f'Invalid number of videos {max_num}',
-                                                    delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, f'Invalid number of videos {max_num}',
+                                                      delete_after=self.delete_after))
                 return
             if max_num < len(playlist_items):
                 playlist_items = playlist_items[:max_num]
@@ -2054,19 +1716,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if PLAYHISTORY_PREFIX in playlist_name:
             playlist_name = 'Channel History'
         if broke_early:
-            await retry_discord_message_command(ctx.send, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
+                                                  delete_after=self.delete_after))
         elif max_num:
-            await retry_discord_message_command(ctx.send, f'Added {max_num} videos from "{playlist_name}" to queue',
-                                                delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Added {max_num} videos from "{playlist_name}" to queue',
+                                                  delete_after=self.delete_after))
         else:
-            await retry_discord_message_command(ctx.send, f'Added all videos in playlist "{playlist_name}" to queue',
-                                                delete_after=self.delete_after)
-        playlist.last_queued = datetime.utcnow()
+            self.message_queue.put_nowait(partial(ctx.send, f'Added all videos in playlist "{playlist_name}" to queue',
+                                                  delete_after=self.delete_after))
+        playlist.last_queued = datetime.now(timezone.utc)
         self.db_session.commit()
 
     @playlist.command(name='merge')
-    async def playlist_merge(self, ctx, playlist_index_one, playlist_index_two):
+    async def playlist_merge(self, ctx: Context, playlist_index_one: str, playlist_index_two: str):
         '''
         Merge second playlist into first playlist, deletes second playlist
 
@@ -2078,24 +1740,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_author_voice_chat(ctx):
             return
         if not await self.__check_database_session(ctx):
-            return retry_discord_message_command(ctx.send, 'Database not set, cannot use playlist functions', delete_after=self.delete_after)
+            return
 
         self.logger.info(f'Music :: Calling playlist merge of "{playlist_index_one}" and "{playlist_index_two}" in server "{ctx.guild.id}"')
         playlist_one = await self.__get_playlist(playlist_index_one, ctx)
         playlist_two = await self.__get_playlist(playlist_index_two, ctx)
         if not playlist_one:
-            return retry_discord_message_command(ctx.send, f'Cannot find playlist {playlist_index_one}', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Cannot find playlist {playlist_index_one}', delete_after=self.delete_after))
+            return
         if not playlist_two:
-            return retry_discord_message_command(ctx.send, f'Cannot find playlist {playlist_index_two}', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Cannot find playlist {playlist_index_two}', delete_after=self.delete_after))
+            return
         query = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_two.id)
         for item in query:
             try:
                 playlist_item = self.__playlist_add_item(playlist_one, item.video_id, item.video_url, item.title, item.uploader)
             except PlaylistMaxLength:
-                retry_discord_message_command(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after))
                 return
             if playlist_item:
-                await retry_discord_message_command(ctx.send, f'Added item "{item.title}" to playlist {playlist_index_one}', delete_after=self.delete_after)
+                self.message_queue.put_nowait(partial(ctx.send, f'Added item "{item.title}" to playlist {playlist_index_one}',
+                                                      delete_after=self.delete_after))
                 continue
-            await retry_discord_message_command(ctx.send, f'Unable to add playlist item "{item.title}", likely already exists', delete_after=self.delete_after)
+            self.message_queue.put_nowait(partial(ctx.send, f'Unable to add playlist item "{item.title}", likely already exists',
+                                                  delete_after=self.delete_after))
         await self.__playlist_delete(ctx, playlist_index_two)

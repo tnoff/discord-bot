@@ -48,6 +48,16 @@ class SourceDict():
         '''
         self.message = message
 
+    def delete_message(self):
+        '''
+        Delete message if existing
+        '''
+        if not self.message:
+            return False
+
+        self.message.delete()
+        return True
+
     def __str__(self):
         '''
         Expose as string
