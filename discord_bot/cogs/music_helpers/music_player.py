@@ -67,6 +67,78 @@ class MusicPlayer:
         if not self._player_task:
             self._player_task = self.bot.loop.create_task(self.player_loop())
 
+    async def player_loop(self): #pylint:disable=duplicate-code
+        '''
+        Our main player loop.
+        '''
+        await self.bot.wait_until_ready()
+
+        while not self.bot.is_closed():
+            try:
+                await self.__player_loop()
+            except ExitEarlyException:
+                return
+            except Exception as e:
+                self.logger.exception(e)
+                self.logger.error(format_exc())
+                self.logger.error(str(e))
+                print(f'Player loop exception {str(e)}')
+                print('Formatted exception:', format_exc())
+
+    async def __player_loop(self):
+        '''
+        Player loop logic
+        '''
+        self.next.clear()
+
+        try:
+            # Wait for the next video. If we timeout cancel the player and disconnect...
+            async with timeout(self.disconnect_timeout):
+                source = await self._play_queue.get()
+        except asyncio_timeout:
+            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
+            await self.destroy()
+            raise ExitEarlyException('Bot timeout, exiting') #pylint:disable=raise-missing-from
+
+        self.current_source = source
+
+        audio_source = FFmpegPCMAudio(str(source.file_path))
+        self.video_skipped = False
+        audio_source.volume = self.volume
+        try:
+            self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
+        except (AttributeError, ClientException):
+            self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
+            if not self.shutdown_called:
+                await self.destroy()
+            raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
+        self.logger.info(f'Music :: Now playing "{source.webpage_url}" requested '
+                            f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
+                            f'"{source.webpage_url}"')
+        self.np_message = f'Now playing {source.webpage_url} requested by {source.source_dict.requester_name}'
+        for func in source.post_play_callback_functions:
+            func()
+
+        await self.next.wait()
+        self.np_message = ''
+        # Make sure the FFmpeg process is cleaned up.
+        try:
+            audio_source.cleanup()
+        except ValueError:
+            # Check if file is closed
+            pass
+        # Cleanup source files, if cache not enabled delete base/original as well
+        source.delete()
+
+        # Add video to history if possible
+        if not self.video_skipped and not source.source_dict.added_from_history:
+            try:
+                self._history.put_nowait(source)
+            except QueueFull:
+                await self._history.get()
+                self._history.put_nowait(source)
+
+
     def get_queue_order_messages(self):
         '''
         Get full queue message
@@ -114,24 +186,6 @@ class MusicPlayer:
         '''
         self.logger.info(f'Music :: Set next called on player in guild "{self.guild.id}"')
         self.next.set()
-
-    async def player_loop(self): #pylint:disable=duplicate-code
-        '''
-        Our main player loop.
-        '''
-        await self.bot.wait_until_ready()
-
-        while not self.bot.is_closed():
-            try:
-                await self.__player_loop()
-            except ExitEarlyException:
-                return
-            except Exception as e:
-                self.logger.exception(e)
-                self.logger.error(format_exc())
-                self.logger.error(str(e))
-                print(f'Player loop exception {str(e)}')
-                print('Formatted exception:', format_exc())
 
     def voice_channel_active(self):
         '''
@@ -210,59 +264,6 @@ class MusicPlayer:
         for item in self._play_queue.items():
             items.append(item.base_path)
         return items
-
-    async def __player_loop(self):
-        '''
-        Player loop logic
-        '''
-        self.next.clear()
-
-        try:
-            # Wait for the next video. If we timeout cancel the player and disconnect...
-            async with timeout(self.disconnect_timeout):
-                source = await self._play_queue.get()
-        except asyncio_timeout:
-            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
-            await self.destroy()
-            raise ExitEarlyException('Bot timeout, exiting') #pylint:disable=raise-missing-from
-
-        self.current_source = source
-
-        audio_source = FFmpegPCMAudio(str(source.file_path))
-        self.video_skipped = False
-        audio_source.volume = self.volume
-        try:
-            self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
-        except (AttributeError, ClientException):
-            self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
-            if not self.shutdown_called:
-                await self.destroy()
-            raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
-        self.logger.info(f'Music :: Now playing "{source.webpage_url}" requested '
-                            f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
-                            f'"{source.webpage_url}"')
-        self.np_message = f'Now playing {source.webpage_url} requested by {source.source_dict.requester_name}'
-        for func in source.post_play_callback_functions:
-            func()
-
-        await self.next.wait()
-        self.np_message = ''
-        # Make sure the FFmpeg process is cleaned up.
-        try:
-            audio_source.cleanup()
-        except ValueError:
-            # Check if file is closed
-            pass
-        # Cleanup source files, if cache not enabled delete base/original as well
-        source.delete()
-
-        # Add video to history if possible
-        if not self.video_skipped:
-            try:
-                self._history.put_nowait(source)
-            except QueueFull:
-                await self._history.get()
-                self._history.put_nowait(source)
 
     def clear_queue_order_messages(self):
         '''
