@@ -164,13 +164,23 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
 
     return FakeBot
 
+class FakeVoiceClient():
+    def __init__(self):
+        pass
+
+    def play(self, *_args, after=None, **_kwargs):
+        if after:
+            after()
+        return True
 
 class FakeContext():
-    def __init__(self, fake_guild=None, author=None):
+    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None):
         self.author = author or FakeAuthor()
         self.guild = fake_guild or FakeGuild()
         self.channel = FakeChannel()
         self.messages_sent = []
+        self.bot = fake_bot
+        self.voice_client = voice_client
 
     async def send(self, message):
         self.messages_sent.append(message)

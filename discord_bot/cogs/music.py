@@ -457,7 +457,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise ExitEarlyException('Bot in shutdown, exiting early')
         base_paths = set()
         for _guild_id, player in self.players.items():
-            for path in player.get_symlinks():
+            for path in player.get_file_paths():
                 base_paths.add(str(path))
         delete_videos = []
         for video_cache in self.db_session.query(VideoCache).\

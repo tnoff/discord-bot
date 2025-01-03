@@ -1,5 +1,4 @@
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as asyncio_timeout
-from copy import deepcopy
 from datetime import timedelta
 from logging import RootLogger
 from pathlib import Path
@@ -27,12 +26,12 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    def __init__(self, logger: RootLogger, ctx: Context, cog_cleanup: Callable,
+    def __init__(self, logger: RootLogger, ctx: Context, cog_cleanup: List[Callable],
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path):
         '''
         file_dir : Files for guild stored here
         '''
-        self.bot = ctx.Bot
+        self.bot = ctx.bot
         self.guild = ctx.guild
         self.text_channel = ctx.channel
         self.logger = logger
@@ -65,9 +64,9 @@ class MusicPlayer:
         Start background methods
         '''
         if not self._player_task:
-            self._player_task = self.bot.loop.create_task(self.player_loop())
+            self._player_task = self.bot.loop.create_task(self.player_loop_runner())
 
-    async def player_loop(self): #pylint:disable=duplicate-code
+    async def player_loop_runner(self): #pylint:disable=duplicate-code
         '''
         Our main player loop.
         '''
@@ -75,7 +74,7 @@ class MusicPlayer:
 
         while not self.bot.is_closed():
             try:
-                await self.__player_loop()
+                await self.player_loop()
             except ExitEarlyException:
                 return
             except Exception as e:
@@ -85,7 +84,7 @@ class MusicPlayer:
                 print(f'Player loop exception {str(e)}')
                 print('Formatted exception:', format_exc())
 
-    async def __player_loop(self):
+    async def player_loop(self):
         '''
         Player loop logic
         '''
@@ -95,23 +94,22 @@ class MusicPlayer:
             # Wait for the next video. If we timeout cancel the player and disconnect...
             async with timeout(self.disconnect_timeout):
                 source = await self._play_queue.get()
-        except asyncio_timeout:
+        except asyncio_timeout as e:
             self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
             await self.destroy()
-            raise ExitEarlyException('Bot timeout, exiting') #pylint:disable=raise-missing-from
-
+            raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_source = source
 
         audio_source = FFmpegPCMAudio(str(source.file_path))
         self.video_skipped = False
         audio_source.volume = self.volume
         try:
-            self.guild.voice_client.play(audio_source, after=self.set_next) #pylint:disable=line-too-long
-        except (AttributeError, ClientException):
+            self.voice_client.play(audio_source, after=self.set_next)
+        except (AttributeError, ClientException) as e:
             self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
             if not self.shutdown_called:
                 await self.destroy()
-            raise ExitEarlyException('No voice client in guild, ending loop') #pylint:disable=raise-missing-from
+            raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.logger.info(f'Music :: Now playing "{source.webpage_url}" requested '
                             f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
                             f'"{source.webpage_url}"')
@@ -131,13 +129,12 @@ class MusicPlayer:
         source.delete()
 
         # Add video to history if possible
-        if not self.video_skipped and not source.source_dict.added_from_history:
+        if not self.video_skipped:
             try:
                 self._history.put_nowait(source)
             except QueueFull:
                 await self._history.get()
                 self._history.put_nowait(source)
-
 
     def get_queue_order_messages(self):
         '''
@@ -192,7 +189,7 @@ class MusicPlayer:
         Check if voice channel has active users
         '''
         if not self.voice_channel:
-            return True
+            return False
         for member in self.voice_channel.members:
             if member.id != self.bot.user.id:
                 return True
@@ -254,9 +251,9 @@ class MusicPlayer:
         '''
         return self._history.empty()
 
-    def get_symlinks(self) -> List[Path]:
+    def get_file_paths(self) -> List[Path]:
         '''
-        Get base paths of symlinks for player
+        Get base paths of for player
         '''
         items = []
         if self.current_source:
@@ -267,9 +264,11 @@ class MusicPlayer:
 
     def clear_queue_order_messages(self):
         '''
-        Remove items from queue order and return for deletion later
+        Return queue messages
         '''
-        items = deepcopy(self.queue_messages)
+        items = []
+        for item in self.queue_messages:
+            items.append(item)
         self.queue_messages = []
         return items
 
@@ -318,4 +317,5 @@ class MusicPlayer:
         Disconnect and cleanup the player.
         '''
         self.logger.info(f'Music :: Removing music bot from guild id {self.guild.id}')
-        await self.cog_cleanup()
+        for func in self.cog_cleanup:
+            func()
