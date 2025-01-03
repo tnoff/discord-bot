@@ -1767,14 +1767,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for item in download_items:
             await retry_discord_message_command(item['message'].delete)
 
+        self.logger.debug(f'Music :: Deleting download dir for guild {guild.id}')
         guild_path = self.download_dir / f'{guild.id}'
         if guild_path.exists():
             rm_tree(guild_path)
 
+
         # See if we need to delete
         try:
-            del self.players[guild.id]
+            self.players.pop(guild.id)
+            self.logger.debug(f'Music :: Removed player for guild {guild.id}')
         except KeyError:
+            self.logger.debug(f'Music :: Unable to delete player for guild {guild.id}')
             pass
 
     async def get_player(self, ctx, voice_channel):
