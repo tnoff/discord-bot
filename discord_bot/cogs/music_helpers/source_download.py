@@ -1,5 +1,5 @@
 from pathlib import Path
-from uuid import uuid4
+from typing import Callable, List
 
 from discord_bot.cogs.music_helpers.common import YT_DLP_KEYS
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
@@ -8,13 +8,15 @@ class SourceDownload():
     '''
     Source file of downloaded content
     '''
-    def __init__(self, file_path: Path, ytdl_data: dict, source_dict: SourceDict):
+    def __init__(self, file_path: Path, ytdl_data: dict, source_dict: SourceDict,
+                 post_play_callback_functions: List[Callable] = None):
         '''
         Init source file
 
         file_path                   :   Path to ytdl file
         ytdl_data                   :   Ytdl download dict
         source_dict                 :   Source dict passed to yt-dlp
+        post_play_callback_functions : Functions to call after source is played in player
         '''
         # Keep only keys we want, has alot of metadata we dont care about
         for key in YT_DLP_KEYS:
@@ -26,6 +28,7 @@ class SourceDownload():
         # Base path: Path of file that was copied over to guilds path
         self.file_path = file_path
         self.base_path = file_path
+        self.post_play_callback_functions = post_play_callback_functions or []
 
     def ready_file(self, file_dir: Path = None, move_file: bool = False):
         '''
@@ -42,7 +45,7 @@ class SourceDownload():
             # The modified time of download videos can be the time when it was actually uploaded to youtube
             # Touch here to update the modified time, so that the cleanup check works as intendend
             # Rename file to a random uuid name, that way we can have diff videos with same/similar names
-            uuid_path = guild_path / f'{uuid4()}{"".join(i for i in self.file_path.suffixes)}'
+            uuid_path = guild_path / f'{self.source_dict.uuid}{"".join(i for i in self.file_path.suffixes)}'
             # We should copy the file here, instead of symlink
             # That way we can handle a case in which the original download was removed from cache
             if not self.base_path.exists():

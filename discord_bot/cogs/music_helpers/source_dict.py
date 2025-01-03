@@ -1,3 +1,4 @@
+from uuid import uuid4
 from typing import Callable, List, Literal
 
 from discord import Message
@@ -32,6 +33,7 @@ class SourceDict():
         self.requester_id = requester_id
         self.search_string = search_string
         self.search_type = search_type
+        self.uuid = uuid4()
         # Optional values
         self.added_from_history = added_from_history
         self.download_file = download_file
