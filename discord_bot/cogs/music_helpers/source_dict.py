@@ -59,6 +59,18 @@ class SourceDict():
 
         self.message.delete()
         return True
+    
+    async def edit_message(self, content: str, delete_after: int = None):
+        '''
+        Edit message contents
+
+        content : Message content
+        delete_after : Delete after X seconds
+        '''
+        if not self.message:
+            return False
+        await self.message.edit(content=content, delete_after=delete_after)
+        return True
 
     def __str__(self):
         '''
