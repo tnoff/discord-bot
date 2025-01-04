@@ -90,14 +90,14 @@ class FakeAuthor():
         self.roles.remove(role)
 
 class FakeChannel():
-    def __init__(self, fake_message=None, no_messages=False):
+    def __init__(self, fake_message=None, no_messages=False, channel_type=ChannelType.text):
         self.id = 'fake-channel-id-123'
         if no_messages:
             self.messages = []
         else:
             fake_message = fake_message or FakeMessage()
             self.messages = [fake_message]
-        self.type = ChannelType.text
+        self.type = channel_type
 
     def history(self, **_kwargs):
         return AsyncIterator(self.messages)

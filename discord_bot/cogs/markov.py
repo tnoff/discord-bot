@@ -262,8 +262,8 @@ class Markov(CogHelper):
             return await ctx.send('Channel already has markov turned on')
 
         channel = await self.bot.fetch_channel(ctx.channel.id)
-        if channel.type != ChannelType.text:
-            await ctx.send('Channel is not text channel, cannot turn on markov')
+        if channel.type not in [ChannelType.text, ChannelType.voice]:
+            return await ctx.send('Not a valid markov channel, cannot turn on markov')
 
         new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
                                    server_id=str(ctx.guild.id),

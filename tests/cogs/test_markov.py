@@ -1,6 +1,7 @@
 import logging
 from tempfile import NamedTemporaryFile
 
+from discord import ChannelType
 from freezegun import freeze_time
 import pytest
 from sqlalchemy import create_engine
@@ -77,6 +78,26 @@ async def test_turn_on():
         assert session.query(MarkovChannel).count() == 1
         result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Channel already has markov turned on'
+
+@pytest.mark.asyncio
+async def test_turn_on_invalid_channel():
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'markov': True
+                }
+            },
+        }
+        fake_channel = FakeChannel(channel_type=ChannelType.forum)
+        fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
+        cog = Markov(fake_bot, logging, config, engine)
+        result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
+        assert result == 'Not a valid markov channel, cannot turn on markov'
 
 @pytest.mark.asyncio
 async def test_server_reject_list():
