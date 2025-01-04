@@ -47,7 +47,10 @@ class SpotifyClient():
         while True:
             resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
             items += self.__get_response_items(resp['items'])
-            if not resp['next']:
+            try:
+                if not resp['next']:
+                    return items
+            except KeyError:
                 return items
             offset += pagination_limit
 

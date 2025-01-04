@@ -29,6 +29,9 @@ class YoutubeClient():
             req = self.client.playlistItems().list(**data_inputs).execute() #pylint:disable=no-member
             for item in req['items']:
                 items.append(item['snippet']['resourceId']['videoId'])
-            if req['nextPageToken'] is None:
+            try:
+                if req['nextPageToken'] is None:
+                    return items
+                page_token = req['nextPageToken']
+            except KeyError:
                 return items
-            page_token = req['nextPageToken']
