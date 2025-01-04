@@ -45,3 +45,6 @@ def test_clear():
     x.put_nowait('123', 10)
     results = x.clear_queue('123')
     assert results == [5, 10]
+
+    # Assert guild was removed
+    assert '123' not in x.queues

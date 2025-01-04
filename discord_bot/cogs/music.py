@@ -1765,7 +1765,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         download_items = self.download_queue.clear_queue(guild.id)
+        self.logger.debug(f'Music :: Found existing download items {download_items}')
         for item in download_items:
+            self.logger.debug(f'Music :: Clearing download item {item}')
             try:
                 await retry_discord_message_command(item['message'].delete)
             except NotFound:

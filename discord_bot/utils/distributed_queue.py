@@ -81,8 +81,11 @@ class DistributedQueue():
 
         # Clear and return items
         items = []
+        guild_info = self.queues.pop(guild_id, None)
+        if not guild_info:
+            return []
         while True:
             try:
-                items.append(self.queues[guild_id]['queue'].get_nowait())
+                items.append(guild_info['queue'].get_nowait())
             except QueueEmpty:
                 return items
