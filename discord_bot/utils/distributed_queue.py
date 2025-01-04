@@ -50,9 +50,11 @@ class DistributedQueue():
         oldest_timestamp = None
         oldest_guild = None
         item = None
+        remove_guilds = []
         for guild_id, data in self.queues.items():
             # If no queue data, continue
             if data['queue'].size() < 1:
+                remove_guilds.append(guild_id)
                 continue
             # Get timestamp to check against
             check_time = data['last_iterated_at'] or data['created_at']
@@ -62,6 +64,12 @@ class DistributedQueue():
                 oldest_timestamp = check_time
                 oldest_guild = guild_id
                 continue
+        # Remove guild items with no data
+        for guild_id in remove_guilds:
+            # Double check its empty again
+            if self.queues[guild_id]['queue'].empty():
+                self.queues.pop(guild_id)
+
         # Check if no available queues
         if oldest_timestamp is None:
             raise QueueEmpty('No items in queue')

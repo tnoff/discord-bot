@@ -37,6 +37,8 @@ def test_get():
         x.get_nowait()
     assert 'No items in queue' in str(exc.value)
 
+    assert not x.queues
+
 def test_clear():
     x = DistributedQueue(10)
     assert not x.clear_queue('123')
