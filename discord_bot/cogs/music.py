@@ -1736,17 +1736,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         no_members_present: Called when no members present in server
         '''
         self.logger.info(f'Music :: Starting cleanup on guild {guild.id}')
-        self.download_queue.block(guild.id)
-        try:
-            player = self.players[guild.id]
-        except KeyError:
-            return
-        # Set external shutdown so we know not to call this twice
-        player.shutdown_called = True
         try:
             await guild.voice_client.disconnect()
         except AttributeError:
             pass
+        self.download_queue.block(guild.id)
+        try:
+            player = self.players.pop(guild.id)
+        except KeyError:
+            return
+        # Set external shutdown so we know not to call this twice
+        player.shutdown_called = True
+
         if external_shutdown_called:
             if no_members_present:
                 await retry_discord_message_command(player.text_channel.send, content='No members in guild, removing myself',
@@ -1765,7 +1766,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         download_items = self.download_queue.clear_queue(guild.id)
         for item in download_items:
-            await retry_discord_message_command(item['message'].delete)
+            try:
+                await retry_discord_message_command(item['message'].delete)
+            except NotFound:
+                pass
 
         self.logger.debug(f'Music :: Deleting download dir for guild {guild.id}')
         guild_path = self.download_dir / f'{guild.id}'
@@ -1773,7 +1777,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             rm_tree(guild_path)
 
 
-        # See if we need to delete
+        # See if we need to delete again, shouldn't but w/e
         try:
             self.players.pop(guild.id)
             self.logger.debug(f'Music :: Removed player for guild {guild.id}')
@@ -1841,6 +1845,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Connect to voice channel.
         '''
         channel = await self.__check_author_voice_chat(ctx, check_voice_chats=False)
+        if not channel:
+            return
         vc = ctx.voice_client
 
         if vc:
