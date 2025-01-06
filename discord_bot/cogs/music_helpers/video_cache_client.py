@@ -75,10 +75,7 @@ class VideoCacheClient():
                 continue
             existing_files.add(base_path)
         # Remove cache files that don't exist anymore
-        for item_id in remove_cache_items:
-            item = self.db_session.query(VideoCache).get(item_id)
-            self.db_session.delete(item)
-            self.db_session.commit()
+        self.remove_video_cache(remove_cache_items)
         # Remove any extra files
         for file_path in self.download_dir.glob('*'):
             if file_path.is_dir():
