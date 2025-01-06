@@ -507,6 +507,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if self.video_cache:
                 self.logger.info(f'Music :: Iterating file on base path {str(source_download.base_path)}')
                 self.video_cache.iterate_file(source_download)
+            # If we have a result, add to search cache
+            await self.__cache_search(source_download)
             return True
         except QueueFull:
             self.logger.warning(f'Music ::: Play queue full, aborting download of item "{str(source_download.source_dict)}"')
@@ -594,9 +596,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Final none check in case we couldn't download video
         if not await self.__ensure_video_download_result(source_download):
             return
-
-        # If we have a result, add to search cache
-        await self.__cache_search(source_download)
 
         for func in source_dict.post_download_callback_functions:
             await func(source_download)
