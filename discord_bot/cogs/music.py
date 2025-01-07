@@ -471,11 +471,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await func()
         return
 
-    async def __ensure_video_download_result(self, source_download: SourceDownload):
+    # Take both source dict and source download
+    # Since source download might be none
+    async def __ensure_video_download_result(self, source_dict: SourceDict, source_download: SourceDownload):
         if source_download is None:
-            self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
-                                                        partial(source_download.source_dict.edit_message),
-                                                        f'Issue downloading video "{str(source_download.source_dict)}", skipping', delete_after=self.delete_after)
+            self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
+                                                        partial(source_dict.edit_message),
+                                                        f'Issue downloading video "{str(source_dict)}", skipping', delete_after=self.delete_after)
             return False
         return True
 
@@ -594,7 +596,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.error(f'Music :: Unknown error while downloading video "{str(source_dict)}", {str(e)}')
                 source_download = None
         # Final none check in case we couldn't download video
-        if not await self.__ensure_video_download_result(source_download):
+        if not await self.__ensure_video_download_result(source_dict, source_download):
             return
 
         for func in source_dict.post_download_callback_functions:
