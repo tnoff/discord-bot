@@ -177,7 +177,10 @@ class DownloadClient():
 
         playlist_id : ID of youtube playlist
         '''
-        return self.youtube_client.playlist_get(playlist_id)
+        items = []
+        for item in self.youtube_client.playlist_get(playlist_id):
+            items.append(f'{YOUTUBE_VIDEO_PREFIX}{item}')
+        return items
 
     async def __check_source_types(self, search: str, loop: AbstractEventLoop, message_queue: MessageQueue, text_channel: TextChannel):
         '''

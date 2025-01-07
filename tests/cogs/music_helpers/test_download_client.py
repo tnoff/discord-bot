@@ -53,7 +53,7 @@ class MockYoutubeClient():
 
     def playlist_get(self, _playlist_id):
         return [
-            'https://example.foo.com'
+            'aaaaaaaaaaaaaa'
         ]
 
 class MockResponse():
@@ -177,7 +177,7 @@ async def test_youtube_playlist():
     loop = asyncio.get_running_loop()
     x = DownloadClient(None, youtube_client=MockYoutubeClient())
     result = await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', 'foo bar requester', '2345', loop, 5, MessageQueue(), FakeChannel())
-    assert result[0].search_string == 'https://example.foo.com'
+    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.DIRECT
 
 @pytest.mark.asyncio(scope="session")
@@ -186,7 +186,7 @@ async def test_youtube_playlist_shuffle():
     x = DownloadClient(None, youtube_client=MockYoutubeClient())
     mq = MessageQueue()
     result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', 'foo bar requester', '2345', loop, 5, mq, FakeChannel())
-    assert result[0].search_string == 'https://example.foo.com'
+    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.DIRECT
     assert mq.get_source_lifecycle() is None
 
