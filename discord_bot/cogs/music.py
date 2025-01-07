@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from functools import partial
 from logging import RootLogger
 from pathlib import Path
-from random import shuffle as random_shuffle
+from random import shuffle as random_shuffle, randint
 from re import match as re_match
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional, List
@@ -100,6 +100,12 @@ MUSIC_SECTION_SCHEMA = {
         'enable_youtube_music_search': {
             'type': 'boolean',
         },
+        'youtube_wait_period_min': {
+            'type': 'number'
+        },
+        'youtube_wait_period_max_variance': {
+            'type': 'number'
+        },
         'banned_videos_list': {
             'type': 'array',
             'items': {
@@ -122,7 +128,7 @@ class PlaylistMaxLength(Exception):
 # Common Functions
 #
 
-def match_generator(max_video_length, banned_videos_list, video_cache_search: Callable = None):
+def match_generator(max_video_length: int, banned_videos_list: List[str], video_cache_search: Callable = None):
     '''
     Generate filters for yt-dlp
     '''
@@ -212,7 +218,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         youtube_api_key = self.settings.get('music', {}).get('youtube_api_key', None)
 
         ytdlp_options = self.settings.get('music', {}).get('extra_ytdlp_options', {})
-        self.ytdlp_wait_period = self.settings.get('music', {}).get('ytdlp_wait_period', 30) # seconds
+        self.youtube_wait_period_min = self.settings.get('music', {}).get('youtube_wait_period_min', 30) # seconds
+        self.youtube_wait_period_max_variance = self.settings.get('music', {}).get('youtube_wait_period_max_variance', 10) # seconds
 
         self.enable_youtube_music_search = self.settings.get('music', {}).get('enable_youtube_music_search', True)
         self.spotify_client = None
@@ -269,8 +276,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ytdl = YoutubeDL(ytdlopts)
         if self.enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
-        self.download_client = DownloadClient(ytdl, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
+        self.download_client = DownloadClient(ytdl, self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                               youtube_music_client=self.youtube_music_client,
+                                              search_cache_client=self.search_string_cache,
                                               number_shuffles=self.number_shuffles)
 
     async def cog_load(self):
@@ -436,21 +444,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.video_cache.remove_video_cache(delete_videos)
         return True
 
-    def wait_for_download_time(self, wait: int = 10):
+    async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
         '''
-        Whether or not to continue waiting for next download
-        wait        : How long we should wait between next download
+        Wait for next youtube download time
+        Wait for minimum time plus a random interval, where max is set by max variance
 
-        Returns how long we need to wait for next run
+        minimum_wait_time : Wait at least this amount of time
+        max_variance : Max variance to add from random value
         '''
         try:
             last_updated_at = self.last_download_lockfile.read_text()
-            now = int(datetime.now(timezone.utc).timestamp())
-            total_diff = now - int(last_updated_at)
-            # Make sure if value is negative we default to 0 here
-            return max((wait - total_diff), 0)
         except (FileNotFoundError, ValueError):
-            return 0
+            self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
+            # If file doesn't exist or no value, assume we dont need to wait
+            return True
+        wait_until = int(last_updated_at) + minimum_wait_time + randint(0, max_variance)
+        self.logger.debug(f'Music :: Waiting on backoff in youtube, waiting until {wait_until}')
+        while True:
+            # If bot exited, return now
+            if self.bot_shutdown:
+                raise ExitEarlyException('Exiting bot wait loop')
+            now = int(datetime.now(timezone.utc).timestamp())
+            if now > wait_until:
+                return True
+            await sleep(1)
 
     async def __cache_search(self, source_download: SourceDownload):
         '''
@@ -528,7 +545,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_download.delete()
             return False
 
-    def __update_download_lockfile(self, source_download: SourceDownload) -> bool:
+    def update_download_lockfile(self, source_download: SourceDownload) -> bool:
         '''
         Update the download lockfile
         '''
@@ -573,24 +590,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not source_download:
             # Make sure we wait for next video download
             # Dont spam the video client
-            wait_time = self.wait_for_download_time(wait=self.ytdlp_wait_period)
-            if wait_time:
-                self.logger.debug(f'Music ::: Waiting {wait_time} seconds until next video download')
-                await sleep(wait_time)
-
+            await self.youtube_backoff_time(self.youtube_wait_period_min, self.youtube_wait_period_max_variance)
             try:
                 source_download = await self.download_client.create_source(source_dict, self.bot.loop)
-                self.__update_download_lockfile(source_download)
+                self.update_download_lockfile(source_download)
             except ExistingFileException as e:
                 # File exists on disk already, create again from cache
                 self.logger.debug(f'Music :: Existing file found for download {str(source_dict)}, using existing file from url "{e.video_cache.video_url}"')
                 source_download = self.video_cache.generate_download_from_existing(source_dict, e.video_cache)
-                self.__update_download_lockfile(source_download)
+                self.update_download_lockfile(source_download)
             except (DownloadClientException) as e:
                 self.logger.warning(f'Music :: Known error while downloading video "{str(source_dict)}", {str(e)}')
                 # Try to mark search as unavailable for later
                 await self.__return_bad_video(source_dict, e)
-                self.__update_download_lockfile(source_download)
+                self.update_download_lockfile(source_download)
                 return
             except DownloadError as e:
                 self.logger.error(f'Music :: Unknown error while downloading video "{str(source_dict)}", {str(e)}')
@@ -803,16 +816,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.message_queue.iterate_single_message([partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)])
 
-    async def __check_search_cache(self, source_dict: SourceDict):
-        '''
-        Check search string cache for item
-        source_dict : Standard source dict object
-        '''
-        if not self.search_string_cache:
-            return None
-        self.logger.info(f'Music ::: Checking search cache for string "{source_dict.search_string}"')
-        return self.search_string_cache.check_cache(source_dict)
-
     @command(name='play')
     async def play_(self, ctx, *, search: str):
         '''
@@ -841,18 +844,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         try:
             entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
-                                                              self.queue_max_size, self.message_queue, ctx.channel)
+                                                              self.queue_max_size, ctx.channel)
         except DownloadClientException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
         for source_dict in entries:
             try:
-                # Check if item is already search cache
-                search_video_url = await self.__check_search_cache(source_dict)
-                if search_video_url:
-                    self.logger.debug(f'Music :: Original search "{str(source_dict)} found with search video url "{search_video_url}"')
-                    source_dict.search_string = search_video_url
                 # Check cache first
                 source_download = await self.__check_video_cache(source_dict)
                 if source_download:
@@ -1262,7 +1260,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         try:
             source_entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
-                                                                     self.queue_max_size, self.message_queue, ctx.channel)
+                                                                     self.queue_max_size, ctx.channel)
         except DownloadClientException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])

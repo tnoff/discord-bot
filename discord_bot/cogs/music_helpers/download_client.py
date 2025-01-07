@@ -17,6 +17,7 @@ from discord_bot.database import VideoCache
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
@@ -76,6 +77,11 @@ class VideoBanned(DownloadClientException):
     Video is on banned list
     '''
 
+class BotDownloadFlagged(DownloadClientException):
+    '''
+    Youtube flagged download as a bot
+    '''
+
 class ExistingFileException(Exception):
     '''
     Throw when existing file found
@@ -90,21 +96,26 @@ class DownloadClient():
     '''
     Download Client using yt-dlp
     '''
-    def __init__(self, ytdl: YoutubeDL,
+    def __init__(self, ytdl: YoutubeDL, message_queue: MessageQueue,
                  spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
+                 search_cache_client: SearchCacheClient = None,
                  number_shuffles: int = 5):
         '''
         Init download client
 
         ytdl : YoutubeDL Client
+        message_queue : The bots message queue
         spotify_client : Spotify Client
         youtube_client : Youtube Client
         youtube_music_client : Youtube Music Client
+        search_cache_client: The bots search cache client
         number_shuffles : Number of shuffles post api calls
         '''
         self.ytdl = ytdl
+        self.message_queue = message_queue
         self.spotify_client = spotify_client
         self.youtube_client = youtube_client
+        self.search_cache_client = search_cache_client
         self.youtube_music_client = youtube_music_client
         self.number_shuffles = number_shuffles
 
@@ -121,6 +132,8 @@ class DownloadClient():
                 raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(source_dict)}" is unavailable, cannot download') from error
             if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
                 raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(source_dict)}" is age restricted, cannot download') from error
+            if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
+                raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(source_dict)}" flagged as bot download, skipping') from error
             raise
         # Make sure we get the first source_dict here
         # Since we don't pass "url" directly anymore
@@ -182,7 +195,7 @@ class DownloadClient():
             items.append(f'{YOUTUBE_VIDEO_PREFIX}{item}')
         return items
 
-    async def __check_source_types(self, search: str, loop: AbstractEventLoop, message_queue: MessageQueue, text_channel: TextChannel):
+    async def __check_source_types(self, search: str, loop: AbstractEventLoop, text_channel: TextChannel):
         '''
         Create source types
 
@@ -201,7 +214,7 @@ class DownloadClient():
                 raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
 
             sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search}>"')
+            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search}>"')
             spotify_args = {}
             should_shuffle = False
             if spotify_album_matcher:
@@ -217,7 +230,7 @@ class DownloadClient():
             try:
                 search_strings = await loop.run_in_executor(None, to_run)
             except SpotifyException as e:
-                message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
                 raise ThirdPartyException('Issue fetching spotify info', user_message=f'Issue gathering info from spotify url "{search}"') from e
             if should_shuffle:
                 for _ in range(self.number_shuffles):
@@ -229,13 +242,13 @@ class DownloadClient():
                 raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
             sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search}>"')
+            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search}>"')
             should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
             to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
             try:
                 search_strings = await loop.run_in_executor(None, to_run)
             except HttpError as e:
-                message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
                 raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
             if should_shuffle:
                 for _ in range(self.number_shuffles):
@@ -274,8 +287,8 @@ class DownloadClient():
         to_run = partial(self.__search_youtube_music, search_string)
         return await loop.run_in_executor(None, to_run)
 
-    async def check_source(self, search: str, guild_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop, limit,
-                           message_queue: MessageQueue, text_channel: TextChannel) -> List[SourceDict]:
+    async def check_source(self, search: str, guild_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop,
+                           max_results: int, text_channel: TextChannel) -> List[SourceDict]:
         '''
         Generate sources from input
 
@@ -284,22 +297,31 @@ class DownloadClient():
         requester_name : Display name of requester
         requester_id : ID of requester
         loop : Bot run loop
-        limit: Limit of results
-        message_queue : Message queue from music
+        max_results : Max results of items
         text_channel : Text channel to send messages to
         '''
-        search_type, search_strings, sent_message = await self.__check_source_types(search, loop, message_queue, text_channel)
-        if limit:
-            search_strings = islice(search_strings, limit)
+        search_type, search_strings, sent_message = await self.__check_source_types(search, loop, text_channel)
+        if max_results:
+            search_strings = islice(search_strings, max_results)
 
         all_entries = []
         for search_string in search_strings:
             entry = SourceDict(guild_id, requester_name, requester_id, search_string, search_type)
+            # Check in search cache
+            # Else fallback to youtube music check
+            if self.search_cache_client:
+                result = self.search_cache_client.check_cache(entry)
+                if result:
+                    entry.add_youtube_result(result)
+                    all_entries.append(entry)
+                    continue
             if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)
                 if result:
-                    entry.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{result}')
+                    entry.add_youtube_result(f'{YOUTUBE_VIDEO_PREFIX}{result}')
+                    all_entries.append(entry)
+                    continue
             all_entries.append(entry)
         if sent_message:
-            message_queue.iterate_source_lifecycle(sent_message, SourceLifecycleStage.DELETE, sent_message.delete_message, '')
+            self.message_queue.iterate_source_lifecycle(sent_message, SourceLifecycleStage.DELETE, sent_message.delete_message, '')
         return all_entries
