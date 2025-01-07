@@ -44,9 +44,9 @@ class SourceDict():
         # Set message for later
         self.message = None
 
-    def add_youtube_music_result(self, video_url: str) -> bool:
+    def add_youtube_result(self, video_url: str) -> bool:
         '''
-        Add result from youtube music
+        Add result from cache or youtube music
         '''
         self.search_string = video_url
         return True
