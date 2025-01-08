@@ -384,7 +384,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if source_type == MessageType.SINGLE_MESSAGE:
             for func in item:
-                await retry_discord_message_command(func)
+                try:
+                    await retry_discord_message_command(func)
+                except NotFound:
+                    self.logger.warning(f'Unable to run single message func {func}, assuming was deletion and no longer exists')
+                    return False
             return True
         if source_type == MessageType.SOURCE_LIFECYCLE:
             try:
@@ -411,15 +415,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         await sleep(30)
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
-        guilds = []
         for _guild_id, player in self.players.items():
             if not player.voice_channel_active():
-                guilds.append(player.guild)
                 self.message_queue.iterate_single_message([partial(player.text_channel.send, content='No members in guild, removing myself',
                                                                    delete_after=self.delete_after)])
-        for guild in guilds:
-            self.logger.warning(f'No members connected to voice channel {guild.id}, stopping bot')
-            await self.cleanup(guild)
+                player.shutdown_called = True
+                self.logger.warning(f'No members connected to voice channel {player.guild.id}, stopping bot')
+                await self.cleanup(player.guild)
 
     async def cache_cleanup(self):
         '''
@@ -698,6 +700,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.logger.info(f'Music :: Starting cleanup on guild {guild.id}')
         player = await self.get_player(guild.id, create_player=False)
+        # Set external shutdown so this doesnt happen twice
+        player.shutdown_called = True
         if external_shutdown_called and player:
             self.message_queue.iterate_single_message([partial(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
                                                         delete_after=self.delete_after)])
@@ -706,23 +710,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await guild.voice_client.cleanup()
         except AttributeError:
             pass
-        # Set external shutdown so this doesnt happen twice
-        player.shutdown_called = True
+
         # Block download queue for later
         self.download_queue.block(guild.id)
         # Clear play queue if that didnt happen
-
         try:
             player = self.players.pop(guild.id)
         except KeyError:
             return
 
         # Clear downloaded items
+        player.np_message = ''
         player.clear_queue()
         # Cleanup queue messages if they still exist
         delete_funcs = []
         for message in player.queue_messages:
-            delete_funcs.append(message.delete)
+            delete_funcs.append(partial(message.delete))
         self.message_queue.iterate_single_message(delete_funcs)
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
