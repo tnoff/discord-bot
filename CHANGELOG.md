@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0
+
+General:
+- Added more test coverage, up to 60%
+
+Music:
+- Major rework of music cog
+- Replace elasticcache search with generic db cache for spotify playlists
+- Add support for spotify tracks
+- Add search for youtube music urls
+- Remove bug where files were double downloaded
+- Add cache check to file downloads pre-download
+- Add variance to periodic yt-dlp backoff from youtube extractor
+- Adding message queue to handle all discord related messages, remove lockfiles
+- Add better messages for users on download errors
+- Use display name instead of auth name in most places
+
 ## 2.2.0
 
 General:

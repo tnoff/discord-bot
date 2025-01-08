@@ -199,25 +199,18 @@ music:
   enable_cache_files: true
 ```
 
-There is a cache JSON file, stored in the `VideoCache` table with the files kept in the download_dir, that will contain the video url that was gathered, as long as metadata about the video. If a video url is given to download, it will first check for an entry that matches that url in the cache before a download.
+The videos downloaded will be stored in a `VideoCache` table within the database. The database will also store the relevant video metadata (such as title and duration) used by the bot later. The video is identified by the full URL of the download, and should be used with all extractors.
 
-You can set the number of local cache entries you want stored in the download dir via `max_cache_files`.
-
+You can configure how many cached videos are stored on disk, with the video last used (sometimes called "iterated") being deleted first.
 
 ```
 music:
   max_cache_files: 2048
 ```
 
-Additionally if the cache is set there is a `SearchCache` table that is used to map "search strings" to video urls gathered through [yt-dlp](https://github.com/yt-dlp/yt-dlp). For example, if the following command is given
+Additionally there is a `SearchString` table for storing search strings and their corresponding downloaded videos. By default this is only enabled on Spotify searches, since the Artist Name and Song Name used in these and the relevant video they correspond to should be static.
 
-```
-!play john prine paradise
-```
-
-There will be a `SearchCache` entry that maps the `search_string` "john prine paradise" to the Youtube url that was downloaded. If a cache entry is discovered, this video url will be passed to the download client instead of the search string. This way at the next step when the local cache JSON is searched for the video url, it will return immediately and not need to make a call to [yt-dlp](https://github.com/yt-dlp/yt-dlp).
-
-You can set how many entries you want in this table via `max_search_cache_entries`, it will default to double the size of the cache files option
+You can set how many entries you want in this table via `max_search_cache_entries`:
 
 ```
 music:
@@ -226,23 +219,7 @@ music:
 
 Here is a diagram of how the layers of caching interact with each other:
 
-![](./images/caching.png)
-
-Explainers of each item:
-
-- *A* Check for the type of input
-- *B/E* If youtube playlist, generate list of full urls
-- *C/F* If spotify playlist/album, generate list of "<artist name> <song name>" pairs
-- *D* Generic input passed
-- *G* Check if `https://` is passed in generic input, and determine if full url or search string
-- *H* If a search string, check `SearchCache` for an existing result
-- *J* If cache hit, pass full url down
-- *K* If full url given, check `VideoCache` for existing items
-- *L* If video found in `VideoCache`, return that existing item
-- *M* If `SearchCache` has no existing items, pass to download
-- *N* If `VideoCache` has no existing items, pass to download
-- *O* If original input was a search string, add search string/full url pair to `SearchCache`
-- *P* If item downloaded, add new item to cache
+![](./images/download-cache.png)
 
 
 ### Audio Processing
@@ -271,9 +248,40 @@ music:
 
 ### YTDLP Wait Time
 
-Add a wait time between [yt-dlp](https://github.com/yt-dlp/yt-dlp/) downloads. Defaults to 30 seconds if not given.
+Add a minimum wait time being youtube extractor downloads with yt-dlp, along with a "variance" of random time to add in between. The variance is to make the traffic look more natural.
+
+`youtube_wait_period_min` sets the minimum wait time, with `youtube_wait_period_max_variance` sets the variance. These are both in seconds.
+
+The bot will then calculate:
+
+```
+min-wait-time + (random(1, max-variance))
+```
+
+The config should look like:
 
 ```
 music:
-  ytdlp_wait_period: 50 # Value in seconds
+  youtube_wait_period_min: 60
+  youtube_wait_period_max_variance: 15
+```
+
+### Youtube Music Search
+
+By default the bot will search Youtube Music for generic string inputs, filtering by songs. This is to get the best quality of upload possible. This is done via the [ytmusicapi package](https://github.com/sigma67/ytmusicapi).
+
+This can be turned off:
+
+```
+music:
+  enable_youtube_music_search: false
+```
+
+### Shuffles
+
+By default all playlist/album downloads will be shuffled. The number of shuffles defaults to 5, but can be configured:
+
+```
+music:
+  number_shuffles: 7
 ```

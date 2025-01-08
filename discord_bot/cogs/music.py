@@ -82,6 +82,9 @@ MUSIC_SECTION_SCHEMA = {
         'max_cache_files': {
             'type': 'number',
         },
+        'max_search_cache_entries': {
+            'type': 'number',
+        },
         'spotify_client_id': {
             'type': 'string',
         },
