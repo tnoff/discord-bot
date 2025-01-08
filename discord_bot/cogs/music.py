@@ -378,6 +378,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Send messages runner
         '''
         await sleep(.01)
+        if self.bot_shutdown:
+            raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
+
         source_type, item = self.message_queue.get_next_message()
 
         if not source_type:
@@ -405,8 +408,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if source_type == MessageType.PLAY_ORDER:
             await self.player_update_queue_order(item)
             return True
-        if self.bot_shutdown:
-            raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
         return False
 
     async def cleanup_players(self):

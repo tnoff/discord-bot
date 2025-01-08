@@ -1,16 +1,208 @@
+from functools import partial
 import logging
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
+from discord.errors import NotFound
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from discord_bot.database import BASE
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.cogs.music import Music
+from discord_bot.cogs.music import Music, match_generator
 
+from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned, ExistingFileException
+from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.message_queue import SourceLifecycleStage
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
-from tests.helpers import fake_bot_yielder
+from tests.helpers import fake_bot_yielder, FakeChannel, FakeResponse
+
+
+def test_match_generator_no_data():
+    func = match_generator(None, None)
+    info = {
+        'duration': 100,
+        'webpage_url': 'https://example.com/foo',
+        'id': '1234',
+        'extractor': 'foo extractor'
+    }
+    result = func(info, incomplete=None)
+    assert result is None
+
+def test_match_generator_too_long():
+    func = match_generator(1, None)
+    info = {
+        'duration': 100,
+        'webpage_url': 'https://example.com/foo',
+        'id': '1234',
+        'extractor': 'foo extractor'
+    }
+    with pytest.raises(VideoTooLong) as exc:
+        func(info, incomplete=None)
+    assert 'Video Too Long' in str(exc.value)
+
+def test_match_generator_banned_vidoes():
+    func = match_generator(None, ['https://example.com/foo'])
+    info = {
+        'duration': 100,
+        'webpage_url': 'https://example.com/foo',
+        'id': '1234',
+        'extractor': 'foo extractor'
+    }
+    with pytest.raises(VideoBanned) as exc:
+        func(info, incomplete=None)
+    assert 'Video Banned' in str(exc.value)
+
+
+def test_match_generator_video_exists():
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            with NamedTemporaryFile(prefix='foo-extractor.1234', suffix='.mp3') as file_path:
+                engine = create_engine(f'sqlite:///{temp_db.name}')
+                BASE.metadata.create_all(engine)
+                BASE.metadata.bind = engine
+                session = sessionmaker(bind=engine)()
+
+                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
+                s = SourceDownload(Path(file_path.name), {
+                    'webpage_url': 'https://foo.example.com',
+                    'title': 'Foo title',
+                    'uploader': 'Foo uploader',
+                    'id': '1234',
+                    'extractor': 'foo-extractor'
+                }, sd)
+                x.iterate_file(s)
+                func = match_generator(None, None, video_cache_search=partial(x.search_existing_file))
+                info = {
+                    'duration': 100,
+                    'webpage_url': 'https://example.com/foo',
+                    'id': '1234',
+                    'extractor': 'foo-extractor'
+                }
+                with pytest.raises(ExistingFileException) as exc:
+                    func(info, incomplete=None)
+                assert 'File already downloaded' in str(exc)
+                assert exc.value.video_cache
+
+@pytest.mark.asyncio
+async def test_message_loop(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        assert await cog.send_messages() is True
+
+@pytest.mark.asyncio
+async def test_message_loop_bot_shutdown(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        cog.bot_shutdown = True
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        with pytest.raises(ExitEarlyException) as exc:
+            await cog.send_messages()
+        assert 'Bot in shutdown and i dont have any more messages, exiting early' in str(exc.value)
+
+@pytest.mark.asyncio
+async def test_message_loop_send_single_message(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        cog.message_queue.iterate_single_message([partial(fake_channel.send, 'test message')])
+        await cog.send_messages()
+        assert fake_channel.messages[1] == 'test message'
+
+@pytest.mark.asyncio
+async def test_message_loop_source_lifecycle(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_channel = FakeChannel()
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+        cog.message_queue.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, fake_channel.send, 'Original message')
+        await cog.send_messages()
+        assert x.message == 'Original message'
+
+class FakeChannelRaise():
+    def __init__(self):
+        pass
+
+    def delete_message(self, *args, **kwargs):
+        raise NotFound(FakeResponse(), 'Message not found')
+
+@pytest.mark.asyncio
+async def test_message_loop_source_lifecycle_delete(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_channel = FakeChannelRaise()
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+        cog.message_queue.iterate_source_lifecycle(x, SourceLifecycleStage.DELETE, fake_channel.delete_message, '')
+        assert not await cog.send_messages()
 
 
 @pytest.mark.asyncio
