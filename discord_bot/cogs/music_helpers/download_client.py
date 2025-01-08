@@ -315,7 +315,7 @@ class DownloadClient():
                     entry.add_youtube_result(result)
                     all_entries.append(entry)
                     continue
-            if self.youtube_music_client and search_type != SearchType.DIRECT:
+            if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)
                 if result:
                     entry.add_youtube_result(f'{YOUTUBE_VIDEO_PREFIX}{result}')
