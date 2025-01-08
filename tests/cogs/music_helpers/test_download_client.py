@@ -107,6 +107,13 @@ def yield_dlp_error(message):
             raise DownloadError(message)
     return MockYTDLPError()
 
+class MockYoutubeMusic():
+    def __init__(self):
+        pass
+
+    def search(self, *_args, **_kwargs):
+        return 'vid-1234'
+
 @pytest.mark.asyncio
 async def test_spotify_message_check():
     x = DownloadClient(None, MessageQueue())
@@ -155,6 +162,22 @@ async def test_spotify_album_with_cache():
         result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
         assert result[0].requester_id == '2345'
         assert result[0].search_string == 'https://youtube.com/watch=v?adafaonoasnfo'
+        assert result[0].original_search_string == 'foo track foo artists'
+        assert result[0].search_type == SearchType.SPOTIFY
+
+@pytest.mark.asyncio(scope="session")
+async def test_spotify_album_with_cache_miss_and_youtube_fallback():
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+        session = sessionmaker(bind=engine)()
+        loop = asyncio.get_running_loop()
+        search_client = SearchCacheClient(session, 10)
+        x = DownloadClient(None, MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic(), search_cache_client=search_client)
+        result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        assert result[0].requester_id == '2345'
+        assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
         assert result[0].original_search_string == 'foo track foo artists'
         assert result[0].search_type == SearchType.SPOTIFY
 
@@ -300,13 +323,6 @@ async def test_prepare_source_errors():
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
     assert 'Bot flagged download' in str(exc.value)
-
-class MockYoutubeMusic():
-    def __init__(self):
-        pass
-
-    def search(self, *_args, **_kwargs):
-        return 'vid-1234'
 
 @pytest.mark.asyncio(scope="session")
 async def test_basic_search_with_youtube_music():
