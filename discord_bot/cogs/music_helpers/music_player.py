@@ -90,6 +90,7 @@ class MusicPlayer:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
             self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
+            self.np_message = ''
             if not self.shutdown_called:
                 await self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
