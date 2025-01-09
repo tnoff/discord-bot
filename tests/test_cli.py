@@ -125,3 +125,18 @@ async def test_run_config_with_intents(mocker):
             result = runner.invoke(main, [temp_config.name])
             await asyncio.sleep(.01)
             assert result.exception is None
+
+def test_run_markov_clear():
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            config_data = {
+                'general': {
+                    'discord_token': 'foo',
+                    'sql_connection_statement': f'sqlite:///{temp_db.name}',
+                },
+            }
+            with open(temp_config.name, 'w', encoding='utf-8') as writer:
+                dump(config_data, writer)
+            runner = CliRunner()
+            result = runner.invoke(main, [temp_config.name, '--execute', 'clear-markov-relations'])
+            assert result

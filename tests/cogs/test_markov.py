@@ -40,6 +40,13 @@ def test_remove_mentions():
         'example'
     ]
 
+def test_remove_channels():
+    message = '!play <#123456789> example @here @everyone'
+    corpus = clean_message(message, [])
+    assert corpus == [
+        'example'
+    ]
+
 def test_invalid_emojis():
     message = 'test message <:derp:1234>'
     corpus = clean_message(message, [])

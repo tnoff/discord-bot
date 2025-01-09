@@ -1,4 +1,5 @@
 from asyncio import run, get_running_loop
+from enum import Enum
 from logging import RootLogger
 from sys import stderr
 from typing import List
@@ -9,6 +10,8 @@ from discord.ext.commands import Bot, when_mentioned_or
 from jsonschema import ValidationError
 from pyaml_env import parse_config
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.delete_messages import DeleteMessages
@@ -18,7 +21,7 @@ from discord_bot.cogs.markov import Markov
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
-from discord_bot.database import BASE
+from discord_bot.database import BASE, MarkovRelation
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
@@ -57,10 +60,16 @@ async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: Roo
         logger.debug('Main :: Shuttdown down main loop', str(e))
         return
 
+class CLIRunners(Enum):
+    '''
+    Enum for CLI Runner Commands
+    '''
+    CLEAR_MARKOV = 'clear-markov-relations'
 
 @click.command()
+@click.option('-e', '--execute', type=click.Choice([CLIRunners.CLEAR_MARKOV], case_sensitive=False))
 @click.argument('config_file', type=click.Path(dir_okay=False))
-def main(config_file): #pylint:disable=too-many-statements
+def main(execute, config_file): #pylint:disable=too-many-statements
     '''
     Main loop
     '''
@@ -72,12 +81,6 @@ def main(config_file): #pylint:disable=too-many-statements
     except ValidationError as exc:
         print(f'Invalid config, general section does not match schema: {str(exc)}', file=stderr)
 
-
-    try:
-        token = settings['general']['discord_token']
-    except KeyError as exc:
-        raise ValidationError('Unable to run bot without token') from exc
-
     # Grab db engine for possible dump or load commands
     try:
         db_engine = create_engine(settings['general']['sql_connection_statement'], pool_pre_ping=True)
@@ -87,10 +90,39 @@ def main(config_file): #pylint:disable=too-many-statements
         print('Unable to find sql statement in settings, assuming no db', file=stderr)
         db_engine = None
 
-
     # Grab logger
     print('Starting logging', file=stderr)
     logger = get_logger(__name__, settings['general'].get('logging', {}))
+
+    if execute == CLIRunners.CLEAR_MARKOV:
+        clear_markov_relations(db_engine)
+        return
+
+    # Default to run function
+    main_runner(settings, logger, db_engine)
+
+def clear_markov_relations(db_engine: Engine):
+    '''
+    Clear markov relations from db
+    '''
+    if not db_engine:
+        click.echo('Unable to run markov clear relations, no db given')
+        return False
+    db_session = sessionmaker(bind=db_engine)()
+    click.echo('Running clear on all MarkovRelation rows')
+    db_session.query(MarkovRelation).delete()
+    return True
+
+def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
+    '''
+    Main runner logic
+    '''
+    try:
+        token = settings['general']['discord_token']
+    except KeyError as exc:
+        raise ValidationError('Unable to run bot without token') from exc
+
+
     logger.debug('Main :: Generating Intents')
     intents = Intents.default()
     try:
