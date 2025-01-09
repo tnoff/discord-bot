@@ -57,7 +57,7 @@ def clean_message(content: str, emojis: List[str]):
     Returns "corpus", list of cleaned words
     '''
     # Remove web links and mentions from text
-    message_text = sub(r'(https?\://|\<\@)\S+', '',
+    message_text = sub(r'(https?\://|\<\@)\S+|\<\#\S+', '',
                        content, flags=MULTILINE)
     # Doesnt remove @here or @everyone
     message_text = message_text.replace('@here', '')
