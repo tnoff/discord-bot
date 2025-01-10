@@ -31,3 +31,4 @@ disable=logging-fstring-interpolation,
         too-many-return-statements,
         logging-too-many-args,
         too-many-positional-arguments,
+        too-many-statements
