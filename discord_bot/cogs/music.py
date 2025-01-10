@@ -515,8 +515,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def __check_video_cache(self, source_dict: SourceDict):
         if not self.video_cache:
             return None
-        if 'https://' not in source_dict.search_string:
-            return None
         return self.video_cache.get_webpage_url_item(source_dict)
 
     async def __add_source_to_player(self, source_download: SourceDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
