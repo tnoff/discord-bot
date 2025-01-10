@@ -415,13 +415,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         await sleep(30)
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
+        guilds = []
         for _guild_id, player in self.players.items():
             if not player.voice_channel_active():
                 self.message_queue.iterate_single_message([partial(player.text_channel.send, content='No members in guild, removing myself',
                                                                    delete_after=self.delete_after)])
                 player.shutdown_called = True
                 self.logger.warning(f'No members connected to voice channel {player.guild.id}, stopping bot')
-                await self.cleanup(player.guild)
+                guilds.append(player.guild)
+        # Run in separate loop since the cleanup function removes items form self.players
+        # And you might hit issues where dict size changes during iteration
+        for guild in guilds:
+            await self.cleanup(guild)
 
     async def cache_cleanup(self):
         '''
