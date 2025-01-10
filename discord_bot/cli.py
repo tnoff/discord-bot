@@ -21,7 +21,7 @@ from discord_bot.cogs.markov import Markov
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
-from discord_bot.database import BASE, MarkovRelation
+from discord_bot.database import BASE, MarkovRelation, MarkovChannel
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
@@ -67,7 +67,7 @@ class CLIRunners(Enum):
     CLEAR_MARKOV = 'clear-markov-relations'
 
 @click.command()
-@click.option('-e', '--execute', type=click.Choice([CLIRunners.CLEAR_MARKOV], case_sensitive=False))
+@click.option('-e', '--execute', type=click.Choice([CLIRunners.CLEAR_MARKOV.value]))
 @click.argument('config_file', type=click.Path(dir_okay=False))
 def main(execute, config_file): #pylint:disable=too-many-statements
     '''
@@ -94,7 +94,7 @@ def main(execute, config_file): #pylint:disable=too-many-statements
     print('Starting logging', file=stderr)
     logger = get_logger(__name__, settings['general'].get('logging', {}))
 
-    if execute == CLIRunners.CLEAR_MARKOV:
+    if execute == CLIRunners.CLEAR_MARKOV.value:
         clear_markov_relations(db_engine)
         return
 
@@ -111,6 +111,10 @@ def clear_markov_relations(db_engine: Engine):
     db_session = sessionmaker(bind=db_engine)()
     click.echo('Running clear on all MarkovRelation rows')
     db_session.query(MarkovRelation).delete()
+    db_session.commit()
+    for channel in db_session.query(MarkovChannel).all():
+        channel.last_message_id = None
+        db_session.commit()
     return True
 
 def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
