@@ -214,7 +214,8 @@ class DownloadClient():
                 raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
 
             sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search}>"')
+            search_string_message = search.replace(' shuffle', '')
+            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
             spotify_args = {}
             should_shuffle = False
             if spotify_album_matcher:
@@ -245,7 +246,8 @@ class DownloadClient():
                 raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
             sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search}>"')
+            search_string_message = search.replace(' shuffle', '')
+            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
             should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
             to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
             try:
