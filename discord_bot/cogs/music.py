@@ -24,7 +24,8 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, ExistingFileException, VideoBanned, VideoTooLong
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
+from discord_bot.cogs.music_helpers.download_client import ExistingFileException, VideoBanned, VideoTooLong, BotDownloadFlagged
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
@@ -490,12 +491,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.search_string_cache.iterate(source_download)
         return True
 
-    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException):
+    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException,
+                                 skip_callback_functions: bool=False):
         message = exception.user_message
         self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
                                                     partial(source_dict.edit_message), message, delete_after=self.delete_after)
-        for func in source_dict.video_non_exist_callback_functions:
-            await func()
+        if not skip_callback_functions:
+            for func in source_dict.video_non_exist_callback_functions:
+                await func()
         return
 
     # Take both source dict and source download
@@ -555,13 +558,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_download.delete()
             return False
 
-    def update_download_lockfile(self, source_download: SourceDownload) -> bool:
+    def update_download_lockfile(self, source_download: SourceDownload,
+                                 add_additional_backoff: int=None) -> bool:
         '''
         Update the download lockfile
+
+        source_download : Source Download
+        add_additional_backoff : Add more backoff time to existing timestamp
+
         '''
         if source_download and source_download.extractor != 'youtube':
             return False
-        self.last_download_lockfile.write_text(str(int(datetime.now(timezone.utc).timestamp())))
+        new_timestamp = int(datetime.now(timezone.utc).timestamp())
+        if add_additional_backoff:
+            new_timestamp += add_additional_backoff
+        self.last_download_lockfile.write_text(str(new_timestamp))
         return True
 
     async def download_files(self): #pylint:disable=too-many-statements
@@ -609,9 +620,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug(f'Music :: Existing file found for download {str(source_dict)}, using existing file from url "{e.video_cache.video_url}"')
                 source_download = self.video_cache.generate_download_from_existing(source_dict, e.video_cache)
                 self.update_download_lockfile(source_download)
+            except (BotDownloadFlagged) as e:
+                self.logger.warning(f'Music :: Bot flagged while downloading video "{str(source_dict)}", {str(e)}')
+                await self.__return_bad_video(source_dict, e, skip_callback_functions=True)
+                self.logger.warning(f'Music :: Adding additional time {self.youtube_wait_period_min} to usual youtube backoff since bot was flagged')
+                self.update_download_lockfile(source_download, add_additional_backoff=self.youtube_wait_period_min)
+                return
             except (DownloadClientException) as e:
                 self.logger.warning(f'Music :: Known error while downloading video "{str(source_dict)}", {str(e)}')
-                # Try to mark search as unavailable for later
                 await self.__return_bad_video(source_dict, e)
                 self.update_download_lockfile(source_download)
                 return
