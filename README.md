@@ -1,4 +1,4 @@
-# Discord Bot
+# Discord Butt
 
 A discord bot framework written in python. Supports starting a bot via a token, configuration via YAML files, database sessions, and includes plugin support.
 
