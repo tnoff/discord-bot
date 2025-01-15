@@ -13,5 +13,5 @@ pytz==2024.2
 requests==2.32.3
 spotipy==2.25.0
 SQLAlchemy==2.0.37
-yt-dlp==2024.12.23
+yt-dlp==2025.1.12
 ytmusicapi==1.9.1
