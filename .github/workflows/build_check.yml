@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     name: Tox Build Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
@@ -29,7 +29,7 @@ jobs:
       run: tox -v
   docker:
     name: Docker build checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -40,5 +40,3 @@ jobs:
       uses: docker/build-push-action@v6
       with:
         push: false
-        cache-from: type=registry,ref=sjc.ocir.io/tnoff/discord:latest
-        cache-to: type=inline
