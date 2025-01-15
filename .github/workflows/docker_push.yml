@@ -58,7 +58,7 @@ jobs:
         id: echo-full
         run: echo "${{ steps.fix-full-version.outputs.full_version }}.${{ github.run_number }}"
   push_to_registry:
-    name: Push Docker image to Docker Hub
+    name: Push AMD64 Docker image to Docker Hub
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -83,7 +83,7 @@ jobs:
           context: .
           tags: sjc.ocir.io/tnoff/discord:latest,sjc.ocir.io/tnoff/discord:${{ needs.build_docker_tag.outputs.submajor_version }},sjc.ocir.io/tnoff/discord:${{ needs.build_docker_tag.outputs.full_version }},sjc.ocir.io/tnoff/discord:${{ needs.build_docker_tag.outputs.full_version }}.${{ github.run_number }}
   push_to_registry_arm64:
-    name: Push Docker image to Docker Hub
+    name: Push ARM64 Docker image to Docker Hub
     runs-on: [self-hosted, linux, ARM64]
     permissions:
       contents: read
