@@ -231,7 +231,10 @@ class DownloadClient():
                 search_strings = await loop.run_in_executor(None, to_run)
             except SpotifyException as e:
                 self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
-                raise ThirdPartyException('Issue fetching spotify info', user_message=f'Issue gathering info from spotify url "{search}"') from e
+                message = 'Issue gathering info from spotify url "{search}"'
+                if e.http_status == 404:
+                    message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
+                raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
             if should_shuffle:
                 for _ in range(self.number_shuffles):
                     shuffle(search_strings)
