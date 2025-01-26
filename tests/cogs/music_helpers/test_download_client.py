@@ -51,7 +51,14 @@ class MockSpotifyRaise():
         pass
 
     def album_get(self, _album_id):
-        raise SpotifyException('foo exception', 404, 'foo exception')
+        raise SpotifyException(404, -1, 'foo exception')
+
+class MockSpotifyRaiseUnauth():
+    def __init__(self):
+        pass
+
+    def album_get(self, _album_id):
+        raise SpotifyException(403, -1, 'foo exception')
 
 class MockYoutubeClient():
     def __init__(self):
@@ -130,6 +137,20 @@ async def test_spotify_throw_exception():
     with pytest.raises(ThirdPartyException) as exc:
         await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Issue fetching spotify info' in str(exc.value)
+    assert 'If this is an official Spotify playlist' in str(exc.value.user_message)
+    typer, result = mq.get_next_message()
+    assert not typer
+    assert not result
+
+@pytest.mark.asyncio(scope="session")
+async def test_spotify_throw_exception_403():
+    loop = asyncio.get_running_loop()
+    mq = MessageQueue()
+    x = DownloadClient(None, mq, spotify_client=MockSpotifyRaiseUnauth())
+    with pytest.raises(ThirdPartyException) as exc:
+        await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    assert 'Issue fetching spotify info' in str(exc.value)
+    assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
     assert not typer
     assert not result
