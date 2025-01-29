@@ -335,7 +335,7 @@ class Markov(CogHelper):
                 return await ctx.send(f'No markov word matching "{first_word}"')
             return await ctx.send('No markov words to pick from')
 
-        word = self.db_session.query(MarkovRelation).get(choice(possible_words)).leader_word
+        word = self.db_session.get(MarkovRelation, choice(possible_words)).leader_word
         all_words.append(word)
 
         remaining_word_num = sentence_length - len(all_words)
@@ -347,6 +347,6 @@ class Markov(CogHelper):
                     filter(MarkovRelation.leader_word == word)
             relation_ids = [i[0] for i in relation_ids]
             # Get random choice of leader ids
-            word = self.db_session.query(MarkovRelation).get(choice(relation_ids)).follower_word
+            word = self.db_session.get(MarkovRelation, choice(relation_ids)).follower_word
             all_words.append(word)
         return await ctx.send(' '.join(markov_word for markov_word in all_words))
