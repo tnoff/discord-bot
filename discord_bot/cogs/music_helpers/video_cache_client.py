@@ -167,7 +167,7 @@ class VideoCacheClient():
         video_cache_ids: List of ints
         '''
         for video_cache_id in video_cache_ids:
-            video_cache = self.db_session.query(VideoCache).get(video_cache_id)
+            video_cache = self.db_session.get(VideoCache, video_cache_id)
             base_path = Path(video_cache.base_path)
             base_path.unlink(missing_ok=True)
             for video_cache_guild in self.db_session.query(VideoCacheGuild).filter(VideoCacheGuild.video_cache_id == video_cache.id):
