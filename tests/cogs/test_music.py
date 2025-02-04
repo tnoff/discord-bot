@@ -151,7 +151,7 @@ async def test_message_loop_send_single_message(mocker):
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         cog.message_queue.iterate_single_message([partial(fake_channel.send, 'test message')])
         await cog.send_messages()
-        assert fake_channel.messages[1] == 'test message'
+        assert fake_channel.messages[1].content == 'test message'
 
 @pytest.mark.asyncio
 async def test_message_play_order(mocker):
@@ -195,7 +195,7 @@ async def test_message_loop_source_lifecycle(mocker):
         x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
         cog.message_queue.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, fake_channel.send, 'Original message')
         await cog.send_messages()
-        assert x.message == 'Original message'
+        assert x.message.content == 'Original message'
 
 class FakeChannelRaise():
     def __init__(self):
@@ -309,6 +309,59 @@ async def test_get_player_no_create(mocker):
         assert await cog.get_player('1234', ctx=FakeContext(), create_player=False) is None
 
 @pytest.mark.asyncio
+async def test_player_should_update_player_queue_false(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        fake_message = FakeMessage(id='foo-bar-1234')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        player = await cog.get_player('1234', ctx=FakeContext(channel=fake_channel))
+        cog.player_messages[player.guild.id] = [
+            fake_message,
+        ]
+        result = await cog.player_should_update_queue_order(player)
+        assert not result
+
+@pytest.mark.asyncio
+async def test_player_should_update_player_queue_true(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        fake_message = FakeMessage(id='foo-bar-1234')
+        fake_message_dos = FakeMessage(id='bar-foo-234')
+        fake_channel = FakeChannel(fake_message=fake_message)
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        player = await cog.get_player('1234', ctx=FakeContext(channel=fake_channel))
+        cog.player_messages[player.guild.id] = [
+            fake_message_dos,
+        ]
+        result = await cog.player_should_update_queue_order(player)
+        assert result
+
+@pytest.mark.asyncio
 async def test_player_clear_queue(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -330,6 +383,7 @@ async def test_player_clear_queue(mocker):
             FakeMessage(id='fake-message-1234', content='```Num|Wait|Message\n01|02:00|Foo Song ///Uploader```')
         ]
         result = await cog.clear_player_queue(player.guild.id)
+        assert not cog.player_messages[player.guild.id]
         assert result is True
 
 @pytest.mark.asyncio
@@ -359,7 +413,7 @@ async def test_player_update_queue_order_only_new(mocker):
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'duration': 123, 'title': 'Foo Title', 'uploader': 'Foo Uploader'}, s)
             player.add_to_play_queue(sd)
             await cog.player_update_queue_order(player.guild.id)
-            assert cog.player_messages[player.guild.id][0] == '```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || Foo Title /// Foo Uploader```'
+            assert cog.player_messages[player.guild.id][0].content == '```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || Foo Title /// Foo Uploader```'
 
 @pytest.mark.asyncio
 async def test_player_update_queue_order_delete_and_edit(mocker):
@@ -412,10 +466,12 @@ async def test_player_update_queue_order_no_edit(mocker):
         fake_bot = fake_bot_yielder()()
         cog = Music(fake_bot, logging, config, engine)
         guild = FakeGuild()
+        fake_message = FakeMessage(id='first-123', content='```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || Foo Title /// Foo Uploader```')
+        fake_channel = FakeChannel(fake_message=fake_message)
         mocker.patch.object(MusicPlayer, 'start_tasks')
-        player = await cog.get_player(guild.id, ctx=FakeContext(fake_guild=guild))
+        player = await cog.get_player(guild.id, ctx=FakeContext(fake_guild=guild, channel=fake_channel))
         cog.player_messages[player.guild.id] = [
-            FakeMessage(id='first-123', content='```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || Foo Title /// Foo Uploader```'),
+            fake_message,
         ]
         with TemporaryDirectory() as tmp_dir:
             with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3') as tmp_file:
