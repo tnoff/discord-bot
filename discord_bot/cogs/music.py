@@ -325,6 +325,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.download_dir.exists() and not self.enable_cache:
             rm_tree(self.download_dir)
 
+    async def player_should_update_queue_order(self, player: MusicPlayer):
+        '''
+        Check if known queue messages match whats in channel history
+        This is so the queue order is the last message in the text channel
+        If it isn't we want to delete the current messages and resend
+
+        player: Music player to check for updates
+        '''
+        queue_messages = self.player_messages.get(player.guild.id, [])
+        if len(queue_messages) < 1:
+            return False
+        history = [message async for message in retry_discord_message_command(player.text_channel.history, limit=len(queue_messages))]
+        for (count, hist_item) in enumerate(history):
+            index = len(queue_messages) - 1 - count
+            mess = queue_messages[index]
+            if mess.id != hist_item.id:
+                return True
+        return False
+
     async def clear_player_queue(self, guild_id: int):
         '''
         Delete player queue messages
@@ -335,7 +354,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await retry_discord_message_command(queue_message.delete)
             except NotFound:
                 pass
-            self.player_messages[guild_id] = []
+        self.player_messages[guild_id] = []
         return True
 
     async def player_update_queue_order(self, guild_id: int):
@@ -349,6 +368,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return False
         self.logger.debug(f'Music :: Updating queue messages in channel {player.text_channel.id} in guild {player.guild.id}')
         new_queue_strings = player.get_queue_order_messages()
+        if await self.player_should_update_queue_order(player):
+            await self.clear_player_queue(player.guild.id)
         queue_messages = self.player_messages.get(player.guild.id, [])
         if len(queue_messages) > len(new_queue_strings):
             for _ in range(len(queue_messages) - len(new_queue_strings)):

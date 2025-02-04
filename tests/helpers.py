@@ -121,8 +121,9 @@ class FakeChannel():
         return True
 
     async def send(self, message_content, **_kwargs):
-        self.messages.append(message_content)
-        return message_content
+        message = FakeMessage(content=message_content)
+        self.messages.append(message)
+        return message
 
 class FakeIntents():
     def __init__(self):
@@ -195,10 +196,10 @@ class FakeVoiceClient():
         return True
 
 class FakeContext():
-    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None):
+    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None, channel=None):
         self.author = author or FakeAuthor()
         self.guild = fake_guild or FakeGuild()
-        self.channel = FakeChannel()
+        self.channel = channel or FakeChannel()
         self.messages_sent = []
         self.bot = fake_bot
         self.voice_client = voice_client
