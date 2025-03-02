@@ -116,6 +116,23 @@ MUSIC_SECTION_SCHEMA = {
                 'type': 'string',
             },
         },
+        # Priority servers should be placed in download queues
+        'server_queue_priority': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'items': {
+                    'server_id': {
+                        'type': 'number'
+                    },
+                    'priority': {
+                        'type': 'number'
+                    },
+                },
+                'required': ['server_id', 'priority'],
+                'additionalProperties': False,
+            }
+        }
     }
 }
 
@@ -227,6 +244,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.youtube_wait_period_max_variance = self.settings.get('music', {}).get('youtube_wait_period_max_variance', 10) # seconds
 
         self.enable_youtube_music_search = self.settings.get('music', {}).get('enable_youtube_music_search', True)
+
+        server_queue_priority_input = self.settings.get('music', {}).get('server_queue_priority', [])
+        self.server_queue_priority = {}
+        for item in server_queue_priority_input:
+            self.server_queue_priority[int(item['server_id'])] = item['priority']
+
         self.spotify_client = None
         if spotify_client_id and spotify_client_secret:
             self.spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
@@ -901,7 +924,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                             partial(ctx.send),
                                                             f'Downloading and processing "{str(source_dict)}"')
                 self.logger.debug(f'Music :: Handing off source_dict {str(source_dict)} to download queue')
-                self.download_queue.put_nowait(source_dict.guild_id, source_dict)
+                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except PutsBlocked:
                 self.logger.warning(f'Music :: Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE,
@@ -1310,7 +1333,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND, partial(ctx.send),
                                                         f'Downloading and processing "{str(source_dict)}" to add to playlist')
             source_dict.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist)] #pylint: disable=no-value-for-parameter
-            self.download_queue.put_nowait(source_dict.guild_id, source_dict)
+            self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
     @playlist.command(name='item-remove')
     async def playlist_item_remove(self, ctx: Context, playlist_index: int, video_index: int):
@@ -1642,7 +1665,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
                                                             partial(ctx.send),
                                                             f'Downloading and processing "{item.title}"')
-                self.download_queue.put_nowait(source_dict.guild_id, source_dict)
+                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except QueueFull:
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT, partial(source_dict.edit_message),
                                                             f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
