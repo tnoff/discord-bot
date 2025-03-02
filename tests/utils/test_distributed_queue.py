@@ -50,3 +50,19 @@ def test_clear():
 
     # Assert guild was removed
     assert '123' not in x.queues
+
+def test_get_with_priority():
+    x = DistributedQueue(10)
+    x.put_nowait('guild-123', 5)
+    x.put_nowait('guild-234', 10)
+    x.put_nowait('guild-345', 15, priority=150)
+    x.put_nowait('guild-456', 20, priority=200)
+
+    result = x.get_nowait()
+    assert result == 20
+    result = x.get_nowait()
+    assert result == 15
+    result = x.get_nowait()
+    assert result == 5
+    result = x.get_nowait()
+    assert result == 10
