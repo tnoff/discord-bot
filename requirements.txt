@@ -1,7 +1,7 @@
 async-timeout==5.0.1
 beautifulsoup4==4.13.3
 click==8.1.8
-discord.py==2.5.0
+discord.py==2.5.2
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.9
 google-api-python-client==2.163.0
 jsonschema==4.23.0
