@@ -2,20 +2,6 @@
 
 Build docker file for discord-bot to run however you want.
 
-## Pull Image From Repo
-
-The image is built on each push to the  `main` branch, and can be pulled from a public OCI repo.
-
-```
-$ docker pull sjc.ocir.io/tnoff/discord:latest
-```
-
-You can also pull images for each major and sub-major version (past version 2.0)
-
-```
-$ docker pull sjc.ocir.io/tnoff/discord:2.0
-```
-
 ## Build Docker Image Locally
 
 Build just the discord-bot docker image:
