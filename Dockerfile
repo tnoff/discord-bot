@@ -1,8 +1,8 @@
-FROM ubuntu:24.04
+FROM python:3.13-slim-bookworm
+
 
 # Base packages
-RUN apt-get update -y && apt-get -y upgrade
-RUN apt-get install -y python3-dev python3-virtualenv ffmpeg wget git libpq-dev jq
+RUN apt-get update && apt-get install -y gcc libpq-dev git
 
 # Setup venv
 ENV TMPDIR="/tmp/bot"
@@ -15,8 +15,9 @@ RUN mkdir -p "${TMPDIR}" "${WORKDIR}" "${LOGFILE}"
 COPY discord_bot/ "${TMPDIR}/discord_bot/"
 COPY requirements.txt "${TMPDIR}/"
 COPY setup.py "${TMPDIR}/"
-RUN virtualenv "${VENVDIR}"
-RUN ${VENVDIR}/bin/pip install psycopg2 "${TMPDIR}"
+RUN pip install psycopg2 "${TMPDIR}"
 RUN rm -rf "${TMPDIR}"
+
+RUN apt-get remove -y gcc git && apt-get autoremove -y
 
 CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf"]
