@@ -2,7 +2,7 @@ FROM python:3.13-slim-bookworm
 
 
 # Base packages
-RUN apt-get update && apt-get install -y gcc libpq-dev git
+RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg
 
 # Setup venv
 ENV TMPDIR="/tmp/bot"
