@@ -20,4 +20,4 @@ RUN rm -rf "${TMPDIR}"
 
 RUN apt-get remove -y gcc git && apt-get autoremove -y
 
-CMD ["/opt/discord-venv/bin/discord-bot", "/opt/discord/cnf/discord.cnf"]
+CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]
