@@ -35,6 +35,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
+from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
@@ -121,10 +122,8 @@ MUSIC_SECTION_SCHEMA = {
             'type': 'array',
             'items': {
                 'type': 'object',
-                'items': {
-                    'server_id': {
-                        'type': 'number'
-                    },
+                'properties': {
+                    'server_id': SERVER_ID, #pylint:disable=duplicate-code
                     'priority': {
                         'type': 'number'
                     },

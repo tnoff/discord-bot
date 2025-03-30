@@ -7,6 +7,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command, return_loop_runner
 
 
@@ -27,9 +28,7 @@ DELETE_MESSAGES_SCHEMA  = {
             'items': {
                 'type': 'object',
                 'properties': {
-                    'server_id': {
-                        'type': 'string',
-                    },
+                    'server_id': SERVER_ID,
                     'channel_id': {
                         'type': 'string'
                     },
