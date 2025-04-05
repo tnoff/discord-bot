@@ -23,6 +23,7 @@ from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE, MarkovRelation, MarkovChannel
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
+from discord_bot.utils.sql_retry import RetryingQuery
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
 POSSIBLE_COGS = [
@@ -108,7 +109,7 @@ def clear_markov_relations(db_engine: Engine):
     if not db_engine:
         click.echo('Unable to run markov clear relations, no db given')
         return False
-    db_session = sessionmaker(bind=db_engine)()
+    db_session = sessionmaker(bind=db_engine, query_cls=RetryingQuery)()
     click.echo('Running clear on all MarkovRelation rows')
     db_session.query(MarkovRelation).delete()
     db_session.commit()
