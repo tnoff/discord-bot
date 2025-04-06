@@ -762,6 +762,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                         delete_after=self.delete_after)])
         try:
             await guild.voice_client.disconnect()
+        except AttributeError:
+            pass
+
+        try:
             await guild.voice_client.cleanup()
         except AttributeError:
             pass

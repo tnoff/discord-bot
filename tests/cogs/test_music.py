@@ -19,7 +19,8 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
-from tests.helpers import mock_session, fake_bot_yielder, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
+from tests.helpers import mock_session, fake_bot_yielder
+from tests.helpers import FakeVoiceClient, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
 
 
 def test_match_generator_no_data():
@@ -596,3 +597,31 @@ async def test_youtube_last_update_time_with_more_backoff(freezer):
         assert cog.last_download_lockfile.read_text(encoding='utf-8') == '1735732860'
         cog.update_download_lockfile(sd)
         assert cog.last_download_lockfile.read_text(encoding='utf-8') == '1735732800'
+
+
+@pytest.mark.asyncio
+async def test_cleanup_players_just_bot(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, logging, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        await cog.cleanup_players()
+        assert fake_guild.id not in cog.players
+
+# TODO test cleanup with player history bits in particular
