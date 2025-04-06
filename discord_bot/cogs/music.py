@@ -270,12 +270,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.video_cache = None
         if self.enable_cache:
-            self.video_cache = VideoCacheClient(self.download_dir, self.max_cache_files, self.db_session)
+            self.video_cache = VideoCacheClient(self.download_dir, self.max_cache_files, partial(self.with_db_session))
             self.video_cache.verify_cache()
 
         self.search_string_cache = None
-        if self.db_session:
-            self.search_string_cache = SearchCacheClient(self.db_session, self.max_search_cache_entries)
+        if self.db_engine:
+            self.search_string_cache = SearchCacheClient(partial(self.with_db_session), self.max_search_cache_entries)
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 

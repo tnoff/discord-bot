@@ -1,8 +1,18 @@
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from discord import ChannelType
 from discord.errors import NotFound
+from sqlalchemy.orm import sessionmaker
+
+@contextmanager
+def mock_session(engine):
+    session = sessionmaker(bind=engine)()
+    try:
+        yield session
+    finally:
+        session.close()
 
 class AsyncIterator():
     def __init__(self, items):

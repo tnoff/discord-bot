@@ -1,11 +1,11 @@
 import asyncio
+from functools import partial
 from tempfile import NamedTemporaryFile
 
 from googleapiclient.errors import HttpError
 import pytest
 from spotipy.exceptions import SpotifyException
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from yt_dlp.utils import DownloadError
 
 from discord_bot.database import BASE
@@ -16,7 +16,7 @@ from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
-from tests.helpers import FakeChannel
+from tests.helpers import FakeChannel, mock_session
 
 class MockSpotifyClient():
     def __init__(self):
@@ -170,9 +170,8 @@ async def test_spotify_album_with_cache():
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
         BASE.metadata.bind = engine
-        session = sessionmaker(bind=engine)()
         loop = asyncio.get_running_loop()
-        search_client = SearchCacheClient(session, 10)
+        search_client = SearchCacheClient(partial(mock_session, engine), 10)
         source_dict = SourceDict('1234', 'foo bar requester1', 'foo-requester-1', 'foo track foo artists', SearchType.SPOTIFY)
         download = SourceDownload(None, {
             'webpage_url': 'https://youtube.com/watch=v?adafaonoasnfo'
@@ -192,9 +191,8 @@ async def test_spotify_album_with_cache_miss_and_youtube_fallback():
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
         BASE.metadata.bind = engine
-        session = sessionmaker(bind=engine)()
         loop = asyncio.get_running_loop()
-        search_client = SearchCacheClient(session, 10)
+        search_client = SearchCacheClient(partial(mock_session, engine), 10)
         x = DownloadClient(None, MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic(), search_cache_client=search_client)
         result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
         assert result[0].requester_id == '2345'

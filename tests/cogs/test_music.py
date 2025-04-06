@@ -6,7 +6,6 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from discord.errors import NotFound
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from discord_bot.database import BASE
 from discord_bot.exceptions import ExitEarlyException
@@ -20,7 +19,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
-from tests.helpers import fake_bot_yielder, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
+from tests.helpers import mock_session, fake_bot_yielder, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
 
 
 def test_match_generator_no_data():
@@ -66,9 +65,8 @@ def test_match_generator_video_exists():
                 engine = create_engine(f'sqlite:///{temp_db.name}')
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
-                session = sessionmaker(bind=engine)()
 
-                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',

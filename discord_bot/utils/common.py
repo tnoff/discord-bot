@@ -11,6 +11,7 @@ from jsonschema import validate
 
 from discord.errors import DiscordServerError, RateLimited
 from discord.ext.commands import Bot
+from sqlalchemy.orm.session import Session
 
 from discord_bot.exceptions import ExitEarlyException
 
@@ -243,3 +244,9 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
                 print('Formatted exception:', format_exc())
                 return False
     return loop_runner
+
+def run_commit(db_session: Session):
+    '''
+    Run commit on a db_session, useful for using in retries
+    '''
+    db_session.commit()
