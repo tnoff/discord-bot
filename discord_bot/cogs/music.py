@@ -794,7 +794,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
         history_items = await player.cleanup()
-        self.logger.debug(f'Music :: Grabbing history items {history_items} for {guild.id}')
+        self.logger.debug(f'Music :: Grabbing {len(history_items)} history items for {guild.id}')
         history_playlist_id = self.__get_history_playlist(guild.id)
         if history_playlist_id:
             playlist = self.db_session.query(Playlist).get(history_playlist_id)

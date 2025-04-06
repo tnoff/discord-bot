@@ -108,7 +108,7 @@ def get_logger(logger_name, logging_section):
     '''
     logger = getLogger(logger_name)
     formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                          datefmt='%Y-%m-%dT%H.%M.%S')
+                          datefmt='%Y-%m-%dT%H-%M-%S')
     # If no logging section given, return generic logger
     # That logs to stdout
     if not logging_section:
