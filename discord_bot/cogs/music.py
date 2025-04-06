@@ -17,6 +17,7 @@ from discord.ext.commands import Bot, Context, group, command
 from discord.errors import NotFound
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.orm.session import Session
 from sqlalchemy.exc import IntegrityError
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -43,6 +44,7 @@ from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.sql_retry import retry_database_commands
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -471,6 +473,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         After cache files marked for deletion, check if they are in use before deleting
         '''
+        def list_ready_cache_files(db_session: Session):
+            return db_session.query(VideoCache).\
+                filter(VideoCache.ready_for_deletion == True).all()
+
         await sleep(60)
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
@@ -479,17 +485,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for path in player.get_file_paths():
                 base_paths.add(str(path))
         delete_videos = []
-        for video_cache in self.db_session.query(VideoCache).\
-            filter(VideoCache.ready_for_deletion == True).all():
-            # Check if video cache in use
-            if str(video_cache.base_path) in base_paths:
-                continue
-            delete_videos.append(video_cache.id)
-        if not delete_videos:
-            return False
-        self.logger.debug(f'Music :: Identified cache videos ready for deletion {delete_videos}')
-        self.video_cache.remove_video_cache(delete_videos)
-        return True
+        with self.with_db_session() as db_session:
+            for video_cache in retry_database_commands(db_session, partial(list_ready_cache_files, db_session)):
+                # Check if video cache in use
+                if str(video_cache.base_path) in base_paths:
+                    continue
+                delete_videos.append(video_cache.id)
+            if not delete_videos:
+                return False
+
+            self.logger.debug(f'Music :: Identified cache videos ready for deletion {delete_videos}')
+            self.video_cache.remove_video_cache(delete_videos)
+            return True
 
     async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
         '''
@@ -688,7 +695,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Check if database session is in use
         '''
-        if not self.db_session:
+        if not self.db_engine:
             self.message_queue.iterate_single_message([partial(ctx.send, 'Functionality not available, database is not enabled')])
             return False
         return True
