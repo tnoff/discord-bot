@@ -400,6 +400,7 @@ async def test_turn_on_sync_and_speak(mocker):
         assert result == 'this is an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message,'
         assert len(result.split(' ')) == 32
 
+
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_speak_invalid_first_word(mocker):

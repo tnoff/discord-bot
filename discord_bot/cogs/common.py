@@ -1,12 +1,16 @@
+from contextlib import contextmanager
+from functools import partial
 from logging import RootLogger
 from discord.ext.commands import Cog, Bot
 from jsonschema import ValidationError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.orm.session import Session
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import validate_config
+from discord_bot.utils.sql_retry import retry_database_commands
 
 class CogHelper(Cog):
     '''
@@ -42,3 +46,24 @@ class CogHelper(Cog):
                 validate_config(self.settings.get(settings_prefix, {}), section_schema)
             except ValidationError as exc:
                 raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}', str(exc)) from exc
+
+    @contextmanager
+    def with_db_session(self):
+        '''
+        Yield a db session from engine
+        '''
+        db_session = sessionmaker(bind=self.db_engine)()
+        try:
+            yield db_session
+        finally:
+            db_session.close()
+
+    def retry_commit(self, db_session: Session):
+        '''
+        Common function to retry db_session commit
+        db_session: Sqlalchmy db session
+        '''
+        def commit_changes():
+            return db_session.commit()
+
+        return retry_database_commands(db_session, partial(commit_changes))
