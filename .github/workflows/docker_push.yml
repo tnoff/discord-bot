@@ -19,8 +19,8 @@ jobs:
         uses: joerick/pr-labels-action@e61c643fe47e53d3495405cc9f441b5da06ab1e9
       - name: Check merge and labels
         id: check
-        if: ${{ github.event.pull_request.merged != true && !(contains(steps.pr-labels.outputs.labels, 'build-docker')) }}
-        run: exit 1
+        if: ${{ github.event.pull_request.merged == true && (contains(steps.pr-labels.outputs.labels, 'build-docker')) }}
+        run: exit 0
   tag_build:
     name: Tag Build if doesn't exist already
     runs-on: ubuntu-24.04
