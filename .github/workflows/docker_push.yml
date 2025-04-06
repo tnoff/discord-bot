@@ -40,6 +40,15 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Get PR labels
+        id: pr-labels
+        uses: joerick/pr-labels-action@e61c643fe47e53d3495405cc9f441b5da06ab1e9
+      - name: Check labels
+        if: ${{ !(contains(steps.pr-labels.outputs.labels, 'build-docker')) }}
+        run: exit 0
+      - name: Check out the repo
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2
+        if: contains(steps.pr-labels.outputs.labels, 'build-docker')
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Install doctl
