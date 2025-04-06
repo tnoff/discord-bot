@@ -64,7 +64,9 @@ def query_existing_files(db_session: Session, extractor: str, video_id: str):
     '''
     Get files based on expected path
     '''
-    return db_session.query(VideoCache).filter(VideoCache.base_path.like(f'%{extractor}.{video_id}%')).first()
+    return db_session.query(VideoCache).\
+        filter(VideoCache.extractor == extractor).\
+        filter(VideoCache.video_id == video_id).first()
 
 def get_video_cache_by_id(db_session: Session, video_cache_id: int):
     '''

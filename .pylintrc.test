@@ -23,4 +23,5 @@ disable=line-too-long,
         redefined-builtin,
         too-many-instance-attributes,
         too-many-lines,
-        fixme
+        fixme,
+        too-many-function-args,

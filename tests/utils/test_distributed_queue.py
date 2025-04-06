@@ -26,6 +26,8 @@ def test_get():
     x.put_nowait('234', 15)
     x.put_nowait('123', 20)
 
+    assert x.get_queue_size('123') == 2
+
     result = x.get_nowait()
     assert result == 10
     result = x.get_nowait()
@@ -38,6 +40,7 @@ def test_get():
     assert 'No items in queue' in str(exc.value)
 
     assert not x.queues
+    assert x.get_queue_size('123') == 0
 
 def test_clear():
     x = DistributedQueue(10)

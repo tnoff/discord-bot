@@ -49,6 +49,15 @@ class DistributedQueue():
         self.queues[guild_id]['queue'].put_nowait(entry)
         return True
 
+    def get_queue_size(self, guild_id: int):
+        '''
+        Check queue size for server
+        '''
+        try:
+            return self.queues[guild_id]['queue'].size()
+        except KeyError:
+            return 0
+
     def get_nowait(self):
         '''
         Get download item from queue thats been waiting longest
