@@ -153,6 +153,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
                 self.guild = guilds[0]
             self.intents = FakeIntents()
             self.bot_closed = False
+            self.loop = None
 
         async def fetch_channel(self, _channel_id):
             return self.fake_channel
