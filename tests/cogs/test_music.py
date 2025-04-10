@@ -818,7 +818,7 @@ async def test_download_queue_hits_cache(mocker):
                 s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
                 with mock_session(engine) as db_session:
-                    video_cache = VideoCache(base_path=str(sd.base_path), video_url=sd.webpage_url, count=0)
+                    video_cache = VideoCache(base_path=str(sd.base_path), video_url=sd.webpage_url, count=0) #pylint:disable=no-member
                     db_session.add(video_cache)
                     db_session.commit()
                     cog = Music(fake_bot, logging, config, engine)
@@ -944,7 +944,7 @@ async def test_download_queue_download_exception(mocker):
         fake_channel = FakeChannel(members=[fake_bot.user])
         fake_voice = FakeVoiceClient(channel=fake_channel)
         fake_guild = FakeGuild(voice=fake_voice)
-        
+
         mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
         cog = Music(fake_bot, logging, config, engine)
         s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT,
