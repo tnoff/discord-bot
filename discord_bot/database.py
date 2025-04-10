@@ -60,12 +60,11 @@ class PlaylistItem(BASE):
     '''
     __tablename__ = 'playlist_item'
     __table_args__ = (
-        UniqueConstraint('video_id', 'playlist_id',
+        UniqueConstraint('video_url', 'playlist_id',
                          name='_unique_playlist_video'),
     )
     id = Column(Integer, primary_key=True)
     title = Column(String(256))
-    video_id = Column(String(32))
     video_url = Column(String(256))
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))

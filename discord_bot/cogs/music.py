@@ -14,10 +14,11 @@ from typing import Callable, Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
+from discord import VoiceChannel
 from discord.errors import NotFound
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.session import Session
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
@@ -43,6 +44,7 @@ from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.sql_retry import retry_database_commands
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -270,12 +272,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.video_cache = None
         if self.enable_cache:
-            self.video_cache = VideoCacheClient(self.download_dir, self.max_cache_files, self.db_session)
+            self.video_cache = VideoCacheClient(self.download_dir, self.max_cache_files, partial(self.with_db_session))
             self.video_cache.verify_cache()
 
         self.search_string_cache = None
-        if self.db_session:
-            self.search_string_cache = SearchCacheClient(self.db_session, self.max_search_cache_entries)
+        if self.db_engine:
+            self.search_string_cache = SearchCacheClient(partial(self.with_db_session), self.max_search_cache_entries)
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
@@ -471,6 +473,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         After cache files marked for deletion, check if they are in use before deleting
         '''
+        def list_ready_cache_files(db_session: Session):
+            return db_session.query(VideoCache).\
+                filter(VideoCache.ready_for_deletion == True).all()
+
         await sleep(60)
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
@@ -479,17 +485,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for path in player.get_file_paths():
                 base_paths.add(str(path))
         delete_videos = []
-        for video_cache in self.db_session.query(VideoCache).\
-            filter(VideoCache.ready_for_deletion == True).all():
-            # Check if video cache in use
-            if str(video_cache.base_path) in base_paths:
-                continue
-            delete_videos.append(video_cache.id)
-        if not delete_videos:
-            return False
-        self.logger.debug(f'Music :: Identified cache videos ready for deletion {delete_videos}')
-        self.video_cache.remove_video_cache(delete_videos)
-        return True
+        with self.with_db_session() as db_session:
+            for video_cache in retry_database_commands(db_session, partial(list_ready_cache_files, db_session)):
+                # Check if video cache in use
+                if str(video_cache.base_path) in base_paths:
+                    continue
+                delete_videos.append(video_cache.id)
+            if not delete_videos:
+                return False
+
+            self.logger.debug(f'Music :: Identified cache videos ready for deletion {delete_videos}')
+            self.video_cache.remove_video_cache(delete_videos)
+            return True
 
     async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
         '''
@@ -526,31 +533,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Music :: Search cache enabled, attempting to add webpage "{source_download.webpage_url}"')
         self.search_string_cache.iterate(source_download)
         return True
-
-    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException,
-                                 skip_callback_functions: bool=False):
-        message = exception.user_message
-        self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
-                                                    partial(source_dict.edit_message), message, delete_after=self.delete_after)
-        if not skip_callback_functions:
-            for func in source_dict.video_non_exist_callback_functions:
-                await func()
-        return
-
-    # Take both source dict and source download
-    # Since source download might be none
-    async def __ensure_video_download_result(self, source_dict: SourceDict, source_download: SourceDownload):
-        if source_download is None:
-            self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
-                                                        partial(source_dict.edit_message),
-                                                        f'Issue downloading video "{str(source_dict)}", skipping', delete_after=self.delete_after)
-            return False
-        return True
-
-    async def __check_video_cache(self, source_dict: SourceDict):
-        if not self.video_cache:
-            return None
-        return self.video_cache.get_webpage_url_item(source_dict)
 
     async def add_source_to_player(self, source_download: SourceDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
         '''
@@ -609,6 +591,31 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.last_download_lockfile.write_text(str(new_timestamp))
         return True
 
+    # Take both source dict and source download
+    # Since source download might be none
+    async def __ensure_video_download_result(self, source_dict: SourceDict, source_download: SourceDownload):
+        if source_download is None:
+            self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
+                                                        partial(source_dict.edit_message),
+                                                        f'Issue downloading video "{str(source_dict)}", skipping', delete_after=self.delete_after)
+            return False
+        return True
+
+    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException,
+                                 skip_callback_functions: bool=False):
+        message = exception.user_message
+        self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
+                                                    partial(source_dict.edit_message), message, delete_after=self.delete_after)
+        if not skip_callback_functions:
+            for func in source_dict.video_non_exist_callback_functions:
+                await func()
+        return
+
+    async def __check_video_cache(self, source_dict: SourceDict):
+        if not self.video_cache:
+            return None
+        return self.video_cache.get_webpage_url_item(source_dict)
+
     async def download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
@@ -636,9 +643,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE,
                                                             partial(source_dict.delete_message), '')
                 return
-
         self.logger.debug(f'Music ::: Gathered new item to download "{str(source_dict)}", guild "{source_dict.guild_id}"')
-
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = await self.__check_video_cache(source_dict)
         # Else grab from ytdlp
@@ -668,14 +673,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except DownloadError as e:
                 self.logger.error(f'Music :: Unknown error while downloading video "{str(source_dict)}", {str(e)}')
                 source_download = None
+
         # Final none check in case we couldn't download video
         if not await self.__ensure_video_download_result(source_dict, source_download):
             return
-
+        # Callback functions if given
         for func in source_dict.post_download_callback_functions:
             await func(source_download)
 
-        if source_dict.download_file:
+        if source_dict.download_file and player:
             # Add sources to players
             if not await self.add_source_to_player(source_download, player):
                 return
@@ -684,45 +690,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug('Music ::: Checking cache files to remove in music player')
                 self.video_cache.ready_remove()
 
-    async def __check_database_session(self, ctx: Context):
-        '''
-        Check if database session is in use
-        '''
-        if not self.db_session:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'Functionality not available, database is not enabled')])
-            return False
-        return True
-
-    def __update_history_playlist(self, playlist: Playlist, history_items: List[SourceDownload]):
+    def __update_history_playlist(self, playlist_id: int, history_items: List[SourceDownload]):
         '''
         Add history items to playlist
         playlist        : Playlist history object
         history_items   : List of history items
         '''
-        # Delete existing items first
-        for item in history_items:
-            self.logger.info(f'Music ::: Attempting to add url {item.webpage_url} to history playlist {playlist.id}')
-            existing_history_item = self.db_session.query(PlaylistItem).\
-                filter(PlaylistItem.video_url == item.webpage_url).\
-                filter(PlaylistItem.playlist_id == playlist.id).first()
-            if existing_history_item:
-                self.logger.debug(f'Music ::: New history item {item.webpage_url} already exists, deleting this first')
-                self.db_session.delete(existing_history_item)
-                self.db_session.commit()
 
-        # Delete number of rows necessary to add list
-        existing_items = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
-        if (existing_items + len(history_items)) > self.server_playlist_max_size:
-            delta = (existing_items + len(history_items)) - self.server_playlist_max_size
-            for existing_item in self.db_session.query(PlaylistItem).\
-                    filter(PlaylistItem.playlist_id == playlist.id).\
+        def delete_existing_item(db_session: Session, webpage_url: str, playlist_id: int):
+            existing_history_item = db_session.query(PlaylistItem).\
+                filter(PlaylistItem.video_url == webpage_url).\
+                filter(PlaylistItem.playlist_id == playlist_id).first()
+            if existing_history_item:
+                self.logger.debug(f'Music ::: New history item {webpage_url} already exists, deleting this first')
+                db_session.delete(existing_history_item)
+                db_session.commit()
+
+        def get_playlist_size(db_session: Session, playlist_id: int):
+            return db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_id).count()
+
+        def delete_extra_items(db_session: Session, playlist_id: int, delta: int):
+            for existing_item in db_session.query(PlaylistItem).\
+                    filter(PlaylistItem.playlist_id == playlist_id).\
                     order_by(asc(PlaylistItem.created_at)).limit(delta):
-                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist.id}')
-                self.db_session.delete(existing_item)
-                self.db_session.commit()
-        for item in history_items:
-            self.logger.info(f'Music ::: Adding new history item "{item.webpage_url}" to playlist {playlist.id}')
-            self.__playlist_add_item(playlist, item.id, item.webpage_url, item.title, item.uploader)
+                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist_id}, created on {existing_item.created_at}')
+                db_session.delete(existing_item)
+            db_session.commit()
+
+        if not self.db_engine:
+            return None
+        # Delete existing items first
+        with self.with_db_session() as db_session:
+            for item in history_items:
+                self.logger.info(f'Music ::: Attempting to add url {item.webpage_url} to history playlist {playlist_id}')
+                retry_database_commands(db_session, partial(delete_existing_item, db_session, item.webpage_url, playlist_id))
+
+            # Delete number of rows necessary to add list
+            existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, playlist_id))
+            delta = (existing_items + len(history_items)) - self.server_playlist_max_size
+            if delta:
+                self.logger.info(f'Need to delete {delta} items from history playlist {delta}')
+                retry_database_commands(db_session, partial(delete_extra_items, db_session, playlist_id, delta))
+            for item in history_items:
+                self.logger.info(f'Music ::: Adding new history item "{item.webpage_url}" to playlist {playlist_id}')
+                self.__playlist_insert_item(playlist_id, item.webpage_url, item.title, item.uploader)
 
     def __get_history_playlist(self, guild_id: int):
         '''
@@ -730,21 +741,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         guild_id : Guild id
         '''
-        history_playlist_id = None
-        if self.db_session:
-            history_playlist = self.db_session.query(Playlist).\
+        def find_history_playlist(db_session: Session, guild_id: str):
+            return db_session.query(Playlist).\
                 filter(Playlist.server_id == str(guild_id)).\
                 filter(Playlist.is_history == True).first()
 
-            if not history_playlist:
-                history_playlist = Playlist(name=f'{PLAYHISTORY_PREFIX}{guild_id}',
-                                            server_id=guild_id,
-                                            created_at=datetime.now(timezone.utc),
-                                            is_history=True)
-                self.db_session.add(history_playlist)
-                self.db_session.commit()
-            history_playlist_id = history_playlist.id
-        return history_playlist_id
+        def create_history_playlist(db_session: Session, guild_id: str):
+            history_playlist = Playlist(name=f'{PLAYHISTORY_PREFIX}{guild_id}',
+                                        server_id=str(guild_id),
+                                        created_at=datetime.now(timezone.utc),
+                                        is_history=True)
+            db_session.add(history_playlist)
+            db_session.commit()
+            return history_playlist
+
+        if not self.db_engine:
+            return None
+        with self.with_db_session() as db_session:
+            history_playlist = retry_database_commands(db_session, partial(find_history_playlist, db_session, guild_id))
+            if history_playlist:
+                return history_playlist.id
+            history_playlist = retry_database_commands(db_session, partial(create_history_playlist, db_session, guild_id))
+            return history_playlist.id
 
     async def cleanup(self, guild, external_shutdown_called=False):
         '''
@@ -762,6 +780,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                         delete_after=self.delete_after)])
         try:
             await guild.voice_client.disconnect()
+        except AttributeError:
+            pass
+
+        try:
             await guild.voice_client.cleanup()
         except AttributeError:
             pass
@@ -783,11 +805,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
         history_items = await player.cleanup()
-        self.logger.debug(f'Music :: Grabbing history items {history_items} for {guild.id}')
+        self.logger.debug(f'Music :: Grabbing {len(history_items)} history items for {guild.id}')
         history_playlist_id = self.__get_history_playlist(guild.id)
-        if history_playlist_id:
-            playlist = self.db_session.query(Playlist).get(history_playlist_id)
-            self.__update_history_playlist(playlist, history_items)
+        if history_playlist_id and history_items:
+            self.__update_history_playlist(history_playlist_id, history_items)
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         pending_items = self.download_queue.clear_queue(guild.id)
@@ -832,6 +853,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.players[guild_id] = player
             self.player_messages.setdefault(guild_id, [])
         if check_voice_client_active:
+            # TODO just because something isn't playing doesnt mean theres nothing in the download queue
+            # should add some kinda logic for that here
             if not player.guild.voice_client or not player.guild.voice_client.is_playing():
                 self.message_queue.iterate_single_message([partial(player.text_channel.send, 'I am not currently playing anything',
                                                            delete_after=self.delete_after)])
@@ -861,6 +884,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return channel
 
+    async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
+        try:
+            return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
+        except async_timeout as e:
+            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
+            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        return None
+
     @command(name='join', aliases=['awaken'])
     async def connect_(self, ctx: Context):
         '''
@@ -869,12 +900,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         channel = await self.__check_author_voice_chat(ctx, check_voice_chats=False)
         if not channel:
             return
-        try:
-            await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
-            return
+
+        await self.__ensure_player(ctx, channel)
 
         self.message_queue.iterate_single_message([partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)])
 
@@ -897,11 +924,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not channel:
             return
 
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
 
         try:
@@ -1156,6 +1180,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.iterate_single_message([partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)])
             return None
 
+    async def __check_database_session(self, ctx: Context):
+        '''
+        Check if database session is in use
+        '''
+        if not self.db_engine:
+            self.message_queue.iterate_single_message([partial(ctx.send, 'Functionality not available, database is not enabled')])
+            return False
+        return True
+
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
         '''
@@ -1165,6 +1198,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.iterate_single_message([partial(ctx.send, 'Invalid sub command passed...', delete_after=self.delete_after)])
 
     async def __playlist_create(self, ctx: Context, name: str):
+        def check_for_playlist(db_session: Session, name: str, guild_id: str):
+            return db_session.query(Playlist).\
+                filter(Playlist.name == name).\
+                filter(Playlist.server_id == guild_id).first()
+
+        def create_playlist(db_session: Session, name: str, guild_id: str):
+            playlist = Playlist(name=name,
+                                server_id=guild_id,
+                                created_at=datetime.now(timezone.utc),
+                                is_history=False)
+            db_session.add(playlist)
+            db_session.commit()
+            return playlist
+
         if not await self.__check_database_session(ctx):
             return
         # Check name doesn't conflict with history
@@ -1172,22 +1219,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if PLAYHISTORY_PREFIX in playlist_name.lower():
             self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')])
             return None
-        playlist = Playlist(name=playlist_name,
-                            server_id=ctx.guild.id,
-                            created_at=datetime.now(timezone.utc),
-                            is_history=False)
-        try:
-            self.db_session.add(playlist)
-            self.db_session.commit()
-        except IntegrityError:
-            self.db_session.rollback()
-            self.db_session.commit()
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name likely already exists')])
-            return None
-        self.logger.info(f'Music :: Playlist created "{playlist.name}" with ID {playlist.id} in guild {ctx.guild.id}')
-        self.message_queue.iterate_single_message([partial(ctx.send, f'Created playlist "{name}"',
-                                                           delete_after=self.delete_after)])
-        return playlist
+        with self.with_db_session() as db_session:
+            existing_playlist = retry_database_commands(db_session, partial(check_for_playlist, db_session, playlist_name, str(ctx.guild.id)))
+            if existing_playlist:
+                self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name likely already exists')])
+                return None
+
+            playlist = retry_database_commands(db_session, partial(create_playlist, db_session, playlist_name, str(ctx.guild.id)))
+            self.logger.info(f'Music :: Playlist created "{playlist_name}" with ID {playlist.id} in guild {ctx.guild.id}')
+            self.message_queue.iterate_single_message([partial(ctx.send, f'Created playlist "{playlist_name}"',
+                                                               delete_after=self.delete_after)])
+            return playlist.id
 
     @playlist.command(name='create')
     async def playlist_create(self, ctx: Context, *, name: str):
@@ -1204,80 +1246,84 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
+        def get_playlist_items(db_session: Session, guild_id: str):
+            return db_session.query(Playlist).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == False).\
+                order_by(Playlist.created_at.asc())
+
         if not await self.__check_database_session(ctx):
             return
-        playlist_items = self.db_session.query(Playlist).\
-            filter(Playlist.server_id == str(ctx.guild.id)).order_by(Playlist.created_at.asc())
-        playlist_items = [p for p in playlist_items if PLAYHISTORY_PREFIX not in p.name]
+        with self.with_db_session() as db_session:
+            playlist_items = retry_database_commands(db_session, partial(get_playlist_items, db_session, str(ctx.guild.id)))
 
-        if not playlist_items:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
-                                                               delete_after=self.delete_after)])
-            return
+            if not playlist_items:
+                self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
+                                                                delete_after=self.delete_after)])
+                return
 
-        headers = [
-            {
-                'name': 'ID',
-                'length': 3,
-            },
-            {
-                'name': 'Playlist Name',
-                'length': 64,
-            },
-            {
-                'name': 'Last Queued',
-                'length': 20,
-            }
-        ]
-        table = DapperTable(headers, rows_per_message=15)
-        for (count, item) in enumerate(playlist_items):
-            last_queued = 'N/A'
-            if item.last_queued:
-                last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
-            table.add_row([
-                f'{count + 1}',
-                item.name,
-                last_queued,
-            ])
-        messages = [f'```{t}```' for t in table.print()]
-        message_funcs = []
-        for mess in messages:
-            message_funcs.append(partial(ctx.send, mess, delete_after=self.delete_after))
-        self.message_queue.iterate_single_message(message_funcs)
+            headers = [
+                {
+                    'name': 'ID',
+                    'length': 3,
+                },
+                {
+                    'name': 'Playlist Name',
+                    'length': 64,
+                },
+                {
+                    'name': 'Last Queued',
+                    'length': 20,
+                }
+            ]
+            table = DapperTable(headers, rows_per_message=15)
+            for (count, item) in enumerate(playlist_items):
+                last_queued = 'N/A'
+                if item.last_queued:
+                    last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
+                table.add_row([
+                    f'{count + 1}',
+                    item.name,
+                    last_queued,
+                ])
+            messages = [f'```{t}```' for t in table.print()]
+            message_funcs = []
+            for mess in messages:
+                message_funcs.append(partial(ctx.send, mess, delete_after=self.delete_after))
+            self.message_queue.iterate_single_message(message_funcs)
 
-    def __playlist_add_item(self, playlist, data_id, data_url, data_title, data_uploader):
-        self.logger.info(f'Music :: Adding video {data_url} to playlist {playlist.id}')
-        item_count = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist.id).count()
-        if item_count >= (self.server_playlist_max_size):
-            raise PlaylistMaxLength(f'Playlist {playlist.id} greater to or equal to max length {self.server_playlist_max_size}')
+    def __playlist_insert_item(self, playlist_id: int, video_url: str, video_title: str, video_uploader: str):
+        def get_item_count(db_session: Session, playlist_id: int):
+            return db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_id).count()
 
-        playlist_item = PlaylistItem(title=shorten_string_cjk(data_title, 256),
-                                     video_id=data_id,
-                                     video_url=data_url,
-                                     uploader=shorten_string_cjk(data_uploader, 256),
-                                     playlist_id=playlist.id,
-                                     created_at=datetime.now(timezone.utc))
-        try:
-            self.db_session.add(playlist_item)
-            self.db_session.commit()
-            return playlist_item
-        except IntegrityError:
-            self.db_session.rollback()
-            self.db_session.commit()
-            return None
+        def check_existing_item(db_session: Session, playlist_id: int, video_url: str):
+            return db_session.query(PlaylistItem).\
+                filter(PlaylistItem.playlist_id == playlist_id).\
+                filter(PlaylistItem.video_url == video_url).first()
 
-    @playlist.command(name='item-add')
-    async def playlist_item_add(self, ctx, playlist_index, *, search: str):
-        '''
-        Add item to playlist.
+        def create_new_item(db_session: Session, video_title: str, video_url: str, video_uploader: str, playlist_id: int):
+            playlist_item = PlaylistItem(title=shorten_string_cjk(video_title, 256),
+                                        video_url=video_url,
+                                        uploader=shorten_string_cjk(video_uploader, 256),
+                                        playlist_id=playlist_id,
+                                        created_at=datetime.now(timezone.utc))
+            db_session.add(playlist_item)
+            db_session.commit()
+            return playlist_item.id
 
-        playlist_index: integer [Required]
-            ID of playlist
-        search: str [Required]
-            The video to search and retrieve from youtube.
-            This could be a simple search, an ID or URL.
-        '''
-        return await self.__playlist_item_add(ctx, playlist_index, search)
+        with self.with_db_session() as db_session:
+            self.logger.info(f'Music :: Adding video "{video_url}" to playlist {playlist_id}')
+            item_count = retry_database_commands(db_session, partial(get_item_count, db_session, playlist_id))
+            if item_count >= self.server_playlist_max_size:
+                raise PlaylistMaxLength(f'Playlist {playlist_id} greater to or equal to max length {self.server_playlist_max_size}')
+
+            existing_item = retry_database_commands(db_session, partial(check_existing_item, db_session, playlist_id, video_url))
+            if existing_item:
+                return None
+
+            playlist_item_id = retry_database_commands(db_session, partial(create_new_item, db_session, video_title,
+                                                                           video_url, video_uploader, playlist_id))
+            return playlist_item_id
 
     async def __add_playlist_item_function(self, ctx: Context, playlist: Playlist, source_download: SourceDownload):
         '''
@@ -1290,17 +1336,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                         f'Unable to add playlist item "{str(source_download.source_dict)}", issue generating source',
                                                         delete_after=self.delete_after)
             return
-        self.logger.info(f'Music :: Adding video_id {source_download.webpage_url} to playlist "{playlist.name}" '
+        self.logger.info(f'Music :: Adding video_url "{source_download.webpage_url}" to playlist "{playlist.name}" '
                          f' in guild {ctx.guild.id}')
         try:
-            playlist_item = self.__playlist_add_item(playlist, source_download.id, source_download.webpage_url, source_download.title, source_download.uploader)
+            playlist_item_id = self.__playlist_insert_item(playlist.id, source_download.webpage_url, source_download.title, source_download.uploader)
         except PlaylistMaxLength:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
                                                         f'Cannot add more items to playlist "{playlist.name}", already max size',
                                                         delete_after=self.delete_after)
             return
-        if playlist_item:
+        if playlist_item_id:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
                                                         f'Added item "{source_download.title}" to playlist {playlist.name}',
@@ -1312,7 +1358,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                     delete_after=self.delete_after)
         return
 
-    async def __playlist_item_add(self, ctx: Context, playlist_index: int, search: str):
+    @playlist.command(name='item-add')
+    async def playlist_item_add(self, ctx, playlist_index, *, search: str):
+        '''
+        Add item to playlist.
+
+        playlist_index: integer [Required]
+            ID of playlist
+        search: str [Required]
+            The video to search and retrieve from youtube.
+            This could be a simple search, an ID or URL.
+        '''
         if not await self.__check_database_session(ctx):
             return
 
@@ -1491,8 +1547,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_queue_save(ctx, name, is_history=True)
 
     async def __playlist_queue_save(self, ctx: Context, name: str, is_history=False):
-        playlist = await self.__playlist_create(ctx, name)
-        if not playlist:
+        playlist_id = await self.__playlist_create(ctx, name)
+        if not playlist_id:
             return None
 
         player = await self.get_player(ctx.guild.id, create_player=False)
@@ -1516,12 +1572,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         for data in queue_copy:
             try:
-                playlist_item = self.__playlist_add_item(playlist, data.id, data.webpage_url, data.title, data.uploader)
+                playlist_item_id = self.__playlist_insert_item(playlist_id, data.webpage_url, data.title, data.uploader)
             except PlaylistMaxLength:
-                self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size',
+                # TODO fix playlist name here
+                self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot add more items to playlist "playlist.name", already max size',
                                                            delete_after=self.delete_after)])
                 break
-            if playlist_item:
+            if playlist_item_id:
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Added item "{data.title}" to playlist', delete_after=self.delete_after)])
                 continue
             self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add playlist item "{data.title}", likely already exists', delete_after=self.delete_after)])
@@ -1545,12 +1602,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
+
+
         # Make sure sub command is valid
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1579,12 +1635,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         if not await self.__check_database_session(ctx):
             return
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
+
         max_num = 32 # Default
         from_cache = False
         if sub_command:
@@ -1629,8 +1684,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return
 
     async def __delete_non_existing_item(self, item: PlaylistItem, ctx: Context):
-        self.logger.warning(f'Unable to find video "{item.video_id}" in playlist {item.playlist_id}, deleting')
-        self.message_queue.iterate_single_message([partial(ctx.send, content=f'Unable to find video "{item.video_id}" in playlist, deleting',
+        self.logger.warning(f'Unable to find video "{item.video_url}" in playlist {item.playlist_id}, deleting')
+        self.message_queue.iterate_single_message([partial(ctx.send, content=f'Unable to find video "{item.video_url}" in playlist, deleting',
                                                            delete_after=self.delete_after)])
         self.db_session.delete(item)
         self.db_session.commit()
@@ -1667,7 +1722,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except QueueFull:
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT, partial(source_dict.edit_message),
-                                                            f'Unable to add item "{item.title}" with id "{item.video_id}" to queue, queue is full',
+                                                            f'Unable to add item "{item.title}" with id "{item.video_url}" to queue, queue is full',
                                                             delete_after=self.delete_after)
                 broke_early = True
                 break
@@ -1748,11 +1803,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         query = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_two.id)
         for item in query:
             try:
-                playlist_item = self.__playlist_add_item(playlist_one, item.video_id, item.video_url, item.title, item.uploader)
+                playlist_item_id = self.__playlist_insert_item(playlist_one, item.video_url, item.title, item.uploader)
             except PlaylistMaxLength:
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after)])
                 return
-            if playlist_item:
+            if playlist_item_id:
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Added item "{item.title}" to playlist {playlist_index_one}',
                                                            delete_after=self.delete_after)])
                 continue
