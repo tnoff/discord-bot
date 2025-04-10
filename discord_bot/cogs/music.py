@@ -19,7 +19,6 @@ from discord.errors import NotFound
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
-from sqlalchemy.exc import IntegrityError
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
@@ -734,7 +733,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 retry_database_commands(db_session, partial(delete_extra_items, db_session, playlist_id, delta))
             for item in history_items:
                 self.logger.info(f'Music ::: Adding new history item "{item.webpage_url}" to playlist {playlist_id}')
-                self.__playlist_add_item(playlist_id, item.webpage_url, item.title, item.uploader)
+                self.__playlist_insert_item(playlist_id, item.webpage_url, item.title, item.uploader)
 
     def __get_history_playlist(self, guild_id: int):
         '''
@@ -1199,6 +1198,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.iterate_single_message([partial(ctx.send, 'Invalid sub command passed...', delete_after=self.delete_after)])
 
     async def __playlist_create(self, ctx: Context, name: str):
+        def check_for_playlist(db_session: Session, name: str, guild_id: str):
+            return db_session.query(Playlist).\
+                filter(Playlist.name == name).\
+                filter(Playlist.server_id == guild_id).first()
+
+        def create_playlist(db_session: Session, name: str, guild_id: str):
+            playlist = Playlist(name=name,
+                                server_id=guild_id,
+                                created_at=datetime.now(timezone.utc),
+                                is_history=False)
+            db_session.add(playlist)
+            db_session.commit()
+            return playlist
+
         if not await self.__check_database_session(ctx):
             return
         # Check name doesn't conflict with history
@@ -1206,22 +1219,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if PLAYHISTORY_PREFIX in playlist_name.lower():
             self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')])
             return None
-        playlist = Playlist(name=playlist_name,
-                            server_id=ctx.guild.id,
-                            created_at=datetime.now(timezone.utc),
-                            is_history=False)
-        try:
-            self.db_session.add(playlist)
-            self.db_session.commit()
-        except IntegrityError:
-            self.db_session.rollback()
-            self.db_session.commit()
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name likely already exists')])
-            return None
-        self.logger.info(f'Music :: Playlist created "{playlist.name}" with ID {playlist.id} in guild {ctx.guild.id}')
-        self.message_queue.iterate_single_message([partial(ctx.send, f'Created playlist "{name}"',
-                                                           delete_after=self.delete_after)])
-        return playlist
+        with self.with_db_session() as db_session:
+            existing_playlist = retry_database_commands(db_session, partial(check_for_playlist, db_session, playlist_name, str(ctx.guild.id)))
+            if existing_playlist:
+                self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to create playlist "{name}", name likely already exists')])
+                return None
+
+            playlist = retry_database_commands(db_session, partial(create_playlist, db_session, playlist_name, str(ctx.guild.id)))
+            self.logger.info(f'Music :: Playlist created "{playlist_name}" with ID {playlist.id} in guild {ctx.guild.id}')
+            self.message_queue.iterate_single_message([partial(ctx.send, f'Created playlist "{playlist_name}"',
+                                                               delete_after=self.delete_after)])
+            return playlist.id
 
     @playlist.command(name='create')
     async def playlist_create(self, ctx: Context, *, name: str):
@@ -1238,48 +1246,53 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
+        def get_playlist_items(db_session: Session, guild_id: str):
+            return db_session.query(Playlist).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == False).\
+                order_by(Playlist.created_at.asc())
+
         if not await self.__check_database_session(ctx):
             return
-        playlist_items = self.db_session.query(Playlist).\
-            filter(Playlist.server_id == str(ctx.guild.id)).order_by(Playlist.created_at.asc())
-        playlist_items = [p for p in playlist_items if PLAYHISTORY_PREFIX not in p.name]
+        with self.with_db_session() as db_session:
+            playlist_items = retry_database_commands(db_session, partial(get_playlist_items, db_session, str(ctx.guild.id)))
 
-        if not playlist_items:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
-                                                               delete_after=self.delete_after)])
-            return
+            if not playlist_items:
+                self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
+                                                                delete_after=self.delete_after)])
+                return
 
-        headers = [
-            {
-                'name': 'ID',
-                'length': 3,
-            },
-            {
-                'name': 'Playlist Name',
-                'length': 64,
-            },
-            {
-                'name': 'Last Queued',
-                'length': 20,
-            }
-        ]
-        table = DapperTable(headers, rows_per_message=15)
-        for (count, item) in enumerate(playlist_items):
-            last_queued = 'N/A'
-            if item.last_queued:
-                last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
-            table.add_row([
-                f'{count + 1}',
-                item.name,
-                last_queued,
-            ])
-        messages = [f'```{t}```' for t in table.print()]
-        message_funcs = []
-        for mess in messages:
-            message_funcs.append(partial(ctx.send, mess, delete_after=self.delete_after))
-        self.message_queue.iterate_single_message(message_funcs)
+            headers = [
+                {
+                    'name': 'ID',
+                    'length': 3,
+                },
+                {
+                    'name': 'Playlist Name',
+                    'length': 64,
+                },
+                {
+                    'name': 'Last Queued',
+                    'length': 20,
+                }
+            ]
+            table = DapperTable(headers, rows_per_message=15)
+            for (count, item) in enumerate(playlist_items):
+                last_queued = 'N/A'
+                if item.last_queued:
+                    last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
+                table.add_row([
+                    f'{count + 1}',
+                    item.name,
+                    last_queued,
+                ])
+            messages = [f'```{t}```' for t in table.print()]
+            message_funcs = []
+            for mess in messages:
+                message_funcs.append(partial(ctx.send, mess, delete_after=self.delete_after))
+            self.message_queue.iterate_single_message(message_funcs)
 
-    def __playlist_add_item(self, playlist_id: int, video_url: str, video_title: str, video_uploader: str):
+    def __playlist_insert_item(self, playlist_id: int, video_url: str, video_title: str, video_uploader: str):
         def get_item_count(db_session: Session, playlist_id: int):
             return db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_id).count()
 
@@ -1312,19 +1325,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                            video_url, video_uploader, playlist_id))
             return playlist_item_id
 
-    @playlist.command(name='item-add')
-    async def playlist_item_add(self, ctx, playlist_index, *, search: str):
-        '''
-        Add item to playlist.
-
-        playlist_index: integer [Required]
-            ID of playlist
-        search: str [Required]
-            The video to search and retrieve from youtube.
-            This could be a simple search, an ID or URL.
-        '''
-        return await self.__playlist_item_add(ctx, playlist_index, search)
-
     async def __add_playlist_item_function(self, ctx: Context, playlist: Playlist, source_download: SourceDownload):
         '''
         Call this when the source download eventually completes
@@ -1339,7 +1339,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Music :: Adding video_url "{source_download.webpage_url}" to playlist "{playlist.name}" '
                          f' in guild {ctx.guild.id}')
         try:
-            playlist_item_id = self.__playlist_add_item(playlist.id, source_download.webpage_url, source_download.title, source_download.uploader)
+            playlist_item_id = self.__playlist_insert_item(playlist.id, source_download.webpage_url, source_download.title, source_download.uploader)
         except PlaylistMaxLength:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
@@ -1358,7 +1358,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                     delete_after=self.delete_after)
         return
 
-    async def __playlist_item_add(self, ctx: Context, playlist_index: int, search: str):
+    @playlist.command(name='item-add')
+    async def playlist_item_add(self, ctx, playlist_index, *, search: str):
+        '''
+        Add item to playlist.
+
+        playlist_index: integer [Required]
+            ID of playlist
+        search: str [Required]
+            The video to search and retrieve from youtube.
+            This could be a simple search, an ID or URL.
+        '''
         if not await self.__check_database_session(ctx):
             return
 
@@ -1537,8 +1547,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return await self.__playlist_queue_save(ctx, name, is_history=True)
 
     async def __playlist_queue_save(self, ctx: Context, name: str, is_history=False):
-        playlist = await self.__playlist_create(ctx, name)
-        if not playlist:
+        playlist_id = await self.__playlist_create(ctx, name)
+        if not playlist_id:
             return None
 
         player = await self.get_player(ctx.guild.id, create_player=False)
@@ -1562,9 +1572,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         for data in queue_copy:
             try:
-                playlist_item_id = self.__playlist_add_item(playlist.id, data.webpage_url, data.title, data.uploader)
+                playlist_item_id = self.__playlist_insert_item(playlist_id, data.webpage_url, data.title, data.uploader)
             except PlaylistMaxLength:
-                self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot add more items to playlist "{playlist.name}", already max size',
+                # TODO fix playlist name here
+                self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot add more items to playlist "playlist.name", already max size',
                                                            delete_after=self.delete_after)])
                 break
             if playlist_item_id:
@@ -1792,7 +1803,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         query = self.db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_two.id)
         for item in query:
             try:
-                playlist_item_id = self.__playlist_add_item(playlist_one, item.video_url, item.title, item.uploader)
+                playlist_item_id = self.__playlist_insert_item(playlist_one, item.video_url, item.title, item.uploader)
             except PlaylistMaxLength:
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot add more items to playlist "{playlist_one.name}", already max size', delete_after=self.delete_after)])
                 return
