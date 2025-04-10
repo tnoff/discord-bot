@@ -7,11 +7,11 @@ from discord.errors import NotFound
 import pytest
 from sqlalchemy import create_engine
 
-from discord_bot.database import BASE, Playlist, PlaylistItem
+from discord_bot.database import BASE, Playlist, PlaylistItem, VideoCache
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music, match_generator
 
-from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned, ExistingFileException
+from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned, ExistingFileException, BotDownloadFlagged, DownloadClientException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.message_queue import SourceLifecycleStage
@@ -20,7 +20,7 @@ from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
 from tests.helpers import mock_session, fake_bot_yielder
-from tests.helpers import FakeVoiceClient, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
+from tests.helpers import FakeAuthor, FakeVoiceClient, FakeChannel, FakeResponse, FakeContext, FakeMessage, FakeGuild
 
 
 def test_match_generator_no_data():
@@ -741,6 +741,310 @@ async def test_download_queue_no_download(mocker):
         await cog.download_files()
         assert sd.i_was_called #pylint:disable=no-member
 
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+                mocker.patch.object(MusicPlayer, 'start_tasks')
+                fake_channel = FakeChannel(members=[fake_bot.user])
+                fake_voice = FakeVoiceClient(channel=fake_channel)
+                fake_guild = FakeGuild(voice=fake_voice)
+                s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+                mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+                cog = Music(fake_bot, logging, config, engine)
+                await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+                cog.download_queue.put_nowait(fake_guild.id, s)
+                await cog.download_files()
+                assert cog.players[fake_guild.id].get_queue_items()
+
+def yield_fake_download_client_from_cache(video_cache: VideoCache):
+
+    class FakeDownloadClient():
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def create_source(self, *_args, **_kwargs):
+            raise ExistingFileException('foo', video_cache=video_cache)
+
+    return FakeDownloadClient
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_hits_cache(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+                mocker.patch.object(MusicPlayer, 'start_tasks')
+                fake_channel = FakeChannel(members=[fake_bot.user])
+                fake_voice = FakeVoiceClient(channel=fake_channel)
+                fake_guild = FakeGuild(voice=fake_voice)
+                s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+                with mock_session(engine) as db_session:
+                    video_cache = VideoCache(base_path=str(sd.base_path), video_url=sd.webpage_url, count=0)
+                    db_session.add(video_cache)
+                    db_session.commit()
+                    cog = Music(fake_bot, logging, config, engine)
+                    await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+                    cog.download_queue.put_nowait(fake_guild.id, s)
+                    await cog.download_files()
+                    assert cog.players[fake_guild.id].get_queue_items()
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_existing_video(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+                mocker.patch.object(MusicPlayer, 'start_tasks')
+                fake_channel = FakeChannel(members=[fake_bot.user])
+                fake_voice = FakeVoiceClient(channel=fake_channel)
+                fake_guild = FakeGuild(voice=fake_voice)
+                s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+                with mock_session(engine) as db_session:
+                    video_cache = VideoCache(base_path=str(sd.base_path), video_url='https://foo.bar.example.com', count=0)
+                    db_session.add(video_cache)
+                    db_session.commit()
+                    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client_from_cache(video_cache))
+                    cog = Music(fake_bot, logging, config, engine)
+                    await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+                    cog.download_queue.put_nowait(fake_guild.id, s)
+                    await cog.download_files()
+                    assert cog.players[fake_guild.id].get_queue_items()
+
+def yield_download_client_bot_flagged():
+    class FakeDownloadClient():
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def create_source(self, *_args, **_kwargs):
+            raise BotDownloadFlagged('foo', user_message='woopsie')
+
+    return FakeDownloadClient
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_bot_warning(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_bot_flagged())
+        cog = Music(fake_bot, logging, config, engine)
+        s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        cog.download_queue.put_nowait(fake_guild.id, s)
+        await cog.download_files()
+        assert not cog.players[fake_guild.id].get_queue_items()
+
+def yield_download_client_download_exception():
+    class FakeDownloadClient():
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def create_source(self, *_args, **_kwargs):
+            raise DownloadClientException('foo', user_message='whoopsie')
+
+    return FakeDownloadClient
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_download_exception(mocker):
+    async def bump_value():
+        return True
+
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
+        cog = Music(fake_bot, logging, config, engine)
+        s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT,
+                       video_non_exist_callback_functions=[partial(bump_value)])
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        cog.download_queue.put_nowait(fake_guild.id, s)
+        await cog.download_files()
+        assert not cog.players[fake_guild.id].get_queue_items()
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_no_result(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(None))
+        cog = Music(fake_bot, logging, config, engine)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        cog.download_queue.put_nowait(fake_guild.id, s)
+        await cog.download_files()
+        assert not cog.players[fake_guild.id].get_queue_items()
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_player_shutdown(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+        cog = Music(fake_bot, logging, config, engine)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        cog.download_queue.put_nowait(fake_guild.id, s)
+        cog.players[fake_guild.id].shutdown_called = True
+        await cog.download_files()
+        assert not cog.players[fake_guild.id].get_queue_items()
+
+@pytest.mark.asyncio(scope="session")
+async def test_download_queue_no_player_queue(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'enable_cache_files': True,
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+        cog = Music(fake_bot, logging, config, engine)
+        cog.download_queue.put_nowait(fake_guild.id, s)
+        await cog.download_files()
+        assert fake_guild.id not in cog.players
+
 @pytest.mark.asyncio
 async def test_cache_cleanup_no_op(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
@@ -925,3 +1229,49 @@ async def test_add_source_to_player_puts_blocked(mocker):
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
                 result = await cog.add_source_to_player(sd, cog.players[fake_guild.id])
                 assert not result
+
+@pytest.mark.asyncio
+async def test_awaken(mocker):
+
+    config = {
+        'general': {
+            'include': {
+                'music': True
+            },
+        },
+    }
+    fake_bot = fake_bot_yielder()()
+    cog = Music(fake_bot, logging, config, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    fake_voice_channel = FakeChannel(id='fake-voice-123')
+    fake_channel = FakeChannel(members=[fake_bot.user])
+    fake_voice = FakeVoiceClient(channel=fake_voice_channel)
+    fake_author = FakeAuthor(voice=fake_voice)
+    fake_guild = FakeGuild(voice=fake_voice)
+    fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
+    await cog.connect_(cog, fake_context)
+    assert fake_guild.id in cog.players
+
+@pytest.mark.asyncio
+async def test_awaken_user_not_joined(mocker):
+
+    config = {
+        'general': {
+            'include': {
+                'music': True
+            },
+        },
+    }
+    fake_bot = fake_bot_yielder()()
+    cog = Music(fake_bot, logging, config, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    fake_voice_channel = FakeChannel(id='fake-voice-123')
+    fake_channel = FakeChannel(members=[fake_bot.user])
+    fake_voice = FakeVoiceClient(channel=fake_voice_channel)
+    fake_author = FakeAuthor(voice=None)
+    fake_guild = FakeGuild(voice=fake_voice)
+    fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
+    await cog.connect_(cog, fake_context)
+    assert fake_guild.id not in cog.players

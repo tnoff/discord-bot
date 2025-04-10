@@ -93,12 +93,13 @@ class FakeGuild():
         raise NotFound(FakeResponse(), 'Unable to find role')
 
 class FakeAuthor():
-    def __init__(self, id=None, roles=None, bot=False):
+    def __init__(self, id=None, roles=None, bot=False, voice=None):
         self.id = id or 'fake-user-id-123'
         self.name = 'fake-user-name-123'
         self.display_name = 'fake-display-name-123'
         self.bot = bot
         self.roles = roles or []
+        self.voice = voice
 
     async def add_roles(self, role):
         self.roles.append(role)

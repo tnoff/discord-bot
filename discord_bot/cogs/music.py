@@ -14,6 +14,7 @@ from typing import Callable, Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
+from discord import VoiceChannel
 from discord.errors import NotFound
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
@@ -643,9 +644,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE,
                                                             partial(source_dict.delete_message), '')
                 return
-
         self.logger.debug(f'Music ::: Gathered new item to download "{str(source_dict)}", guild "{source_dict.guild_id}"')
-
         # If cache enabled and search string with 'https://' given, try to grab this first
         source_download = await self.__check_video_cache(source_dict)
         # Else grab from ytdlp
@@ -886,6 +885,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return channel
 
+    async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
+        try:
+            return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
+        except async_timeout as e:
+            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
+            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        return None
+
     @command(name='join', aliases=['awaken'])
     async def connect_(self, ctx: Context):
         '''
@@ -894,12 +901,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         channel = await self.__check_author_voice_chat(ctx, check_voice_chats=False)
         if not channel:
             return
-        try:
-            await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
-            return
+
+        await self.__ensure_player(ctx, channel)
 
         self.message_queue.iterate_single_message([partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)])
 
@@ -922,11 +925,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not channel:
             return
 
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
 
         try:
@@ -1591,12 +1591,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
+
+
         # Make sure sub command is valid
         playlist = await self.__get_playlist(playlist_index, ctx)
         if not playlist:
@@ -1625,12 +1624,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         if not await self.__check_database_session(ctx):
             return
-        try:
-            player = await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
             return
+
         max_num = 32 # Default
         from_cache = False
         if sub_command:
