@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.4.0
+
+General:
+- Added more test coverage, up to 90%
+- Changed up common cog to not return a db session, but added function to yield one
+- Added function to retry db statements
+Music:
+- Added a "message queue" to handle all message requests. Helps from reaching rate limiting too often
+- Removed unused `video_id` field from `PlaylistItem` table
+- Added proper index on `video_url` to `PlaylistItem` table
+- Updated logic to use db retries
+- Updated config args to be a bit more readable
+
+Markov:
+- Updated to use db retries
+
 ## 2.3.0
 
 General:

@@ -1,14 +1,16 @@
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from discord_bot.database import BASE, VideoCache
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+
+from tests.helpers import mock_session
 
 def test_verify_cache():
     with TemporaryDirectory() as tmp_dir:
@@ -17,9 +19,8 @@ def test_verify_cache():
                 engine = create_engine(f'sqlite:///{temp_db.name}')
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
-                session = sessionmaker(bind=engine)()
 
-                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                 x.verify_cache()
 
                 assert not Path(tmp_file.name).exists()
@@ -32,9 +33,8 @@ def test_verify_cache_with_dir():
                     engine = create_engine(f'sqlite:///{temp_db.name}')
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
-                    session = sessionmaker(bind=engine)()
 
-                    x = VideoCacheClient(Path(tmp_dir), 10, session)
+                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                     x.verify_cache()
 
                     assert not Path(tmp_file.name).exists()
@@ -48,9 +48,8 @@ def test_verify_cache_with_files_that_no_longer_exist():
                     engine = create_engine(f'sqlite:///{temp_db.name}')
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
-                    session = sessionmaker(bind=engine)()
 
-                    x = VideoCacheClient(Path(tmp_dir), 10, session)
+                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                     sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                     s = SourceDownload(Path(file_path.name), {
                         'webpage_url': 'https://foo.example.com',
@@ -62,8 +61,9 @@ def test_verify_cache_with_files_that_no_longer_exist():
                     x.iterate_file(s)
                     Path(file_path.name).unlink()
                     x.verify_cache()
-                    assert session.query(VideoCache).count() == 0
-                    assert not Path(extra_file.name).exists()
+                    with mock_session(engine) as session:
+                        assert session.query(VideoCache).count() == 0
+                        assert not Path(extra_file.name).exists()
 
 def test_iterate_file_new_and_iterate():
     with TemporaryDirectory() as tmp_dir:
@@ -72,9 +72,8 @@ def test_iterate_file_new_and_iterate():
                 engine = create_engine(f'sqlite:///{temp_db.name}')
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
-                session = sessionmaker(bind=engine)()
 
-                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -85,9 +84,10 @@ def test_iterate_file_new_and_iterate():
                 }, sd)
                 x.iterate_file(s)
                 x.iterate_file(s)
-                assert session.query(VideoCache).count() == 1
-                query = session.query(VideoCache).first()
-                assert query.count == 2
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+                    query = session.query(VideoCache).first()
+                    assert query.count == 2
 
 def test_webpage_get_source():
     with TemporaryDirectory() as tmp_dir:
@@ -96,9 +96,8 @@ def test_webpage_get_source():
                 engine = create_engine(f'sqlite:///{temp_db.name}')
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
-                session = sessionmaker(bind=engine)()
 
-                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                 sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -118,9 +117,8 @@ def test_webpage_get_source_non_existing():
             engine = create_engine(f'sqlite:///{temp_db.name}')
             BASE.metadata.create_all(engine)
             BASE.metadata.bind = engine
-            session = sessionmaker(bind=engine)()
 
-            x = VideoCacheClient(Path(tmp_dir), 10, session)
+            x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
             sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
             result = x.get_webpage_url_item(sd)
             assert result is None
@@ -133,9 +131,8 @@ def test_remove():
                     engine = create_engine(f'sqlite:///{temp_db.name}')
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
-                    session = sessionmaker(bind=engine)()
 
-                    x = VideoCacheClient(Path(tmp_dir), 1, session)
+                    x = VideoCacheClient(Path(tmp_dir), 1, partial(mock_session, engine))
                     sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                     s = SourceDownload(Path(file_path.name), {
                         'webpage_url': 'https://foo.example.com',
@@ -156,15 +153,14 @@ def test_remove():
                     x.iterate_file(t2)
                     x.ready_remove()
 
-                    assert session.query(VideoCache).count() == 2
-                    query = session.query(VideoCache).first()
-                    assert query.video_url == 'https://foo.example.com'
-                    assert query.ready_for_deletion is True
+                    with mock_session(engine) as session:
+                        assert session.query(VideoCache).count() == 2
+                        query = session.query(VideoCache).first()
+                        assert query.video_url == 'https://foo.example.com'
+                        assert query.ready_for_deletion is True
 
-                    x.remove_video_cache([query.id])
-                    assert session.query(VideoCache).count() == 1
-
-
+                        x.remove_video_cache([query.id])
+                        assert session.query(VideoCache).count() == 1
 
 def test_search_existing_file():
     test_id = '1234'
@@ -175,9 +171,8 @@ def test_search_existing_file():
                 engine = create_engine(f'sqlite:///{temp_db.name}')
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
-                session = sessionmaker(bind=engine)()
 
-                x = VideoCacheClient(Path(tmp_dir), 10, session)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
                 sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',

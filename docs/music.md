@@ -140,8 +140,10 @@ You can pass the Spotify credentials into the config:
 
 ```
 music:
-  spotify_client_id: secret-spotify-client
-  spotify_client_secret: secret-spotify-client-secret
+  download:
+    spotify_credentials:
+      client_id: secret-spotify-client
+      client_secret: secret-spotify-client-secret
 ```
 
 ## Youtube Playlist Enablement
@@ -152,7 +154,8 @@ You can pass Youtube API credentials into the config:
 
 ```
 music:
-  youtube_api_key: secret-Youtube-api-key
+  download:
+    youtube_api_key: secret-Youtube-api-key
 ```
 
 ## Multi Video Input Shuffles
@@ -169,7 +172,9 @@ All Youtube videos are downloaded by the bot via [yt-dlp](https://github.com/yt-
 
 ```
 music:
-  download_dir: /tmp/discord
+  download:
+    cache:
+      download_dir: /tmp/discord
 ```
 
 Specifically when videos are downloaded, they go to the base directory of the download dir. A subdirectory is then created matching the server id, and a symlink is created between the video file and the server subdirectory, with the symlink endpoint given a random UUID. When a video is deleted, the symlink is deleted, and when the bot has not actively being used in any server, the download directory is cleared.
@@ -182,9 +187,12 @@ Do to disk limitation you may wish to limit the queue size, max length of a vide
 
 ```
 music:
-  queue_max_size: 256
-  max_song_length: 3600 # In seconds
-  server_playlist_max: 64
+  player:
+    queue_max_size: 256
+  playlist:
+    server_playlist_max: 64
+  download:
+    max_song_length: 3600 # In seconds
 ```
 
 
@@ -195,8 +203,10 @@ You can enable caching so that videos are not deleted automatically when all pla
 
 ```
 music:
-  download_dir: /tmp/discord
-  enable_cache_files: true
+  download:
+    cache:
+      download_dir: /tmp/discord
+      enable_cache_files: true
 ```
 
 The videos downloaded will be stored in a `VideoCache` table within the database. The database will also store the relevant video metadata (such as title and duration) used by the bot later. The video is identified by the full URL of the download, and should be used with all extractors.
@@ -205,7 +215,9 @@ You can configure how many cached videos are stored on disk, with the video last
 
 ```
 music:
-  max_cache_files: 2048
+  download:
+    cache:
+      max_cache_files: 2048
 ```
 
 Additionally there is a `SearchString` table for storing search strings and their corresponding downloaded videos. By default this is only enabled on Spotify searches, since the Artist Name and Song Name used in these and the relevant video they correspond to should be static.
@@ -214,7 +226,9 @@ You can set how many entries you want in this table via `max_search_cache_entrie
 
 ```
 music:
-  max_search_cache_entries: 1024
+  download:
+    cache:
+      max_search_cache_entries: 1024
 ```
 
 Here is a diagram of how the layers of caching interact with each other:
@@ -231,7 +245,8 @@ You can also choose to enable audio processing, which will use FFMPEG to normali
 
 ```
 music:
-  enable_audio_processing: true
+  download:
+    enable_audio_processing: true
 ```
 
 Note that if audio processing is enabled alongside the cache, then two copies of each video will be stored. One for the original download, and another for the processed file.
@@ -242,15 +257,16 @@ You can pass in extra options for the [yt-dlp](https://github.com/yt-dlp/yt-dlp/
 
 ```
 music:
-  extra_ytdlp_options:
-    proxy: http://localhost:8888
+  download:
+    extra_ytdlp_options:
+      proxy: http://localhost:8888
 ```
 
 ### YTDLP Wait Time
 
 Add a minimum wait time being youtube extractor downloads with yt-dlp, along with a "variance" of random time to add in between. The variance is to make the traffic look more natural.
 
-`youtube_wait_period_min` sets the minimum wait time, with `youtube_wait_period_max_variance` sets the variance. These are both in seconds.
+`youtube_wait_period_minimum` sets the minimum wait time, with `youtube_wait_period_max_variance` sets the variance. These are both in seconds.
 
 The bot will then calculate:
 
@@ -262,8 +278,9 @@ The config should look like:
 
 ```
 music:
-  youtube_wait_period_min: 60
-  youtube_wait_period_max_variance: 15
+  download:
+    youtube_wait_period_minimum: 60
+    youtube_wait_period_max_variance: 15
 ```
 
 ### Youtube Music Search
@@ -274,7 +291,8 @@ This can be turned off:
 
 ```
 music:
-  enable_youtube_music_search: false
+  download:
+    enable_youtube_music_search: false
 ```
 
 ### Shuffles
@@ -283,5 +301,6 @@ By default all playlist/album downloads will be shuffled. The number of shuffles
 
 ```
 music:
-  number_shuffles: 7
+  general:
+    number_shuffles: 7
 ```

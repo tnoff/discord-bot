@@ -36,9 +36,6 @@ class CogHelper(Cog):
         self.logger = logger
         self.settings = settings
         self.db_engine = db_engine
-        self.db_session = None
-        if self.db_engine:
-            self.db_session = sessionmaker(bind=db_engine)()
 
         # Setup config
         if section_schema:

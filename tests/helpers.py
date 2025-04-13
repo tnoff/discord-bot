@@ -1,8 +1,18 @@
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from discord import ChannelType
 from discord.errors import NotFound
+from sqlalchemy.orm import sessionmaker
+
+@contextmanager
+def mock_session(engine):
+    session = sessionmaker(bind=engine)()
+    try:
+        yield session
+    finally:
+        session.close()
 
 class AsyncIterator():
     def __init__(self, items):
@@ -83,12 +93,13 @@ class FakeGuild():
         raise NotFound(FakeResponse(), 'Unable to find role')
 
 class FakeAuthor():
-    def __init__(self, id=None, roles=None, bot=False):
+    def __init__(self, id=None, roles=None, bot=False, voice=None):
         self.id = id or 'fake-user-id-123'
         self.name = 'fake-user-name-123'
         self.display_name = 'fake-display-name-123'
         self.bot = bot
         self.roles = roles or []
+        self.voice = voice
 
     async def add_roles(self, role):
         self.roles.append(role)
@@ -143,6 +154,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
                 self.guild = guilds[0]
             self.intents = FakeIntents()
             self.bot_closed = False
+            self.loop = None
 
         async def fetch_channel(self, _channel_id):
             return self.fake_channel
@@ -189,6 +201,12 @@ class FakeVoiceClient():
     def play(self, *_args, after=None, **_kwargs):
         if after:
             after()
+        return True
+
+    def is_playing(self):
+        return True
+
+    def stop(self):
         return True
 
     async def move_to(self, channel):
