@@ -26,9 +26,6 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-    needs:
-      - check_merge_and_tag
-    if: needs.check_merge_and_tag.outputs.status == 'success'
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

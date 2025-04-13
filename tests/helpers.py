@@ -202,7 +202,7 @@ class FakeVoiceClient():
         if after:
             after()
         return True
-    
+
     def is_playing(self):
         return True
 

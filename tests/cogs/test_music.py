@@ -1338,7 +1338,7 @@ async def test_history(mocker):
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song', 'uploader': 'foo bar artist'}, s)
             cog = Music(fake_bot, logging, config, None)
             await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
-            cog.players[fake_guild.id]._history.put_nowait(sd)
+            cog.players[fake_guild.id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context)
             m0 = cog.message_queue.get_next_message()
             assert m0[1][0].args[0] == '```Pos|| Title /// Uploader\n--------------------------------------------------------------------------------------\n1  || foo bar song /// foo bar artist```'
