@@ -1,5 +1,3 @@
-import logging
-
 from freezegun import freeze_time
 import pytest
 
@@ -18,7 +16,7 @@ def test_delete_messages_start_failed():
     }
     fake_bot = fake_bot_yielder()()
     with pytest.raises(CogMissingRequiredArg) as exc:
-        DeleteMessages(fake_bot, logging, config, None)
+        DeleteMessages(fake_bot, config, None)
     assert 'Delete messages not enabled' in str(exc.value)
 
 def test_delete_messages_requires_config():
@@ -31,7 +29,7 @@ def test_delete_messages_requires_config():
     }
     fake_bot = fake_bot_yielder()()
     with pytest.raises(CogMissingRequiredArg) as exc:
-        DeleteMessages(fake_bot, logging, config, None)
+        DeleteMessages(fake_bot, config, None)
     assert 'Invalid config given' in str(exc.value)
 
 def test_delete_messages_start_config():
@@ -52,7 +50,7 @@ def test_delete_messages_start_config():
         }
     }
     fake_bot = fake_bot_yielder()()
-    cog = DeleteMessages(fake_bot, logging, config, None)
+    cog = DeleteMessages(fake_bot, config, None)
     assert cog.loop_sleep_interval == 5
     assert cog.discord_channels == [{'server_id': 'fake-guild-123', 'channel_id': 'fake-channel-123'}]
 
@@ -81,7 +79,7 @@ async def test_delete_messages_main_loop(mocker):
     }
 
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
-    cog = DeleteMessages(fake_bot, logging, config, None)
+    cog = DeleteMessages(fake_bot, config, None)
     await cog.delete_messages_loop()
     assert fake_channel.messages[0].deleted is True
 
@@ -110,6 +108,6 @@ async def test_delete_messages_main_loop_no_delete(mocker):
         }
     }
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
-    cog = DeleteMessages(fake_bot, logging, config, None)
+    cog = DeleteMessages(fake_bot, config, None)
     await cog.delete_messages_loop()
     assert fake_channel.messages[0].deleted is False

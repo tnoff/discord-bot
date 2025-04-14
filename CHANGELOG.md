@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.1
+
+General:
+- Split up logging into one file per cog
+
 ## 2.4.0
 
 General:

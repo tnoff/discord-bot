@@ -1,5 +1,3 @@
-from logging import RootLogger
-
 from bs4 import BeautifulSoup
 from dappertable import shorten_string_cjk
 from discord.ext.commands import Bot, command, Context
@@ -17,10 +15,10 @@ class UrbanDictionary(CogHelper):
     Class that looks up urban dictionary definitions
     '''
 
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
         if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
-        super().__init__(bot, logger, settings, None)
+        super().__init__(bot, settings, None)
 
     @command(name='urban')
     async def word_lookup(self, ctx: Context, *, word: str):

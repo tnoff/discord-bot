@@ -2,7 +2,6 @@ from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from random import choice
-from logging import RootLogger
 from re import match, sub, MULTILINE
 from typing import Optional, List
 
@@ -106,13 +105,13 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, logger, settings, db_engine, settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
+        super().__init__(bot, settings, db_engine, settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
 
         self.loop_sleep_interval = self.settings.get('markov', {}).get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
         self.message_check_limit = self.settings.get('markov', {}).get('message_check_limit', MESSAGE_CHECK_LIMIT)

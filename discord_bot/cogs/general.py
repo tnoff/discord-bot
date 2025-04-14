@@ -1,4 +1,3 @@
-from logging import RootLogger
 from random import randint
 from re import match
 
@@ -15,10 +14,10 @@ class General(CogHelper):
     '''
     General use commands
     '''
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
         if not settings.get('general', {}).get('include', {}).get('default', True):
             raise CogMissingRequiredArg('Default cog not enabled')
-        super().__init__(bot, logger, settings, None)
+        super().__init__(bot, settings, None)
 
     @command(name='hello')
     async def hello(self, ctx: Context):

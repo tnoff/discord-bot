@@ -27,7 +27,7 @@ GENERAL_SECTION_SCHEMA = {
         'logging': {
             'type': 'object',
             'properties': {
-                'log_file': {
+                'log_dir': {
                     'type': 'string',
                 },
                 'log_file_count': {
@@ -39,10 +39,16 @@ GENERAL_SECTION_SCHEMA = {
                 'log_level': {
                     'type': 'integer',
                     'enum': [0, 10, 20, 30, 40, 50],
+                },
+                'logging_format': {
+                    'type': 'string',
+                },
+                'logging_date_format': {
+                    'type': 'string',
                 }
             },
             'required': [
-                'log_file',
+                'log_dir',
                 'log_level',
                 'log_file_count',
                 'log_file_max_bytes',
@@ -107,8 +113,9 @@ def get_logger(logger_name, logging_section):
     Generic logger
     '''
     logger = getLogger(logger_name)
-    formatter = Formatter('%(asctime)s - %(levelname)s - %(message)s',
-                          datefmt='%Y-%m-%dT%H-%M-%S')
+    logging_format = logging_section.get('logging_format', '%(asctime)s - %(levelname)s - %(message)s')
+    logging_date_format = logging_section.get('logging_date_format', '%Y-%m-%dT%H-%M-%S')
+    formatter = Formatter(logging_format, datefmt=logging_date_format)
     # If no logging section given, return generic logger
     # That logs to stdout
     if not logging_section:
@@ -118,9 +125,10 @@ def get_logger(logger_name, logging_section):
         logger.setLevel(10)
         return logger
     # Else set more proper rotated file logging
-    fh = RotatingFileHandler(logging_section['log_file'],
-                            backupCount=logging_section['log_file_count'],
-                            maxBytes=logging_section['log_file_max_bytes'])
+    log_file = Path(logging_section['log_dir']) / f'{logger_name.lower()}.log'
+    fh = RotatingFileHandler(str(log_file),
+                             backupCount=logging_section['log_file_count'],
+                             maxBytes=logging_section['log_file_max_bytes'])
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     logger.setLevel(logging_section['log_level'])

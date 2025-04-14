@@ -1,5 +1,3 @@
-import logging
-
 import pytest
 
 from discord_bot.cogs.role import RoleAssignment
@@ -24,7 +22,7 @@ VALID_BASIC_CONFIG = {
 def test_role_no_enabled():
     fake_bot = fake_bot_yielder()()
     with pytest.raises(CogMissingRequiredArg) as exc:
-        RoleAssignment(fake_bot, logging, {}, None)
+        RoleAssignment(fake_bot, {}, None)
     assert 'Role not enabled' in str(exc.value)
 
 def test_role_invalid_config():
@@ -37,33 +35,33 @@ def test_role_invalid_config():
     }
     fake_bot = fake_bot_yielder()()
     with pytest.raises(CogMissingRequiredArg) as exc:
-        RoleAssignment(fake_bot, logging, config, None)
+        RoleAssignment(fake_bot, config, None)
     assert 'Invalid config given' in str(exc.value)
 
 def test_clean_string():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     assert 'foo' == cog.clean_input('foo')
     assert cog.clean_input('“foo“') == 'foo'
 
 def test_rejected_roles_no_data():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     assert [] == cog.get_rejected_roles_list(FakeContext())
 
 def test_required_roles_no_data():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     assert [] == cog.get_required_roles(FakeContext())
 
 def test_override_roles_no_data():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     assert [] == cog.get_override_role(FakeContext())
 
 def test_self_service_roles_no_data():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     assert [] == cog.get_self_service_roles(FakeContext())
 
 def test_rejected_roles_with_data():
@@ -83,7 +81,7 @@ def test_rejected_roles_with_data():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     assert ['reject-role-1234'] == cog.get_rejected_roles_list(FakeContext(fake_guild=fake_guild))
 
 def test_required_roles_with_data():
@@ -103,7 +101,7 @@ def test_required_roles_with_data():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     assert ['required-role-1234'] == cog.get_required_roles(FakeContext(fake_guild=fake_guild))
 
 def test_override_roles_with_data():
@@ -123,7 +121,7 @@ def test_override_roles_with_data():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     assert ['admin-role-1234'] == cog.get_override_role(FakeContext(fake_guild=fake_guild))
 
 def test_self_service_roles_with_data():
@@ -143,13 +141,13 @@ def test_self_service_roles_with_data():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     assert ['self-service-role-1234'] == cog.get_self_service_roles(FakeContext(fake_guild=fake_guild))
 
 @pytest.mark.asyncio
 async def test_get_user_invalid_input():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = await cog.get_user(FakeContext(), 'foo bar')
     assert result is None
 
@@ -158,14 +156,14 @@ async def test_get_user_valid_user():
     fake_user = FakeAuthor(id='123456789')
     fake_guild = FakeGuild(members=[fake_user])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = await cog.get_user(FakeContext(fake_guild=fake_guild), '<@123456789>')
     assert result.id == '123456789'
 
 @pytest.mark.asyncio
 async def test_get_user_not_found():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = await cog.get_user(FakeContext(), '<@123456789>')
     assert result is None
 
@@ -173,7 +171,7 @@ def test_get_role_valid_id():
     fake_role = FakeRole(id='123456789')
     fake_guild = FakeGuild(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.get_role(FakeContext(fake_guild=fake_guild), '123456789')
     assert result.id == '123456789'
 
@@ -181,7 +179,7 @@ def test_get_role_valid_id_but_no_roles():
     fake_role = FakeRole(id='123456789')
     fake_guild = FakeGuild(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.get_role(FakeContext(fake_guild=fake_guild), '9875423')
     assert result is None
 
@@ -189,7 +187,7 @@ def test_get_role_valid_name():
     fake_role = FakeRole(id='123456789', name='fake-role')
     fake_guild = FakeGuild(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.get_role(FakeContext(fake_guild=fake_guild), 'fake-role')
     assert result.id == '123456789'
 
@@ -197,7 +195,7 @@ def test_get_role_valid_name_with_space():
     fake_role = FakeRole(id='123456789', name='fake role')
     fake_guild = FakeGuild(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.get_role(FakeContext(fake_guild=fake_guild), 'fake role')
     assert result.id == '123456789'
 
@@ -205,7 +203,7 @@ def test_get_role_invalid_name():
     fake_role = FakeRole(id='123456789', name='fake-role')
     fake_guild = FakeGuild(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.get_role(FakeContext(fake_guild=fake_guild), 'another-fake-role')
     assert result is None
 
@@ -215,14 +213,14 @@ async def test_get_user_roles_with_spaces_for_role():
     fake_role = FakeRole(id='123456789', name='fake role')
     fake_guild = FakeGuild(roles=[fake_role], members=[fake_user])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = await cog.get_user_or_role(FakeContext(fake_guild=fake_guild), '<@987654321> fake role')
     assert result[0][0].id == fake_user.id
     assert result[1].id == fake_role.id
 
 def test_required_roles_with_no_config():
     fake_bot = fake_bot_yielder()()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     result = cog.check_required_roles(FakeContext())
     assert result is True
 
@@ -246,7 +244,7 @@ def test_required_roles_just_author():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_required_roles(FakeContext(author=fake_user))
     assert result is True
 
@@ -270,7 +268,7 @@ def test_required_roles_just_author_with_invalid():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_required_roles(FakeContext(author=fake_user))
     assert result is False
 
@@ -294,7 +292,7 @@ def test_required_roles_author_user_but_author_invalid():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_required_roles(FakeContext(author=fake_user), user=fake_user2)
     assert result is False
 
@@ -318,7 +316,7 @@ def test_required_roles_both():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_required_roles(FakeContext(author=fake_user), user=fake_user2)
     assert result is True
 
@@ -342,7 +340,7 @@ def test_required_roles_user_no_roles():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_required_roles(FakeContext(author=fake_user), user=fake_user2)
     assert result is False
 
@@ -365,7 +363,7 @@ def test_check_override_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_override_role(FakeContext(author=fake_user))
     assert result is True
 
@@ -388,7 +386,7 @@ def test_check_override_role_with_no_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = cog.check_override_role(FakeContext(author=fake_user))
     assert result is False
 
@@ -413,7 +411,7 @@ async def test_role_list_with_no_roles():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_list(cog, FakeContext(author=fake_user)) #pylint:disable=too-many-function-args
     assert result == 'No roles found'
 
@@ -438,7 +436,7 @@ async def test_role_list_with_invalid_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_list(cog, FakeContext(author=fake_user)) #pylint:disable=too-many-function-args
     assert result == 'User "fake-display-name-123" does not have required roles, skipping'
 
@@ -464,7 +462,7 @@ async def test_role_list_basic_return():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_list(cog, context) #pylint:disable=too-many-function-args
     assert context.messages_sent == ['```Role Name\n------------------------------\n@fake role\n@fake role dos```']
@@ -495,7 +493,7 @@ async def test_role_list_with_rejected_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_list(cog, context) #pylint:disable=too-many-function-args
     assert context.messages_sent == ['```Role Name\n------------------------------\n@fake role```']
@@ -521,7 +519,7 @@ async def test_role_list_users_invalid_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_list_users(cog, FakeContext(author=fake_user), role_input='foo bar') #pylint:disable=too-many-function-args
     assert result == 'User "fake-display-name-123" does not have required roles, skipping'
 
@@ -545,7 +543,7 @@ async def test_role_list_users_role_name_invalid():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_list_users(cog, FakeContext(author=fake_user, fake_guild=fake_guild), role_input='foo bar') #pylint:disable=too-many-function-args
     assert result == 'Unable to find role "foo bar"'
 
@@ -569,7 +567,7 @@ async def test_role_list_users_with_no_users():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_list_users(cog, context, role_input=f'{fake_role.name}') #pylint:disable=too-many-function-args
     assert result == 'No users found for role "fake role"'
@@ -598,7 +596,7 @@ async def test_role_list_users_in_reject_roles():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_list_users(cog, context, role_input=f'{fake_role2.name}') #pylint:disable=too-many-function-args
     assert result == 'Unable to list users for role "fake role dos", in reject list'
@@ -624,7 +622,7 @@ async def test_role_list_users_with_users():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_list_users(cog, context, role_input=f'{fake_role.name}') #pylint:disable=too-many-function-args
     assert context.messages_sent == ['```User Name\n------------------------------\n@fake-display-name-123```']
@@ -635,7 +633,7 @@ def test_managed_roles_no_results():
     fake_guild = FakeGuild(roles=[fake_role])
     fake_user = FakeAuthor(roles=[fake_role])
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, VALID_BASIC_CONFIG, None)
+    cog = RoleAssignment(fake_bot, VALID_BASIC_CONFIG, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert not result
@@ -663,7 +661,7 @@ def test_managed_roles_basic_config():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert result[fake_role2] is False
@@ -694,7 +692,7 @@ def test_managed_roles_reject_list():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert not result
@@ -725,7 +723,7 @@ def test_managed_roles_with_self_service():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert result[fake_role2] is True
@@ -757,7 +755,7 @@ def test_managed_roles_with_self_service_but_turned_off():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context, exclude_self_service=True)
     assert fake_role2 not in result
@@ -792,7 +790,7 @@ def test_managed_roles_with_self_service_rejected_list():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert result[fake_role3] is False
@@ -825,7 +823,7 @@ def test_managed_roles_basic_config_with_fake_ids():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = cog.get_managed_roles(context)
     assert len(list(result.keys())) == 1
@@ -850,7 +848,7 @@ async def test_list_managed_no_required_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_managed(cog, FakeContext(author=fake_user)) #pylint:disable=too-many-function-args
     assert result == 'User "fake-display-name-123" does not have required roles, skipping'
 
@@ -874,7 +872,7 @@ async def test_list_managed_no_roles_to_list():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_managed(cog, FakeContext(author=fake_user)) #pylint:disable=too-many-function-args
     assert result == 'No roles found'
 
@@ -906,7 +904,7 @@ async def test_list_managed_with_multiple_options():
     }
 
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(fake_guild=fake_guild, author=fake_user)
     result = await cog.role_managed(cog, context) #pylint:disable=too-many-function-args
     assert context.messages_sent == ['```Role Name                     || Control\n-------------------------------------------\n@fake role dos                || Self-Serve\n@fake role tres               || Full```']
@@ -932,7 +930,7 @@ async def test_role_add_no_required_perms():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     result = await cog.role_add(cog, FakeContext(author=fake_user), inputs='foo bar') #pylint:disable=too-many-function-args
     assert result == 'User "fake-display-name-123" does not have required roles, skipping'
 
@@ -966,7 +964,7 @@ async def test_role_add():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     await cog.role_add(cog, FakeContext(author=fake_user, fake_guild=fake_guild), inputs=f'<@{fake_user2.id}> <@{fake_user3.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 in fake_user2.roles
     assert fake_role3 in fake_user3.roles
@@ -1000,7 +998,7 @@ async def test_role_add_already_exists():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 in fake_user2.roles
@@ -1035,7 +1033,7 @@ async def test_role_no_required_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles
@@ -1074,7 +1072,7 @@ async def test_role_non_required_role_butadmin_override():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 in fake_user2.roles
@@ -1111,7 +1109,7 @@ async def test_role_add_in_reject_list():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert 'Cannot add users to role "fake role tres", you do not manage role. Use `!role available` to see a list of roles you manage' in context.messages_sent
@@ -1143,7 +1141,7 @@ async def test_role_add_admin_override():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 in fake_user2.roles
@@ -1168,7 +1166,7 @@ async def test_role_add_invalid_inputs():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_add(cog, context, inputs='foo bar') #pylint:disable=too-many-function-args
     assert result == 'Unable to find users or role from input'
@@ -1200,7 +1198,7 @@ async def test_role_add_cant_add_self_service_only_for_another_user_no_admin():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_add(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role2.id}>') #pylint:disable=too-many-function-args
     assert result == 'Cannot add users to role "fake role dos", you do not manage role. Use `!role available` to see a list of roles you manage'
@@ -1230,7 +1228,7 @@ async def test_role_add_with_valid_self_service():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_add(cog, context, inputs=f'<@{fake_user.id}> <@{fake_role2.id}>') #pylint:disable=too-many-function-args
     assert fake_role2 in fake_user.roles
@@ -1256,7 +1254,7 @@ async def test_role_remove_no_required_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_remove(cog, context, inputs='foo bar') #pylint:disable=too-many-function-args
     assert result == 'User "fake-display-name-123" does not have required roles, skipping'
@@ -1281,7 +1279,7 @@ async def test_role_remove_invalid_input():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     result = await cog.role_remove(cog, context, inputs='foo bar') #pylint:disable=too-many-function-args
     assert result == 'Unable to find users or role from input'
@@ -1314,7 +1312,7 @@ async def test_remove_user_valid():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles
@@ -1347,7 +1345,7 @@ async def test_remove_user_doesnt_have_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles
@@ -1376,7 +1374,7 @@ async def test_remove_user_no_perms():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert 'Cannot remove users from role "fake role tres", you do not manage role. Use `!role available` to see a list of roles you manage' in context.messages_sent
@@ -1407,7 +1405,7 @@ async def test_remove_user_no_perms_but_admin_override():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles
@@ -1436,7 +1434,7 @@ async def test_remove_self_from_role():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user.id}> <@{fake_role2.id}>') #pylint:disable=too-many-function-args
     assert fake_role2 not in fake_user.roles
@@ -1467,7 +1465,7 @@ async def test_remove_user_where_another_has_self_service():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3  in fake_user2.roles
@@ -1499,7 +1497,7 @@ async def test_remove_user_where_another_has_self_service_but_admin_override():
         }
     }
     fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-    cog = RoleAssignment(fake_bot, logging, config, None)
+    cog = RoleAssignment(fake_bot, config, None)
     context = FakeContext(author=fake_user, fake_guild=fake_guild)
     await cog.role_remove(cog, context, inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles

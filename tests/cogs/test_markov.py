@@ -1,4 +1,3 @@
-import logging
 from tempfile import NamedTemporaryFile
 
 from discord import ChannelType
@@ -78,7 +77,7 @@ async def test_turn_on():
         }
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov turned on for channel'
         session = sessionmaker(bind=engine)()
@@ -102,7 +101,7 @@ async def test_turn_on_invalid_channel():
         }
         fake_channel = FakeChannel(channel_type=ChannelType.forum)
         fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         result = await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Not a valid markov channel, cannot turn on markov'
 
@@ -127,7 +126,7 @@ async def test_server_reject_list():
             }
         }
         fake_bot = fake_bot_yielder()()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         result = await cog.on(cog, FakeContext(fake_guild=fake_guild)) #pylint: disable=too-many-function-args
         assert result == 'Unable to turn on markov for server, in reject list'
         result = await cog.speak(cog, FakeContext(fake_guild=fake_guild)) #pylint: disable=too-many-function-args
@@ -149,7 +148,7 @@ async def test_turn_off():
         }
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Channel does not have markov turned on'
 
@@ -169,7 +168,7 @@ async def test_turn_on_and_off():
         }
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         result = await cog.off(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov turned off for channel'
@@ -193,7 +192,7 @@ async def test_turn_on_and_sync(mocker):
         fake_guild = FakeGuild(emojis=[fake_emoji])
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -219,7 +218,7 @@ async def test_turn_on_and_sync_no_messages(mocker):
         fake_guild = FakeGuild(emojis=[fake_emoji])
         fake_channel = FakeChannel(no_messages=True)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -247,7 +246,7 @@ async def test_turn_on_and_sync_multiple_times(mocker):
         new_fake_message = FakeMessage(content='another basic message')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -277,7 +276,7 @@ async def test_turn_on_and_sync_message_dissapears(mocker):
         fake_message = FakeMessage(content='this is a basic test')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -307,7 +306,7 @@ async def test_turn_on_and_sync_bot_command(mocker):
         fake_message = FakeMessage(content='!test command')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -334,7 +333,7 @@ async def test_turn_on_and_sync_no_content(mocker):
         fake_message = FakeMessage(content='')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -361,7 +360,7 @@ async def test_turn_on_and_sync_too_long_words(mocker):
         fake_message = FakeMessage(content=f'{"a" * 300} foo bar {"b" * 300} bar bar foo foo')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
@@ -391,7 +390,7 @@ async def test_turn_on_sync_and_speak(mocker):
         fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
@@ -421,7 +420,7 @@ async def test_turn_on_sync_speak_invalid_first_word(mocker):
         fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
@@ -449,7 +448,7 @@ async def test_turn_on_sync_speak_multi_first_word(mocker):
         fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
@@ -477,7 +476,7 @@ async def test_turn_on_sync_speak_sentence_length(mocker):
         fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human')
         fake_channel = FakeChannel(fake_message=fake_message)
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
@@ -504,7 +503,7 @@ async def test_speak_no_words():
         fake_guild = FakeGuild(emojis=[fake_emoji])
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, FakeContext()) #pylint: disable=too-many-function-args
         result = await cog.speak(cog, FakeContext(), sentence_length=5)
         assert result == 'No markov words to pick from'
@@ -527,7 +526,7 @@ async def test_list_channels_none_on():
         fake_emoji = FakeEmjoi()
         fake_guild = FakeGuild(emojis=[fake_emoji])
         fake_bot = fake_bot_yielder(guilds=[fake_guild])()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         result = await cog.list_channels(cog, FakeContext()) #pylint: disable=too-many-function-args
         assert result == 'Markov not enabled for any channels in server'
 
@@ -551,7 +550,7 @@ async def test_list_channels_with_valid_output():
         fake_context = FakeContext()
         fake_channel = FakeChannel()
         fake_bot = fake_bot_yielder(guilds=[fake_guild], fake_channel=fake_channel)()
-        cog = Markov(fake_bot, logging, config, engine)
+        cog = Markov(fake_bot, config, engine)
         await cog.on(cog, fake_context) #pylint: disable=too-many-function-args
         # Clear messages sent before next bit
         fake_context.messages_sent = []
