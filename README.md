@@ -53,7 +53,7 @@ general:
   sql_connection_statement: sqlite:///home/user/db.sql
 ```
 
-### Log File Rotation
+### Log Setup
 
 If no log section given, logs will go to stdout by default. If you wish to setup logs and have log rotation set:
 
@@ -62,10 +62,12 @@ If no log section given, logs will go to stdout by default. If you wish to setup
 general:
   discord_token: blah-blah-blah-discord-token
   logging:
-    log_file: /logs/discord.log # Log file path
+    log_dir: /logs/discord # Log file path
     log_file_count: 2 # Max backup log files
     log_file_max_bytes: 1240000 # Size to rotate log files at
 ```
+
+A `log_dir` can be passed and then each cog is setup to send to a log file within that dir. Each log file will be named after the cog, so look for `music.log` for music cog logs, for example.
 
 ### Include Cogs
 

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from functools import partial
-from logging import RootLogger
+
 from discord.ext.commands import Cog, Bot
 from jsonschema import ValidationError
 from sqlalchemy.orm import sessionmaker
@@ -9,7 +9,7 @@ from sqlalchemy.orm.session import Session
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import validate_config
+from discord_bot.utils.common import validate_config, get_logger
 from discord_bot.utils.sql_retry import retry_database_commands
 
 class CogHelper(Cog):
@@ -17,7 +17,7 @@ class CogHelper(Cog):
     Cogs usually have the following bits
     '''
 
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine,
+    def __init__(self, bot: Bot, settings: dict, db_engine: Engine,
                  settings_prefix: str = None, section_schema: dict  = None):
         '''
         Init a basic cog
@@ -33,7 +33,7 @@ class CogHelper(Cog):
             raise CogMissingRequiredArg('Section schema given but settings prefix not given')
 
         self.bot = bot
-        self.logger = logger
+        self.logger = get_logger(type(self).__name__, settings.get('general', {}).get('logging', {}))
         self.settings = settings
         self.db_engine = db_engine
 

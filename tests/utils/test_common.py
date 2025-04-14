@@ -42,12 +42,12 @@ def test_logging_config():
     }
     with pytest.raises(ValidationError) as exc:
         validate_config(logging_input, GENERAL_SECTION_SCHEMA)
-    assert "'log_file' is a required property" in str(exc.value)
+    assert "'log_dir' is a required property" in str(exc.value)
 
     logging_input = {
         'discord_token': 'abctoken',
         'logging': {
-            'log_file': '/var/foo.log',
+            'log_dir': '/var/foo',
             'log_file_count': 1,
             'log_file_max_bytes': 10 * 1024,
             'log_level': 30,
@@ -58,7 +58,7 @@ def test_logging_config():
     logging_input = {
         'discord_token': 'abctoken',
         'logging': {
-            'log_file': '/var/foo.log',
+            'log_dir': '/var/foo/',
             'log_file_count': 1,
             'log_file_max_bytes': 10 * 1024,
             'log_level': 123,
@@ -102,10 +102,10 @@ def test_get_logger():
     assert logger.hasHandlers() is True
 
 
-    with NamedTemporaryFile() as temp_file:
+    with TemporaryDirectory() as tmp_dir:
         # Test some more specific options
         log_args =  {
-            'log_file': temp_file.name,
+            'log_dir': tmp_dir,
             'log_file_count': 1,
             'log_file_max_bytes': 10 * 1024,
             'log_level': 30,

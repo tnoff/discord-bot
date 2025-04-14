@@ -1,4 +1,3 @@
-from logging import RootLogger
 from re import search
 from typing import List
 
@@ -63,12 +62,12 @@ class RoleAssignment(CogHelper):
     '''
     Class that can add roles in more managed fashion
     '''
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
         if not settings.get('general', {}).get('include', {}).get('role', False):
             raise CogMissingRequiredArg('Role not enabled')
         if not bot.intents.members:
             raise CogMissingRequiredArg('"members" intents required to run role commands')
-        super().__init__(bot, logger, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
+        super().__init__(bot, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
         self.settings = settings['role']
 
     def clean_input(self, stringy: str) -> str:

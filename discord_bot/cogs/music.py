@@ -5,7 +5,6 @@ from asyncio import sleep
 from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import datetime, timezone
 from functools import partial
-from logging import RootLogger
 from pathlib import Path
 from random import shuffle as random_shuffle, randint
 from re import match as re_match
@@ -279,8 +278,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     Music related commands
     '''
 
-    def __init__(self, bot: Bot, logger: RootLogger, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
-        super().__init__(bot, logger, settings, db_engine, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
+    def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
+        super().__init__(bot, settings, db_engine, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
 

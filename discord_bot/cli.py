@@ -92,7 +92,7 @@ def main(execute, config_file): #pylint:disable=too-many-statements
 
     # Grab logger
     print('Starting logging', file=stderr)
-    logger = get_logger(__name__, settings['general'].get('logging', {}))
+    logger = get_logger('main', settings['general'].get('logging', {}))
 
     if execute == CLIRunners.CLEAR_MARKOV.value:
         clear_markov_relations(db_engine)
@@ -144,11 +144,11 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     )
 
     cog_list = [
-        CommandErrorHandler(bot, logger),
+        CommandErrorHandler(bot, settings),
     ]
     for cog in POSSIBLE_COGS:
         try:
-            new_cog = cog(bot, logger, settings, db_engine)
+            new_cog = cog(bot, settings, db_engine)
             cog_list.append(new_cog)
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog)}, {str(e)}')

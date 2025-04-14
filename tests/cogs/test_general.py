@@ -1,4 +1,3 @@
-import logging
 import pytest
 
 from discord_bot.cogs.general import General
@@ -16,20 +15,20 @@ def test_general_startup_not_enabled():
     }
     fake_bot = fake_bot_yielder()
     with pytest.raises(CogMissingRequiredArg) as exc:
-        General(fake_bot, logging, config, None)
+        General(fake_bot, config, None)
     assert 'Default cog not enabled' in str(exc.value)
 
 @pytest.mark.asyncio
 async def test_hello():
     fake_bot = fake_bot_yielder()
-    cog = General(fake_bot, logging, {}, None)
+    cog = General(fake_bot, {}, None)
     result = await cog.hello(cog, FakeContext()) #pylint:disable=too-many-function-args
     assert result == 'Waddup fake-display-name-123'
 
 @pytest.mark.asyncio
 async def test_roll(mocker):
     fake_bot = fake_bot_yielder()
-    cog = General(fake_bot, logging, {}, None)
+    cog = General(fake_bot, {}, None)
     mocker.patch('discord_bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, FakeContext(), input_value='5') #pylint:disable=too-many-function-args
     assert result == 'fake-user-name-123 rolled a 3'
@@ -41,7 +40,7 @@ async def test_roll(mocker):
 @pytest.mark.asyncio
 async def test_roll_invalid_input(mocker):
     fake_bot = fake_bot_yielder()
-    cog = General(fake_bot, logging, {}, None)
+    cog = General(fake_bot, {}, None)
     mocker.patch('discord_bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, FakeContext(), input_value='foo') #pylint:disable=too-many-function-args
     assert result == 'Invalid input given "foo"'
@@ -53,6 +52,6 @@ async def test_roll_invalid_input(mocker):
 @pytest.mark.asyncio
 async def test_meta():
     fake_bot = fake_bot_yielder()()
-    cog = General(fake_bot, logging, {}, None)
+    cog = General(fake_bot, {}, None)
     result = await cog.meta(cog, FakeContext()) #pylint:disable=too-many-function-args
     assert result == '```Server id: fake-guild-1234\nChannel id: fake-channel-id-123\nUser id: fake-user-id-123```'
