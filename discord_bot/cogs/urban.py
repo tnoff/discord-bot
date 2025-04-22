@@ -1,3 +1,5 @@
+from functools import partial
+
 from bs4 import BeautifulSoup
 from dappertable import shorten_string_cjk
 from discord.ext.commands import Bot, command, Context
@@ -6,9 +8,11 @@ from requests import get as requests_get
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
-
+from discord_bot.utils.otel import command_wrapper
+from discord_bot.utils.common import async_retry_discord_message_command
 
 BASE_URL = 'https://www.urbandictionary.com/'
+
 
 class UrbanDictionary(CogHelper):
     '''
@@ -21,6 +25,7 @@ class UrbanDictionary(CogHelper):
         super().__init__(bot, settings, None)
 
     @command(name='urban')
+    @command_wrapper
     async def word_lookup(self, ctx: Context, *, word: str):
         '''
         Lookup word on urban dictionary
@@ -28,7 +33,8 @@ class UrbanDictionary(CogHelper):
         search: str [Required]
             The word or phrase to search in urban dictionary
         '''
-        self.logger.debug(f'Urban :: Looking up word string "{word}" {ctx.guild.id}')
+        #with otel_span_wrapper('urban.lookup', ctx=ctx):
+        self.logger.debug(f'Looking up word string "{word}" in guild "{ctx.guild.id}"')
         word_url = f'{BASE_URL}define.php?term={word}'
         result = requests_get(word_url, timeout=60)
         if result.status_code != 200:
@@ -45,4 +51,6 @@ class UrbanDictionary(CogHelper):
         for (count, define) in enumerate(definitions[:2]):
             definition = shorten_string_cjk(define, 400)
             text = f'{text}{count+1}. {definition}\n'
-        return await ctx.send(f'```{text}```')
+        if not text:
+            return await async_retry_discord_message_command(partial(ctx.send, f'No results found for "{word}"'))
+        return await async_retry_discord_message_command(partial(ctx.send, f'```{text}```'))

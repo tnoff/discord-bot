@@ -3,15 +3,20 @@ from functools import partial
 from pathlib import Path
 from typing import Callable, List
 
+from opentelemetry.trace import SpanKind
 from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 
 from discord_bot.database import VideoCache, VideoCacheGuild, Guild
 from discord_bot.utils.common import rm_tree, run_commit
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
+from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming, MusicSourceDownloadNaming
+
+OTEL_SPAN_PREFIX = 'music.video_cache'
+
 
 def get_guild(db_session: Session, guild_id: str):
     '''
@@ -149,24 +154,25 @@ class VideoCacheClient():
         '''
         # Find items that don't exist anymore
         # And get list of ones that do
-        existing_files = set([])
-        remove_cache_items = []
-        with self.session_generator() as db_session:
-            for item in retry_database_commands(db_session, partial(get_all_video_cache, db_session)):
-                base_path = Path(str(item.base_path))
-                if not base_path.exists():
-                    remove_cache_items.append(item.id)
-                    continue
-                existing_files.add(base_path)
-            # Remove cache files that don't exist anymore
-            self.remove_video_cache(remove_cache_items)
-            # Remove any extra files
-            for file_path in self.download_dir.glob('*'):
-                if file_path.is_dir():
-                    rm_tree(file_path)
-                    continue
-                if file_path not in existing_files:
-                    file_path.unlink()
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.verify_cache', kind=SpanKind.INTERNAL):
+            existing_files = set([])
+            remove_cache_items = []
+            with self.session_generator() as db_session:
+                for item in retry_database_commands(db_session, partial(get_all_video_cache, db_session)):
+                    base_path = Path(str(item.base_path))
+                    if not base_path.exists():
+                        remove_cache_items.append(item.id)
+                        continue
+                    existing_files.add(base_path)
+                # Remove cache files that don't exist anymore
+                self.remove_video_cache(remove_cache_items)
+                # Remove any extra files
+                for file_path in self.download_dir.glob('*'):
+                    if file_path.is_dir():
+                        rm_tree(file_path)
+                        continue
+                    if file_path not in existing_files:
+                        file_path.unlink()
 
     def iterate_file(self, source_download: SourceDownload) -> bool:
         '''
@@ -174,33 +180,35 @@ class VideoCacheClient():
         source_download : All options from source download in ytdlp
         source_dict     : Original dict that called function
         '''
-        now = datetime.now(timezone.utc)
-        with self.session_generator() as db_session:
-            video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_download.webpage_url))
-            if video_cache:
-                video_cache.count += 1
-                video_cache.last_iterated_at = now
-                # Unmark deletion here just in case
-                video_cache.ready_for_deletion = False
-                self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), video_cache)
-                retry_database_commands(db_session, partial(run_commit, db_session))
+        attributes = source_download_attributes(source_download)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.iterate_file', kind=SpanKind.INTERNAL, attributes=attributes):
+            now = datetime.now(timezone.utc)
+            with self.session_generator() as db_session:
+                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_download.webpage_url))
+                if video_cache:
+                    video_cache.count += 1
+                    video_cache.last_iterated_at = now
+                    # Unmark deletion here just in case
+                    video_cache.ready_for_deletion = False
+                    self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), video_cache)
+                    retry_database_commands(db_session, partial(run_commit, db_session))
+                    return True
+                cache_item = VideoCache(
+                    video_id=source_download.id,
+                    video_url=source_download.webpage_url,
+                    title=source_download.title,
+                    uploader=source_download.uploader,
+                    duration=source_download.duration,
+                    extractor=source_download.extractor,
+                    last_iterated_at=now,
+                    created_at=now,
+                    base_path=str(source_download.base_path),
+                    count=1,
+                    ready_for_deletion=False,
+                )
+                retry_database_commands(db_session, partial(add_video_cache, db_session, cache_item))
+                self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), cache_item)
                 return True
-            cache_item = VideoCache(
-                video_id=source_download.id,
-                video_url=source_download.webpage_url,
-                title=source_download.title,
-                uploader=source_download.uploader,
-                duration=source_download.duration,
-                extractor=source_download.extractor,
-                last_iterated_at=now,
-                created_at=now,
-                base_path=str(source_download.base_path),
-                count=1,
-                ready_for_deletion=False,
-            )
-            retry_database_commands(db_session, partial(add_video_cache, db_session, cache_item))
-            self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), cache_item)
-            return True
 
     def __generate_source_download(self, video_cache: VideoCache, source_dict: SourceDict):
         '''
@@ -221,29 +229,38 @@ class VideoCacheClient():
         Get item with matching webpage url
         source_dict : Source dict to create SourceFile with
         '''
-        with self.session_generator() as db_session:
-            video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_dict.search_string))
-            if not video_cache:
-                return None
+        attributes = source_dict_attributes(source_dict)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
+            with self.session_generator() as db_session:
+                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_dict.search_string))
+                if not video_cache:
+                    return None
 
-            return self.__generate_source_download(video_cache, source_dict)
+                return self.__generate_source_download(video_cache, source_dict)
 
     def generate_download_from_existing(self, source_dict: SourceDict, video_cache: VideoCache) -> SourceDownload:
         '''
         Generate a source download from a file that already exists
         '''
-        return self.__generate_source_download(video_cache, source_dict)
+        attributes = source_dict_attributes(source_dict)
+        attributes[MusicVideoCacheNaming.ID.value] = video_cache.id
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.generate_download', kind=SpanKind.INTERNAL, attributes=attributes):
+            return self.__generate_source_download(video_cache, source_dict)
 
     def search_existing_file(self, extractor: str, video_id: str) -> VideoCache:
         '''
         Search cache for existing files
         '''
-        # NOTE This assumes the current ytdlp extractor path
-        with self.session_generator() as db_session:
-            existing = retry_database_commands(db_session, partial(query_existing_files, db_session, extractor, video_id))
-            if existing:
-                return existing
-            return None
+        attributes = {
+            MusicSourceDownloadNaming.VIDEO_ID.value: video_id,
+            MusicSourceDownloadNaming.EXTRACTOR.value: extractor,
+        }
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_existing', kind=SpanKind.INTERNAL, attributes=attributes):
+            with self.session_generator() as db_session:
+                existing = retry_database_commands(db_session, partial(query_existing_files, db_session, extractor, video_id))
+                if existing:
+                    return existing
+                return None
 
     def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
         '''
@@ -251,22 +268,24 @@ class VideoCacheClient():
 
         video_cache_ids: List of ints
         '''
-        with self.session_generator() as db_session:
-            for video_cache_id in video_cache_ids:
-                video_cache = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
-                base_path = Path(video_cache.base_path)
-                base_path.unlink(missing_ok=True)
-                retry_database_commands(db_session, partial(remove_video_cache, db_session, video_cache))
-        return True
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.remove_video', kind=SpanKind.INTERNAL):
+            with self.session_generator() as db_session:
+                for video_cache_id in video_cache_ids:
+                    video_cache = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
+                    base_path = Path(video_cache.base_path)
+                    base_path.unlink(missing_ok=True)
+                    retry_database_commands(db_session, partial(remove_video_cache, db_session, video_cache))
+            return True
 
     def ready_remove(self):
         '''
         Mark videos in cache for deletion
         '''
-        with self.session_generator() as db_session:
-            cache_count = retry_database_commands(db_session, partial(video_cache_count, db_session))
-            num_to_remove = cache_count - self.max_cache_files
-            if num_to_remove < 1:
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ready_remove', kind=SpanKind.INTERNAL):
+            with self.session_generator() as db_session:
+                cache_count = retry_database_commands(db_session, partial(video_cache_count, db_session))
+                num_to_remove = cache_count - self.max_cache_files
+                if num_to_remove < 1:
+                    return True
+                retry_database_commands(db_session, partial(video_cache_mark_deletion, db_session, num_to_remove))
                 return True
-            retry_database_commands(db_session, partial(video_cache_mark_deletion, db_session, num_to_remove))
-            return True

@@ -1,7 +1,10 @@
 from typing import List
 
+from opentelemetry.trace import SpanKind
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
+
+from discord_bot.utils.otel import otel_span_wrapper, ThirdPartyNaming
 
 class SpotifyClient():
     '''
@@ -42,17 +45,18 @@ class SpotifyClient():
         playlist_id : Playlist id from spotify
         pagination_limit : Limit of each API call
         '''
-        offset = 0
-        items = []
-        while True:
-            resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
-            items += self.__get_response_items(resp['items'])
-            try:
-                if not resp['next']:
+        with otel_span_wrapper('spotify.playlist_get', attributes={ThirdPartyNaming.SPOTIFY_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT):
+            offset = 0
+            items = []
+            while True:
+                resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
+                items += self.__get_response_items(resp['items'])
+                try:
+                    if not resp['next']:
+                        return items
+                except KeyError:
                     return items
-            except KeyError:
-                return items
-            offset += pagination_limit
+                offset += pagination_limit
 
     def album_get(self, album_id: str,
                   pagination_limit: int = 50) -> List[dict]:
@@ -62,15 +66,15 @@ class SpotifyClient():
         album_id : Album id from spotify
         pagination_limit : Limit of each API call
         '''
-
-        offset = 0
-        items = []
-        while True:
-            resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
-            items += self.__get_response_items(resp['items'])
-            if not resp['next']:
-                return items
-            offset += pagination_limit
+        with otel_span_wrapper('spotify.album_get', attributes={ThirdPartyNaming.SPOTIFY_ALBUM.value: album_id}, kind=SpanKind.CLIENT):
+            offset = 0
+            items = []
+            while True:
+                resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
+                items += self.__get_response_items(resp['items'])
+                if not resp['next']:
+                    return items
+                offset += pagination_limit
 
     def track_get(self, track_id: str) -> List[dict]:
         '''
@@ -78,5 +82,6 @@ class SpotifyClient():
 
         track_id : Track id from spotify
         '''
-        resp = self.client.track(track_id)
-        return self.__get_response_items([resp])
+        with otel_span_wrapper('spotify.track_get', attributes={ThirdPartyNaming.SPOTIFY_TRACK.value: track_id}, kind=SpanKind.CLIENT):
+            resp = self.client.track(track_id)
+            return self.__get_response_items([resp])
