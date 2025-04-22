@@ -804,7 +804,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Delete number of rows necessary to add list
             existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, playlist_id))
             delta = (existing_items + len(history_items)) - self.server_playlist_max_size
-            if delta:
+            if delta > 0:
                 self.logger.info(f'Need to delete {delta} items from history playlist {delta}')
                 retry_database_commands(db_session, partial(delete_extra_items, db_session, playlist_id, delta))
             for item in history_items:
