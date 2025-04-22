@@ -8,12 +8,17 @@ from traceback import format_exc
 from typing import Callable
 
 from jsonschema import validate
-
 from discord.errors import DiscordServerError, RateLimited
 from discord.ext.commands import Bot
+from opentelemetry.trace import SpanKind
+from opentelemetry.trace.status import StatusCode
+from opentelemetry.sdk._logs import LoggingHandler
 from sqlalchemy.orm.session import Session
 
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.utils.instrument import otel_span_wrapper, AttributeNaming
+
+OTEL_SPAN_PREFIX = 'utils'
 
 GENERAL_SECTION_SCHEMA = {
     'type': 'object',
@@ -23,6 +28,30 @@ GENERAL_SECTION_SCHEMA = {
         },
         'sql_connection_statement': {
             'type': 'string',
+        },
+        'otlp': {
+            'type': 'object',
+            'properties': {
+                'log_endpoint': {
+                    'type': 'string',
+                },
+                'trace_endpoint': {
+                    'type': 'string'
+                },
+                'metric_endpoint': {
+                    'type': 'string',
+                },
+                'service_name': {
+                    'type': 'string',
+                },
+                'deployment_environment': {
+                    'type': 'string',
+                }
+            },
+            'required': [
+                'service_name',
+                'deployment_environment',
+            ],
         },
         'logging': {
             'type': 'object',
@@ -108,7 +137,7 @@ def validate_config(config_section, schema):
     '''
     return validate(instance=config_section, schema=schema)
 
-def get_logger(logger_name, logging_section):
+def get_logger(logger_name, logging_section, otlp_logger=None):
     '''
     Generic logger
     '''
@@ -125,13 +154,17 @@ def get_logger(logger_name, logging_section):
         logger.setLevel(10)
         return logger
     # Else set more proper rotated file logging
-    log_file = Path(logging_section['log_dir']) / f'{logger_name.lower()}.log'
+    log_file = Path(logging_section['log_dir']) / f'{logger_name}.log'
     fh = RotatingFileHandler(str(log_file),
                              backupCount=logging_section['log_file_count'],
                              maxBytes=logging_section['log_file_max_bytes'])
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     logger.setLevel(logging_section['log_level'])
+    if otlp_logger:
+        handler = LoggingHandler(level=logging_section['log_level'], logger_provider=otlp_logger)
+        logger.addHandler(handler)
+
     return logger
 
 def retry_command(func, *args, **kwargs):
@@ -142,23 +175,31 @@ def retry_command(func, *args, **kwargs):
     accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
     retry = -1
-    while True:
-        retry += 1
-        should_sleep = True
-        try:
-            return func(*args, **kwargs)
-        except accepted_exceptions as ex:
+    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_synchronous', kind=SpanKind.CLIENT) as span:
+        while True:
+            retry += 1
+            should_sleep = True
+            span.set_attributes({
+                AttributeNaming.RETRY_COUNT.value: retry
+            })
             try:
-                for pf in post_functions:
-                    pf(ex, retry == max_retries)
-            except SkipRetrySleep:
-                should_sleep = False
-            if retry < max_retries:
-                if should_sleep:
-                    sleep_for = 2 ** (retry - 1)
-                    sleep(sleep_for)
-                continue
-            raise
+                result = func(*args, **kwargs)
+                span.set_status(StatusCode.OK)
+                return result
+            except accepted_exceptions as ex:
+                try:
+                    for pf in post_functions:
+                        pf(ex, retry == max_retries)
+                except SkipRetrySleep:
+                    should_sleep = False
+                if retry < max_retries:
+                    if should_sleep:
+                        sleep_for = 2 ** (retry - 1)
+                        sleep(sleep_for)
+                    continue
+                span.set_status(StatusCode.ERROR)
+                span.record_exception(ex)
+                raise
 
 async def async_retry_command(func, *args, **kwargs):
     '''
@@ -168,23 +209,31 @@ async def async_retry_command(func, *args, **kwargs):
     accepted_exceptions = kwargs.pop('accepted_exceptions', ())
     post_functions = kwargs.pop('post_exception_functions', [])
     retry = -1
-    while True:
-        retry += 1
-        should_sleep = True
-        try:
-            return await func(*args, **kwargs)
-        except accepted_exceptions as ex:
+    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
+        while True:
+            retry += 1
+            should_sleep = True
+            span.set_attributes({
+                AttributeNaming.RETRY_COUNT.value: retry
+            })
             try:
-                for pf in post_functions:
-                    await pf(ex, retry == max_retries)
-            except SkipRetrySleep:
-                should_sleep = False
-            if retry < max_retries:
-                if should_sleep:
-                    sleep_for = 2 ** (retry - 1)
-                    await async_sleep(sleep_for)
-                continue
-            raise
+                result = await func(*args, **kwargs)
+                span.set_status(StatusCode.OK)
+                return result
+            except accepted_exceptions as ex:
+                try:
+                    for pf in post_functions:
+                        await pf(ex, retry == max_retries)
+                except SkipRetrySleep:
+                    should_sleep = False
+                if retry < max_retries:
+                    if should_sleep:
+                        sleep_for = 2 ** (retry - 1)
+                        await async_sleep(sleep_for)
+                    continue
+                span.set_status(StatusCode.ERROR)
+                span.record_exception(ex)
+                raise
 
 def retry_discord_message_command(func, *args, **kwargs):
     '''
@@ -196,7 +245,8 @@ def retry_discord_message_command(func, *args, **kwargs):
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
     exceptions = (RateLimited, DiscordServerError, TimeoutError)
-    return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_synchronous', kind=SpanKind.CLIENT):
+        return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 async def async_retry_discord_message_command(func, *args, **kwargs):
     '''
@@ -208,7 +258,8 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
     exceptions = (RateLimited, DiscordServerError, TimeoutError)
-    return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT):
+        return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 def rm_tree(pth: Path) -> bool:
     '''

@@ -497,7 +497,7 @@ async def test_youtube_last_update_time_with_more_backoff(freezer):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_players_just_bot(mocker):
+async def test_cleanup_players_just_bot(mocker, freezer):
     config = {
         'general': {
             'include': {
@@ -513,6 +513,10 @@ async def test_cleanup_players_just_bot(mocker):
     fake_voice = FakeVoiceClient(channel=fake_channel)
     fake_guild = FakeGuild(voice=fake_voice)
     await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+    # Run twice cause first time needs to hit heartbeat
+    freezer.move_to('2024-12-01 12:00:00')
+    await cog.cleanup_players()
+    freezer.move_to('2024-12-02 12:00:00')
     await cog.cleanup_players()
     assert fake_guild.id not in cog.players
 
@@ -1060,7 +1064,7 @@ async def test_cache_cleanup_no_op(mocker):
                 assert cog.video_cache.get_webpage_url_item(s)
 
 @pytest.mark.asyncio
-async def test_cache_cleanup_removes(mocker):
+async def test_cache_cleanup_removes(mocker, freezer):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
@@ -1103,6 +1107,10 @@ async def test_cache_cleanup_removes(mocker):
                     cog.video_cache.iterate_file(sd)
                     cog.video_cache.iterate_file(sd2)
                     cog.video_cache.ready_remove()
+                    # Run twice so heartbeat passses
+                    freezer.move_to('2024-12-01 12:00:00')
+                    await cog.cache_cleanup()
+                    freezer.move_to('2024-12-02 12:00:00')
                     await cog.cache_cleanup()
                     assert not cog.video_cache.get_webpage_url_item(s)
 

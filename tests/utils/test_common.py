@@ -95,6 +95,25 @@ def test_rejectlist_config():
     }
     validate_config(reject_input, GENERAL_SECTION_SCHEMA)
 
+def test_otlp_config_bad():
+    reject_input = {
+        'discord_token': 'abctoken',
+        'otlp': {},
+    }
+    with pytest.raises(ValidationError) as e:
+        validate_config(reject_input, GENERAL_SECTION_SCHEMA)
+    assert 'service_name' in str(e.value)
+
+def test_otlp_config_minimal():
+    reject_input = {
+        'discord_token': 'abctoken',
+        'otlp': {
+            'service_name': 'foo',
+            'deployment_environment': 'bar'
+        },
+    }
+    validate_config(reject_input, GENERAL_SECTION_SCHEMA)
+
 def test_get_logger():
     # Test default options
     logger = get_logger('foo', {})
