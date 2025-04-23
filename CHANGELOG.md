@@ -11,6 +11,7 @@ General:
 - Added more test coverage, up to 90%
 - Changed up common cog to not return a db session, but added function to yield one
 - Added function to retry db statements
+
 Music:
 - Added a "message queue" to handle all message requests. Helps from reaching rate limiting too often
 - Removed unused `video_id` field from `PlaylistItem` table
