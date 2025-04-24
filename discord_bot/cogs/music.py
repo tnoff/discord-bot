@@ -888,7 +888,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         pending_items = self.download_queue.clear_queue(guild.id)
-        self.logger.debug(f'Music :: Found existing download items {pending_items}')
+        self.logger.debug(f'Music :: Found {len(pending_items)} existing download items')
         for source in pending_items:
             self.message_queue.iterate_source_lifecycle(source, SourceLifecycleStage.DELETE, source.delete_message, '')
 
@@ -1715,7 +1715,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.debug(f'Music :: Search "{source_download}" found in cache, placing in player queue')
                     await self.add_source_to_player(source_download, player)
                     continue
-                self.logger.debug(f'Music :: Handing off "{source_download}" to download queue')
+                self.logger.debug(f'Music :: Handing off "{str(source_dict)}" to download queue')
                 self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
                                                             partial(ctx.send),
                                                             f'Downloading and processing "{source_dict}"')
