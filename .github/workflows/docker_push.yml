@@ -86,6 +86,9 @@ jobs:
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
+      - name: Get github hash
+        id: github-hash
+        run: echo "github_hash=$(echo $GITHUB_SHA | head -c7)" >> $GITHUB_OUTPUT
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to OCIR
