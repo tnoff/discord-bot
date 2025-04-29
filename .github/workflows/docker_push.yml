@@ -94,7 +94,7 @@ jobs:
       - name: Login to OCIR
         uses: docker/login-action@v3
         with:
-          registry: sjc.ocir.io
+          registry: ${{ secrets.OCI_REGISTRY }}
           username: ${{ secrets.OCI_USERNAME }}
           password: ${{ secrets.OCI_TOKEN }}
       - name: Build and push
@@ -103,4 +103,4 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: .
-          tags: ${{ secrets.OCI_REGISTRY}}/${{ secrets.OCI_REPO_NAME }}:latest,${{ secrets.OCI_REGISTRY}}/${{ secrets.OCI_REPO_NAME }}:${{ steps.github-hash.outputs.github_hash }}
+          tags: ${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:latest,${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:${{ steps.github-hash.outputs.github_hash }}
