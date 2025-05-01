@@ -49,32 +49,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_tag: ${{ steps.version.outputs.version }}
           tag_prefix: ''
-  push_to_registry:
-    name: Push Docker Image to Digital Ocean
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    needs:
-      - check_merge_and_tag
-    if: needs.check_merge_and_tag.outputs.status == 'success'
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v4
-      - name: Install doctl
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      - name: Log in to DigitalOcean Container Registry with short-lived credentials
-        run: doctl registry login --expiry-seconds 3600
-      - name: Get github hash
-        id: github-hash
-        run: echo "github_hash=$(echo $GITHUB_SHA | head -c7)" >> $GITHUB_OUTPUT
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          context: .
-          tags: registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}/discord-bot:latest,registry.digitalocean.com/${{ secrets.REGISTRY_NAME }}/discord-bot:${{ steps.github-hash.outputs.github_hash }}
   push_to_oci:
     name: Push Docker Image to OCI
     runs-on: ubuntu-24.04
