@@ -11,6 +11,7 @@ from discord_bot.database import BASE, Playlist, PlaylistItem, VideoCache
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music, match_generator
 
+from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, DownloadClientException, DownloadError
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -517,6 +518,95 @@ async def test_cleanup_players_just_bot(mocker):
 
 
 @pytest.mark.asyncio
+async def test_history_playlist_update(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd))
+                await cog.playlist_history_update()
+
+                with mock_session(engine) as session:
+                    assert session.query(Playlist).count() == 1
+                    assert session.query(PlaylistItem).count() == 1
+
+                # Run twice to exercise dupes aren't created
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd))
+                await cog.playlist_history_update()
+
+                with mock_session(engine) as session:
+                    assert session.query(Playlist).count() == 1
+                    assert session.query(PlaylistItem).count() == 1
+
+@pytest.mark.asyncio
+async def test_history_playlist_update_delete_extra_items(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                }
+            },
+            'music': {
+                'playlist': {
+                    'server_playlist_max_size': 1,
+                }
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd))
+                await cog.playlist_history_update()
+
+                sd2 = SourceDownload(file_path, {'webpage_url': 'https://foo.example.dos'}, s)
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd2))
+                await cog.playlist_history_update()
+
+                with mock_session(engine) as session:
+                    assert session.query(Playlist).count() == 1
+                    assert session.query(PlaylistItem).count() == 1
+
+@pytest.mark.asyncio
 async def test_guild_cleanup(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -548,18 +638,6 @@ async def test_guild_cleanup(mocker):
                 await cog.cleanup(fake_guild, external_shutdown_called=True)
                 assert fake_guild.id not in cog.players
                 assert fake_guild.id not in cog.download_queue.queues
-
-                with mock_session(engine) as session:
-                    assert session.query(Playlist).count() == 1
-                    assert session.query(PlaylistItem).count() == 1
-
-                # Run cleanup with same source again, make sure count is the same
-                await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
-                await cog.players[fake_guild.id]._history.put(sd) #pylint:disable=protected-access
-                await cog.cleanup(fake_guild, external_shutdown_called=True)
-                with mock_session(engine) as session:
-                    assert session.query(Playlist).count() == 1
-                    assert session.query(PlaylistItem).count() == 1
 
 @pytest.mark.asyncio
 async def test_guild_hanging_downloads(mocker):
@@ -1910,13 +1988,14 @@ async def test_history_save(mocker):
             with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
                 file_path = Path(tmp_file.name)
                 file_path.write_text('testing', encoding='utf-8')
-                s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
                 await cog.players[fake_guild.id]._history.put(sd) #pylint:disable=protected-access
 
                 await cog.playlist_history_save(cog, FakeContext(fake_guild=fake_guild), name='foobar')
                 with mock_session(engine) as db_session:
-                    assert db_session.query(Playlist).count() == 1
+                    # 2 since history playlist will have been created
+                    assert db_session.query(Playlist).count() == 2
                     assert db_session.query(PlaylistItem).count() == 1
 
 @pytest.mark.asyncio
@@ -1951,7 +2030,8 @@ async def test_queue_save(mocker):
 
                 await cog.playlist_queue_save(cog, FakeContext(fake_guild=fake_guild), name='foobar')
                 with mock_session(engine) as db_session:
-                    assert db_session.query(Playlist).count() == 1
+                    # 2 since history playlist will have been created
+                    assert db_session.query(Playlist).count() == 2
                     assert db_session.query(PlaylistItem).count() == 1
 
 
@@ -2019,12 +2099,12 @@ async def test_random_play(mocker):
             with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
                 file_path = Path(tmp_file.name)
                 file_path.write_text('testing', encoding='utf-8')
-                s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
                 cog = Music(fake_bot, config, engine)
                 await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
-                await cog.players[fake_guild.id]._history.put(sd) #pylint:disable=protected-access
-                await cog.cleanup(fake_guild, external_shutdown_called=True)
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd))
+                await cog.playlist_history_update()
 
                 await cog.playlist_random_play(cog, fake_context)
                 assert cog.download_queue.queues[fake_guild.id]
@@ -2061,8 +2141,8 @@ async def test_random_play_deletes_no_existent_video(mocker):
                 mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
                 cog = Music(fake_bot, config, engine)
                 await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
-                await cog.players[fake_guild.id]._history.put(sd) #pylint:disable=protected-access
-                await cog.cleanup(fake_guild, external_shutdown_called=True)
+                cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_guild.id].history_playlist_id, sd))
+                await cog.playlist_history_update()
 
                 await cog.playlist_random_play(cog, fake_context)
                 await cog.download_files()

@@ -11,20 +11,22 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.utils.queue import Queue
 
 from tests.helpers import FakeContext, FakeVoiceClient, fake_bot_yielder, FakeGuild, FakeChannel, FakeAuthor
+
 
 def test_music_player_basic():
     fake_bot = fake_bot_yielder()()
     with TemporaryDirectory() as tmp_dir:
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0, Path(tmp_dir), MessageQueue())
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0, Path(tmp_dir), MessageQueue(), None, None)
         assert x is not None
 
 @pytest.mark.asyncio
 async def test_music_player_loop_exit_with_async_timeout():
     fake_bot = fake_bot_yielder()()
     with TemporaryDirectory() as tmp_dir:
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0.01, Path(tmp_dir), MessageQueue())
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0.01, Path(tmp_dir), MessageQueue(), None, None)
         with pytest.raises(ExitEarlyException) as exc:
             await x.player_loop()
         assert 'MusicPlayer hit async timeout on player wait' in str(exc.value)
@@ -34,7 +36,7 @@ async def test_music_player_loop_exiting_voice_client():
     fake_bot = fake_bot_yielder()()
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3') as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot), [], 10, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -53,7 +55,7 @@ async def test_music_player_loop_basic():
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
             q = MessageQueue()
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -72,7 +74,7 @@ async def test_music_player_join_already_there():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         c = FakeChannel()
         assert await x.join_voice(c) is True
 
@@ -82,7 +84,7 @@ async def test_music_player_join_no_voice():
     fake_guild = FakeGuild()
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         c = FakeChannel(id='new-channel-1234')
         assert await x.join_voice(c) is True
 
@@ -93,7 +95,7 @@ async def test_music_player_join_move_to():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         c = FakeChannel(id='new-channel-1234')
         assert await x.join_voice(c) is True
         assert voice.channel == c
@@ -104,7 +106,7 @@ async def test_music_player_voice_channel_active_no_voice():
     fake_guild = FakeGuild()
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         assert x.voice_channel_active() is True
 
 @pytest.mark.asyncio
@@ -116,7 +118,7 @@ async def test_music_player_voice_channel_with_no_bot():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         assert x.voice_channel_active() is True
 
 @pytest.mark.asyncio
@@ -127,7 +129,7 @@ async def test_music_player_voice_channel_with_only_bot():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         q = MessageQueue()
-        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q)
+        x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 10, 0.01, Path(tmp_dir), q, None, None)
         assert x.voice_channel_active() is False
 
 @pytest.mark.asyncio
@@ -137,7 +139,7 @@ async def test_music_player_loop_rollover_history():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -159,7 +161,7 @@ def test_music_get_player_messages():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3') as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -174,7 +176,7 @@ def test_music_get_player_paths():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3') as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -189,7 +191,7 @@ def test_music_clear_queue_messages():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3') as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -211,7 +213,7 @@ def test_music_clear_queue_messages_clear():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), None, None)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -228,7 +230,8 @@ async def test_cleanup():
     fake_guild = FakeGuild(voice=voice)
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
-            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue())
+            fake_history_queue = Queue()
+            x = MusicPlayer(logging, FakeContext(fake_bot=fake_bot, fake_guild=fake_guild), [], 1, 0.01, Path(tmp_dir), MessageQueue(), 1, fake_history_queue)
             file_path = Path(tmp_file.name)
             file_path.write_text('testing', encoding='utf-8')
             s = SourceDict('123', 'foo bar authr', '234', 'foo bar video', SearchType.SEARCH)
@@ -241,4 +244,7 @@ async def test_cleanup():
             await x.player_loop()
             x.queue_messages = ['1234 message']
             res2 = await x.cleanup()
-            assert str(res2[0]) == 'https://foo.example'
+            assert res2
+            item = fake_history_queue.get_nowait()
+            assert item.playlist_id == 1
+            assert item.source_download.webpage_url == 'https://foo.example'
