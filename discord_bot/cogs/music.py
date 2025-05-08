@@ -44,6 +44,7 @@ from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
 from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.utils.queue import Queue
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -288,19 +289,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = None
         self._cache_cleanup_task = None
         self._message_task = None
+        self._history_playlist_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown = False
         # Message queue bits
         self.message_queue = MessageQueue()
         self.player_messages = {}
+        # History Playlist Queue
+        self.history_playlist_queue = None
+        if self.db_engine:
+            self.history_playlist_queue = Queue()
         # General options
         self.delete_after = self.settings.get('music', {}).get('general', {}).get('message_delete_after', 300) # seconds
         self.number_shuffles = self.settings.get('music', {}).get('general', {}).get('number_shuffles', 5)
         # Player options
         self.queue_max_size = self.settings.get('music', {}).get('player', {}).get('queue_max_size', 128)
         self.disconnect_timeout = self.settings.get('music', {}).get('player', {}).get('disconnect_timeout', 60 * 15) # seconds
-
         self.download_queue = DistributedQueue(self.queue_max_size, number_shuffles=self.number_shuffles)
 
         # Playlist options
@@ -395,6 +400,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger)())
         if self.enable_cache:
             self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger)())
+        if self.db_engine:
+            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger)())
 
     async def cog_unload(self):
         '''
@@ -420,6 +427,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._cache_cleanup_task.cancel()
         if self._message_task:
             self._message_task.cancel()
+        if self._history_playlist_task:
+            self._history_playlist_task.cancel()
         self.last_download_lockfile.unlink(missing_ok=True)
 
         if self.download_dir.exists() and not self.enable_cache:
@@ -484,6 +493,52 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for table in new_queue_strings[-(len(new_queue_strings) - len(queue_messages)):]:
                 self.player_messages[guild_id].append(await retry_discord_message_command(player.text_channel.send, table))
         return True
+
+    async def playlist_history_update(self):
+        '''
+        Update history playlists
+        '''
+        def delete_existing_item(db_session: Session, webpage_url: str, playlist_id: int):
+            existing_history_item = db_session.query(PlaylistItem).\
+                filter(PlaylistItem.video_url == webpage_url).\
+                filter(PlaylistItem.playlist_id == playlist_id).first()
+            if existing_history_item:
+                self.logger.debug(f'Music ::: New history item {webpage_url} already exists, deleting this first')
+                db_session.delete(existing_history_item)
+                db_session.commit()
+
+        def get_playlist_size(db_session: Session, playlist_id: int):
+            return db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_id).count()
+
+        def delete_extra_items(db_session: Session, playlist_id: int, delta: int):
+            for existing_item in db_session.query(PlaylistItem).\
+                    filter(PlaylistItem.playlist_id == playlist_id).\
+                    order_by(asc(PlaylistItem.created_at)).limit(delta):
+                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist_id}, created on {existing_item.created_at}')
+                db_session.delete(existing_item)
+            db_session.commit()
+
+        await sleep(.01)
+        try:
+            history_item = self.history_playlist_queue.get_nowait()
+        except QueueEmpty:
+            if self.bot_shutdown:
+                raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
+            return
+
+        # Delete existing items first
+        with self.with_db_session() as db_session:
+            self.logger.info(f'Music ::: Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id}')
+            retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
+
+            # Delete number of rows necessary to add list
+            existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, history_item.playlist_id))
+            delta = (existing_items + 1) - self.server_playlist_max_size
+            if delta > 0:
+                self.logger.info(f'Need to delete {delta} items from history playlist {delta}')
+                retry_database_commands(db_session, partial(delete_extra_items, db_session, history_item.playlist_id, delta))
+            self.logger.info(f'Music ::: Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
+            self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
 
     async def send_messages(self):
         '''
@@ -766,51 +821,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug('Music ::: Checking cache files to remove in music player')
                 self.video_cache.ready_remove()
 
-    def __update_history_playlist(self, playlist_id: int, history_items: List[SourceDownload]):
-        '''
-        Add history items to playlist
-        playlist        : Playlist history object
-        history_items   : List of history items
-        '''
-
-        def delete_existing_item(db_session: Session, webpage_url: str, playlist_id: int):
-            existing_history_item = db_session.query(PlaylistItem).\
-                filter(PlaylistItem.video_url == webpage_url).\
-                filter(PlaylistItem.playlist_id == playlist_id).first()
-            if existing_history_item:
-                self.logger.debug(f'Music ::: New history item {webpage_url} already exists, deleting this first')
-                db_session.delete(existing_history_item)
-                db_session.commit()
-
-        def get_playlist_size(db_session: Session, playlist_id: int):
-            return db_session.query(PlaylistItem).filter(PlaylistItem.playlist_id == playlist_id).count()
-
-        def delete_extra_items(db_session: Session, playlist_id: int, delta: int):
-            for existing_item in db_session.query(PlaylistItem).\
-                    filter(PlaylistItem.playlist_id == playlist_id).\
-                    order_by(asc(PlaylistItem.created_at)).limit(delta):
-                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist_id}, created on {existing_item.created_at}')
-                db_session.delete(existing_item)
-            db_session.commit()
-
-        if not self.db_engine:
-            return None
-        # Delete existing items first
-        with self.with_db_session() as db_session:
-            for item in history_items:
-                self.logger.info(f'Music ::: Attempting to add url {item.webpage_url} to history playlist {playlist_id}')
-                retry_database_commands(db_session, partial(delete_existing_item, db_session, item.webpage_url, playlist_id))
-
-            # Delete number of rows necessary to add list
-            existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, playlist_id))
-            delta = (existing_items + len(history_items)) - self.server_playlist_max_size
-            if delta > 0:
-                self.logger.info(f'Need to delete {delta} items from history playlist {delta}')
-                retry_database_commands(db_session, partial(delete_extra_items, db_session, playlist_id, delta))
-            for item in history_items:
-                self.logger.info(f'Music ::: Adding new history item "{item.webpage_url}" to playlist {playlist_id}')
-                self.__playlist_insert_item(playlist_id, item.webpage_url, item.title, item.uploader)
-
     def __get_history_playlist(self, guild_id: int):
         '''
         Get history playlist for guild
@@ -880,11 +890,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         await self.clear_player_queue(guild.id)
 
         self.logger.debug(f'Music :: Starting cleaning tasks on player for guild {guild.id}')
-        history_items = await player.cleanup()
-        self.logger.debug(f'Music :: Grabbing {len(history_items)} history items for {guild.id}')
-        history_playlist_id = self.__get_history_playlist(guild.id)
-        if history_playlist_id and history_items:
-            self.__update_history_playlist(history_playlist_id, history_items)
+        await player.cleanup()
 
         self.logger.debug(f'Music :: Clearing download queue for guild {guild.id}')
         pending_items = self.download_queue.clear_queue(guild.id)
@@ -924,7 +930,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             guild_path = self.download_dir / f'{ctx.guild.id}'
             guild_path.mkdir(exist_ok=True, parents=True)
             # Generate and start player
-            player = MusicPlayer(self.logger, ctx, [partial(self.cleanup, ctx.guild)], self.queue_max_size, self.disconnect_timeout, guild_path, self.message_queue)
+            history_playlist_id = self.__get_history_playlist(ctx.guild.id)
+            player = MusicPlayer(self.logger, ctx, [partial(self.cleanup, ctx.guild)],
+                                 self.queue_max_size,
+                                 self.disconnect_timeout,
+                                 guild_path,
+                                 self.message_queue,
+                                 history_playlist_id,
+                                 self.history_playlist_queue)
             await player.start_tasks()
             self.players[guild_id] = player
             self.player_messages.setdefault(guild_id, [])

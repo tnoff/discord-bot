@@ -12,6 +12,7 @@ from discord.errors import ClientException
 
 
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.utils.queue import Queue
@@ -29,7 +30,9 @@ class MusicPlayer:
 
     def __init__(self, logger: RootLogger, ctx: Context, cog_cleanup: List[Callable],
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
-                 message_queue: MessageQueue):
+                 message_queue: MessageQueue,
+                 history_playlist_id: int,
+                 history_playlist_queue: Queue):
         '''
         file_dir : Files for guild stored here
         '''
@@ -47,6 +50,10 @@ class MusicPlayer:
         self._history = Queue(maxsize=queue_max_size)
         self.next = Event()
         self.messsage_queue = message_queue
+
+        # History playlist
+        self.history_playlist_id = history_playlist_id
+        self.history_playlist_queue = history_playlist_queue
 
         # Tasks
         self._player_task = None
@@ -113,11 +120,15 @@ class MusicPlayer:
 
         # Add video to history if possible
         if not self.video_skipped:
+            if self.history_playlist_id and not source.source_dict.added_from_history:
+                self.history_playlist_queue.put_nowait(HistoryPlaylistItem(self.history_playlist_id, source))
+
             try:
                 self._history.put_nowait(source)
             except QueueFull:
                 await self._history.get()
                 self._history.put_nowait(source)
+
         # Make sure we delete queue messages if nothing left
         if self._play_queue.empty():
             self.messsage_queue.iterate_play_order(self.guild.id)
@@ -169,7 +180,6 @@ class MusicPlayer:
         '''
         self.logger.info(f'Music :: Set next called on player in guild "{self.guild.id}"')
         self.next.set()
-
 
     async def join_voice(self, channel):
         '''
@@ -282,17 +292,6 @@ class MusicPlayer:
             except QueueEmpty:
                 break
 
-        # Grab history items
-        history_items = []
-        while True:
-            try:
-                item = self._history.get_nowait()
-                self.logger.debug(f'Music :: Gathering history item {item} from history queue')
-                # If item wasn't history originally, track it for the history playlist
-                if not item.source_dict.added_from_history:
-                    history_items.append(item)
-            except QueueEmpty:
-                break
         # Clear out all the queues
         self.logger.debug('Music :: Calling clear on queues and queue messages')
         self._history.clear()
@@ -303,7 +302,7 @@ class MusicPlayer:
         if self._player_task:
             self._player_task.cancel()
             self._player_task = None
-        return history_items
+        return True
 
     async def destroy(self):
         '''
