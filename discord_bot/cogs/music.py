@@ -36,7 +36,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
-from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner
+from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner, get_logger
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -370,7 +370,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'logtostderr': False,
-            'logger': self.logger,
+            'logger': get_logger('ytdlp', settings.get('general', {}).get('logging', {})),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(self.download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
