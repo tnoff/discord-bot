@@ -528,16 +528,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Delete existing items first
         with self.with_db_session() as db_session:
-            self.logger.info(f'Music ::: Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id}')
+            self.logger.info(f'Music ::: Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
             retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
-
             # Delete number of rows necessary to add list
             existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, history_item.playlist_id))
             delta = (existing_items + 1) - self.server_playlist_max_size
             if delta > 0:
-                self.logger.info(f'Need to delete {delta} items from history playlist {delta}')
+                self.logger.info(f'Need to delete {delta} items from history playlist {history_item.playlist_id}')
                 retry_database_commands(db_session, partial(delete_extra_items, db_session, history_item.playlist_id, delta))
-            self.logger.info(f'Music ::: Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
             self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
 
     async def send_messages(self):
