@@ -226,8 +226,8 @@ async def test_turn_on_and_sync_no_messages(mocker):
         assert session.query(MarkovRelation).count() == 0
 
 @pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_turn_on_and_sync_multiple_times(mocker):
+async def test_turn_on_and_sync_multiple_times(mocker, freezer):
+    freezer.move_to('2024-12-01 12:00:00')
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
@@ -251,14 +251,15 @@ async def test_turn_on_and_sync_multiple_times(mocker):
         mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
         await cog.markov_message_check() #pylint: disable=too-many-function-args
         fake_channel.messages.append(new_fake_message)
+        freezer.move_to('2024-12-02 12:00:00')
         await cog.markov_message_check() #pylint: disable=too-many-function-args
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() == 13
 
 
 @pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_turn_on_and_sync_message_dissapears(mocker):
+async def test_turn_on_and_sync_message_dissapears(mocker, freezer):
+    freezer.move_to('2024-12-01 12:00:00')
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
@@ -282,6 +283,7 @@ async def test_turn_on_and_sync_message_dissapears(mocker):
         await cog.markov_message_check() #pylint: disable=too-many-function-args
 
         fake_channel.messages = []
+        freezer.move_to('2024-12-02 12:00:00')
         await cog.markov_message_check() #pylint: disable=too-many-function-args
         session = sessionmaker(bind=engine)()
         assert session.query(MarkovRelation).count() == 0
