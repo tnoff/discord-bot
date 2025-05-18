@@ -8,6 +8,8 @@ from typing import List
 
 from discord import TextChannel
 from googleapiclient.errors import HttpError
+from opentelemetry.trace.status import StatusCode
+from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -19,11 +21,12 @@ from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTE
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -91,6 +94,8 @@ class ExistingFileException(Exception):
         super().__init__(message)
         self.video_cache = video_cache
 
+OTEL_SPAN_PREFIX = 'music.download_client'
+
 
 class DownloadClient():
     '''
@@ -123,35 +128,48 @@ class DownloadClient():
         '''
         Prepare source from youtube url
         '''
-        try:
-            data = self.ytdl.extract_info(source_dict.search_string, download=source_dict.download_file)
-        except DownloadError as error:
-            if 'Private video' in str(error):
-                raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(source_dict)}" is unvailable, cannot download') from error
-            if 'Video unavailable' in str(error):
-                raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(source_dict)}" is unavailable, cannot download') from error
-            if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
-                raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(source_dict)}" is age restricted, cannot download') from error
-            if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
-                raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(source_dict)}" flagged as bot download, skipping') from error
-            raise
-        # Make sure we get the first source_dict here
-        # Since we don't pass "url" directly anymore
-        try:
-            data = data['entries'][0]
-        # Key Error if a single video is passed
-        except KeyError:
-            pass
-
-        file_path = None
-        if source_dict.download_file:
+        span_attributes = source_dict_attributes(source_dict)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
             try:
-                file_path = Path(data['requested_downloads'][0]['filepath'])
-                if not file_path.exists():
+                data = self.ytdl.extract_info(source_dict.search_string, download=source_dict.download_file)
+            except DownloadError as error:
+                if 'Private video' in str(error):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(source_dict)}" is unvailable, cannot download') from error
+                if 'Video unavailable' in str(error):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(source_dict)}" is unavailable, cannot download') from error
+                if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(source_dict)}" is age restricted, cannot download') from error
+                if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(error)
+                    raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(source_dict)}" flagged as bot download, skipping') from error
+                span.set_status(StatusCode.ERROR)
+                span.record_exception(error)
+                raise
+            # Make sure we get the first source_dict here
+            # Since we don't pass "url" directly anymore
+            try:
+                data = data['entries'][0]
+            # Key Error if a single video is passed
+            except KeyError:
+                pass
+
+            file_path = None
+            if source_dict.download_file:
+                try:
+                    file_path = Path(data['requested_downloads'][0]['filepath'])
+                    if not file_path.exists():
+                        file_path = None
+                except (KeyError, IndexError):
                     file_path = None
-            except (KeyError, IndexError):
-                file_path = None
-        return SourceDownload(file_path, data, source_dict)
+            span.set_status(StatusCode.OK)
+            return SourceDownload(file_path, data, source_dict)
 
     async def create_source(self, source_dict: SourceDict, loop):
         '''
@@ -202,74 +220,75 @@ class DownloadClient():
         search : Original search string
         loop: Bot event loop
         '''
-        spotify_playlist_matcher = match(SPOTIFY_PLAYLIST_REGEX, search)
-        spotify_album_matcher = match(SPOTIFY_ALBUM_REGEX, search)
-        spotify_track_matcher = match(SPOTIFY_TRACK_REGEX, search)
-        youtube_playlist_matcher = match(YOUTUBE_PLAYLIST_REGEX, search)
-        youtube_short_match = match(YOUTUBE_SHORT_REGEX, search)
-        youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={AttributeNaming.SEARCH_STRING.value: search}):
+            spotify_playlist_matcher = match(SPOTIFY_PLAYLIST_REGEX, search)
+            spotify_album_matcher = match(SPOTIFY_ALBUM_REGEX, search)
+            spotify_track_matcher = match(SPOTIFY_TRACK_REGEX, search)
+            youtube_playlist_matcher = match(YOUTUBE_PLAYLIST_REGEX, search)
+            youtube_short_match = match(YOUTUBE_SHORT_REGEX, search)
+            youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
 
-        if spotify_playlist_matcher or spotify_album_matcher or spotify_track_matcher:
-            if not self.spotify_client:
-                raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
+            if spotify_playlist_matcher or spotify_album_matcher or spotify_track_matcher:
+                if not self.spotify_client:
+                    raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
 
-            sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            search_string_message = search.replace(' shuffle', '')
-            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
-            spotify_args = {}
-            should_shuffle = False
-            if spotify_album_matcher:
-                spotify_args['album_id'] = spotify_album_matcher.group('album_id')
-                should_shuffle = spotify_album_matcher.group('shuffle') != ''
-            if spotify_playlist_matcher:
-                spotify_args['playlist_id'] = spotify_playlist_matcher.group('playlist_id')
-                should_shuffle = spotify_playlist_matcher.group('shuffle') != ''
-            if spotify_track_matcher:
-                spotify_args['track_id'] = spotify_track_matcher.group('track_id')
+                sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
+                search_string_message = search.replace(' shuffle', '')
+                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
+                spotify_args = {}
+                should_shuffle = False
+                if spotify_album_matcher:
+                    spotify_args['album_id'] = spotify_album_matcher.group('album_id')
+                    should_shuffle = spotify_album_matcher.group('shuffle') != ''
+                if spotify_playlist_matcher:
+                    spotify_args['playlist_id'] = spotify_playlist_matcher.group('playlist_id')
+                    should_shuffle = spotify_playlist_matcher.group('shuffle') != ''
+                if spotify_track_matcher:
+                    spotify_args['track_id'] = spotify_track_matcher.group('track_id')
 
-            to_run = partial(self.__check_spotify_source, **spotify_args)
-            try:
-                search_strings = await loop.run_in_executor(None, to_run)
-            except SpotifyException as e:
-                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
-                message = 'Issue gathering info from spotify url "{search}"'
-                if e.http_status == 404:
-                    message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
-                raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
-            if should_shuffle:
-                for _ in range(self.number_shuffles):
-                    shuffle(search_strings)
-            return SearchType.SPOTIFY, search_strings, sd
+                to_run = partial(self.__check_spotify_source, **spotify_args)
+                try:
+                    search_strings = await loop.run_in_executor(None, to_run)
+                except SpotifyException as e:
+                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    message = 'Issue gathering info from spotify url "{search}"'
+                    if e.http_status == 404:
+                        message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
+                    raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
+                if should_shuffle:
+                    for _ in range(self.number_shuffles):
+                        shuffle(search_strings)
+                return SearchType.SPOTIFY, search_strings, sd
 
-        if youtube_playlist_matcher:
-            if not self.youtube_client:
-                raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
+            if youtube_playlist_matcher:
+                if not self.youtube_client:
+                    raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
-            sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
-            search_string_message = search.replace(' shuffle', '')
-            self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
-            should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
-            to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
-            try:
-                search_strings = await loop.run_in_executor(None, to_run)
-            except HttpError as e:
-                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
-                raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
-            if should_shuffle:
-                for _ in range(self.number_shuffles):
-                    shuffle(search_strings)
-            return SearchType.DIRECT, search_strings, sd
+                sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
+                search_string_message = search.replace(' shuffle', '')
+                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
+                should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
+                to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
+                try:
+                    search_strings = await loop.run_in_executor(None, to_run)
+                except HttpError as e:
+                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
+                if should_shuffle:
+                    for _ in range(self.number_shuffles):
+                        shuffle(search_strings)
+                return SearchType.DIRECT, search_strings, sd
 
-        if youtube_short_match:
-            return SearchType.DIRECT, [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}'], None
+            if youtube_short_match:
+                return SearchType.DIRECT, [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}'], None
 
-        if youtube_video_match:
-            return SearchType.DIRECT, [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'], None
+            if youtube_video_match:
+                return SearchType.DIRECT, [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'], None
 
-        if FXTWITTER_VIDEO_PREFIX in search:
-            return SearchType.DIRECT, [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)], None
+            if FXTWITTER_VIDEO_PREFIX in search:
+                return SearchType.DIRECT, [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)], None
 
-        return SearchType.SEARCH, [search], None
+            return SearchType.SEARCH, [search], None
 
     def __search_youtube_music(self, search_string: str):
         '''

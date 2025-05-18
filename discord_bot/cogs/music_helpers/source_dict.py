@@ -4,6 +4,8 @@ from typing import Callable, List, Literal
 from discord import Message
 
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.utils.otel import MusicSourceDictNaming
+
 
 class SourceDict():
     '''
@@ -90,3 +92,16 @@ class SourceDict():
         if 'https://' in self.original_search_string:
             return f'<{self.original_search_string}>'
         return self.original_search_string
+
+
+def source_dict_attributes(source_dict: SourceDict) -> dict:
+    '''
+    Return source dict attributes for spans
+    '''
+    return {
+        MusicSourceDictNaming.SEARCH_STRING.value: source_dict.search_string,
+        MusicSourceDictNaming.REQUESTER.value: source_dict.requester_id,
+        MusicSourceDictNaming.GUILD.value: source_dict.guild_id,
+        MusicSourceDictNaming.SEARCH_TYPE.value: source_dict.search_type.value,
+        MusicSourceDictNaming.UUID.value: str(source_dict.uuid),
+    }

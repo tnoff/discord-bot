@@ -2,16 +2,20 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Callable
 
+from opentelemetry.trace import SpanKind
 from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 from discord_bot.database import SearchString
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
+from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
 from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.utils.otel import otel_span_wrapper
 
 VALID_CACHE_TYPES = [SearchType.SPOTIFY]
+
+OTEL_SPAN_PREFIX = 'music.search_cache'
 
 def find_existing_cache_item(db_session: Session, search_string: str):
     '''
@@ -65,43 +69,48 @@ class SearchCacheClient():
 
         source_download : source_download
         '''
-        if source_download.source_dict.search_type not in VALID_CACHE_TYPES:
-            return False
-        now = datetime.now(timezone.utc)
-        with self.session_generator() as db_session:
-            existing = retry_database_commands(db_session, partial(find_existing_cache_item, db_session, source_download.source_dict.original_search_string))
-            if existing:
-                return retry_database_commands(db_session, partial(update_existing_cache, db_session, existing, source_download))
-            search = SearchString(
-                search_string=source_download.source_dict.original_search_string,
-                video_url=source_download.webpage_url,
-                created_at=now,
-                last_iterated_at=now,
-            )
-            retry_database_commands(db_session, partial(add_new_search, db_session, search))
-            return True
+        attributes = source_download_attributes(source_download)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.iterate', kind=SpanKind.INTERNAL, attributes=attributes):
+            if source_download.source_dict.search_type not in VALID_CACHE_TYPES:
+                return False
+            now = datetime.now(timezone.utc)
+            with self.session_generator() as db_session:
+                existing = retry_database_commands(db_session, partial(find_existing_cache_item, db_session, source_download.source_dict.original_search_string))
+                if existing:
+                    return retry_database_commands(db_session, partial(update_existing_cache, db_session, existing, source_download))
+                search = SearchString(
+                    search_string=source_download.source_dict.original_search_string,
+                    video_url=source_download.webpage_url,
+                    created_at=now,
+                    last_iterated_at=now,
+                )
+                retry_database_commands(db_session, partial(add_new_search, db_session, search))
+                return True
 
     def check_cache(self, source_dict: SourceDict) -> str:
         '''
         Get existing video url from source dict
         source_dict : Original source dict
         '''
-        if source_dict.search_type not in VALID_CACHE_TYPES:
-            return None
-        with self.session_generator() as db_session:
-            existing = retry_database_commands(db_session, partial(find_existing_cache_item, db_session, source_dict.original_search_string))
-            if existing:
-                return existing.video_url
-            return None
+        span_attributes = source_dict_attributes(source_dict)
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_cache', kind=SpanKind.INTERNAL, attributes=span_attributes):
+            if source_dict.search_type not in VALID_CACHE_TYPES:
+                return None
+            with self.session_generator() as db_session:
+                existing = retry_database_commands(db_session, partial(find_existing_cache_item, db_session, source_dict.original_search_string))
+                if existing:
+                    return existing.video_url
+                return None
 
     def remove(self) -> bool:
         '''
         Remove older files when possible
         '''
-        with self.session_generator() as db_session:
-            current_count = retry_database_commands(db_session, partial(get_cache_count, db_session))
-            num_to_remove = current_count - self.max_search_cache
-            if num_to_remove < 1:
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.remove', kind=SpanKind.INTERNAL):
+            with self.session_generator() as db_session:
+                current_count = retry_database_commands(db_session, partial(get_cache_count, db_session))
+                num_to_remove = current_count - self.max_search_cache
+                if num_to_remove < 1:
+                    return True
+                retry_database_commands(db_session, partial(remove_old_cache, db_session, num_to_remove))
                 return True
-            retry_database_commands(db_session, partial(remove_old_cache, db_session, num_to_remove))
-            return True

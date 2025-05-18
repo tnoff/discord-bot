@@ -1,5 +1,6 @@
 from asyncio import run, get_running_loop
 from enum import Enum
+import logging
 from logging import RootLogger
 from sys import stderr
 from typing import List
@@ -8,6 +9,21 @@ import click
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
 from jsonschema import ValidationError
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.metrics import set_meter_provider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
 from pyaml_env import parse_config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -90,6 +106,34 @@ def main(execute, config_file): #pylint:disable=too-many-statements
         print('Unable to find sql statement in settings, assuming no db', file=stderr)
         db_engine = None
 
+    # Instrument otlp if enabled
+    otlp_settings = settings['general'].get('otlp', {})
+
+    if otlp_settings:
+        tracer_provider = TracerProvider()
+        trace.set_tracer_provider(tracer_provider)
+        # Add some tracing instrumentation
+        # https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/sqlalchemy/sqlalchemy.html
+        RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
+        SQLAlchemyInstrumentor().instrument(tracer_provider=tracer_provider, enable_commenter=True, commenter_options={})
+        # Set span exporters
+        span_exporter = OTLPSpanExporter(endpoint=otlp_settings["trace_endpoint"])
+        trace.get_tracer_provider().add_span_processor(
+            BatchSpanProcessor(span_exporter)
+        )
+        # Set metrics
+        exporter = OTLPMetricExporter(endpoint=otlp_settings['metric_endpoint'], insecure=True)
+        reader = PeriodicExportingMetricReader(exporter)
+        provider = MeterProvider(metric_readers=[reader])
+        set_meter_provider(provider)
+        # Set logging
+        logger_provider = LoggerProvider()
+        set_logger_provider(logger_provider)
+        log_exporter = OTLPLogExporter(endpoint=otlp_settings['log_endpoint'], insecure=True)
+        logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+        handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
+        logging.getLogger().addHandler(handler)
+
     # Grab logger
     print('Starting logging', file=stderr)
     logger = get_logger('main', settings['general'].get('logging', {}))
@@ -125,7 +169,6 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
         token = settings['general']['discord_token']
     except KeyError as exc:
         raise ValidationError('Unable to run bot without token') from exc
-
 
     logger.debug('Main :: Generating Intents')
     intents = Intents.default()

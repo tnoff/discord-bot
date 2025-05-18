@@ -2,6 +2,7 @@ from pathlib import Path
 
 from discord_bot.cogs.music_helpers.common import YT_DLP_KEYS
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.utils.otel import MusicSourceDictNaming, MusicSourceDownloadNaming
 
 class SourceDownload():
     '''
@@ -55,7 +56,6 @@ class SourceDownload():
                 uuid_path.symlink_to(self.base_path)
                 self.file_path = uuid_path
 
-
     def delete(self):
         '''
         Delete file
@@ -68,3 +68,12 @@ class SourceDownload():
         Expose as string
         '''
         return f'{self.webpage_url}' #pylint:disable=no-member
+
+def source_download_attributes(source_download: SourceDownload) -> dict:
+    '''
+    Get span attributes for a source download
+    '''
+    return {
+            MusicSourceDictNaming.UUID.value: str(source_download.source_dict.uuid),
+            MusicSourceDownloadNaming.VIDEO_URL.value: source_download.webpage_url,
+    }

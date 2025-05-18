@@ -3,6 +3,7 @@ from functools import partial
 
 from discord.ext.commands import Cog, Bot
 from jsonschema import ValidationError
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
@@ -32,8 +33,9 @@ class CogHelper(Cog):
         if section_schema and not settings_prefix:
             raise CogMissingRequiredArg('Section schema given but settings prefix not given')
 
+        self._cog_name = (type(self).__name__).lower()
         self.bot = bot
-        self.logger = get_logger(type(self).__name__, settings.get('general', {}).get('logging', {}))
+        self.logger = get_logger(self._cog_name, settings.get('general', {}).get('logging', {}))
         self.settings = settings
         self.db_engine = db_engine
 

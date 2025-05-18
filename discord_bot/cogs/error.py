@@ -33,7 +33,7 @@ class CommandErrorHandler(commands.Cog):
         error_type = getattr(error, 'original', error)
 
         if isinstance(error_type, commands.CommandNotFound):
-            return await ctx.send('Unknown command, use !help to show all commands')
+            return await ctx.send(f'Unknown command "{ctx.command.name}", use !help to show all commands')
         if isinstance(error_type, commands.MissingRequiredArgument):
             return await ctx.send(f'Missing required arguments: {error}')
         self.logger.exception(f'Exception on command "{ctx.command.name}", exception {error}', exc_info=True)

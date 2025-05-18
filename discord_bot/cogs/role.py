@@ -10,6 +10,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.utils.otel import command_wrapper
 
 # Role config schema
 ROLE_SECTION_SCHEMA = {
@@ -219,6 +220,7 @@ class RoleAssignment(CogHelper):
             await ctx.send('Invalid sub command passed...')
 
     @role.command(name='list')
+    @command_wrapper
     async def role_list(self, ctx: Context):
         '''
         List all roles within the server
@@ -243,6 +245,7 @@ class RoleAssignment(CogHelper):
         return True
 
     @role.command(name='users')
+    @command_wrapper
     async def role_list_users(self, ctx: Context, *, role_input: str):
         '''
         List all users with a specific role
@@ -332,6 +335,7 @@ class RoleAssignment(CogHelper):
         return managed_roles
 
     @role.command(name='available')
+    @command_wrapper
     async def role_managed(self, ctx: Context):
         '''
         List all roles in the server that are available to your user to manage
@@ -380,6 +384,7 @@ class RoleAssignment(CogHelper):
         return users[0].id == ctx.author.id
 
     @role.command(name='add')
+    @command_wrapper
     async def role_add(self, ctx: Context, *, inputs: str):
         '''
         Add user to role that is available to you
@@ -411,6 +416,7 @@ class RoleAssignment(CogHelper):
         return True
 
     @role.command(name='remove')
+    @command_wrapper
     async def role_remove(self, ctx: Context, *, inputs: str):
         '''
         Add user to role that is available to you
