@@ -19,6 +19,6 @@ pyaml-env==1.2.2
 pytz==2025.2
 requests==2.32.3
 spotipy==2.25.1
-SQLAlchemy==2.0.40
+SQLAlchemy==2.0.41
 yt-dlp==2025.4.30
 ytmusicapi==1.10.3
