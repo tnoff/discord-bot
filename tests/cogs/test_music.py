@@ -1114,6 +1114,57 @@ async def test_cache_cleanup_removes(mocker, freezer):
                     await cog.cache_cleanup()
                     assert not cog.video_cache.get_webpage_url_item(s)
 
+@pytest.mark.asyncio
+async def test_cache_cleanup_skips_source_in_transit(mocker, freezer):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                },
+            },
+            'music': {
+                'download': {
+                    'cache': {
+                        'enable_cache_files': True,
+                        'max_cache_files': 1,
+                    }
+                }
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file2:
+                    file_path2 = Path(tmp_file2.name)
+                    file_path2.write_text('testing', encoding='utf-8')
+                    s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                    sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+                    s2 = SourceDict('123', 'foo bar authr', '234', 'https://foo.example/bar', SearchType.DIRECT)
+                    sd2 = SourceDownload(file_path2, {'webpage_url': 'https://foo.example/bar'}, s2)
+                    cog.video_cache.iterate_file(sd)
+                    cog.video_cache.iterate_file(sd2)
+                    cog.video_cache.ready_remove()
+                    # Run twice so heartbeat passses
+                    freezer.move_to('2024-12-01 12:00:00')
+                    await cog.cache_cleanup()
+                    freezer.move_to('2024-12-02 12:00:00')
+                    cog.sources_in_transit[sd.source_dict.uuid] = str(sd.base_path)
+                    await cog.cache_cleanup()
+                    assert cog.video_cache.get_webpage_url_item(s)
 
 @pytest.mark.asyncio
 async def test_add_source_to_player_caches_video(mocker):

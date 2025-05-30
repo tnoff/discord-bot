@@ -101,7 +101,7 @@ class DownloadClient():
     '''
     Download Client using yt-dlp
     '''
-    def __init__(self, ytdl: YoutubeDL, message_queue: MessageQueue,
+    def __init__(self, ytdl: YoutubeDL, download_dir: Path, message_queue: MessageQueue,
                  spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
                  search_cache_client: SearchCacheClient = None,
                  number_shuffles: int = 5):
@@ -109,6 +109,7 @@ class DownloadClient():
         Init download client
 
         ytdl : YoutubeDL Client
+        download_dir : Directory to place after tempfile download
         message_queue : The bots message queue
         spotify_client : Spotify Client
         youtube_client : Youtube Client
@@ -117,6 +118,7 @@ class DownloadClient():
         number_shuffles : Number of shuffles post api calls
         '''
         self.ytdl = ytdl
+        self.download_dir = download_dir
         self.message_queue = message_queue
         self.spotify_client = spotify_client
         self.youtube_client = youtube_client
@@ -168,6 +170,10 @@ class DownloadClient():
                         file_path = None
                 except (KeyError, IndexError):
                     file_path = None
+                # Move file to download dir after finished
+                new_path = self.download_dir / file_path.name
+                file_path.rename(new_path)
+                file_path = new_path
             span.set_status(StatusCode.OK)
             return SourceDownload(file_path, data, source_dict)
 
