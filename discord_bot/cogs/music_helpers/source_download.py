@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import copyfile
 
 from discord_bot.cogs.music_helpers.common import YT_DLP_KEYS
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
@@ -27,7 +28,7 @@ class SourceDownload():
         self.file_path = file_path
         self.base_path = file_path
 
-    def ready_file(self, file_dir: Path = None, move_file: bool = False):
+    def ready_file(self, file_dir: Path = None):
         '''
         Ready file for server
 
@@ -48,13 +49,9 @@ class SourceDownload():
             if not self.base_path.exists():
                 # Usually happened if you stopped bot while downloading
                 raise FileNotFoundError('Unable to locate base path')
-            if move_file:
-                self.base_path.rename(uuid_path)
-                self.file_path = uuid_path
-                self.base_path = uuid_path
-            else:
-                uuid_path.symlink_to(self.base_path)
-                self.file_path = uuid_path
+            copyfile(str(self.base_path), str(uuid_path))
+            self.base_path = uuid_path
+            self.file_path = uuid_path
 
     def delete(self):
         '''

@@ -362,6 +362,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         else:
             self.download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
+        # Tempdir used in downloads
+        self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+
         self.video_cache = None
         self.search_string_cache = None
         if self.enable_cache and self.db_engine:
@@ -388,7 +391,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'logger': get_logger('ytdlp', settings.get('general', {}).get('logging', {})),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
-            'outtmpl': str(self.download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
+            'outtmpl': str(self.temp_download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
         }
         for key, val in ytdlp_options.items():
             ytdlopts[key] = val
@@ -401,7 +404,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ytdl = YoutubeDL(ytdlopts)
         if enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
-        self.download_client = DownloadClient(ytdl, self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
+        self.download_client = DownloadClient(ytdl, self.download_dir, self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                               youtube_music_client=self.youtube_music_client,
                                               search_cache_client=self.search_string_cache,
                                               number_shuffles=self.number_shuffles)
@@ -449,6 +452,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             if self.download_dir.exists() and not self.enable_cache:
                 rm_tree(self.download_dir)
+            if self.temp_download_dir.exists():
+                rm_tree(self.temp_download_dir)
 
     async def player_should_update_queue_order(self, player: MusicPlayer):
         '''
@@ -731,6 +736,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 for path in player.get_file_paths():
                     base_paths.add(str(path))
             delete_videos = []
+            self.logger.debug('Checking cache files to remove in music player')
+            self.video_cache.ready_remove()
             with self.with_db_session() as db_session:
                 for video_cache in retry_database_commands(db_session, partial(list_ready_cache_files, db_session)):
                     # Check if video cache in use
@@ -799,6 +806,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         attributes = source_download_attributes(source_download)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes):
             try:
+                # TODO add check here that cache cleanup does not touch files while they are being copied
                 source_download.ready_file(file_dir=player.file_dir, move_file=not self.enable_cache)
                 player.add_to_play_queue(source_download)
                 self.logger.info(f'Adding "{source_download.webpage_url}" '
@@ -807,9 +815,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.message_queue.iterate_play_order(player.guild.id)
                 self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.DELETE,
                                                             partial(source_download.source_dict.delete_message), '')
-                if self.video_cache:
-                    self.logger.info(f'Iterating file on base path {str(source_download.base_path)}')
-                    self.video_cache.iterate_file(source_download)
+
                 # If we have a result, add to search cache
                 await self.__cache_search(source_download)
                 return True
@@ -972,14 +978,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for func in source_dict.post_download_callback_functions:
                 await func(source_download)
 
+            if self.video_cache and source_dict.download_file:
+                self.logger.info(f'Iterating file on base path {str(source_download.base_path)}')
+                self.video_cache.iterate_file(source_download)
+
             if source_dict.download_file and player:
                 # Add sources to players
                 if not await self.add_source_to_player(source_download, player):
                     return
-                # Remove from cache file if exists
-                if self.video_cache:
-                    self.logger.debug('Checking cache files to remove in music player')
-                    self.video_cache.ready_remove()
 
     def __get_history_playlist(self, guild_id: int):
         '''
