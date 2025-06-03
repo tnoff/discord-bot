@@ -93,6 +93,17 @@ class VideoCache(BASE):
     base_path = Column(String(2048))
 
 
+class VideoCacheBackup(BASE):
+    '''
+    Video Cache Backup in Object Storage
+    '''
+    __tablename__ = 'video_cache_backup'
+    id = Column(Integer, primary_key=True)
+    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
+    storage = Column(String(1024))
+    bucket_name = Column(String(1024))
+    object_path = Column(String(1024))
+
 class Guild(BASE):
     '''
     Discord Guild

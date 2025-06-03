@@ -8,15 +8,16 @@ from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 
-from discord_bot.database import VideoCache, VideoCacheGuild, Guild
+from discord_bot.database import VideoCache, VideoCacheGuild, Guild, VideoCacheBackup
 from discord_bot.utils.common import rm_tree, run_commit
+from discord_bot.utils.clients.s3 import upload_file, delete_file
+from discord_bot.cogs.music_helpers.common import StorageOptions
 from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming, MusicSourceDownloadNaming
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
-
 
 def get_guild(db_session: Session, guild_id: str):
     '''
@@ -102,6 +103,38 @@ def video_cache_mark_deletion(db_session: Session, num_to_remove: int):
     for video_cache in db_session.query(VideoCache).order_by(asc(VideoCache.last_iterated_at)).limit(num_to_remove):
         video_cache.ready_for_deletion = True
     db_session.commit()
+
+def check_video_backup_exists(db_session: Session, video_cache_id: int):
+    '''
+    Check if video backup exists for id
+    '''
+    video_backup = db_session.query(VideoCacheBackup).\
+        filter(VideoCacheBackup.video_cache_id == video_cache_id).first()
+    return video_backup
+
+def create_video_cache_backup(db_session: Session, video_cache_id: int, storage: str,
+                              bucket_name: str, object_path: str):
+    '''
+    Create video cache backup entry
+    '''
+    video_backup = VideoCacheBackup(video_cache_id=video_cache_id,
+                                    storage=storage,
+                                    bucket_name=bucket_name,
+                                    object_path=object_path)
+    db_session.add(video_backup)
+    db_session.commit()
+    return True
+
+def delete_backup_item(db_session: Session, backup_item_id: int):
+    '''
+    Delete backup item
+    '''
+    item = db_session.query(VideoCacheBackup).get(backup_item_id)
+    if not item:
+        return False
+    db_session.delete(item)
+    db_session.commit()
+    return True
 
 class VideoCacheClient():
     '''
@@ -274,6 +307,10 @@ class VideoCacheClient():
                     video_cache = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
                     base_path = Path(video_cache.base_path)
                     base_path.unlink(missing_ok=True)
+                    backup_item = retry_database_commands(db_session, partial(check_video_backup_exists, db_session, video_cache_id))
+                    if backup_item:
+                        delete_file(backup_item.bucket_name, backup_item.object_path)
+                        retry_database_commands(db_session, partial(delete_backup_item, db_session, backup_item.id))
                     retry_database_commands(db_session, partial(remove_video_cache, db_session, video_cache))
             return True
 
@@ -288,4 +325,25 @@ class VideoCacheClient():
                 if num_to_remove < 1:
                     return True
                 retry_database_commands(db_session, partial(video_cache_mark_deletion, db_session, num_to_remove))
+                return True
+
+    def object_storage_backup(self, bucket_name: str, storage_option: str, video_cache_id: int) -> bool:
+        '''
+        Object storage backup of video cache id
+
+        bucket_name : Bucket name to upload to
+        video_cache_id : ID of video cache file to upload
+        '''
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_backup', kind=SpanKind.INTERNAL):
+            if storage_option not in [el.value for el in StorageOptions]:
+                return False
+            with self.session_generator() as db_session:
+                item_exists = retry_database_commands(db_session, partial(check_video_backup_exists, db_session, video_cache_id))
+                if item_exists:
+                    return True
+                video_cache_item = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
+                if not video_cache_item.base_path:
+                    return False
+                upload_file(bucket_name, Path(video_cache_item.base_path))
+                retry_database_commands(db_session, partial(create_video_cache_backup, db_session, video_cache_id, 's3', bucket_name, str(video_cache_item.base_path)))
                 return True

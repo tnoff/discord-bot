@@ -20,3 +20,9 @@ class SearchType(Enum):
     DIRECT = 'direct' # Direct url for non-youtube passed
     SEARCH = 'search' # Search passed, goes to youtube
     OTHER = 'other' # Grouped searches usually
+
+class StorageOptions(Enum):
+    '''
+    Storage options
+    '''
+    S3 = 's3'

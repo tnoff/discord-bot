@@ -7,7 +7,7 @@ from discord.errors import NotFound
 import pytest
 from sqlalchemy import create_engine
 
-from discord_bot.database import BASE, Playlist, PlaylistItem, VideoCache
+from discord_bot.database import BASE, Playlist, PlaylistItem, VideoCache, VideoCacheBackup
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music, match_generator
 
@@ -1072,6 +1072,53 @@ async def test_cache_cleanup_no_op(mocker):
                 assert cog.video_cache.get_webpage_url_item(s)
 
 @pytest.mark.asyncio
+async def test_cache_cleanup_uploads_object_storage(mocker):
+    with NamedTemporaryFile(suffix='.sql') as temp_db:
+        engine = create_engine(f'sqlite:///{temp_db.name}')
+        BASE.metadata.create_all(engine)
+        BASE.metadata.bind = engine
+
+        config = {
+            'general': {
+                'include': {
+                    'music': True
+                },
+            },
+            'music': {
+                'download': {
+                    'cache': {
+                        'enable_cache_files': True,
+                    },
+                    'storage': {
+                        'backend': 's3',
+                        'bucket_name': 'foo',
+                    }
+                }
+            }
+        }
+        fake_bot = fake_bot_yielder()()
+        cog = Music(fake_bot, config, engine)
+        mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+        mocker.patch.object(MusicPlayer, 'start_tasks')
+        fake_channel = FakeChannel(members=[fake_bot.user])
+        fake_voice = FakeVoiceClient(channel=fake_channel)
+        fake_guild = FakeGuild(voice=fake_voice)
+        await cog.get_player(fake_guild.id, ctx=FakeContext(fake_guild=fake_guild, fake_bot=fake_bot))
+        with TemporaryDirectory() as tmp_dir:
+            with NamedTemporaryFile(dir=tmp_dir, suffix='.mp3', delete=False) as tmp_file:
+                file_path = Path(tmp_file.name)
+                file_path.write_text('testing', encoding='utf-8')
+                s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
+                sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
+                cog.players[fake_guild.id].add_to_play_queue(sd)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                cog.video_cache.iterate_file(sd)
+                await cog.cache_cleanup()
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+                    assert session.query(VideoCacheBackup).count() == 1
+
+@pytest.mark.asyncio
 async def test_cache_cleanup_removes(mocker, freezer):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
@@ -1089,6 +1136,10 @@ async def test_cache_cleanup_removes(mocker, freezer):
                     'cache': {
                         'enable_cache_files': True,
                         'max_cache_files': 1,
+                    },
+                    'storage': {
+                        'backend': 's3',
+                        'bucket_name': 'foo',
                     }
                 }
             }
@@ -1112,6 +1163,8 @@ async def test_cache_cleanup_removes(mocker, freezer):
                     sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
                     s2 = SourceDict('123', 'foo bar authr', '234', 'https://foo.example/bar', SearchType.DIRECT)
                     sd2 = SourceDownload(file_path2, {'webpage_url': 'https://foo.example/bar'}, s2)
+                    mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                    mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.delete_file', return_value=True)
                     cog.video_cache.iterate_file(sd)
                     cog.video_cache.iterate_file(sd2)
                     cog.video_cache.ready_remove()
