@@ -208,8 +208,25 @@ MUSIC_SECTION_SCHEMA = {
                             'type': 'number',
                             'minimum': 1,
                         },
+                        # Reference to storage below
+                        'enable_storage_backend': {
+                            'type': 'string'
+                        }
                     }
                 },
+                'storage': {
+                    'type': 'object',
+                    'properties': {
+                        # What class of storage we used
+                        'backend': {
+                            'type': 'string'
+                            # TODO only allow certain values
+                        },
+                        'bucket_name': {
+                            'type': 'string',
+                        }
+                    }
+                }
 
             }
         },
