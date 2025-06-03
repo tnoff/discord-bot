@@ -1,4 +1,5 @@
 from pathlib import Path
+from shutil import copyfile
 
 from discord_bot.cogs.music_helpers.common import YT_DLP_KEYS
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
@@ -27,7 +28,7 @@ class SourceDownload():
         self.file_path = file_path
         self.base_path = file_path
 
-    def ready_file(self, file_dir: Path = None, move_file: bool = False):
+    def ready_file(self, file_dir: Path = None):
         '''
         Ready file for server
 
@@ -38,7 +39,7 @@ class SourceDownload():
         '''
         guild_path = file_dir or self.file_path.parent / f'{self.source_dict.guild_id}'
         guild_path.mkdir(exist_ok=True)
-        if self.file_path:
+        if self.base_path:
             # The modified time of download videos can be the time when it was actually uploaded to youtube
             # Touch here to update the modified time, so that the cleanup check works as intendend
             # Rename file to a random uuid name, that way we can have diff videos with same/similar names
@@ -48,13 +49,8 @@ class SourceDownload():
             if not self.base_path.exists():
                 # Usually happened if you stopped bot while downloading
                 raise FileNotFoundError('Unable to locate base path')
-            if move_file:
-                self.base_path.rename(uuid_path)
-                self.file_path = uuid_path
-                self.base_path = uuid_path
-            else:
-                uuid_path.symlink_to(self.base_path)
-                self.file_path = uuid_path
+            copyfile(str(self.base_path), str(uuid_path))
+            self.file_path = uuid_path
 
     def delete(self):
         '''
