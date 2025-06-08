@@ -15,7 +15,8 @@ class SearchType(Enum):
     '''
     Search Types Supported
     '''
-    SPOTIFY = 'spotify'
-    DIRECT = 'direct'
-    SEARCH = 'search'
-    OTHER = 'other'
+    SPOTIFY = 'spotify' # Spotify url was passed, these go to youtube eventually
+    YOUTUBE = 'youtube' # Youtube url was passed
+    DIRECT = 'direct' # Direct url for non-youtube passed
+    SEARCH = 'search' # Search passed, goes to youtube
+    OTHER = 'other' # Grouped searches usually

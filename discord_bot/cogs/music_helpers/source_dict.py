@@ -6,13 +6,17 @@ from discord import Message
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.utils.otel import MusicSourceDictNaming
 
+class ThirdPartyException(Exception):
+    '''
+    Issue with 3rd Party Library
+    '''
 
 class SourceDict():
     '''
     Original source of play request
     '''
     def __init__(self, guild_id: int, requester_name: str, requester_id: int, search_string: str,
-                 search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH],
+                 search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
                  added_from_history: bool = False,
                  download_file: bool = True,
                  video_non_exist_callback_functions: List[Callable] = None,

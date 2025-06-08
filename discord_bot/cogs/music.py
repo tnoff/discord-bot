@@ -31,6 +31,7 @@ from discord_bot.cogs.music_helpers.download_client import DownloadClient, Downl
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, VideoBanned, VideoTooLong, BotDownloadFlagged
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
@@ -408,10 +409,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ytdl = YoutubeDL(ytdlopts)
         if enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
-        self.download_client = DownloadClient(ytdl, self.download_dir, self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
-                                              youtube_music_client=self.youtube_music_client,
-                                              search_cache_client=self.search_string_cache,
-                                              number_shuffles=self.number_shuffles)
+        self.search_client = SearchClient(self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
+                                          youtube_music_client=self.youtube_music_client,
+                                          search_cache_client=self.search_string_cache,
+                                          number_shuffles=self.number_shuffles)
+        self.download_client = DownloadClient(ytdl, self.download_dir)
+
 
     async def cog_load(self):
         '''
@@ -1182,10 +1185,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
 
+        print('My loop', self.bot.loop)
         try:
-            entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
+            entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
                                                               self.queue_max_size, ctx.channel)
-        except DownloadClientException as exc:
+        except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
@@ -1652,9 +1656,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
 
         try:
-            source_entries = await self.download_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
+            source_entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
                                                                      self.queue_max_size, ctx.channel)
-        except DownloadClientException as exc:
+        except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
@@ -1954,7 +1958,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                          ctx.author.display_name,
                                          ctx.author.id,
                                          item.video_url,
-                                         SearchType.DIRECT,
+                                         SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                          added_from_history=is_history,
                                          video_non_exist_callback_functions=[partial(self.__delete_non_existing_item, item.id, item.video_url, ctx)] if is_history else [])
                 playlist_items.append(source_dict)
@@ -2078,7 +2082,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                          ctx.author.display_name,
                                          ctx.author.id,
                                          item.video_url,
-                                         SearchType.DIRECT,
+                                         SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                          added_from_history=True)
                 playlist_items.append(source_dict)
 
