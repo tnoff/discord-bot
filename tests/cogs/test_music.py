@@ -17,6 +17,7 @@ from discord_bot.cogs.music_helpers.download_client import ExistingFileException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.message_queue import SourceLifecycleStage
+from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
@@ -670,14 +671,21 @@ async def test_guild_hanging_downloads(mocker):
         await cog.cleanup(fake_guild, external_shutdown_called=True)
         assert fake_guild.id not in cog.download_queue.queues
 
-def yield_fake_download_client(source_download: SourceDownload, source_dict: SourceDict = None):
-
-    class FakeDownloadClient():
+def yield_fake_search_client(source_dict: SourceDict = None):
+    class FakeSearchClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def check_source(self, *_args, **_kwargs):
             return [source_dict]
+
+    return FakeSearchClient
+
+def yield_fake_download_client(source_download: SourceDownload):
+
+    class FakeDownloadClient():
+        def __init__(self, *_args, **_kwargs):
+            pass
 
         async def create_source(self, *_args, **_kwargs):
             return source_download
@@ -1330,25 +1338,25 @@ async def test_awaken_user_not_joined(mocker):
     await cog.connect_(cog, fake_context)
     assert fake_guild.id not in cog.players
 
-def yield_download_client_check_source(source_dict_list: List[SourceDict]):
-    class FakeDownloadClient():
+def yield_search_client_check_source(source_dict_list: List[SourceDict]):
+    class FakeSearchClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def check_source(self, *_args, **_kwargs):
             return source_dict_list
 
-    return FakeDownloadClient
+    return FakeSearchClient
 
-def yield_download_client_check_source_raises():
-    class FakeDownloadClient():
+def yield_search_client_check_source_raises():
+    class FakeSearchClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def check_source(self, *_args, **_kwargs):
-            raise DownloadClientException('foo', user_message='woopsie')
+            raise SearchException('foo', user_message='woopsie')
 
-    return FakeDownloadClient
+    return FakeSearchClient
 
 @pytest.mark.asyncio()
 async def test_play_called_basic(mocker):
@@ -1368,9 +1376,9 @@ async def test_play_called_basic(mocker):
     fake_author = FakeAuthor(voice=fake_voice)
     fake_guild = FakeGuild(voice=fake_voice)
     fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
-    s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
-    s1 = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_check_source([s, s1]))
+    s = SourceDict(fake_guild.id, 'foo bar author', '234', 'https://foo.example', SearchType.DIRECT)
+    s1 = SourceDict(fake_guild.id, 'foo bar author', '234', 'https://foo.example', SearchType.DIRECT)
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_bot, config, None)
     await cog.play_(cog, fake_context, search='foo bar')
     item0 = cog.download_queue.get_nowait()
@@ -1404,7 +1412,8 @@ async def test_skip(mocker):
             fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1439,7 +1448,8 @@ async def test_clear(mocker):
             fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1505,7 +1515,8 @@ async def test_shuffle(mocker):
             fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1538,7 +1549,8 @@ async def test_remove_item(mocker):
             fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1571,7 +1583,8 @@ async def test_bump_item(mocker):
             fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1642,7 +1655,8 @@ async def test_move_messages(mocker):
             fake_context2 = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel2)
             s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
             sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example', 'title': 'foo bar song'}, s)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, s))
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
             cog = Music(fake_bot, config, None)
             await cog.play_(cog, fake_context, search='foo bar')
             await cog.download_files()
@@ -1669,7 +1683,7 @@ async def test_play_called_downloads_blocked(mocker):
     fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
     s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
     s1 = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_check_source([s, s1]))
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_bot, config, None)
     # Put source dict so we can a download queue to block
     cog.download_queue.put_nowait(fake_guild.id, s)
@@ -1701,7 +1715,7 @@ async def test_play_hits_max_items(mocker):
     fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
     s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
     s1 = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_check_source([s, s1]))
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_bot, config, None)
     await cog.play_(cog, fake_context, search='foo bar')
     cog.message_queue.get_next_message()
@@ -1727,7 +1741,7 @@ async def test_play_called_raises_exception(mocker):
     fake_author = FakeAuthor(voice=fake_voice)
     fake_guild = FakeGuild(voice=fake_voice)
     fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_check_source_raises())
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises())
     cog = Music(fake_bot, config, None)
     await cog.play_(cog, fake_context, search='foo bar')
     m0 = cog.message_queue.get_next_message()
@@ -1768,7 +1782,7 @@ async def test_play_called_basic_hits_cache(mocker):
                 fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
                 s = SourceDict(fake_guild.id, 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT)
                 sd = SourceDownload(file_path, {'webpage_url': 'https://foo.example'}, s)
-                mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_check_source([s]))
+                mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s]))
                 cog = Music(fake_bot, config, engine)
                 cog.video_cache.iterate_file(sd)
                 await cog.play_(cog, fake_context, search='foo bar')
@@ -1882,7 +1896,8 @@ async def test_playlsit_add_item_function(mocker):
         fake_bot = fake_bot_yielder()()
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1913,7 +1928,8 @@ async def test_playlist_remove_item(mocker):
         fake_bot = fake_bot_yielder()()
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1945,7 +1961,8 @@ async def test_playlist_show(mocker):
         fake_bot = fake_bot_yielder()()
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1980,7 +1997,8 @@ async def test_playlist_delete(mocker):
         fake_bot = fake_bot_yielder()()
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -2120,7 +2138,8 @@ async def test_play_queue(mocker):
         fake_context = FakeContext(fake_bot=fake_bot, fake_guild=fake_guild, author=fake_author, channel=fake_channel)
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         await cog.playlist_create(cog, FakeContext(fake_guild=fake_guild), name='new-playlist')
         await cog.playlist_item_add(cog, FakeContext(fake_guild=fake_guild), 1, search='https://foo.example')
@@ -2270,7 +2289,8 @@ async def test_playlist_merge(mocker):
         fake_bot = fake_bot_yielder()()
         s = SourceDict('123', 'foo bar authr', '234', 'https://foo.example', SearchType.DIRECT, download_file=False)
         sd = SourceDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd, source_dict=s))
+        mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+        mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
         cog = Music(fake_bot, config, engine)
         mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
         mocker.patch.object(MusicPlayer, 'start_tasks')
