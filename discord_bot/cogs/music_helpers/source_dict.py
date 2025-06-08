@@ -89,9 +89,10 @@ class SourceDict():
         Fix embed issues
         https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
         '''
-        if 'https://' in self.original_search_string:
-            return f'<{self.original_search_string}>'
-        return self.original_search_string
+        return_string = self.original_search_string or self.search_string
+        if 'https://' in return_string:
+            return f'<{return_string}>'
+        return return_string
 
 
 def source_dict_attributes(source_dict: SourceDict) -> dict:
