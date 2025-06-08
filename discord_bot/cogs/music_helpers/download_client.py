@@ -4,6 +4,7 @@ from itertools import islice
 from re import match
 from pathlib import Path
 from random import shuffle
+from shutil import copyfile
 from typing import List
 
 from discord import TextChannel
@@ -172,7 +173,9 @@ class DownloadClient():
                     file_path = None
                 # Move file to download dir after finished
                 new_path = self.download_dir / file_path.name
-                file_path.rename(new_path)
+                # Rename might not work if file on diff filesystem
+                copyfile(str(file_path), str(new_path))
+                file_path.unlink()
                 file_path = new_path
             span.set_status(StatusCode.OK)
             return SourceDownload(file_path, data, source_dict)
