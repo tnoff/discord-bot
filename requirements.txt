@@ -17,7 +17,7 @@ PyNaCl==1.5.0
 python-json-logger==3.3.0
 pyaml-env==1.2.2
 pytz==2025.2
-requests==2.32.3
+requests==2.32.4
 spotipy==2.25.1
 SQLAlchemy==2.0.41
 yt-dlp==2025.4.30
