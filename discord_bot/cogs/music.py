@@ -366,6 +366,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Tempdir used in downloads
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
+        # Tempdir for players
+        self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+
         self.video_cache = None
         self.search_string_cache = None
         if self.enable_cache and self.db_engine:
@@ -461,6 +464,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 rm_tree(self.download_dir)
             if self.temp_download_dir.exists():
                 rm_tree(self.temp_download_dir)
+            if self.player_dir.exists():
+                rm_tree(self.player_dir)
 
     async def player_should_update_queue_order(self, player: MusicPlayer):
         '''
@@ -813,7 +818,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.info(f'Iterating file on base path {str(source_download.base_path)}')
                     self.video_cache.iterate_file(source_download)
                 self.sources_in_transit[source_download.source_dict.uuid] = str(source_download.base_path)
-                source_download.ready_file(file_dir=player.file_dir)
+                source_download.ready_file(guild_path=player.file_dir)
                 self.sources_in_transit.pop(source_download.source_dict.uuid)
                 player.add_to_play_queue(source_download)
                 self.logger.info(f'Adding "{source_download.webpage_url}" '
@@ -1098,7 +1103,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if not create_player:
                     return None
                 # Make directory for guild specific files
-                guild_path = self.download_dir / f'{ctx.guild.id}'
+                guild_path = self.player_dir / f'{ctx.guild.id}'
                 guild_path.mkdir(exist_ok=True, parents=True)
                 # Generate and start player
                 history_playlist_id = self.__get_history_playlist(ctx.guild.id)
