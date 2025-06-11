@@ -1,5 +1,5 @@
-from base64 import b64encode
-from hashlib import md5
+import base64
+import hashlib
 from pathlib import Path
 
 from boto3 import client
@@ -20,8 +20,8 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
         raise ObjectStorageException(f'Invalid file path {str(file_path)}')
 
     data = file_path.read_bytes()
-    md5_digest = md5(data).digest
-    md5_base64 = b64encode(md5_digest).decode('utf-8')
+    md5_digest = hashlib.md5(data).digest()
+    md5_base64 = base64.b64encode(md5_digest).decode('utf-8')
     try:
         s3_client.put_object(
             Bucket=bucket_name,

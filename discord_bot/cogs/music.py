@@ -208,10 +208,6 @@ MUSIC_SECTION_SCHEMA = {
                             'type': 'number',
                             'minimum': 1,
                         },
-                        # Reference to storage below
-                        'enable_storage_backend': {
-                            'type': 'string'
-                        }
                     }
                 },
                 'storage': {
