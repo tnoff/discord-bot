@@ -37,7 +37,7 @@ from discord_bot.cogs.music_helpers.source_download import SourceDownload, sourc
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
-from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
+from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache, VideoCacheBackup
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner, get_logger
@@ -217,17 +217,16 @@ MUSIC_SECTION_SCHEMA = {
                 'storage': {
                     'type': 'object',
                     'properties': {
-                        # What class of storage we used
                         'backend': {
-                            'type': 'string'
-                            # TODO only allow certain values
+                            'type': 'string',
+                            "enum": ['s3'],
                         },
                         'bucket_name': {
                             'type': 'string',
                         }
-                    }
-                }
-
+                    },
+                    'required': ['backend', 'bucket_name'],
+                },
             }
         },
     }
@@ -348,7 +347,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ytdlp_options = self.settings.get('music', {}).get('download', {}).get('extra_ytdlp_options', {})
         banned_videos_list = self.settings.get('music', {}).get('download', {}).get('banned_videos_list', [])
 
-
         self.youtube_wait_period_min = self.settings.get('music', {}).get('download', {}).get('youtube_wait_period_minimum', 30) # seconds
         self.youtube_wait_period_max_variance = self.settings.get('music', {}).get('download', {}).get('youtube_wait_period_max_variance', 10) # seconds
 
@@ -372,6 +370,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for item in server_queue_priority_input:
             self.server_queue_priority[int(item['server_id'])] = item['priority']
 
+        self.backup_storage_options = self.settings.get('music', {}).get('download', {}).get('storage', {})
+
         # Setup rest of client
         if download_dir_path is not None:
             self.download_dir = Path(download_dir_path)
@@ -392,6 +392,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session))
             self.video_cache.verify_cache()
             self.search_string_cache = SearchCacheClient(partial(self.with_db_session), max_search_cache_entries)
+
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
@@ -749,6 +750,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return db_session.query(VideoCache).\
                 filter(VideoCache.ready_for_deletion == True).all()
 
+        def list_non_backup_files(db_session: Session):
+            return db_session.query(VideoCache).\
+                outerjoin(VideoCacheBackup, VideoCache.id == VideoCacheBackup.video_cache_id).\
+                filter(VideoCacheBackup.id == None).\
+                all()
+
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
 
@@ -769,12 +776,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     if str(video_cache.base_path) in self.sources_in_transit.values():
                         continue
                     delete_videos.append(video_cache.id)
-                if not delete_videos:
-                    self.update_cache_cleanup_loop_timestamp()
-                    return False
+                if delete_videos:
+                    self.logger.debug(f'Identified cache videos ready for deletion {delete_videos}')
+                    self.video_cache.remove_video_cache(delete_videos)
 
-                self.logger.debug(f'Identified cache videos ready for deletion {delete_videos}')
-                self.video_cache.remove_video_cache(delete_videos)
+                # Check for pending backup files
+                for video_cache in retry_database_commands(db_session, partial(list_non_backup_files, db_session)):
+                    self.logger.info(f'Backing up video cache file {video_cache.id} to object storage')
+                    self.video_cache.object_storage_backup(self.backup_storage_options.get('bucket_name'), self.backup_storage_options.get('s3'), video_cache.id)
+
                 self.update_cache_cleanup_loop_timestamp()
                 return True
 
