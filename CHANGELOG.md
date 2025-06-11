@@ -3,6 +3,16 @@
 ## 2.4.1
 
 General:
+- Added support for OTLP logging, traces, and metrics
+
+Music:
+- Move downloads to tmpfile in Music
+- Move player files to tmpfile
+- In general isolated cache files
+
+## 2.4.1
+
+General:
 - Split up logging into one file per cog
 
 ## 2.4.0
