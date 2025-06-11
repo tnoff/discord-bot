@@ -28,7 +28,7 @@ class SourceDownload():
         self.file_path = file_path
         self.base_path = file_path
 
-    def ready_file(self, file_dir: Path = None):
+    def ready_file(self, guild_path: Path = None):
         '''
         Ready file for server
 
@@ -37,7 +37,7 @@ class SourceDownload():
         file_dir : Relocate to specific file dir
         move_file : Move file instead of a symlink
         '''
-        guild_path = file_dir or self.file_path.parent / f'{self.source_dict.guild_id}'
+        guild_path = guild_path or self.file_path.parent / f'{self.source_dict.guild_id}'
         guild_path.mkdir(exist_ok=True)
         if self.base_path:
             # The modified time of download videos can be the time when it was actually uploaded to youtube
