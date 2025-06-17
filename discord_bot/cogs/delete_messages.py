@@ -85,11 +85,12 @@ class DeleteMessages(CogHelper):
         Check if should run, based on loop timestamp
         '''
         if not self.loop_timestamp:
+            self.update_loop_timestamp()
             return False
         now = int(datetime.now(timezone.utc).timestamp())
         if (now - self.loop_timestamp) < self.loop_sleep_interval:
-            return False
-        return True
+            return True
+        return False
 
     async def delete_messages_loop(self):
         '''

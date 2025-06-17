@@ -548,7 +548,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if not self.playlist_history_timestamp:
             self.update_playlist_history_timestamp()
-            return False
+            return True
         now = int(datetime.now(timezone.utc).timestamp())
         if (now - self.playlist_history_timestamp) < wait_time:
             return False
@@ -621,7 +621,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if not self.send_message_timestamp:
             self.update_send_message_loop_timestamp()
-            return False
+            return True
         now = int(datetime.now(timezone.utc).timestamp())
         if (now - self.send_message_timestamp) < wait_time:
             return False
@@ -685,8 +685,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return False
         now = int(datetime.now(timezone.utc).timestamp())
         if (now - self.cleanup_player_timestamp) < wait_time:
-            return False
-        return True
+            return True
+        return False
 
     async def cleanup_players(self):
         '''
@@ -702,7 +702,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         number_players = len(self.players.keys())
         ACTIVE_PLAYER_GAUGE.set(number_players)
         # Run player cleanup background job
-        if not self.check_wait_cleanup_player():
+        if self.check_wait_cleanup_player():
             return
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.INTERNAL):
             guilds = []
@@ -734,8 +734,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return False
         now = int(datetime.now(timezone.utc).timestamp())
         if (now - self.cache_cleanup_timestamp) < wait_time:
-            return False
-        return True
+            return True
+        return False
 
     async def cache_cleanup(self):
         '''
@@ -759,14 +759,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
-
         await sleep(1)
         HEARTBEAT_GAUGE.set(1, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
         })
-        if not self.check_wait_cache_cleanup():
+        if self.check_wait_cache_cleanup():
             return
-
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.INTERNAL):
             # Get metric data first
             delete_videos = []
@@ -1223,7 +1221,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        print('My loop', self.bot.loop)
         try:
             entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
                                                               self.queue_max_size, ctx.channel)
