@@ -17,6 +17,11 @@ class MetricNaming(Enum):
     Metric naming
     '''
     HEARTBEAT = 'heartbeat'
+    ACTIVE_PLAYERS = 'active_players'
+    VIDEOS_PLAYED = 'videos_played'
+    CACHE_FILE_COUNT = 'cache_file_count'
+    CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
+    CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
 
 class AttributeNaming(Enum):
     '''

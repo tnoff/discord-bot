@@ -1123,7 +1123,7 @@ async def test_cache_cleanup_removes(mocker, freezer):
                     assert not cog.video_cache.get_webpage_url_item(s)
 
 @pytest.mark.asyncio
-async def test_cache_cleanup_skips_source_in_transit(mocker, freezer):
+async def test_cache_cleanup_skips_source_in_transit(mocker):
     with NamedTemporaryFile(suffix='.sql') as temp_db:
         engine = create_engine(f'sqlite:///{temp_db.name}')
         BASE.metadata.create_all(engine)
@@ -1166,10 +1166,6 @@ async def test_cache_cleanup_skips_source_in_transit(mocker, freezer):
                     cog.video_cache.iterate_file(sd)
                     cog.video_cache.iterate_file(sd2)
                     cog.video_cache.ready_remove()
-                    # Run twice so heartbeat passses
-                    freezer.move_to('2024-12-01 12:00:00')
-                    await cog.cache_cleanup()
-                    freezer.move_to('2024-12-02 12:00:00')
                     cog.sources_in_transit[sd.source_dict.uuid] = str(sd.base_path)
                     await cog.cache_cleanup()
                     assert cog.video_cache.get_webpage_url_item(s)
