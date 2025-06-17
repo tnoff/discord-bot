@@ -2,6 +2,7 @@ from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 
 from discord.ext.commands import Bot
+from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import get_meter_provider
 from sqlalchemy.engine.base import Engine
@@ -67,7 +68,7 @@ class DeleteMessages(CogHelper):
         self.loop_timestamp = None
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(return_loop_runner(self.delete_messages_loop, self.bot, self.logger)())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.delete_messages_loop, self.bot, self.logger, continue_exceptions=DiscordServerError)())
 
     async def cog_unload(self):
         if self._task:

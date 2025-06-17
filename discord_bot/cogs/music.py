@@ -8,11 +8,13 @@ from functools import partial
 from pathlib import Path
 from random import shuffle as random_shuffle, randint
 from re import match as re_match
+from shutil import disk_usage
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
+from discord.errors import DiscordServerError
 from discord import VoiceChannel
 from discord.errors import NotFound
 from opentelemetry.trace import SpanKind
@@ -229,6 +231,11 @@ OTEL_SPAN_PREFIX = 'music'
 
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 HEARTBEAT_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.HEARTBEAT.value, unit='number', description='Heatbeat metrics gauge')
+ACTIVE_PLAYER_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.ACTIVE_PLAYERS.value, unit='number', description='Number of players active')
+VIDEOS_PLAYED_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
+CACHE_FILE_COUNT_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILE_COUNT.value, unit='number', description='Number of local cache files')
+CACHE_DIR_MAX_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILESYSTEM_MAX.value, unit='number', description='Max size of cached filesystem')
+CACHE_DIR_USED_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILESYSTEM_USED.value, unit='number', description='Current in use value of cached filesystem')
 
 #
 # Common Functions
@@ -425,7 +432,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
-        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger)())
+        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, continue_exceptions=DiscordServerError)())
         if self.enable_cache:
             self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger)())
         if self.db_engine:
@@ -597,6 +604,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     retry_database_commands(db_session, partial(delete_extra_items, db_session, history_item.playlist_id, delta))
                 self.logger.info(f'Music ::: Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
                 self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
+                # Update metrics
+                VIDEOS_PLAYED_GAUGE.set(1, attributes={
+                    AttributeNaming.GUILD: history_item.source_download.source_dict.guild_id
+                })
 
     def update_send_message_loop_timestamp(self):
         '''
@@ -687,6 +698,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         HEARTBEAT_GAUGE.set(1, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
         })
+        # Set metric for number of players actively in use
+        number_players = len(self.players.keys())
+        ACTIVE_PLAYER_GAUGE.set(number_players)
+        # Run player cleanup background job
         if not self.check_wait_cleanup_player():
             return
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.INTERNAL):
@@ -732,6 +747,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return db_session.query(VideoCache).\
                 filter(VideoCache.ready_for_deletion == True).all()
 
+        def get_cache_file_count(db_session: Session):
+            return db_session.query(VideoCache).count()
+
+        def check_download_dir_is_cache():
+            if not self.download_dir:
+                return False
+            if not self.download_dir.is_mount():
+                return False
+            return True
+
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
 
@@ -743,10 +768,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.INTERNAL):
+            # Get metric data first
             delete_videos = []
-            self.logger.debug('Checking cache files to remove in music player')
             self.video_cache.ready_remove()
             with self.with_db_session() as db_session:
+                cache_file_count = retry_database_commands(db_session, partial(get_cache_file_count, db_session))
+                CACHE_FILE_COUNT_GAUGE.set(cache_file_count)
+                # Set metric data for cache dir sizes
+                if check_download_dir_is_cache():
+                    total, used, _ = disk_usage(str(self.download_dir))
+                    CACHE_DIR_MAX_GAUGE.set(total)
+                    CACHE_DIR_USED_GAUGE.set(used)
+                # Then check for deleted videos
                 for video_cache in retry_database_commands(db_session, partial(list_ready_cache_files, db_session)):
                     # Check if video cache in use
                     if str(video_cache.base_path) in self.sources_in_transit.values():
