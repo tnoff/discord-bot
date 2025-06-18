@@ -53,7 +53,7 @@ MARKOV_SECTION_SCHEMA = {
 }
 
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
-HEARTBEAT_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.HEARTBEAT.value, unit='number', description='Markov heartbeat')
+HEARTBEAT_COUNTER = METER_PROVIDER.create_counter(MetricNaming.HEARTBEAT.value, unit='number', description='Markov heartbeat')
 
 def clean_message(content: str, emojis: List[str]):
     '''
@@ -213,7 +213,7 @@ class Markov(CogHelper):
             db_session.commit()
 
         await sleep(1)
-        HEARTBEAT_GAUGE.set(1, attributes={
+        HEARTBEAT_COUNTER.add(1, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
         })
         if self.check_wait():

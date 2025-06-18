@@ -10,7 +10,7 @@ from opentelemetry.metrics import get_meter_provider
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
-COMMAND_COUNTER = METER_PROVIDER.create_gauge('commands.counter', unit='number', description='Number of commands called')
+COMMAND_COUNTER = METER_PROVIDER.create_counter('commands.counter', unit='number', description='Number of commands called')
 
 class MetricNaming(Enum):
     '''
@@ -104,7 +104,7 @@ def command_wrapper(function):
                 ContextNaming.COMMAND.value: ctx.command.name,
             }
         with otel_span_wrapper(span_name, ctx=ctx):
-            COMMAND_COUNTER.set(1, attributes=metric_attributes)
+            COMMAND_COUNTER.add(1, attributes=metric_attributes)
             return await function(*args, **kwargs)
     return _wrapper
 
