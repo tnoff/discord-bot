@@ -440,19 +440,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Cache stats
             METER_PROVIDER.create_observable_gauge(
                 name=MetricNaming.CACHE_FILESYSTEM_MAX.value,
-                callbacks=[self.__cache_filestats_callback(MetricNaming.CACHE_FILESYSTEM_MAX.value)],
+                callbacks=[self.__cache_filestats_callback_total],
                 unit="1",
                 description="Max size of cached filesystem"
             )
             METER_PROVIDER.create_observable_gauge(
                 name=MetricNaming.CACHE_FILESYSTEM_USED.value,
-                callbacks=[self.__cache_filestats_callback(MetricNaming.CACHE_FILESYSTEM_USED.value)],
+                callbacks=[self.__cache_filestats_callback_used],
                 unit="1",
                 description="Current in use value of cached filesystem"
             )
 
     # Metric callback functons
-    def __active_players_callback(self):
+    def __active_players_callback(self, _options):
         '''
         Get active players
         '''
@@ -460,7 +460,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             Observation(len(self.players.keys())),
         ]
 
-    def __cache_count_callback(self):
+    def __cache_count_callback(self, _options):
         '''
         Cache count observer
         '''
@@ -472,20 +472,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 Observation(cache_file_count)
             ]
 
-    def __cache_filestats_callback(self, instrument_name):
+    def __cache_filestats_callback_used(self, _options):
         '''
         Cache stats observer
         '''
-        total, used, _ = disk_usage(str(self.download_dir))
-        if instrument_name == MetricNaming.CACHE_FILESYSTEM_USED.value:
-            return [
-                Observation(used)
-            ]
-        if instrument_name == MetricNaming.CACHE_FILESYSTEM_MAX.value:
-            return [
-                Observation(total)
-            ]
-        return []
+        _, used, _ = disk_usage(str(self.download_dir))
+        return [
+            Observation(used)
+        ]
+
+    def __cache_filestats_callback_total(self, _options):
+        '''
+        Cache stats observer
+        '''
+        total, _, _ = disk_usage(str(self.download_dir))
+        return [
+            Observation(total)
+        ]
 
     async def cog_load(self):
         '''
