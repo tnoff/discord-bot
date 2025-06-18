@@ -18,6 +18,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.metrics import set_meter_provider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.resources import get_aggregated_resources, OTELResourceDetector
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
@@ -122,9 +123,11 @@ def main(execute, config_file): #pylint:disable=too-many-statements
             BatchSpanProcessor(span_exporter)
         )
         # Set metrics
+        # Need to grab this directly for one reason or another with metrics
+        resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
         exporter = OTLPMetricExporter(endpoint=otlp_settings['metric_endpoint'], insecure=True)
         reader = PeriodicExportingMetricReader(exporter)
-        provider = MeterProvider(metric_readers=[reader])
+        provider = MeterProvider(resource=resource, metric_readers=[reader])
         set_meter_provider(provider)
         # Set logging
         logger_provider = LoggerProvider()
