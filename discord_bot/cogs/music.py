@@ -563,7 +563,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 filter(PlaylistItem.video_url == webpage_url).\
                 filter(PlaylistItem.playlist_id == playlist_id).first()
             if existing_history_item:
-                self.logger.debug(f'Music ::: New history item {webpage_url} already exists, deleting this first')
+                self.logger.debug(f'New history item {webpage_url} already exists, deleting this first')
                 db_session.delete(existing_history_item)
                 db_session.commit()
 
@@ -574,7 +574,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for existing_item in db_session.query(PlaylistItem).\
                     filter(PlaylistItem.playlist_id == playlist_id).\
                     order_by(asc(PlaylistItem.created_at)).limit(delta):
-                self.logger.debug(f'Music ::: Deleting older history playlist item {existing_item.video_url} from playlist {playlist_id}, created on {existing_item.created_at}')
+                self.logger.debug(f'Deleting older history playlist item {existing_item.video_url} from playlist {playlist_id}, created on {existing_item.created_at}')
                 db_session.delete(existing_item)
             db_session.commit()
 
@@ -593,7 +593,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.INTERNAL):
             with self.with_db_session() as db_session:
-                self.logger.info(f'Music ::: Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
+                self.logger.info(f'Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
                 retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
 
                 # Delete number of rows necessary to add list
@@ -602,7 +602,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if delta > 0:
                     self.logger.info(f'Need to delete {delta} items from history playlist {history_item.playlist_id}')
                     retry_database_commands(db_session, partial(delete_extra_items, db_session, history_item.playlist_id, delta))
-                self.logger.info(f'Music ::: Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
+                self.logger.info(f'Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
                 self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
                 # Update metrics
                 VIDEOS_PLAYED_GAUGE.set(1, attributes={
