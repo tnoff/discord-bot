@@ -606,7 +606,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
                 # Update metrics
                 VIDEOS_PLAYED_GAUGE.set(1, attributes={
-                    AttributeNaming.GUILD: history_item.source_download.source_dict.guild_id
+                    AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
                 })
 
     def update_send_message_loop_timestamp(self):
@@ -1176,12 +1176,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return channel
 
     async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
-        try:
-            return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-        except async_timeout as e:
-            self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
-        return None
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ensure_player', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: ctx.guild.id}):
+            try:
+                return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
+            except async_timeout as e:
+                self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
+                self.message_queue.iterate_single_message([partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.delete_after)])
+            return None
 
     @command(name='join', aliases=['awaken'])
     @command_wrapper
