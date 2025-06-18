@@ -20,6 +20,7 @@ from discord.errors import NotFound
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import get_meter_provider
+from opentelemetry.metrics import Observation
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
@@ -230,12 +231,8 @@ class PlaylistMaxLength(Exception):
 OTEL_SPAN_PREFIX = 'music'
 
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
-HEARTBEAT_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.HEARTBEAT.value, unit='number', description='Heatbeat metrics gauge')
-ACTIVE_PLAYER_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.ACTIVE_PLAYERS.value, unit='number', description='Number of players active')
-VIDEOS_PLAYED_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
-CACHE_FILE_COUNT_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILE_COUNT.value, unit='number', description='Number of local cache files')
-CACHE_DIR_MAX_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILESYSTEM_MAX.value, unit='number', description='Max size of cached filesystem')
-CACHE_DIR_USED_GAUGE = METER_PROVIDER.create_gauge(MetricNaming.CACHE_FILESYSTEM_USED.value, unit='number', description='Current in use value of cached filesystem')
+HEARTBEAT_COUNTER = METER_PROVIDER.create_counter(MetricNaming.HEARTBEAT.value, unit='number', description='Heatbeat metrics gauge')
+VIDEOS_PLAYED_COUNTER = METER_PROVIDER.create_counter(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
 
 #
 # Common Functions
@@ -425,6 +422,70 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                           number_shuffles=self.number_shuffles)
         self.download_client = DownloadClient(ytdl, self.download_dir)
 
+        # Active players callback
+        METER_PROVIDER.create_observable_gauge(
+            name=MetricNaming.ACTIVE_PLAYERS.value,
+            callbacks=[self.__active_players_callback],
+            unit="1",
+            description="Number of players active"
+        )
+        # Cache file count callback
+        METER_PROVIDER.create_observable_gauge(
+            name=MetricNaming.CACHE_FILE_COUNT.value,
+            callbacks=[self.__cache_count_callback],
+            unit="1",
+            description="Number of cache files used"
+        )
+        if self.download_dir and self.download_dir.is_mount():
+            # Cache stats
+            METER_PROVIDER.create_observable_gauge(
+                name=MetricNaming.CACHE_FILESYSTEM_MAX.value,
+                callbacks=[self.__cache_filestats_callback(MetricNaming.CACHE_FILESYSTEM_MAX.value)],
+                unit="1",
+                description="Max size of cached filesystem"
+            )
+            METER_PROVIDER.create_observable_gauge(
+                name=MetricNaming.CACHE_FILESYSTEM_USED.value,
+                callbacks=[self.__cache_filestats_callback(MetricNaming.CACHE_FILESYSTEM_USED.value)],
+                unit="1",
+                description="Current in use value of cached filesystem"
+            )
+
+    # Metric callback functons
+    def __active_players_callback(self):
+        '''
+        Get active players
+        '''
+        return [
+            Observation(len(self.players.keys())),
+        ]
+
+    def __cache_count_callback(self):
+        '''
+        Cache count observer
+        '''
+        def get_cache_file_count(db_session: Session):
+            return db_session.query(VideoCache).count()
+        with self.with_db_session() as db_session:
+            cache_file_count = retry_database_commands(db_session, partial(get_cache_file_count, db_session))
+            return [
+                Observation(cache_file_count)
+            ]
+
+    def __cache_filestats_callback(self, instrument_name):
+        '''
+        Cache stats observer
+        '''
+        total, used, _ = disk_usage(str(self.download_dir))
+        if instrument_name == MetricNaming.CACHE_FILESYSTEM_USED.value:
+            return [
+                Observation(used)
+            ]
+        if instrument_name == MetricNaming.CACHE_FILESYSTEM_MAX.value:
+            return [
+                Observation(total)
+            ]
+        return []
 
     async def cog_load(self):
         '''
@@ -580,7 +641,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         if self.check_wait_playlist_history():
-            HEARTBEAT_GAUGE.set(1, attributes={
+            HEARTBEAT_COUNTER.add(1, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'playlist_history'
             })
             self.update_playlist_history_timestamp()
@@ -605,7 +666,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
                 self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
                 # Update metrics
-                VIDEOS_PLAYED_GAUGE.set(1, attributes={
+                VIDEOS_PLAYED_COUNTER.add(1, attributes={
                     AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
                 })
 
@@ -633,7 +694,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         await sleep(.01)
         if self.check_wait_send_message():
-            HEARTBEAT_GAUGE.set(1, attributes={
+            HEARTBEAT_COUNTER.add(1, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'send_messages'
             })
             self.update_send_message_loop_timestamp()
@@ -695,12 +756,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        HEARTBEAT_GAUGE.set(1, attributes={
+        HEARTBEAT_COUNTER.add(1, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
         })
-        # Set metric for number of players actively in use
-        number_players = len(self.players.keys())
-        ACTIVE_PLAYER_GAUGE.set(number_players)
         # Run player cleanup background job
         if self.check_wait_cleanup_player():
             return
@@ -747,20 +805,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return db_session.query(VideoCache).\
                 filter(VideoCache.ready_for_deletion == True).all()
 
-        def get_cache_file_count(db_session: Session):
-            return db_session.query(VideoCache).count()
-
-        def check_download_dir_is_cache():
-            if not self.download_dir:
-                return False
-            if not self.download_dir.is_mount():
-                return False
-            return True
-
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        HEARTBEAT_GAUGE.set(1, attributes={
+        HEARTBEAT_COUNTER.add(1, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
         })
         if self.check_wait_cache_cleanup():
@@ -770,13 +818,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             delete_videos = []
             self.video_cache.ready_remove()
             with self.with_db_session() as db_session:
-                cache_file_count = retry_database_commands(db_session, partial(get_cache_file_count, db_session))
-                CACHE_FILE_COUNT_GAUGE.set(cache_file_count)
-                # Set metric data for cache dir sizes
-                if check_download_dir_is_cache():
-                    total, used, _ = disk_usage(str(self.download_dir))
-                    CACHE_DIR_MAX_GAUGE.set(total)
-                    CACHE_DIR_USED_GAUGE.set(used)
                 # Then check for deleted videos
                 for video_cache in retry_database_commands(db_session, partial(list_ready_cache_files, db_session)):
                     # Check if video cache in use
@@ -817,7 +858,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             await sleep(1)
             # Send back heartbeats while we're waiting
-            HEARTBEAT_GAUGE.set(1, attributes={
+            HEARTBEAT_COUNTER.add(1, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files',
             })
             self.update_download_file_loop_timestamp()
@@ -947,7 +988,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         if self.check_wait_download_file():
-            HEARTBEAT_GAUGE.set(1, attributes={
+            HEARTBEAT_COUNTER.add(1, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files'
             })
             self.update_download_file_loop_timestamp()
