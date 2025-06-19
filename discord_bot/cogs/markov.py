@@ -1,8 +1,10 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from pathlib import Path
 from random import choice
 from re import match, sub, MULTILINE
+from tempfile import NamedTemporaryFile
 from typing import Optional, List
 
 from dappertable import DapperTable
@@ -11,6 +13,7 @@ from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import get_meter_provider
+from opentelemetry.metrics import Observation
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
 
@@ -19,6 +22,7 @@ from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command, return_loop_runner
+from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming
 
@@ -53,7 +57,6 @@ MARKOV_SECTION_SCHEMA = {
 }
 
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
-HEARTBEAT_COUNTER = METER_PROVIDER.create_counter(MetricNaming.HEARTBEAT.value, unit='number', description='Markov heartbeat')
 
 def clean_message(content: str, emojis: List[str]):
     '''
@@ -125,15 +128,28 @@ class Markov(CogHelper):
         self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
 
         self._task = None
-        self.loop_timestamp = None
+        self.loop_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
 
+    def __loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.loop_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
+            })
+        ]
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, continue_exceptions=(DiscordServerError, TimeoutError))())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, self.loop_checkfile, continue_exceptions=(DiscordServerError, TimeoutError))())
 
     async def cog_unload(self):
         if self._task:
             self._task.cancel()
+        if self.loop_checkfile.exists():
+            self.loop_checkfile.unlink()
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
     def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
@@ -184,23 +200,6 @@ class Markov(CogHelper):
 
         retry_database_commands(db_session, partial(delete_records, db_session, channel_id))
 
-    def update_loop_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.loop_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait(self):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.loop_timestamp:
-            return False
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.loop_timestamp) > self.loop_sleep_interval:
-            return False
-        return True
-
     async def markov_message_check(self):
         '''
         Main loop runner
@@ -212,13 +211,7 @@ class Markov(CogHelper):
             db_session.query(MarkovRelation).filter(MarkovRelation.created_at < retention_cutoff).delete()
             db_session.commit()
 
-        await sleep(1)
-        HEARTBEAT_COUNTER.add(1, attributes={
-            AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
-        })
-        if self.check_wait():
-            return
-
+        await sleep(self.loop_sleep_interval)
         with otel_span_wrapper('markov.message_check', kind=SpanKind.INTERNAL):
             retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
             self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
@@ -280,7 +273,6 @@ class Markov(CogHelper):
                 with otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
                     retry_database_commands(db_session, partial(delete_old_records, db_session))
                     self.logger.debug('Deleted expired/old markov relations')
-        self.update_loop_timestamp()
 
     @group(name='markov', invoke_without_command=False)
     async def markov(self, ctx: Context):

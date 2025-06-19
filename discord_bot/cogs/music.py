@@ -9,7 +9,7 @@ from pathlib import Path
 from random import shuffle as random_shuffle, randint
 from re import match as re_match
 from shutil import disk_usage
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 from typing import Callable, Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
@@ -43,7 +43,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
-from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner, get_logger
+from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -231,7 +231,6 @@ class PlaylistMaxLength(Exception):
 OTEL_SPAN_PREFIX = 'music'
 
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
-HEARTBEAT_COUNTER = METER_PROVIDER.create_counter(MetricNaming.HEARTBEAT.value, unit='number', description='Heatbeat metrics gauge')
 VIDEOS_PLAYED_COUNTER = METER_PROVIDER.create_counter(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
 
 #
@@ -386,13 +385,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # So we dont delete them as they are in flight
         self.sources_in_transit = {}
 
-        # Timestamps for heartbeat gauges
-        self.send_message_timestamp = None
-        self.cleanup_player_timestamp = None
-        self.cache_cleanup_timestamp = None
-        self.download_file_timestamp = None
-        self.playlist_history_timestamp = None
-
         ytdlopts = {
             'format': 'bestaudio/best',
             'restrictfilenames': True,
@@ -422,36 +414,81 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                           number_shuffles=self.number_shuffles)
         self.download_client = DownloadClient(ytdl, self.download_dir)
 
-        # Active players callback
-        METER_PROVIDER.create_observable_gauge(
-            name=MetricNaming.ACTIVE_PLAYERS.value,
-            callbacks=[self.__active_players_callback],
-            unit="1",
-            description="Number of players active"
-        )
+        # Callback functions
+        create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILE_COUNT.value, self.__cache_count_callback, 'Number of cache files in use')
         # Cache file count callback
-        METER_PROVIDER.create_observable_gauge(
-            name=MetricNaming.CACHE_FILE_COUNT.value,
-            callbacks=[self.__cache_count_callback],
-            unit="1",
-            description="Number of cache files used"
-        )
         if self.download_dir and self.download_dir.is_mount():
             # Cache stats
-            METER_PROVIDER.create_observable_gauge(
-                name=MetricNaming.CACHE_FILESYSTEM_MAX.value,
-                callbacks=[self.__cache_filestats_callback_total],
-                unit="1",
-                description="Max size of cached filesystem"
-            )
-            METER_PROVIDER.create_observable_gauge(
-                name=MetricNaming.CACHE_FILESYSTEM_USED.value,
-                callbacks=[self.__cache_filestats_callback_used],
-                unit="1",
-                description="Current in use value of cached filesystem"
-            )
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
+        # Timestamps for heartbeat gauges
+        #self.playlist_history_timestamp = None
+        self.send_message_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__send_message_loop_active_callback, 'Send message loop heartbeat')
+        self.cleanup_player_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
+        self.cache_cleanup_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cache_cleanup_loop_active_callback, 'Cache cleanup loop heartbeat')
+        self.download_file_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
+        self.playlist_history_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__playlist_history_loop_active_callback, 'Playlist update loop heartbeat')
 
     # Metric callback functons
+    def __playlist_history_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.playlist_history_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'playlist_history'
+            })
+        ]
+    def __download_file_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.download_file_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'download_files'
+            })
+        ]
+
+    def __cache_cleanup_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.send_message_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
+            })
+        ]
+    def __send_message_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.send_message_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'send_messages'
+            })
+        ]
+
+    def __cleanup_player_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.cleanup_player_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
+            })
+        ]
+
     def __active_players_callback(self, _options):
         '''
         Get active players
@@ -494,13 +531,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
-        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, continue_exceptions=DiscordServerError)())
+        self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger, self.cleanup_player_checkfile)())
+        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger, self.download_file_checkfile)())
+        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, self.send_message_checkfile, continue_exceptions=DiscordServerError)())
         if self.enable_cache:
-            self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger)())
+            self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger, self.cache_cleanup_checkfile)())
         if self.db_engine:
-            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger)())
+            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger, self.playlist_history_checkfile)())
 
     async def cog_unload(self):
         '''
@@ -537,6 +574,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 rm_tree(self.temp_download_dir)
             if self.player_dir.exists():
                 rm_tree(self.player_dir)
+            # Delete loop checkfiles
+            if self.cleanup_player_checkfile.exists():
+                self.cleanup_player_checkfile.unlink()
+            if self.send_message_checkfile.exists():
+                self.send_message_checkfile.unlink()
+            if self.cache_cleanup_checkfile.exists():
+                self.cache_cleanup_checkfile.unlink()
+            if self.download_file_checkfile.exists():
+                self.download_file_checkfile.unlink()
+            if self.playlist_history_checkfile.exists():
+                self.playlist_history_checkfile.unlink()
 
     async def player_should_update_queue_order(self, player: MusicPlayer):
         '''
@@ -600,24 +648,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.player_messages[guild_id].append(await retry_discord_message_command(player.text_channel.send, table))
             return True
 
-    def update_playlist_history_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.playlist_history_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait_playlist_history(self, wait_time: int = 1):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.playlist_history_timestamp:
-            self.update_playlist_history_timestamp()
-            return True
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.playlist_history_timestamp) < wait_time:
-            return False
-        return True
-
     async def playlist_history_update(self):
         '''
         Update history playlists
@@ -643,11 +673,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             db_session.commit()
 
         await sleep(.01)
-        if self.check_wait_playlist_history():
-            HEARTBEAT_COUNTER.add(1, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'playlist_history'
-            })
-            self.update_playlist_history_timestamp()
         try:
             history_item = self.history_playlist_queue.get_nowait()
         except QueueEmpty:
@@ -655,9 +680,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
             return
 
+        # Add all videos to metrics
+        VIDEOS_PLAYED_COUNTER.add(1, attributes={
+            AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+        })
+        # Skip if added from history
+        if history_item.source_download.source_dict.added_from_history:
+            self.logger.info(f'Played video "{history_item.source_download.webpage_url}" was original played from history, skipping history add')
+            return
+
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.INTERNAL):
             with self.with_db_session() as db_session:
-                self.logger.info(f'Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
+                self.logger.info(f'Attempting to add url "{history_item.source_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
                 retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
 
                 # Delete number of rows necessary to add list
@@ -673,34 +707,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
                 })
 
-    def update_send_message_loop_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.send_message_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait_send_message(self, wait_time: int = 1):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.send_message_timestamp:
-            self.update_send_message_loop_timestamp()
-            return True
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.send_message_timestamp) < wait_time:
-            return False
-        return True
-
     async def send_messages(self):
         '''
         Send messages runner
         '''
         await sleep(.01)
-        if self.check_wait_send_message():
-            HEARTBEAT_COUNTER.add(1, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'send_messages'
-            })
-            self.update_send_message_loop_timestamp()
 
         source_type, item = self.message_queue.get_next_message()
 
@@ -734,24 +745,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             return False
 
-    def update_cleanup_player_loop_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.cleanup_player_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait_cleanup_player(self, wait_time: int = 30):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.cleanup_player_timestamp:
-            self.update_cleanup_player_loop_timestamp()
-            return False
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.cleanup_player_timestamp) < wait_time:
-            return True
-        return False
-
     async def cleanup_players(self):
         '''
         Check for players with no members, cleanup bot in channels that do
@@ -759,12 +752,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        HEARTBEAT_COUNTER.add(1, attributes={
-            AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
-        })
-        # Run player cleanup background job
-        if self.check_wait_cleanup_player():
-            return
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.INTERNAL):
             guilds = []
             for _guild_id, player in self.players.items():
@@ -778,25 +765,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # And you might hit issues where dict size changes during iteration
             for guild in guilds:
                 await self.cleanup(guild)
-        self.update_cleanup_player_loop_timestamp()
-
-    def update_cache_cleanup_loop_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.cache_cleanup_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait_cache_cleanup(self, wait_time: int = 30):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.cache_cleanup_timestamp:
-            self.update_cache_cleanup_loop_timestamp()
-            return False
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.cache_cleanup_timestamp) < wait_time:
-            return True
-        return False
 
     async def cache_cleanup(self):
         '''
@@ -811,11 +779,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        HEARTBEAT_COUNTER.add(1, attributes={
-            AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
-        })
-        if self.check_wait_cache_cleanup():
-            return
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.INTERNAL):
             # Get metric data first
             delete_videos = []
@@ -828,12 +791,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         continue
                     delete_videos.append(video_cache.id)
                 if not delete_videos:
-                    self.update_cache_cleanup_loop_timestamp()
                     return False
 
                 self.logger.debug(f'Identified cache videos ready for deletion {delete_videos}')
                 self.video_cache.remove_video_cache(delete_videos)
-                self.update_cache_cleanup_loop_timestamp()
                 return True
 
     async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
@@ -860,11 +821,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if now > wait_until:
                 return True
             await sleep(1)
-            # Send back heartbeats while we're waiting
-            HEARTBEAT_COUNTER.add(1, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'download_files',
-            })
-            self.update_download_file_loop_timestamp()
 
     async def __cache_search(self, source_download: SourceDownload):
         '''
@@ -964,23 +920,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return self.video_cache.get_webpage_url_item(source_dict)
 
-    def update_download_file_loop_timestamp(self):
-        '''
-        Update timestamp for looping
-        '''
-        self.download_file_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-    def check_wait_download_file(self, wait_time: int = 1):
-        '''
-        Check if should run, based on loop timestamp
-        '''
-        if not self.download_file_timestamp:
-            self.update_download_file_loop_timestamp()
-            return False
-        now = int(datetime.now(timezone.utc).timestamp())
-        if (now - self.download_file_timestamp) < wait_time:
-            return False
-        return True
 
     async def download_files(self): #pylint:disable=too-many-statements
         '''
@@ -990,12 +929,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise ExitEarlyException('Bot shutdown called, exiting early')
 
         await sleep(.01)
-        if self.check_wait_download_file():
-            HEARTBEAT_COUNTER.add(1, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'download_files'
-            })
-            self.update_download_file_loop_timestamp()
-
         try:
             source_dict = self.download_queue.get_nowait()
         except QueueEmpty:

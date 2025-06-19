@@ -72,7 +72,7 @@ class MusicPlayer:
         Start background methods
         '''
         if not self._player_task:
-            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger)())
+            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
 
     async def player_loop(self):
         '''
@@ -85,7 +85,7 @@ class MusicPlayer:
             async with timeout(self.disconnect_timeout):
                 source = await self._play_queue.get()
         except async_timeout as e:
-            self.logger.info(f'Music :: bot reached timeout on queue in guild "{self.guild.id}"')
+            self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
             await self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_source = source
@@ -96,12 +96,12 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
-            self.logger.info(f'Music :: No voice found, disconnecting from guild {self.guild.id}')
+            self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
             if not self.shutdown_called:
                 await self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
-        self.logger.info(f'Music :: Now playing "{source.webpage_url}" requested '
+        self.logger.info(f'Now playing "{source.webpage_url}" requested '
                             f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
                             f'"{source.webpage_url}"')
         self.np_message = f'Now playing {source.webpage_url} requested by {source.source_dict.requester_name}'
@@ -119,8 +119,10 @@ class MusicPlayer:
         source.delete()
 
         # Add video to history if possible
+        # Add here to history playlist queue to save items for metrics as well
+        # Check on the other side if this was added from history
         if not self.video_skipped:
-            if self.history_playlist_id and not source.source_dict.added_from_history:
+            if self.history_playlist_id:
                 self.history_playlist_queue.put_nowait(HistoryPlaylistItem(self.history_playlist_id, source))
 
             try:
@@ -178,7 +180,7 @@ class MusicPlayer:
         '''
         Used for loop to call once voice channel done
         '''
-        self.logger.info(f'Music :: Set next called on player in guild "{self.guild.id}"')
+        self.logger.info(f'Set next called on player in guild "{self.guild.id}"')
         self.next.set()
 
     async def join_voice(self, channel):
@@ -280,20 +282,20 @@ class MusicPlayer:
         '''
         Cleanup all resources for player
         '''
-        self.logger.info(f'Music :: Clearing out resources for player in {self.guild.id}')
+        self.logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
             try:
                 source = self._play_queue.get_nowait()
-                self.logger.debug(f'Music :: Removing item {source} from play queue')
+                self.logger.debug(f'Removing item {source} from play queue')
                 source.delete()
             except QueueEmpty:
                 break
 
         # Clear out all the queues
-        self.logger.debug('Music :: Calling clear on queues and queue messages')
+        self.logger.debug('Calling clear on queues and queue messages')
         self._history.clear()
         self._play_queue.clear()
         # Clear any messages in the current queue
@@ -308,6 +310,6 @@ class MusicPlayer:
         '''
         Disconnect and cleanup the player.
         '''
-        self.logger.info(f'Music :: Removing music bot from guild id {self.guild.id}')
+        self.logger.info(f'Removing music bot from guild id {self.guild.id}')
         for func in self.cog_cleanup:
             await func()

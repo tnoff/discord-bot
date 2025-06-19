@@ -269,17 +269,20 @@ def rm_tree(pth: Path) -> bool:
     pth.rmdir()
     return True
 
-def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
+def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfile: Path, continue_exceptions=None, exit_exceptions=ExitEarlyException):
     '''
     Return a basic standard bot loop
 
     function : Function to run, must by async
     bot : Bot object
     logger : Logger for exceptions
+    checkfile: Writes 1 to file when loop active, writes 0 when its not
     continue_exceptions: Do not exit on these exceptions
     exit_exceptions : Exit on these exceptions
     '''
     continue_exceptions = continue_exceptions or ()
+    if checkfile:
+        checkfile.write_text('1')
     async def loop_runner(): #pylint:disable=duplicate-code
         await bot.wait_until_ready()
 
@@ -289,6 +292,8 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
             except continue_exceptions:
                 continue
             except exit_exceptions:
+                if checkfile:
+                    checkfile.write_text('0')
                 return False
             except Exception as e:
                 logger.exception(e)
@@ -296,7 +301,11 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
                 logger.error(str(e))
                 print(f'Player loop exception {str(e)}')
                 print('Formatted exception:', format_exc())
+                if checkfile:
+                    checkfile.write_text('0')
                 return False
+        if checkfile:
+            checkfile.write_text('0')
     return loop_runner
 
 def run_commit(db_session: Session):
@@ -304,3 +313,14 @@ def run_commit(db_session: Session):
     Run commit on a db_session, useful for using in retries
     '''
     db_session.commit()
+
+def create_observable_gauge(meter_provider, name: str, function, description: str, unit: str = '1'):
+    '''
+    Yield a loop callback method for heartbeat
+    '''
+    meter_provider.create_observable_gauge(
+        name=name,
+        callbacks=[function],
+        unit=unit,
+        description=description,
+    )
