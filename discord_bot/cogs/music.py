@@ -680,9 +680,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
             return
 
+        # Add all videos to metrics
+        VIDEOS_PLAYED_COUNTER.add(1, attributes={
+            AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+        })
+        # Skip if added from history
+        if history_item.source_download.source_dict.added_from_history:
+            self.logger.info(f'Played video "{history_item.source_download.webpage_url}" was original played from history, skipping history add')
+            return
+
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.INTERNAL):
             with self.with_db_session() as db_session:
-                self.logger.info(f'Attempting to add url {history_item.source_download.webpage_url} to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
+                self.logger.info(f'Attempting to add url "{history_item.source_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
                 retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
 
                 # Delete number of rows necessary to add list
