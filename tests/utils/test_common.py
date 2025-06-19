@@ -257,16 +257,22 @@ async def test_return_loop_runner():
     def fake_func():
         raise ExitEarlyException('exiting')
     fake_bot = fake_bot_yielder()()
-    runner = return_loop_runner(fake_func, fake_bot, logging)
-    assert await runner() is False
+    with NamedTemporaryFile() as tmpfile:
+        path = Path(tmpfile.name)
+        runner = return_loop_runner(fake_func, fake_bot, logging, path)
+        assert await runner() is False
+        assert path.read_text(encoding='utf-8') == '0'
 
 @pytest.mark.asyncio(scope="session")
 async def test_return_loop_runner_standard_exception():
     def fake_func():
         raise Exception('exiting') #pylint:disable=broad-exception-raised
     fake_bot = fake_bot_yielder()()
-    runner = return_loop_runner(fake_func, fake_bot, logging)
-    assert await runner() is False
+    with NamedTemporaryFile() as tmpfile:
+        path = Path(tmpfile.name)
+        runner = return_loop_runner(fake_func, fake_bot, logging, path)
+        assert await runner() is False
+        assert path.read_text(encoding='utf-8') == '0'
 
 @pytest.mark.asyncio(scope="session")
 async def test_return_loop_runner_continue_exception():
@@ -277,6 +283,9 @@ async def test_return_loop_runner_continue_exception():
     def fake_func():
         fake_bot.bot_closed = True
         raise FakeException('foo')
-    runner = return_loop_runner(fake_func, fake_bot, logging, continue_exceptions=FakeException)
-    runner()
-    assert not fake_bot.is_closed()
+    with NamedTemporaryFile() as tmpfile:
+        path = Path(tmpfile.name)
+        runner = return_loop_runner(fake_func, fake_bot, logging, path, continue_exceptions=FakeException)
+        runner()
+        assert not fake_bot.is_closed()
+        assert path.read_text(encoding='utf-8') == '1'

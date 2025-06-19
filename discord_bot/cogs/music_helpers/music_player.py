@@ -72,7 +72,7 @@ class MusicPlayer:
         Start background methods
         '''
         if not self._player_task:
-            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger)())
+            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
 
     async def player_loop(self):
         '''
