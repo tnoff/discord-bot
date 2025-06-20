@@ -8,7 +8,7 @@ from opentelemetry.trace.status import StatusCode
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.orm.session import Session
 
-from discord_bot.utils.otel import otel_span_wrapper, DatabaseNaming
+from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'sql_retry'
 
@@ -25,7 +25,7 @@ def retry_database_commands(db_session: Session, function: Callable, attempts: i
         count = 0
         while True:
             span.set_attributes({
-                DatabaseNaming.RETRY_COUNT.value: count,
+                AttributeNaming.RETRY_COUNT.value: count,
             })
             count += 1
             try:
