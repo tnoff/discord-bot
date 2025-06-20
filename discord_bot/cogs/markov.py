@@ -220,20 +220,20 @@ class Markov(CogHelper):
                 for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
                     with otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL, attributes={'discord.channel': markov_channel.channel_id}):
                         self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
-                        channel = await async_retry_discord_message_command(self.bot.fetch_channel, markov_channel.channel_id)
-                        server = await async_retry_discord_message_command(self.bot.fetch_guild, markov_channel.server_id)
+                        channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, markov_channel.channel_id))
+                        server = await async_retry_discord_message_command(partial(self.bot.fetch_guild, markov_channel.server_id))
                         # Not sure why but this check in particular seems especially flakey
-                        emojis = await async_retry_discord_message_command(server.fetch_emojis, max_retries=5)
+                        emojis = await async_retry_discord_message_command(partial(server.fetch_emojis, max_retries=5))
                         self.logger.info('Gathering markov messages for '
                                         f'channel {markov_channel.channel_id}')
                         # Start at the beginning of channel history,
                         # slowly make your way make to current day
                         if not markov_channel.last_message_id:
-                            messages = [m async for m in retry_discord_message_command(channel.history, limit=self.message_check_limit, after=retention_cutoff, oldest_first=True)]
+                            messages = [m async for m in retry_discord_message_command(partial(channel.history, limit=self.message_check_limit, after=retention_cutoff, oldest_first=True))]
                         else:
                             try:
-                                last_message = await async_retry_discord_message_command(channel.fetch_message, markov_channel.last_message_id)
-                                messages = [m async for m in retry_discord_message_command(channel.history, after=last_message, limit=self.message_check_limit, oldest_first=True)]
+                                last_message = await async_retry_discord_message_command(partial(channel.fetch_message, markov_channel.last_message_id))
+                                messages = [m async for m in retry_discord_message_command(partial(channel.history, after=last_message, limit=self.message_check_limit, oldest_first=True))]
                             except NotFound:
                                 self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
                                                     f' in channel {markov_channel.id}')

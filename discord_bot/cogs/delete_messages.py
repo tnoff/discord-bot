@@ -1,5 +1,6 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -102,12 +103,12 @@ class DeleteMessages(CogHelper):
             for channel_dict in self.discord_channels:
                 with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_dict['channel_id']}):
                     self.logger.debug(f'Checking Channel ID {channel_dict["channel_id"]}')
-                    channel = await async_retry_discord_message_command(self.bot.fetch_channel, channel_dict["channel_id"])
+                    channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, channel_dict["channel_id"]))
 
                     delete_after = channel_dict.get('delete_after', DELETE_AFTER_DEFAULT)
                     cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
-                    messages = [m async for m in retry_discord_message_command(channel.history, limit=128, oldest_first=True)]
+                    messages = [m async for m in retry_discord_message_command(partial(channel.history, limit=128, oldest_first=True))]
                     for message in messages:
                         if message.created_at < cutoff_period:
                             self.logger.info(f'Deleting message id {message.id}, in channel {channel.id}, in server {channel_dict["server_id"]}')
-                            await async_retry_discord_message_command(message.delete)
+                            await async_retry_discord_message_command(partial(message.delete))

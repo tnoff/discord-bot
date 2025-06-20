@@ -162,13 +162,12 @@ def get_logger(logger_name, logging_section, otlp_logger=None):
 
     return logger
 
-def retry_command(func, *args, **kwargs):
+def retry_command(func, max_retries: int = 3, accepted_exceptions=None, post_exception_functions=None):
     '''
     Use retries for the command, mostly deals with db issues
     '''
-    max_retries = kwargs.pop('max_retries', 3)
-    accepted_exceptions = kwargs.pop('accepted_exceptions', ())
-    post_functions = kwargs.pop('post_exception_functions', [])
+    accepted_exceptions = accepted_exceptions or ()
+    post_functions = post_exception_functions or ()
     retry = -1
     with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_synchronous', kind=SpanKind.CLIENT) as span:
         while True:
@@ -178,7 +177,7 @@ def retry_command(func, *args, **kwargs):
                 AttributeNaming.RETRY_COUNT.value: retry
             })
             try:
-                result = func(*args, **kwargs)
+                result = func()
                 span.set_status(StatusCode.OK)
                 return result
             except accepted_exceptions as ex:
@@ -196,13 +195,12 @@ def retry_command(func, *args, **kwargs):
                 span.record_exception(ex)
                 raise
 
-async def async_retry_command(func, *args, **kwargs):
+async def async_retry_command(func, max_retries: int = 3, accepted_exceptions=None, post_exception_functions=None):
     '''
     Use retries for the command, mostly deals with db issues
     '''
-    max_retries = kwargs.pop('max_retries', 3)
-    accepted_exceptions = kwargs.pop('accepted_exceptions', ())
-    post_functions = kwargs.pop('post_exception_functions', [])
+    accepted_exceptions = accepted_exceptions or ()
+    post_functions = post_exception_functions or ()
     retry = -1
     with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
         while True:
@@ -212,7 +210,7 @@ async def async_retry_command(func, *args, **kwargs):
                 AttributeNaming.RETRY_COUNT.value: retry
             })
             try:
-                result = await func(*args, **kwargs)
+                result = await func()
                 span.set_status(StatusCode.OK)
                 return result
             except accepted_exceptions as ex:
@@ -230,7 +228,7 @@ async def async_retry_command(func, *args, **kwargs):
                 span.record_exception(ex)
                 raise
 
-def retry_discord_message_command(func, *args, **kwargs):
+def retry_discord_message_command(func, max_retries: int = 3):
     '''
     Retry discord send message command, catch case of rate limiting
     '''
@@ -241,9 +239,9 @@ def retry_discord_message_command(func, *args, **kwargs):
     post_exception_functions = [check_429]
     exceptions = (RateLimited, DiscordServerError, TimeoutError)
     with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_synchronous', kind=SpanKind.CLIENT):
-        return retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+        return retry_command(func, max_retries=max_retries, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
-async def async_retry_discord_message_command(func, *args, **kwargs):
+async def async_retry_discord_message_command(func, max_retries: int = 3):
     '''
     Retry discord send message command, catch case of rate limiting
     '''
@@ -254,7 +252,7 @@ async def async_retry_discord_message_command(func, *args, **kwargs):
     post_exception_functions = [check_429]
     exceptions = (RateLimited, DiscordServerError, TimeoutError)
     with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT):
-        return await async_retry_command(func, *args, **kwargs, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
+        return await async_retry_command(func, max_retries=max_retries, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
 
 def rm_tree(pth: Path) -> bool:
     '''
