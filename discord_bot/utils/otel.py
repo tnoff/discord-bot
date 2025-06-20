@@ -95,14 +95,14 @@ def command_wrapper(function):
                 DiscordContextNaming.GUILD.value: ctx.guild.id,
                 DiscordContextNaming.COMMAND.value: ctx.command.name,
             }
-        with otel_span_wrapper(span_name, ctx=ctx):
+        with otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
             COMMAND_COUNTER.add(1, attributes=metric_attributes)
             return await function(*args, **kwargs)
     return _wrapper
 
 @contextmanager
 def otel_span_wrapper(span_name: str, ctx: Context = None,
-                      kind: trace.SpanKind = trace.SpanKind.SERVER,
+                      kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                       attributes: dict = None):
     '''
     Wrap a generic span
