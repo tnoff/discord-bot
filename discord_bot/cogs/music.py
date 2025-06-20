@@ -692,7 +692,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Played video "{history_item.source_download.webpage_url}" was original played from history, skipping history add')
             return
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.INTERNAL):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.CONSUMER):
             with self.with_db_session() as db_session:
                 self.logger.info(f'Attempting to add url "{history_item.source_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
                 retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
@@ -723,7 +723,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
             return True
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.INTERNAL):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
             if source_type == MessageType.SINGLE_MESSAGE:
                 for func in item:
                     try:
@@ -755,7 +755,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.INTERNAL):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.CONSUMER):
             guilds = []
             for _guild_id, player in self.players.items():
                 if not player.voice_channel_active():
@@ -782,7 +782,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.INTERNAL):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
             # Get metric data first
             delete_videos = []
             self.video_cache.ready_remove()
@@ -938,7 +938,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         attributes = source_dict_attributes(source_dict)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.download_files', kind=SpanKind.INTERNAL, attributes=attributes) as span:
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.download_files', kind=SpanKind.CONSUMER, attributes=attributes) as span:
             # If not meant to download, dont check for player
             # Check for player, if doesn't exist return
             player = None
@@ -1042,7 +1042,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         guild : Guild object
         external_shutdown_called: Whether called by something other than a user
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild.id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.CONSUMER, attributes={DiscordContextNaming.GUILD.value: guild.id}):
             self.logger.info(f'Starting cleanup on guild {guild.id}')
             player = await self.get_player(guild.id, create_player=False)
             # Set external shutdown so this doesnt happen twice
