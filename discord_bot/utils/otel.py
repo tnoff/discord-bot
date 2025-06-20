@@ -25,26 +25,18 @@ class MetricNaming(Enum):
 
 class AttributeNaming(Enum):
     '''
-    Span attribute constants
+    More generic span attribute constants
     '''
     RETRY_COUNT = 'retry_count'
-    SEARCH_STRING = 'search_string'
-    GUILD = 'guild'
     BACKGROUND_JOB = 'background_job'
 
-class DatabaseNaming(Enum):
-    '''
-    Database attribute constants
-    '''
-    RETRY_COUNT = 'db.retry_count'
-
-class ContextNaming(Enum):
+class DiscordContextNaming(Enum):
     '''
     Context attribute constants
     '''
-    AUTHOR = 'discord.context.author'
-    CHANNEL = 'discord.context.channel'
-    GUILD = 'discord.context.guild'
+    AUTHOR = 'discord.author'
+    CHANNEL = 'discord.channel'
+    GUILD = 'discord.guild'
     COMMAND = 'discord.context.command'
     MESSAGE = 'discord.context.message'
 
@@ -98,10 +90,10 @@ def command_wrapper(function):
         if ctx:
             span_name = f'{ctx.command.cog.qualified_name.lower()}.{ctx.command.name}'
             metric_attributes = {
-                ContextNaming.AUTHOR.value: ctx.author.id,
-                ContextNaming.CHANNEL.value: ctx.channel.id,
-                ContextNaming.GUILD.value: ctx.guild.id,
-                ContextNaming.COMMAND.value: ctx.command.name,
+                DiscordContextNaming.AUTHOR.value: ctx.author.id,
+                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
+                DiscordContextNaming.GUILD.value: ctx.guild.id,
+                DiscordContextNaming.COMMAND.value: ctx.command.name,
             }
         with otel_span_wrapper(span_name, ctx=ctx):
             COMMAND_COUNTER.add(1, attributes=metric_attributes)
@@ -118,11 +110,11 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
     with TRACER.start_as_current_span(span_name, kind=kind) as span:
         if ctx:
             span.set_attributes({
-                ContextNaming.AUTHOR.value: ctx.author.id,
-                ContextNaming.CHANNEL.value: ctx.channel.id,
-                ContextNaming.GUILD.value: ctx.guild.id,
-                ContextNaming.COMMAND.value: ctx.command.name,
-                ContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
+                DiscordContextNaming.AUTHOR.value: ctx.author.id,
+                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
+                DiscordContextNaming.GUILD.value: ctx.guild.id,
+                DiscordContextNaming.COMMAND.value: ctx.command.name,
+                DiscordContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
             })
         if attributes:
             span.set_attributes(attributes)

@@ -52,7 +52,7 @@ from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -493,9 +493,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Get active players
         '''
-        return [
-            Observation(len(self.players.keys())),
-        ]
+        items = []
+        for key in self.players:
+            items.append(Observation(1, attributes={
+                DiscordContextNaming.GUILD.value: key,
+            }))
+        return items
 
     def __cache_count_callback(self, _options):
         '''
@@ -609,7 +612,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Delete player queue messages
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.clear_player_queue', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: guild_id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.clear_player_queue', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild_id}):
             queue_messages = self.player_messages.get(guild_id, [])
             for queue_message in queue_messages:
                 try:
@@ -625,7 +628,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player: Music player to update for
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.player_update_queue', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: guild_id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.player_update_queue', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild_id}):
             player = await self.get_player(guild_id, create_player=False)
             if not player:
                 return False
@@ -682,7 +685,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Add all videos to metrics
         VIDEOS_PLAYED_COUNTER.add(1, attributes={
-            AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+            DiscordContextNaming.GUILD.value: history_item.source_download.source_dict.guild_id
         })
         # Skip if added from history
         if history_item.source_download.source_dict.added_from_history:
@@ -704,7 +707,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
                 # Update metrics
                 VIDEOS_PLAYED_COUNTER.add(1, attributes={
-                    AttributeNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+                    DiscordContextNaming.GUILD.value: history_item.source_download.source_dict.guild_id
                 })
 
     async def send_messages(self):
@@ -1039,7 +1042,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         guild : Guild object
         external_shutdown_called: Whether called by something other than a user
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: guild.id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild.id}):
             self.logger.info(f'Starting cleanup on guild {guild.id}')
             player = await self.get_player(guild.id, create_player=False)
             # Set external shutdown so this doesnt happen twice
@@ -1100,7 +1103,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ctx: Original context call
         check_voice_client_active: Check if we're currently playing anything
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_player', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: guild_id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_player', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild_id}):
             try:
                 player = self.players[guild_id]
             except KeyError:
@@ -1153,7 +1156,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return channel
 
     async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ensure_player', kind=SpanKind.INTERNAL, attributes={AttributeNaming.GUILD.value: ctx.guild.id}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ensure_player', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: ctx.guild.id}):
             try:
                 return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
             except async_timeout as e:

@@ -19,7 +19,7 @@ from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
-from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
+from discord_bot.utils.otel import otel_span_wrapper, MusicSourceDictNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -125,7 +125,7 @@ class SearchClient():
         search : Original search string
         loop: Bot event loop
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={AttributeNaming.SEARCH_STRING.value: search}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={MusicSourceDictNaming.SEARCH_STRING.value: search}):
             spotify_playlist_matcher = match(SPOTIFY_PLAYLIST_REGEX, search)
             spotify_album_matcher = match(SPOTIFY_ALBUM_REGEX, search)
             spotify_track_matcher = match(SPOTIFY_TRACK_REGEX, search)
