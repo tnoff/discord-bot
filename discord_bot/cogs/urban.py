@@ -33,7 +33,6 @@ class UrbanDictionary(CogHelper):
         search: str [Required]
             The word or phrase to search in urban dictionary
         '''
-        #with otel_span_wrapper('urban.lookup', ctx=ctx):
         self.logger.debug(f'Looking up word string "{word}" in guild "{ctx.guild.id}"')
         word_url = f'{BASE_URL}define.php?term={word}'
         result = requests_get(word_url, timeout=60)

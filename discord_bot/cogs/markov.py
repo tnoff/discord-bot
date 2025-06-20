@@ -212,7 +212,7 @@ class Markov(CogHelper):
             db_session.commit()
 
         await sleep(self.loop_sleep_interval)
-        with otel_span_wrapper('markov.message_check', kind=SpanKind.INTERNAL):
+        with otel_span_wrapper('markov.message_check', kind=SpanKind.CONSUMER):
             retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
             self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
 

@@ -100,7 +100,7 @@ class DeleteMessages(CogHelper):
         await sleep(self.loop_sleep_interval)
         with otel_span_wrapper('delete_messages.check'):
             for channel_dict in self.discord_channels:
-                with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.INTERNAL, attributes={'discord.channel': channel_dict['channel_id']}):
+                with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_dict['channel_id']}):
                     self.logger.debug(f'Checking Channel ID {channel_dict["channel_id"]}')
                     channel = await async_retry_discord_message_command(self.bot.fetch_channel, channel_dict["channel_id"])
 
