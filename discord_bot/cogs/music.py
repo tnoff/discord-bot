@@ -493,9 +493,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Get active players
         '''
-        return [
-            Observation(len(self.players.keys())),
-        ]
+        items = []
+        for key in self.players:
+            items.append(Observation(1, attributes={
+                AttributeNaming.GUILD.value: key,
+            }))
+        return items
 
     def __cache_count_callback(self, _options):
         '''
