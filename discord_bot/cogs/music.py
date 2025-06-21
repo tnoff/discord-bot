@@ -600,7 +600,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         queue_messages = self.player_messages.get(player.guild.id, [])
         if len(queue_messages) < 1:
             return False
-        history = [message async for message in retry_discord_message_command(player.text_channel.history, limit=len(queue_messages))]
+        history = [message async for message in retry_discord_message_command(partial(player.text_channel.history, limit=len(queue_messages)))]
         for (count, hist_item) in enumerate(history):
             index = len(queue_messages) - 1 - count
             mess = queue_messages[index]
@@ -616,7 +616,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             queue_messages = self.player_messages.get(guild_id, [])
             for queue_message in queue_messages:
                 try:
-                    await retry_discord_message_command(queue_message.delete)
+                    await retry_discord_message_command(partial(queue_message.delete))
                 except NotFound:
                     pass
             self.player_messages[guild_id] = []
@@ -640,15 +640,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if len(queue_messages) > len(new_queue_strings):
                 for _ in range(len(queue_messages) - len(new_queue_strings)):
                     queue_message = queue_messages.pop(-1)
-                    await retry_discord_message_command(queue_message.delete)
+                    await retry_discord_message_command(partial(queue_message.delete))
             for (count, queue_message) in enumerate(queue_messages):
                 # Check if queue message is the same before updating
                 if queue_message.content == new_queue_strings[count]:
                     continue
-                await retry_discord_message_command(queue_message.edit, content=new_queue_strings[count])
+                await retry_discord_message_command(partial(queue_message.edit, content=new_queue_strings[count]))
             if len(queue_messages) < len(new_queue_strings):
                 for table in new_queue_strings[-(len(new_queue_strings) - len(queue_messages)):]:
-                    self.player_messages[guild_id].append(await retry_discord_message_command(player.text_channel.send, table))
+                    self.player_messages[guild_id].append(await retry_discord_message_command(partial(player.text_channel.send, table)))
             return True
 
     async def playlist_history_update(self):
@@ -734,7 +734,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             if source_type == MessageType.SOURCE_LIFECYCLE:
                 try:
-                    result = await retry_discord_message_command(item.function, item.message_content, delete_after=item.delete_after)
+                    result = await retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
                     if item.lifecycle_stage == SourceLifecycleStage.SEND:
                         item.source_dict.set_message(result)
                     return True
