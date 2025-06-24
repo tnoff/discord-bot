@@ -10,7 +10,7 @@ from random import shuffle as random_shuffle, randint
 from re import match as re_match
 from shutil import disk_usage
 from tempfile import TemporaryDirectory, NamedTemporaryFile
-from typing import Callable, Optional, List
+from typing import Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
@@ -31,7 +31,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException, VideoBanned, VideoTooLong, BotDownloadFlagged
+from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -233,35 +233,6 @@ OTEL_SPAN_PREFIX = 'music'
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 VIDEOS_PLAYED_COUNTER = METER_PROVIDER.create_counter(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
 
-#
-# Common Functions
-#
-
-def match_generator(max_video_length: int, banned_videos_list: List[str], video_cache_search: Callable = None):
-    '''
-    Generate filters for yt-dlp
-    '''
-    def filter_function(info, *, incomplete): #pylint:disable=unused-argument
-        '''
-        Throw errors if filters dont match
-        '''
-        duration = info.get('duration')
-        if duration and max_video_length and duration > max_video_length:
-            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} exceeds max length of {max_video_length}, skipping')
-        vid_url = info.get('webpage_url')
-        if vid_url and banned_videos_list:
-            for banned_url in banned_videos_list:
-                if vid_url == banned_url:
-                    raise VideoBanned('Video Banned', user_message=f'Video url "{vid_url}" is banned, skipping')
-        # Check if video exists within cache, and raise
-        extractor = info.get('extractor')
-        vid_id = info.get('id')
-        if video_cache_search:
-            result = video_cache_search(extractor, vid_id)
-            if result:
-                raise ExistingFileException('File already downloaded', video_cache=result)
-
-    return filter_function
 
 #
 # YTDL Post Processor
