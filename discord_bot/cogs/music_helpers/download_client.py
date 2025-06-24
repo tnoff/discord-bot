@@ -1,6 +1,7 @@
 from functools import partial
 from pathlib import Path
 from shutil import copyfile
+from typing import Callable, List
 
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.trace import SpanKind
@@ -22,6 +23,11 @@ class DownloadClientException(Exception):
         super().__init__(self.message)
         self.user_message = user_message
 
+class MetadataCheckFailedException(DownloadClientException):
+    '''
+    Video failed metadata checked
+    '''
+
 class VideoAgeRestrictedException(DownloadClientException):
     '''
     Video has age restrictions, cannot download
@@ -37,12 +43,12 @@ class PrivateVideoException(DownloadClientException):
     Private Video while downloading
     '''
 
-class VideoTooLong(DownloadClientException):
+class VideoTooLong(MetadataCheckFailedException):
     '''
     Max length of video duration exceeded
     '''
 
-class VideoBanned(DownloadClientException):
+class VideoBanned(MetadataCheckFailedException):
     '''
     Video is on banned list
     '''
@@ -61,8 +67,34 @@ class ExistingFileException(Exception):
         super().__init__(message)
         self.video_cache = video_cache
 
+
 OTEL_SPAN_PREFIX = 'music.download_client'
 
+def match_generator(max_video_length: int, banned_videos_list: List[str], video_cache_search: Callable = None):
+    '''
+    Generate filters for yt-dlp
+    '''
+    def filter_function(info, *, incomplete): #pylint:disable=unused-argument
+        '''
+        Throw errors if filters dont match
+        '''
+        duration = info.get('duration')
+        if duration and max_video_length and duration > max_video_length:
+            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} exceeds max length of {max_video_length}, skipping')
+        vid_url = info.get('webpage_url')
+        if vid_url and banned_videos_list:
+            for banned_url in banned_videos_list:
+                if vid_url == banned_url:
+                    raise VideoBanned('Video Banned', user_message=f'Video url "{vid_url}" is banned, skipping')
+        # Check if video exists within cache, and raise
+        extractor = info.get('extractor')
+        vid_id = info.get('id')
+        if video_cache_search:
+            result = video_cache_search(extractor, vid_id)
+            if result:
+                raise ExistingFileException('File already downloaded', video_cache=result)
+
+    return filter_function
 
 class DownloadClient():
     '''
@@ -86,6 +118,10 @@ class DownloadClient():
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
             try:
                 data = self.ytdl.extract_info(source_dict.search_string, download=source_dict.download_file)
+            except MetadataCheckFailedException as error:
+                span.record_exception(error)
+                span.set_status(StatusCode.OK)
+                raise
             except DownloadError as error:
                 if 'Private video' in str(error):
                     span.set_status(StatusCode.OK)
