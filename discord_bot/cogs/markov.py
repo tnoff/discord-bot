@@ -21,7 +21,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.schema import SERVER_ID
-from discord_bot.utils.common import retry_discord_message_command, async_retry_discord_message_command, return_loop_runner
+from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming
@@ -211,6 +211,9 @@ class Markov(CogHelper):
             db_session.query(MarkovRelation).filter(MarkovRelation.created_at < retention_cutoff).delete()
             db_session.commit()
 
+        async def fetch_messages(channel, after):
+            return [m async for m in channel.history(after=after, limit=self.message_check_limit, oldest_first=True)]
+
         await sleep(self.loop_sleep_interval)
         with otel_span_wrapper('markov.message_check', kind=SpanKind.CONSUMER):
             retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
@@ -229,11 +232,11 @@ class Markov(CogHelper):
                         # Start at the beginning of channel history,
                         # slowly make your way make to current day
                         if not markov_channel.last_message_id:
-                            messages = [m async for m in retry_discord_message_command(partial(channel.history, limit=self.message_check_limit, after=retention_cutoff, oldest_first=True))]
+                            messages = await async_retry_discord_message_command(partial(fetch_messages, channel, retention_cutoff))
                         else:
                             try:
                                 last_message = await async_retry_discord_message_command(partial(channel.fetch_message, markov_channel.last_message_id))
-                                messages = [m async for m in retry_discord_message_command(partial(channel.history, after=last_message, limit=self.message_check_limit, oldest_first=True))]
+                                messages = await async_retry_discord_message_command(partial(fetch_messages, channel, last_message))
                             except NotFound:
                                 self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
                                                     f' in channel {markov_channel.id}')

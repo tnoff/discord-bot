@@ -3,9 +3,8 @@ from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sys import stdout
-from time import sleep
 from traceback import format_exc
-from typing import Callable
+from typing import Awaitable, Callable
 
 from jsonschema import validate
 from discord.errors import DiscordServerError, RateLimited
@@ -162,40 +161,7 @@ def get_logger(logger_name, logging_section, otlp_logger=None):
 
     return logger
 
-def retry_command(func, max_retries: int = 3, accepted_exceptions=None, post_exception_functions=None):
-    '''
-    Use retries for the command, mostly deals with db issues
-    '''
-    accepted_exceptions = accepted_exceptions or ()
-    post_functions = post_exception_functions or ()
-    retry = -1
-    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_synchronous', kind=SpanKind.CLIENT) as span:
-        while True:
-            retry += 1
-            should_sleep = True
-            span.set_attributes({
-                AttributeNaming.RETRY_COUNT.value: retry
-            })
-            try:
-                result = func()
-                span.set_status(StatusCode.OK)
-                return result
-            except accepted_exceptions as ex:
-                try:
-                    for pf in post_functions:
-                        pf(ex, retry == max_retries)
-                except SkipRetrySleep:
-                    should_sleep = False
-                if retry < max_retries:
-                    if should_sleep:
-                        sleep_for = 2 ** (retry - 1)
-                        sleep(sleep_for)
-                    continue
-                span.set_status(StatusCode.ERROR)
-                span.record_exception(ex)
-                raise
-
-async def async_retry_command(func, max_retries: int = 3, accepted_exceptions=None, post_exception_functions=None):
+async def async_retry_command(func: Callable[[], Awaitable], max_retries: int = 3, accepted_exceptions=None, post_exception_functions=None):
     '''
     Use retries for the command, mostly deals with db issues
     '''
@@ -228,20 +194,7 @@ async def async_retry_command(func, max_retries: int = 3, accepted_exceptions=No
                 span.record_exception(ex)
                 raise
 
-def retry_discord_message_command(func, max_retries: int = 3):
-    '''
-    Retry discord send message command, catch case of rate limiting
-    '''
-    def check_429(ex, is_last_retry):
-        if isinstance(ex, RateLimited) and not is_last_retry:
-            sleep(ex.retry_after)
-            raise SkipRetrySleep('Skip sleep since we slept already')
-    post_exception_functions = [check_429]
-    exceptions = (RateLimited, DiscordServerError, TimeoutError)
-    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_synchronous', kind=SpanKind.CLIENT):
-        return retry_command(func, max_retries=max_retries, accepted_exceptions=exceptions, post_exception_functions=post_exception_functions)
-
-async def async_retry_discord_message_command(func, max_retries: int = 3):
+async def async_retry_discord_message_command(func: Callable[[], Awaitable], max_retries: int = 3):
     '''
     Retry discord send message command, catch case of rate limiting
     '''
@@ -287,7 +240,10 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfi
         while not bot.is_closed():
             try:
                 await function()
-            except continue_exceptions:
+            except continue_exceptions as e:
+                logger.exception(e)
+                logger.error(format_exc())
+                logger.warning(str(e))
                 continue
             except exit_exceptions:
                 if checkfile:

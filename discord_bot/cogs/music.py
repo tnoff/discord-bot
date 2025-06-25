@@ -43,7 +43,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
-from discord_bot.utils.common import retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
+from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -571,7 +571,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         queue_messages = self.player_messages.get(player.guild.id, [])
         if len(queue_messages) < 1:
             return False
-        history = [message async for message in retry_discord_message_command(partial(player.text_channel.history, limit=len(queue_messages)))]
+        async def fetch_messages(channel):
+            return [m async for m in channel.history(limit=len(queue_messages))]
+        history = await async_retry_discord_message_command(partial(fetch_messages, player.text_channel))
         for (count, hist_item) in enumerate(history):
             index = len(queue_messages) - 1 - count
             mess = queue_messages[index]
@@ -587,7 +589,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             queue_messages = self.player_messages.get(guild_id, [])
             for queue_message in queue_messages:
                 try:
-                    await retry_discord_message_command(partial(queue_message.delete))
+                    await async_retry_discord_message_command(partial(queue_message.delete))
                 except NotFound:
                     pass
             self.player_messages[guild_id] = []
@@ -611,15 +613,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if len(queue_messages) > len(new_queue_strings):
                 for _ in range(len(queue_messages) - len(new_queue_strings)):
                     queue_message = queue_messages.pop(-1)
-                    await retry_discord_message_command(partial(queue_message.delete))
+                    await async_retry_discord_message_command(partial(queue_message.delete))
             for (count, queue_message) in enumerate(queue_messages):
                 # Check if queue message is the same before updating
                 if queue_message.content == new_queue_strings[count]:
                     continue
-                await retry_discord_message_command(partial(queue_message.edit, content=new_queue_strings[count]))
+                await async_retry_discord_message_command(partial(queue_message.edit, content=new_queue_strings[count]))
             if len(queue_messages) < len(new_queue_strings):
                 for table in new_queue_strings[-(len(new_queue_strings) - len(queue_messages)):]:
-                    self.player_messages[guild_id].append(await retry_discord_message_command(partial(player.text_channel.send, table)))
+                    self.player_messages[guild_id].append(await async_retry_discord_message_command(partial(player.text_channel.send, table)))
             return True
 
     async def playlist_history_update(self):
@@ -698,14 +700,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if source_type == MessageType.SINGLE_MESSAGE:
                 for func in item:
                     try:
-                        await retry_discord_message_command(func)
+                        await async_retry_discord_message_command(func)
                     except NotFound:
                         self.logger.warning(f'Unable to run single message func {func}, assuming was deletion and no longer exists')
                         return False
                 return True
             if source_type == MessageType.SOURCE_LIFECYCLE:
                 try:
-                    result = await retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
+                    result = await async_retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
                     if item.lifecycle_stage == SourceLifecycleStage.SEND:
                         item.source_dict.set_message(result)
                     return True
