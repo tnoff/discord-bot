@@ -5,7 +5,7 @@ FROM python:3.13-slim-bookworm
 RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg
 
 # Setup venv
-ENV APPDIR="/opt/discord-bot"
+ENV APPDIR="/opt/packages/discord-bot"
 ENV WORKDIR="/opt/discord"
 ENV VENVDIR="/opt/discord-venv"
 ENV LOGFILE="/var/log/discord"
@@ -13,7 +13,7 @@ ENV LOGFILE="/var/log/discord"
 # Setup installs
 RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}"
 COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY alembic/ "${APPDIR}}/albemic/"
+COPY alembic/ "${APPDIR}/albemic/"
 COPY requirements.txt "${APPDIR}/"
 COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
