@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from jsonschema.exceptions import ValidationError
-from discord.errors import DiscordServerError, RateLimited
+from discord.errors import DiscordServerError, RateLimited, NotFound
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
@@ -141,7 +141,7 @@ async def test_retry_command_async(mocker):
         raise DiscordServerError(FakeResponse(), 'bar')
     mock_time = mocker.patch('discord_bot.utils.common.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
-        await async_retry_command(partial(test_send_message), accepted_exceptions=DiscordServerError)
+        await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError)
     assert mock_time.call_count == 3
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_retry_command_async_with_post(mocker):
         return 'foo'
     mock_time = mocker.patch('discord_bot.utils.common.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
-        await async_retry_command(partial(test_send_message), accepted_exceptions=DiscordServerError, post_exception_functions=[test_post])
+        await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError, post_exception_functions=[test_post])
     assert mock_time.call_count == 3
 
 @pytest.mark.asyncio
@@ -167,6 +167,18 @@ async def test_retry_command_async_429(mocker):
     with pytest.raises(RateLimited):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async_404(mocker):
+    class FakeResponse():
+        def __init__(self):
+            self.status = 404
+            self.reason = 'Cat ate the message'
+    async def test_send_message():
+        raise NotFound(FakeResponse(), 'bar')
+    mock_time = mocker.patch('discord_bot.utils.common.async_sleep', return_value=False)
+    await async_retry_discord_message_command(partial(test_send_message), allow_404=True)
+    assert mock_time.call_count == 0
 
 def test_rm_tree():
     with TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:

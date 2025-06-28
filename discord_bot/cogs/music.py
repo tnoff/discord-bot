@@ -588,10 +588,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.clear_player_queue', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild_id}):
             queue_messages = self.player_messages.get(guild_id, [])
             for queue_message in queue_messages:
-                try:
-                    await async_retry_discord_message_command(partial(queue_message.delete))
-                except NotFound:
-                    pass
+                await async_retry_discord_message_command(partial(queue_message.delete), allow_404=True)
             self.player_messages[guild_id] = []
             return True
 
@@ -699,11 +696,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
             if source_type == MessageType.SINGLE_MESSAGE:
                 for func in item:
-                    try:
-                        await async_retry_discord_message_command(func)
-                    except NotFound:
-                        self.logger.warning(f'Unable to run single message func {func}, assuming was deletion and no longer exists')
-                        return False
+                    await async_retry_discord_message_command(func, allow_404=True)
                 return True
             if source_type == MessageType.SOURCE_LIFECYCLE:
                 try:
