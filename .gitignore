@@ -12,3 +12,4 @@ docker/.env
 .coverage
 htmlcov/
 .cache
+*.db

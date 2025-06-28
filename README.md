@@ -53,6 +53,20 @@ general:
   sql_connection_statement: sqlite:///home/user/db.sql
 ```
 
+The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run the migrations. To upgrade to the latest changes use:
+
+```
+$ alembic upgrade head
+```
+
+Alembic assumes you have an environment variable with `DATABASE_URL` set that is an sqlalchemy driver connection string.
+
+For local dev, run the following to generate migrations after editing the `database.py` file:
+
+```
+$ alembic revision --autogenerate -m "we changed some things, it was neat"
+```
+
 ### Log Setup
 
 If no log section given, logs will go to stdout by default. If you wish to setup logs and have log rotation set:
