@@ -13,9 +13,9 @@ ENV LOGFILE="/var/log/discord"
 # Setup installs
 RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}"
 COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY albemic/ "${APPDIR}}/albemic/"
+COPY alembic/ "${APPDIR}}/albemic/"
 COPY requirements.txt "${APPDIR}/"
-COPY albemic.ini "${APPDIR}/"
+COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
 RUN pip install psycopg2 "${APPDIR}"
 
