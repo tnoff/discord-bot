@@ -101,15 +101,13 @@ def test_otlp_config_bad():
     }
     with pytest.raises(ValidationError) as e:
         validate_config(reject_input, GENERAL_SECTION_SCHEMA)
-    assert 'log_endpoint' in str(e.value)
+    assert "'enabled' is a required property" in str(e.value)
 
 def test_otlp_config_minimal():
     reject_input = {
         'discord_token': 'abctoken',
         'otlp': {
-            'trace_endpoint': 'foo',
-            'log_endpoint': 'foo',
-            'metric_endpoint': 'foo',
+            'enabled': True,
         },
     }
     validate_config(reject_input, GENERAL_SECTION_SCHEMA)

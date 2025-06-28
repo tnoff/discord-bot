@@ -31,21 +31,13 @@ GENERAL_SECTION_SCHEMA = {
         'otlp': {
             'type': 'object',
             'properties': {
-                'log_endpoint': {
-                    'type': 'string',
-                },
-                'trace_endpoint': {
-                    'type': 'string'
-                },
-                'metric_endpoint': {
-                    'type': 'string',
+                'enabled': {
+                    'type': 'boolean',
                 },
             },
             'required': [
-                'log_endpoint',
-                'trace_endpoint',
-                'metric_endpoint',
-            ],
+                'enabled'
+            ]
         },
         'logging': {
             'type': 'object',

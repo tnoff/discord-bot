@@ -110,7 +110,7 @@ def main(execute, config_file): #pylint:disable=too-many-statements
     # Instrument otlp if enabled
     otlp_settings = settings['general'].get('otlp', {})
 
-    if otlp_settings:
+    if otlp_settings.get('enabled', False):
         tracer_provider = TracerProvider()
         trace.set_tracer_provider(tracer_provider)
         # Add some tracing instrumentation
@@ -118,21 +118,21 @@ def main(execute, config_file): #pylint:disable=too-many-statements
         RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
         SQLAlchemyInstrumentor().instrument(tracer_provider=tracer_provider, enable_commenter=True, commenter_options={})
         # Set span exporters
-        span_exporter = OTLPSpanExporter(endpoint=otlp_settings["trace_endpoint"])
+        span_exporter = OTLPSpanExporter()
         trace.get_tracer_provider().add_span_processor(
             BatchSpanProcessor(span_exporter)
         )
         # Set metrics
         # Need to grab this directly for one reason or another with metrics
         resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
-        exporter = OTLPMetricExporter(endpoint=otlp_settings['metric_endpoint'], insecure=True)
+        exporter = OTLPMetricExporter()
         reader = PeriodicExportingMetricReader(exporter)
         provider = MeterProvider(resource=resource, metric_readers=[reader])
         set_meter_provider(provider)
         # Set logging
         logger_provider = LoggerProvider()
         set_logger_provider(logger_provider)
-        log_exporter = OTLPLogExporter(endpoint=otlp_settings['log_endpoint'], insecure=True)
+        log_exporter = OTLPLogExporter()
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
         logging.getLogger().addHandler(handler)
