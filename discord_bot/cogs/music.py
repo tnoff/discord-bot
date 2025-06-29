@@ -19,7 +19,6 @@ from discord import VoiceChannel
 from discord.errors import NotFound
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
-from opentelemetry.metrics import get_meter_provider
 from opentelemetry.metrics import Observation
 from sqlalchemy import asc
 from sqlalchemy.engine.base import Engine
@@ -52,7 +51,7 @@ from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
@@ -230,7 +229,6 @@ class PlaylistMaxLength(Exception):
 
 OTEL_SPAN_PREFIX = 'music'
 
-METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 VIDEOS_PLAYED_COUNTER = METER_PROVIDER.create_counter(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
 
 

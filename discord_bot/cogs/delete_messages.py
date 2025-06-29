@@ -7,7 +7,6 @@ from tempfile import NamedTemporaryFile
 from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
-from opentelemetry.metrics import get_meter_provider
 from opentelemetry.metrics import Observation
 from sqlalchemy.engine.base import Engine
 
@@ -16,7 +15,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
-from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming
+from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7
@@ -54,8 +53,6 @@ DELETE_MESSAGES_SCHEMA  = {
         'discord_channels',
     ],
 }
-
-METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
 class DeleteMessages(CogHelper):
     '''
