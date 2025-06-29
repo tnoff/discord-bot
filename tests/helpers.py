@@ -128,7 +128,7 @@ class FakeChannel():
                 return message
         raise NotFound(FakeResponse(), 'Unable to find message')
 
-    async def connect(self):
+    async def connect(self, reconnect=False): #pylint:disable=unused-argument
         return True
 
     async def send(self, message_content, **_kwargs):
