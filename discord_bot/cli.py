@@ -110,6 +110,7 @@ def main(execute, config_file): #pylint:disable=too-many-statements
     # Instrument otlp if enabled
     otlp_settings = settings['general'].get('otlp', {})
 
+    logger_provider = None
     if otlp_settings.get('enabled', False):
         tracer_provider = TracerProvider()
         trace.set_tracer_provider(tracer_provider)
@@ -140,6 +141,9 @@ def main(execute, config_file): #pylint:disable=too-many-statements
     # Grab logger
     print('Starting logging', file=stderr)
     logger = get_logger('main', settings['general'].get('logging', {}))
+
+    discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+    discord_logger.setLevel(logging.DEBUG)
 
     if execute == CLIRunners.CLEAR_MARKOV.value:
         clear_markov_relations(db_engine)

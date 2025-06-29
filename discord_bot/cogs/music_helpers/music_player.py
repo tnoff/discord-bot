@@ -190,7 +190,10 @@ class MusicPlayer:
         channel : Voice channel to join
         '''
         if not self.guild.voice_client:
-            await channel.connect()
+            # Turn off reconnect
+            # If bot is having issues this just ends up connecting and reconnecting over and over
+            # Tends to be more annoying that anything
+            await channel.connect(reconnect=False)
             return True
         if self.guild.voice_client.channel.id == channel.id:
             return True
