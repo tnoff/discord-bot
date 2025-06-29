@@ -10,8 +10,6 @@ from opentelemetry.metrics import get_meter_provider
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
-COMMAND_COUNTER = METER_PROVIDER.create_counter('commands.counter', unit='number', description='Number of commands called')
-
 class MetricNaming(Enum):
     '''
     Metric naming
@@ -86,17 +84,9 @@ def command_wrapper(function):
                 ctx = arg
                 break
         span_name = 'unamed_command_wrapper'
-        metric_attributes = {}
         if ctx:
             span_name = f'{ctx.command.cog.qualified_name.lower()}.{ctx.command.name}'
-            metric_attributes = {
-                DiscordContextNaming.AUTHOR.value: ctx.author.id,
-                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
-                DiscordContextNaming.GUILD.value: ctx.guild.id,
-                DiscordContextNaming.COMMAND.value: ctx.command.name,
-            }
         with otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
-            COMMAND_COUNTER.add(1, attributes=metric_attributes)
             return await function(*args, **kwargs)
     return _wrapper
 

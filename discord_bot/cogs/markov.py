@@ -12,7 +12,6 @@ from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from opentelemetry.trace import SpanKind
-from opentelemetry.metrics import get_meter_provider
 from opentelemetry.metrics import Observation
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
@@ -24,7 +23,7 @@ from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -55,8 +54,6 @@ MARKOV_SECTION_SCHEMA = {
         },
     }
 }
-
-METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
 def clean_message(content: str, emojis: List[str]):
     '''
