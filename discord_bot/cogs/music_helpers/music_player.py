@@ -8,7 +8,7 @@ from async_timeout import timeout
 from dappertable import DapperTable
 from discord import FFmpegPCMAudio
 from discord.ext.commands import Context
-from discord.errors import ClientException
+from discord.errors import ClientException, ConnectionClosed
 
 
 from discord_bot.exceptions import ExitEarlyException
@@ -189,12 +189,22 @@ class MusicPlayer:
 
         channel : Voice channel to join
         '''
-        if not self.guild.voice_client:
-            # Turn off reconnect
-            # If bot is having issues this just ends up connecting and reconnecting over and over
-            # Tends to be more annoying that anything
-            await channel.connect(reconnect=False)
-            return True
+        try:
+            if not self.guild.voice_client:
+                # Turn off reconnect
+                # If bot is having issues this just ends up connecting and reconnecting over and over
+                # Tends to be more annoying that anything
+                await channel.connect(reconnect=False)
+                return True
+        except ConnectionClosed:
+            self.logger.warning(f'Unable to connect due to connection error in guild {self.guild.id}, bot has voice clients {self.bot.voice_clients}')
+            for vc in self.bot.voice_clients:
+                self.logger.warning(f'Existing voice client {vc}')
+                if vc.guild.id == self.guild.id:
+                    self.logger.warning(f'Existing voice client found in guild {self.guild.id}, forcing cleanup')
+                    await vc.disconnect(force=True)
+                    vc.cleanup()
+            return False
         if self.guild.voice_client.channel.id == channel.id:
             return True
         await self.guild.voice_client.move_to(channel)
