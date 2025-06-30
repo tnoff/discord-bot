@@ -1096,7 +1096,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return None
             # Check if we should join voice
             if not player.guild.voice_client and join_channel:
-                await async_retry_discord_message_command(partial(player.join_voice, join_channel))
+                await player.join_voice(join_channel)
             return player
 
     async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
