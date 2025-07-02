@@ -8,7 +8,7 @@ from typing import List
 from discord import TextChannel
 from googleapiclient.errors import HttpError
 from opentelemetry.trace import SpanKind
-from spotipy.exceptions import SpotifyException
+from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
@@ -154,6 +154,10 @@ class SearchClient():
                 to_run = partial(self.__check_spotify_source, **spotify_args)
                 try:
                     search_strings = await loop.run_in_executor(None, to_run)
+                except SpotifyOauthError as e:
+                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    message = 'Issue gathering info from spotify, credentials seem invalid'
+                    raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
                 except SpotifyException as e:
                     self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
                     message = 'Issue gathering info from spotify url "{search}"'

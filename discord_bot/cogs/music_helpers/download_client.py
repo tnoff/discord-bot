@@ -23,6 +23,11 @@ class DownloadClientException(Exception):
         super().__init__(self.message)
         self.user_message = user_message
 
+class VideoNotFoundException(DownloadClientException):
+    '''
+    When no videos are found
+    '''
+
 class MetadataCheckFailedException(DownloadClientException):
     '''
     Video failed metadata checked
@@ -146,6 +151,8 @@ class DownloadClient():
             # Since we don't pass "url" directly anymore
             try:
                 data = data['entries'][0]
+            except IndexError as error:
+                raise VideoNotFoundException('No videos found', user_message=f'No videos found for searhc "{str(source_dict)}"') from error
             # Key Error if a single video is passed
             except KeyError:
                 pass

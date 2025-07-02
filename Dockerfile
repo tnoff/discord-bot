@@ -26,8 +26,7 @@ RUN pip install psycopg2 "${APPDIR}"
 WORKDIR /tmp
 RUN git clone https://github.com/Rapptz/discord.py.git
 WORKDIR /tmp/discord.py
-# checkout the PR commit directly
-RUN git fetch origin pull/10210/head:fix_voice_reconnect && git checkout fix_voice_reconnect
+RUN git fetch origin
 # Install discord.py from source
 RUN pip uninstall discord.py -y && pip install .
 RUN rm -rf /tmp/discord.py
