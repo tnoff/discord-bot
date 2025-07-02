@@ -34,6 +34,15 @@ class MockYTDLP():
             ]
         return data
 
+class MockYTDLPNoData():
+    def __init__(self):
+        pass
+
+    def extract_info(self, _search_string, download=True): #pylint:disable=unused-argument
+        return {
+            'entries': []
+        }
+
 def yield_dlp_error(message):
     class MockYTDLPError():
         def __init__(self):
@@ -95,3 +104,9 @@ async def test_prepare_source_errors():
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
     assert 'Bot flagged download' in str(exc.value)
+
+    x = DownloadClient(MockYTDLPNoData(), None)
+    y = SourceDict('1234', 'requester name', 'requester-id', 'foo bar', SearchType.SEARCH, download_file=False)
+    with pytest.raises(DownloadClientException) as exc:
+        await x.create_source(y, loop)
+    assert 'No videos found' in str(exc.value)
