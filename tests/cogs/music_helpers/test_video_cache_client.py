@@ -4,7 +4,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from sqlalchemy import create_engine
 
-from discord_bot.database import BASE, VideoCache
+from discord_bot.database import BASE, VideoCache, VideoCacheBackup
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.cogs.music_helpers.source_download import SourceDownload
@@ -88,6 +88,91 @@ def test_iterate_file_new_and_iterate():
                     assert session.query(VideoCache).count() == 1
                     query = session.query(VideoCache).first()
                     assert query.count == 2
+
+def test_object_storage_backup(mocker):
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            with NamedTemporaryFile(suffix='.mp3') as file_path:
+                engine = create_engine(f'sqlite:///{temp_db.name}')
+                BASE.metadata.create_all(engine)
+                BASE.metadata.bind = engine
+
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
+                s = SourceDownload(Path(file_path.name), {
+                    'webpage_url': 'https://foo.example.com',
+                    'title': 'Foo title',
+                    'uploader': 'Foo uploader',
+                    'id': '1234',
+                    'extractor': 'foo extractor'
+                }, sd)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                x.iterate_file(s)
+                x.object_storage_backup('foo', 's3', 1)
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+                    assert session.query(VideoCacheBackup).count() == 1
+
+                # Make sure if we call again another one doesn't get created
+                x.object_storage_backup('foo', 's3', 1)
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+                    assert session.query(VideoCacheBackup).count() == 1
+
+def test_object_storage_backup_no_file_is_noop(mocker):
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            with NamedTemporaryFile(suffix='.mp3') as file_path:
+                engine = create_engine(f'sqlite:///{temp_db.name}')
+                BASE.metadata.create_all(engine)
+                BASE.metadata.bind = engine
+
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
+                s = SourceDownload(Path(file_path.name), {
+                    'webpage_url': 'https://foo.example.com',
+                    'title': 'Foo title',
+                    'uploader': 'Foo uploader',
+                    'id': '1234',
+                    'extractor': 'foo extractor'
+                }, sd)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                x.iterate_file(s)
+                # Currently this cant happen naturally
+                with mock_session(engine) as session:
+                    query = session.query(VideoCache).first()
+                    query.base_path = None
+                    session.commit()
+                x.object_storage_backup('foo', 's3', 1)
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+                    assert session.query(VideoCacheBackup).count() == 0
+
+def test_object_storage_backup_remove(mocker):
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            with NamedTemporaryFile(suffix='.mp3', delete=False) as file_path:
+                engine = create_engine(f'sqlite:///{temp_db.name}')
+                BASE.metadata.create_all(engine)
+                BASE.metadata.bind = engine
+
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
+                s = SourceDownload(Path(file_path.name), {
+                    'webpage_url': 'https://foo.example.com',
+                    'title': 'Foo title',
+                    'uploader': 'Foo uploader',
+                    'id': '1234',
+                    'extractor': 'foo extractor'
+                }, sd)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.delete_file', return_value=True)
+                x.iterate_file(s)
+                x.object_storage_backup('foo', 's3', 1)
+                x.remove_video_cache([1])
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 0
+                    assert session.query(VideoCacheBackup).count() == 0
 
 def test_webpage_get_source():
     with TemporaryDirectory() as tmp_dir:
