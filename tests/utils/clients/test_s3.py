@@ -5,7 +5,7 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 import pytest
 
-from discord_bot.utils.clients.s3 import upload_file, delete_file, ObjectStorageException
+from discord_bot.utils.clients.s3 import upload_file, get_file, delete_file, ObjectStorageException
 
 @pytest.fixture
 def mock_s3_client():
@@ -72,3 +72,41 @@ def test_delete_file_failure(mock_s3_client): #pylint:disable=redefined-outer-na
 
     with pytest.raises(ObjectStorageException, match="Error deleting file"):
         delete_file("my-bucket", "test.txt")
+
+def test_download_file_success(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    object_name = "test.txt"
+    destination_path = tmp_path / "downloaded.txt"
+    fake_data = b"downloaded content"
+
+    # Mock get_object to return a body that can be read
+    mock_body = MagicMock()
+    mock_body.read.return_value = fake_data
+    mock_s3_client.get_object.return_value = {
+        "Body": mock_body
+    }
+
+    result = get_file("my-bucket", object_name, destination_path)
+    assert result is True
+
+    # File should be written correctly
+    assert destination_path.read_bytes() == fake_data
+
+    mock_s3_client.get_object.assert_called_once_with(Bucket="my-bucket", Key=object_name)
+
+def test_download_file_failure(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    object_name = "test.txt"
+    destination_path = tmp_path / "downloaded.txt"
+
+    # Simulate error
+    mock_s3_client.get_object.side_effect = ClientError(
+        error_response={
+            "Error": {
+                "Code": "500",
+                "Message": "Internal Server Error"
+            }
+        },
+        operation_name="GetObject"
+    )
+
+    with pytest.raises(ObjectStorageException, match="Error downloading file"):
+        get_file("my-bucket", object_name, destination_path)

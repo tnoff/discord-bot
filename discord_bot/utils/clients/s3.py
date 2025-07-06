@@ -33,6 +33,28 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
     except (BotoCoreError, ClientError) as e:
         raise ObjectStorageException('Error uploading file') from e
 
+def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
+    '''
+    Download client to path
+    '''
+    s3_client = client('s3')
+    try:
+        # Download the object
+        response = s3_client.get_object(
+            Bucket=bucket_name,
+            Key=object_name,
+        )
+        # Read the body stream
+        data = response['Body'].read()
+    except (BotoCoreError, ClientError) as e:
+        raise ObjectStorageException('Error downloading file') from e
+
+    # Write to destination file
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(data)
+
+    return True
+
 def delete_file(bucket_name: str, object_name: str) -> bool:
     '''
     Delete files in object storage

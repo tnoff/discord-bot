@@ -70,7 +70,7 @@ def test_match_generator_video_exists():
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
