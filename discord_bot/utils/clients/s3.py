@@ -27,7 +27,7 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
             Bucket=bucket_name,
             Key=object_name,
             Body=data,
-            ContentMd5=md5_base64,
+            ContentMD5=md5_base64,
         )
         return True
     except (BotoCoreError, ClientError) as e:
