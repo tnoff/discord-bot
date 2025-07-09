@@ -67,6 +67,16 @@ For local dev, run the following to generate migrations after editing the `datab
 $ alembic revision --autogenerate -m "we changed some things, it was neat"
 ```
 
+### OTLP Setup
+
+OpenTelemetry Instrumentation is available to use and send to a collector. Just set the following in the config
+
+```
+general:
+  otlp:
+    enabled: true
+```
+
 ### Log Setup
 
 If no log section given, logs will go to stdout by default. If you wish to setup logs and have log rotation set:
