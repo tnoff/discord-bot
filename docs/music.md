@@ -304,3 +304,17 @@ music:
   general:
     number_shuffles: 7
 ```
+
+### Backup Storage
+
+Add backup storage to the cache to backup files in object storage as well as local cache. If local files somehow deleted it will try to re-download on startup.
+
+```
+music:
+  download:
+    storage:
+      backend: s3
+      bucket_name: foo
+```
+
+Note that only s3 storage is supported at present. The client assumes you have environment variables set in the bot to handle all of the authentication.

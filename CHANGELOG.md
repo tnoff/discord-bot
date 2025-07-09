@@ -1,6 +1,15 @@
 # Changelog
 
-## 2.4.1
+## 2.4.3
+
+General:
+- Fixups for OTLP setup, added heartbeat metrics to multiple cogs
+- Add alembic database migration support
+
+Music
+- Add s3 backups to cached files
+
+## 2.4.2
 
 General:
 - Added support for OTLP logging, traces, and metrics
