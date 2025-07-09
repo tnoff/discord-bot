@@ -357,7 +357,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.video_cache = None
         self.search_string_cache = None
         if self.enable_cache and self.db_engine:
-            self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session))
+            self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session),
+                                                self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None))
             self.video_cache.verify_cache()
             self.search_string_cache = SearchCacheClient(partial(self.with_db_session), max_search_cache_entries)
 
@@ -785,7 +786,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Check for pending backup files
                 for video_cache in retry_database_commands(db_session, partial(list_non_backup_files, db_session)):
                     self.logger.info(f'Backing up video cache file {video_cache.id} to object storage')
-                    self.video_cache.object_storage_backup(self.backup_storage_options.get('bucket_name'), self.backup_storage_options.get('backend', None), video_cache.id)
+                    self.video_cache.object_storage_backup(video_cache.id)
 
                 return True
 

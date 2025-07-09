@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from discord_bot.database import VideoCache, VideoCacheGuild, Guild, VideoCacheBackup
 from discord_bot.utils.common import rm_tree, run_commit
-from discord_bot.utils.clients.s3 import upload_file, delete_file
+from discord_bot.utils.clients.s3 import upload_file, delete_file, get_file
 from discord_bot.cogs.music_helpers.common import StorageOptions
 from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
@@ -140,16 +140,21 @@ class VideoCacheClient():
     '''
     Keep cache of local files
     '''
-    def __init__(self, download_dir: Path, max_cache_files: int, session_generator: Callable):
+    def __init__(self, download_dir: Path, max_cache_files: int, session_generator: Callable,
+                 storage_option: StorageOptions, bucket_name: str):
         '''
         Create new file cache
         download_dir    :       Dir where files are downloaded
         max_cache_files :       Maximum number of files to keep in cache
         db_session      :       DB session for cache
+        storage_option  :       Storage option for backups
+        bucket_name     :       Bucket Name for backups
         '''
         self.download_dir = download_dir
         self.max_cache_files = max_cache_files
         self.session_generator = session_generator
+        self.storage_option = storage_option
+        self.bucket_name = bucket_name
 
     def __ensure_guild(self, db_session: Session, guild_id: str):
         '''
@@ -184,21 +189,23 @@ class VideoCacheClient():
     def verify_cache(self):
         '''
         Remove files in directory that are not cached
+    
         '''
         # Find items that don't exist anymore
         # And get list of ones that do
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.verify_cache', kind=SpanKind.INTERNAL):
             existing_files = set([])
-            remove_cache_items = []
+            download_cache_items = []
             with self.session_generator() as db_session:
                 for item in retry_database_commands(db_session, partial(get_all_video_cache, db_session)):
+                    # If file doesnt exist locally, mark that we need to redownload
                     base_path = Path(str(item.base_path))
                     if not base_path.exists():
-                        remove_cache_items.append(item.id)
+                        download_cache_items.append(item.id)
                         continue
                     existing_files.add(base_path)
-                # Remove cache files that don't exist anymore
-                self.remove_video_cache(remove_cache_items)
+                # Re-download the files
+                self.object_storage_download(download_cache_items)
                 # Remove any extra files
                 for file_path in self.download_dir.glob('*'):
                     if file_path.is_dir():
@@ -327,7 +334,31 @@ class VideoCacheClient():
                 retry_database_commands(db_session, partial(video_cache_mark_deletion, db_session, num_to_remove))
                 return True
 
-    def object_storage_backup(self, bucket_name: str, storage_option: str, video_cache_id: int) -> bool:
+    def object_storage_download(self, video_cache_ids: List[int], delete_without_backup: bool = True) -> bool:
+        '''
+        Download all video cache files down from object storage
+
+        video_cache_ids: Files to re-download
+        delete_without_backup: If file doesn't have backup, delete
+        '''
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_download', kind=SpanKind.INTERNAL):
+            if self.storage_option not in [el.value for el in StorageOptions]:
+                if delete_without_backup:
+                    self.remove_video_cache(video_cache_ids)
+                return False
+            with self.session_generator() as db_session:
+                remove_cache_videos = []
+                for video_cache_id in video_cache_ids:
+                    backup_item = retry_database_commands(db_session, partial(check_video_backup_exists, db_session, video_cache_id))
+                    if not backup_item and delete_without_backup:
+                        remove_cache_videos.append(video_cache_id)
+                        continue
+                    cache_file = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
+                    get_file(backup_item.bucket_name, backup_item.object_path, cache_file.base_path)
+                self.remove_video_cache(remove_cache_videos)
+                return True
+
+    def object_storage_backup(self, video_cache_id: int) -> bool:
         '''
         Object storage backup of video cache id
 
@@ -335,7 +366,7 @@ class VideoCacheClient():
         video_cache_id : ID of video cache file to upload
         '''
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_backup', kind=SpanKind.INTERNAL):
-            if storage_option not in [el.value for el in StorageOptions]:
+            if self.storage_option not in [el.value for el in StorageOptions]:
                 return False
             with self.session_generator() as db_session:
                 item_exists = retry_database_commands(db_session, partial(check_video_backup_exists, db_session, video_cache_id))
@@ -344,6 +375,6 @@ class VideoCacheClient():
                 video_cache_item = retry_database_commands(db_session, partial(get_video_cache_by_id, db_session, video_cache_id))
                 if not video_cache_item.base_path:
                     return False
-                upload_file(bucket_name, Path(video_cache_item.base_path))
-                retry_database_commands(db_session, partial(create_video_cache_backup, db_session, video_cache_id, 's3', bucket_name, str(video_cache_item.base_path)))
+                upload_file(self.bucket_name, Path(video_cache_item.base_path))
+                retry_database_commands(db_session, partial(create_video_cache_backup, db_session, video_cache_id, 's3', self.bucket_name, str(video_cache_item.base_path)))
                 return True

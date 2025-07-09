@@ -20,7 +20,7 @@ def test_verify_cache():
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                 x.verify_cache()
 
                 assert not Path(tmp_file.name).exists()
@@ -34,7 +34,7 @@ def test_verify_cache_with_dir():
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
 
-                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                     x.verify_cache()
 
                     assert not Path(tmp_file.name).exists()
@@ -49,7 +49,7 @@ def test_verify_cache_with_files_that_no_longer_exist():
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
 
-                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                    x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                     sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                     s = SourceDownload(Path(file_path.name), {
                         'webpage_url': 'https://foo.example.com',
@@ -65,6 +65,32 @@ def test_verify_cache_with_files_that_no_longer_exist():
                         assert session.query(VideoCache).count() == 0
                         assert not Path(extra_file.name).exists()
 
+def test_verify_cache_with_files_that_no_longer_exist_redownload_with_s3(mocker):
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(suffix='.sql') as temp_db:
+            with NamedTemporaryFile(suffix='.mp3', delete=False) as file_path:
+                engine = create_engine(f'sqlite:///{temp_db.name}')
+                BASE.metadata.create_all(engine)
+                BASE.metadata.bind = engine
+
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
+                mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.get_file', return_value=True)
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), 's3', 'foo')
+                sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
+                s = SourceDownload(Path(file_path.name), {
+                    'webpage_url': 'https://foo.example.com',
+                    'title': 'Foo title',
+                    'uploader': 'Foo uploader',
+                    'id': '1234',
+                    'extractor': 'foo extractor'
+                }, sd)
+                x.iterate_file(s)
+                x.object_storage_backup(1)
+                Path(file_path.name).unlink()
+                x.verify_cache()
+                with mock_session(engine) as session:
+                    assert session.query(VideoCache).count() == 1
+
 def test_iterate_file_new_and_iterate():
     with TemporaryDirectory() as tmp_dir:
         with NamedTemporaryFile(suffix='.sql') as temp_db:
@@ -73,7 +99,7 @@ def test_iterate_file_new_and_iterate():
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -97,7 +123,7 @@ def test_object_storage_backup(mocker):
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), 's3', 'foo')
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -108,13 +134,13 @@ def test_object_storage_backup(mocker):
                 }, sd)
                 mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
                 x.iterate_file(s)
-                x.object_storage_backup('foo', 's3', 1)
+                x.object_storage_backup(1)
                 with mock_session(engine) as session:
                     assert session.query(VideoCache).count() == 1
                     assert session.query(VideoCacheBackup).count() == 1
 
                 # Make sure if we call again another one doesn't get created
-                x.object_storage_backup('foo', 's3', 1)
+                x.object_storage_backup(1)
                 with mock_session(engine) as session:
                     assert session.query(VideoCache).count() == 1
                     assert session.query(VideoCacheBackup).count() == 1
@@ -127,7 +153,7 @@ def test_object_storage_backup_no_file_is_noop(mocker):
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), 's3', 'foo')
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -143,7 +169,7 @@ def test_object_storage_backup_no_file_is_noop(mocker):
                     query = session.query(VideoCache).first()
                     query.base_path = None
                     session.commit()
-                x.object_storage_backup('foo', 's3', 1)
+                x.object_storage_backup(1)
                 with mock_session(engine) as session:
                     assert session.query(VideoCache).count() == 1
                     assert session.query(VideoCacheBackup).count() == 0
@@ -156,7 +182,7 @@ def test_object_storage_backup_remove(mocker):
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), 's3', 'foo')
                 sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -168,7 +194,7 @@ def test_object_storage_backup_remove(mocker):
                 mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
                 mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.delete_file', return_value=True)
                 x.iterate_file(s)
-                x.object_storage_backup('foo', 's3', 1)
+                x.object_storage_backup(1)
                 x.remove_video_cache([1])
                 with mock_session(engine) as session:
                     assert session.query(VideoCache).count() == 0
@@ -182,7 +208,7 @@ def test_webpage_get_source():
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                 sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
@@ -203,7 +229,7 @@ def test_webpage_get_source_non_existing():
             BASE.metadata.create_all(engine)
             BASE.metadata.bind = engine
 
-            x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+            x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
             sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
             result = x.get_webpage_url_item(sd)
             assert result is None
@@ -217,7 +243,7 @@ def test_remove():
                     BASE.metadata.create_all(engine)
                     BASE.metadata.bind = engine
 
-                    x = VideoCacheClient(Path(tmp_dir), 1, partial(mock_session, engine))
+                    x = VideoCacheClient(Path(tmp_dir), 1, partial(mock_session, engine), None, None)
                     sd = SourceDict('123', 'requester name', '234', 'foo bar', SearchType.SEARCH)
                     s = SourceDownload(Path(file_path.name), {
                         'webpage_url': 'https://foo.example.com',
@@ -257,7 +283,7 @@ def test_search_existing_file():
                 BASE.metadata.create_all(engine)
                 BASE.metadata.bind = engine
 
-                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine))
+                x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, engine), None, None)
                 sd = SourceDict('123', 'requester name', '234', 'https://foo.example.com', SearchType.SEARCH)
                 s = SourceDownload(Path(file_path.name), {
                     'webpage_url': 'https://foo.example.com',
