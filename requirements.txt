@@ -1,4 +1,4 @@
-alembic==1.16.2
+alembic==1.16.4
 async-timeout==5.0.1
 beautifulsoup4==4.13.4
 boto3==1.39.4
