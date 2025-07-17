@@ -8,7 +8,7 @@ dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.9
 google-api-python-client==2.175.0
 jsonschema==4.24.0
 moviepy==2.2.1
-opentelemetry-sdk==1.34.1
+opentelemetry-sdk==1.35.0
 # Dont pin these so dependabot updates are easier
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-sqlalchemy
