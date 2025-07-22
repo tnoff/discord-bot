@@ -39,7 +39,7 @@ from discord_bot.cogs.music_helpers.source_download import SourceDownload, sourc
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
-from discord_bot.database import Playlist, PlaylistItem, Guild, VideoCacheGuild, VideoCache, VideoCacheBackup
+from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
@@ -1438,6 +1438,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 filter(Playlist.server_id == str(guild_id)).\
                 filter(Playlist.is_history == False).count()
 
+        def get_history_playlist(db_session: Session, guild_id: str):
+            return db_session.query(Playlist.id).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == True).first()
+
         def list_non_history_playlists(db_session: Session, guild_id: str, offset: int):
             return db_session.query(Playlist.id).\
                 filter(Playlist.server_id == str(guild_id)).\
@@ -1448,19 +1453,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             index = int(playlist_index)
         except ValueError:
             self.message_queue.iterate_single_message([partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)])
-            return None
+            return None, False
 
         with self.with_db_session() as db_session:
-            if not retry_database_commands(db_session, partial(check_playlist_count, db_session, str(ctx.guild.id))):
-                self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
-                                                                delete_after=self.delete_after)])
-                return None
+            if index > 0:
+                if not retry_database_commands(db_session, partial(check_playlist_count, db_session, str(ctx.guild.id))):
+                    self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
+                                                                    delete_after=self.delete_after)])
+                    return None, False
 
-            playlist_id = retry_database_commands(db_session, partial(list_non_history_playlists, db_session, str(ctx.guild.id), (index - 1)))
-            if not playlist_id:
+            is_history = False
+            if index == 0:
+                playlist = retry_database_commands(db_session, partial(get_history_playlist, db_session, str(ctx.guild.id)))[0]
+                is_history = True
+            else:
+                playlist = retry_database_commands(db_session, partial(list_non_history_playlists, db_session, str(ctx.guild.id), (index - 1)))[0]
+            if not playlist:
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)])
-                return None
-            return playlist_id[0]
+                return None, False
+            return playlist, is_history
 
     async def __check_database_session(self, ctx: Context):
         '''
@@ -1530,6 +1541,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
+        def get_history_playlist(db_session: Session, guild_id: str):
+            return db_session.query(Playlist).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == True).\
+                first()
+
         def get_playlist_items(db_session: Session, guild_id: str):
             return db_session.query(Playlist).\
                 filter(Playlist.server_id == str(guild_id)).\
@@ -1539,12 +1556,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
         with self.with_db_session() as db_session:
+            history_playlist = retry_database_commands(db_session, partial(get_history_playlist, db_session, str(ctx.guild.id)))
             playlist_items = retry_database_commands(db_session, partial(get_playlist_items, db_session, str(ctx.guild.id)))
 
-            if not playlist_items:
+            if not playlist_items and not history_playlist:
                 self.message_queue.iterate_single_message([partial(ctx.send, 'No playlists in database',
                                                                 delete_after=self.delete_after)])
                 return
+
+            if history_playlist:
+                playlist_items = [history_playlist] + [i for i in playlist_items]
 
             headers = [
                 {
@@ -1565,9 +1586,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 last_queued = 'N/A'
                 if item.last_queued:
                     last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
+                name = item.name
+                if item.is_history:
+                    name = 'History Playlist'
                 table.add_row([
-                    f'{count + 1}',
-                    item.name,
+                    f'{count}',
+                    name,
                     last_queued,
                 ])
             messages = [f'```{t}```' for t in table.print()]
@@ -1657,9 +1681,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, is_history = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
+
+        if is_history:
+            self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually', delete_after=self.delete_after)])
+            return
 
         try:
             source_entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
@@ -1699,7 +1727,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, _is_history  = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
         try:
@@ -1739,7 +1767,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, _is_history = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
 
@@ -1779,9 +1807,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, is_history  = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
+        if is_history:
+            self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot delete history playlist, is reserved', delete_after=self.delete_after)])
+            return
         await self.__playlist_delete(playlist_id)
         self.message_queue.iterate_single_message([partial(ctx.send, f'Deleted playlist {playlist_index}',
                                                    delete_after=self.delete_after)])
@@ -1819,7 +1850,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, is_history = await self.__get_playlist(playlist_index, ctx)
+        if is_history:
+            self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot rename history playlist, is reserved', delete_after=self.delete_after)])
+            return
         if not playlist_id:
             return None
 
@@ -2022,7 +2056,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # Make sure sub command is valid
-        playlist_id = await self.__get_playlist(playlist_index, ctx)
+        playlist_id, is_history = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
         shuffle = False
@@ -2033,79 +2067,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             number_matcher = re_match(NUMBER_REGEX, sub_command.lower())
             if number_matcher:
                 max_num = int(number_matcher.group('number'))
-        return await self.__playlist_queue(ctx, player, playlist_id, shuffle, max_num)
-
-    @command(name='random-play')
-    @command_wrapper
-    async def playlist_random_play(self, ctx: Context, sub_command: Optional[str] = ''):
-        '''
-        Play random videos from history
-
-        Sub commands - [cache] [max_num]
-            max_num - Number of videos to add to the queue at maximum
-            cache   - Play videos that are available in cache
-        '''
-        def get_video_cache_items(db_session: Session, guild_id: str, max_num: int):
-            return db_session.query(VideoCache).\
-                        join(VideoCacheGuild).\
-                        join(Guild).\
-                        filter(Guild.server_id == str(guild_id)).limit(max_num)
-        channel = await self.__check_author_voice_chat(ctx)
-        if not channel:
-            return
-        if not await self.__check_database_session(ctx):
-            return
-
-        player = await self.__ensure_player(ctx, channel)
-        if not player:
-            return
-
-        max_num = 32 # Default
-        from_cache = False
-        if sub_command:
-            sub_commands = sub_command.split(' ')
-            for item in sub_commands:
-                if item.lower() == 'cache':
-                    from_cache = True
-                    continue
-                try:
-                    max_num = int(item)
-                except ValueError:
-                    continue
-        # If not from cache, play from history playlist
-        if not from_cache:
-            history_playlist_id = self.__get_history_playlist(ctx.guild.id)
-
-            if not history_playlist_id:
-                self.message_queue.iterate_single_message([partial(ctx.send, 'Unable to find history for server', delete_after=self.delete_after)])
-                return
-            return await self.__playlist_queue(ctx, player, history_playlist_id, True, max_num, is_history=True)
-
-        with self.with_db_session() as db_session:
-            playlist_items = []
-            for item in retry_database_commands(db_session, partial(get_video_cache_items, db_session, ctx.guild.id, max_num)):
-                source_dict = SourceDict(ctx.guild.id,
-                                         ctx.author.display_name,
-                                         ctx.author.id,
-                                         item.video_url,
-                                         SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                         added_from_history=True)
-                playlist_items.append(source_dict)
-
-        for _ in range(self.number_shuffles):
-            random_shuffle(playlist_items)
-
-        broke_early = await self.__playlist_enqueue_items(ctx, playlist_items, player)
-        if broke_early:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'Added as many videos in cache to queue as possible, but hit limit',
-                                                               delete_after=self.delete_after)])
-        elif max_num:
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Added {max_num} videos from cache to queue',
-                                                               delete_after=self.delete_after)])
-        else:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'Added all videos in playlist cache to queue',
-                                                               delete_after=self.delete_after)])
-        return
+        return await self.__playlist_queue(ctx, player, playlist_id, shuffle, max_num, is_history=is_history)
 
     @playlist.command(name='merge')
     @command_wrapper
@@ -2125,8 +2087,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         self.logger.info(f'Calling playlist merge of "{playlist_index_one}" and "{playlist_index_two}" in server "{ctx.guild.id}"')
-        playlist_one_id = await self.__get_playlist(playlist_index_one, ctx)
-        playlist_two_id = await self.__get_playlist(playlist_index_two, ctx)
+        playlist_one_id, is_history1 = await self.__get_playlist(playlist_index_one, ctx)
+        playlist_two_id, is_history2  = await self.__get_playlist(playlist_index_two, ctx)
+        if is_history1 or is_history2:
+            self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot merge history playlist, is reserved', delete_after=self.delete_after)])
+            return
         if not playlist_one_id:
             self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot find playlist {playlist_index_one}', delete_after=self.delete_after)])
             return
@@ -2147,3 +2112,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add playlist item "{item.title}", likely already exists',
                                                         delete_after=self.delete_after)])
         await self.__playlist_delete(playlist_index_two)
+
+    @command(name='random-play')
+    @command_wrapper
+    async def playlist_random_play(self, ctx: Context):
+        '''
+        Deprecated, please use !playlist queue 0
+        '''
+        self.message_queue.iterate_single_message([partial(ctx.send, 'Function deprecated, please use `!playlist queue 0`', delete_after=self.delete_after)])
+        return
