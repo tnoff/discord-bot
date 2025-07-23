@@ -1405,7 +1405,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if not await self.__check_author_voice_chat(ctx):
             return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
+        player = await self.get_player(ctx.guild.id, ctx=ctx)
         if not player:
             return
         self.logger.info(f'Calling stop for guild {ctx.guild.id}')
