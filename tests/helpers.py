@@ -1,10 +1,59 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from random import choice
+from string import digits, ascii_lowercase
 
 from discord import ChannelType
 from discord.errors import NotFound
+import pytest
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+
+from discord_bot.database import BASE
+
+def random_id(length=12):
+    '''
+    Generate a random id of the given length
+    '''
+    return ''.join(choice(digits) for _ in range(length))
+
+def random_string(length=12):
+    '''
+    Generate string of given length
+    '''
+    return ''.join(choice(ascii_lowercase) for _ in range(length))
+
+def generate_fake_context(bot=None):
+    '''
+    Generate Fake Context
+    '''
+    fake_bot_user = FakeBotUser()
+    fake_guild = FakeGuild()
+    fake_author = FakeAuthor()
+    fake_channel = FakeChannel(members=[fake_bot_user, fake_author], guild=fake_guild)
+    fake_context = FakeContext(author=fake_author, guild=fake_guild, channel=fake_channel)
+
+    if bot is None:
+        bot = fake_bot_yielder(guilds=[fake_guild], channel=fake_channel, user=fake_bot_user)()
+    return {
+        'bot': bot,
+        'guild': fake_guild,
+        'author': fake_author,
+        'channel': fake_channel,
+        'context': fake_context,
+    }
+
+@pytest.fixture(scope="function")
+def fake_engine():
+    engine = create_engine(f'sqlite+pysqlite:///:memory:')
+    BASE.metadata.create_all(engine)
+    BASE.metadata.bind = engine
+
+    try:
+        yield engine
+    finally:
+        BASE.metadata.drop_all(engine)
 
 @contextmanager
 def mock_session(engine):
@@ -32,14 +81,15 @@ class FakeEmjoi():
         self.id = 1234
 
 class FakeMessage():
-    def __init__(self, id=None, content=None):
-        self.id = id or 'fake-message-1234'
-        self.created_at = datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)
+    def __init__(self, id=None, content=None, channel=None, author=None, created_at=None):
+        self.id = id or random_id()
+        self.created_at = created_at or datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)
         self.deleted = False
         self.content = content
+        self.channel = channel or FakeChannel()
         if content is None:
             self.content = 'fake message content that was typed by a real human'
-        self.author = FakeAuthor()
+        self.author = author or FakeAuthor()
         self.delete_after = None
 
     async def delete(self):
@@ -53,22 +103,22 @@ class FakeMessage():
 
 class FakeRole():
     def __init__(self, id=None, name=None):
-        self.id = id or 'fake-role-1234'
-        self.name = name or 'fake-role-name'
+        self.id = id or random_id()
+        self.name = name or random_string()
         self.members = []
 
 class FakeBotUser():
     def __init__(self):
-        self.id = 'fake-user-1234'
+        self.id = random_id()
 
     def __str__(self):
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self, emojis=None, members=None, roles=None, voice=None):
-        self.id = 'fake-guild-1234'
-        self.name = 'fake-guild-name'
-        self.emojis = emojis
+    def __init__(self, members=None, roles=None, voice=None):
+        self.id = random_id()
+        self.name = random_string()
+        self.emojis = []
         self.left_guild = False
         self.members = members or []
         self.roles = roles or []
@@ -94,9 +144,9 @@ class FakeGuild():
 
 class FakeAuthor():
     def __init__(self, id=None, roles=None, bot=False, voice=None):
-        self.id = id or 'fake-user-id-123'
-        self.name = 'fake-user-name-123'
-        self.display_name = 'fake-display-name-123'
+        self.id = id or random_id()
+        self.name = random_string()
+        self.display_name = random_string()
         self.bot = bot
         self.roles = roles or []
         self.voice = voice
@@ -108,13 +158,9 @@ class FakeAuthor():
         self.roles.remove(role)
 
 class FakeChannel():
-    def __init__(self, id=None, fake_message=None, no_messages=False, channel_type=ChannelType.text, members=None, guild=None):
-        self.id = id or 'fake-channel-id-123'
-        if no_messages:
-            self.messages = []
-        else:
-            fake_message = fake_message or FakeMessage()
-            self.messages = [fake_message]
+    def __init__(self, id=None, channel_type=ChannelType.text, members=None, guild=None):
+        self.id = id or random_id()
+        self.messages = []
         self.type = channel_type
         self.members = members
         self.guild = guild or FakeGuild()
@@ -136,20 +182,21 @@ class FakeChannel():
         self.messages.append(message)
         return message
 
+
 class FakeIntents():
     def __init__(self):
         self.members = True
 
 
-def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
+def fake_bot_yielder(start_sleep=0, user=None, guilds=None, channel=None):
     class FakeBot():
         def __init__(self, *_args, **_kwargs):
             self.startup_functions = []
-            self.user = FakeBotUser()
+            self.user = user or FakeBotUser()
             self.cogs = []
             self.guilds = guilds or []
             self.token = None
-            self.fake_channel = fake_channel
+            self.channel = channel
             if guilds:
                 self.guild = guilds[0]
             self.intents = FakeIntents()
@@ -157,7 +204,7 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
             self.loop = None
 
         async def fetch_channel(self, _channel_id):
-            return self.fake_channel
+            return self.channel
 
         async def fetch_guild(self, guild_id):
             for guild in self.guilds:
@@ -195,8 +242,8 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     return FakeBot
 
 class FakeVoiceClient():
-    def __init__(self, channel=None):
-        self.channel = channel or FakeChannel()
+    def __init__(self):
+        self.channel = None
 
     def play(self, *_args, after=None, **_kwargs):
         if after:
@@ -214,13 +261,13 @@ class FakeVoiceClient():
         return True
 
 class FakeContext():
-    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None, channel=None):
+    def __init__(self, bot=None, guild=None, author=None, voice_client=None, channel=None):
         self.author = author or FakeAuthor()
-        self.guild = fake_guild or FakeGuild()
+        self.guild = guild or FakeGuild()
         self.channel = channel or FakeChannel()
         self.messages_sent = []
-        self.bot = fake_bot
-        self.voice_client = voice_client
+        self.bot = bot
+        self.voice_client = voice_client or FakeVoiceClient()
 
     async def send(self, message):
         self.messages_sent.append(message)
