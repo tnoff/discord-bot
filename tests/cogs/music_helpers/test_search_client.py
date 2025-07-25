@@ -1,21 +1,20 @@
 import asyncio
 from functools import partial
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 
 from googleapiclient.errors import HttpError
 import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
-from sqlalchemy import create_engine
 
-from discord_bot.database import BASE
 from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
 
-from tests.helpers import FakeChannel, mock_session
+from tests.helpers import FakeChannel, mock_session, fake_source_download, generate_fake_context
+from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
+
 
 class MockSpotifyClient():
     def __init__(self):
@@ -151,41 +150,34 @@ async def test_spotify_album_get():
     assert result[0].search_type == SearchType.SPOTIFY
 
 @pytest.mark.asyncio(scope="session")
-async def test_spotify_album_with_cache():
-    with NamedTemporaryFile(suffix='.sql') as temp_db:
-        engine = create_engine(f'sqlite:///{temp_db.name}')
-        BASE.metadata.create_all(engine)
-        BASE.metadata.bind = engine
-        loop = asyncio.get_running_loop()
-        search_client = SearchCacheClient(partial(mock_session, engine), 10)
-        source_dict = SourceDict('1234', 'foo bar requester1', 'foo-requester-1', 'foo track foo artists', SearchType.SPOTIFY)
-        download = SourceDownload(None, {
-            'webpage_url': 'https://youtube.com/watch=v?adafaonoasnfo'
-        },
-        source_dict)
-        search_client.iterate(download)
-        x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), search_cache_client=search_client)
-        result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
-        assert result[0].requester_id == '2345'
-        assert result[0].search_string == 'https://youtube.com/watch=v?adafaonoasnfo'
-        assert result[0].original_search_string == 'foo track foo artists'
-        assert result[0].search_type == SearchType.SPOTIFY
+async def test_spotify_album_with_cache(fake_engine):  #pylint:disable=redefined-outer-name
+    loop = asyncio.get_running_loop()
+    search_client = SearchCacheClient(partial(mock_session, fake_engine), 10)
+    fake_context = generate_fake_context()
+    source_dict = SourceDict(fake_context['guild'].id, 'foo bar requester1', 'foo-requester-1', 'foo track foo artists', SearchType.SPOTIFY)
+    with TemporaryDirectory() as tmp_dir:
+        with fake_source_download(tmp_dir, source_dict=source_dict) as download:
+            # Override the webpage_url to match test expectation
+            download.webpage_url = 'https://youtube.com/watch=v?adafaonoasnfo'
+            search_client.iterate(download)
+            x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), search_cache_client=search_client)
+            result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+            assert result[0].requester_id == '2345'
+            assert result[0].search_string == 'https://youtube.com/watch=v?adafaonoasnfo'
+            assert result[0].original_search_string == 'foo track foo artists'
+            assert result[0].search_type == SearchType.SPOTIFY
 
 @pytest.mark.asyncio(scope="session")
-async def test_spotify_album_with_cache_miss_and_youtube_fallback():
+async def test_spotify_album_with_cache_miss_and_youtube_fallback(fake_engine):  #pylint:disable=redefined-outer-name
     # If no search cache is hit, make sure that youtube music returns the proper url
-    with NamedTemporaryFile(suffix='.sql') as temp_db:
-        engine = create_engine(f'sqlite:///{temp_db.name}')
-        BASE.metadata.create_all(engine)
-        BASE.metadata.bind = engine
-        loop = asyncio.get_running_loop()
-        search_client = SearchCacheClient(partial(mock_session, engine), 10)
-        x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic(), search_cache_client=search_client)
-        result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
-        assert result[0].requester_id == '2345'
-        assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
-        assert result[0].original_search_string == 'foo track foo artists'
-        assert result[0].search_type == SearchType.SPOTIFY
+    loop = asyncio.get_running_loop()
+    search_client = SearchCacheClient(partial(mock_session, fake_engine), 10)
+    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic(), search_cache_client=search_client)
+    result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    assert result[0].requester_id == '2345'
+    assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert result[0].original_search_string == 'foo track foo artists'
+    assert result[0].search_type == SearchType.SPOTIFY
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_album_get_shuffle():

@@ -1,14 +1,13 @@
 from functools import partial
 
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-from discord_bot.cogs.music_helpers.common import SearchType
 
-from tests.helpers import FakeContext, FakeMessage
+from tests.helpers import FakeContext, FakeMessage, fake_source_dict, generate_fake_context
 
 def test_message_send_to_edit_override():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     c = FakeContext()
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, c.send, 'Original message content')
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.EDIT, x.edit_message, 'Edited message content')
@@ -18,7 +17,8 @@ def test_message_send_to_edit_override():
 
 def test_message_send_to_delete_override():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     c = FakeContext()
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, c.send, 'Original message content')
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.DELETE, x.delete_message, '')
@@ -27,7 +27,8 @@ def test_message_send_to_delete_override():
 
 def test_message_send_to_edit_to_delete_override():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     c = FakeContext()
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, c.send, 'Original message content')
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.EDIT, x.edit_message, 'Edited message content')
@@ -37,7 +38,8 @@ def test_message_send_to_edit_to_delete_override():
 
 def test_message_edit_to_edit_override():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     mes = FakeMessage()
     x.set_message(mes)
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
@@ -47,7 +49,8 @@ def test_message_edit_to_edit_override():
 
 def test_message_edit_to_delete_override():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     mes = FakeMessage()
     x.set_message(mes)
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
@@ -66,8 +69,9 @@ def test_single_message():
 
 def test_multiple_send_messages_return_order():
     mq = MessageQueue()
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
-    y = SourceDict('2345', 'foobar2', '3456', 'foo bar video2', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
+    y = fake_source_dict(fake_context)
     c = FakeContext()
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
     mq.iterate_source_lifecycle(y, SourceLifecycleStage.SEND, c.send, 'Second message content')
@@ -92,7 +96,8 @@ def test_player_order():
 def test_return_order():
     mq = MessageQueue()
     mq.iterate_play_order('1234')
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     c = FakeContext()
     func = partial(c.send, 'Sending test message')
     mq.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, c.send, 'First message content', delete_after=5)

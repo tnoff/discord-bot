@@ -1,10 +1,119 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from random import choice
+from pathlib import Path
+from string import digits, ascii_lowercase
+from tempfile import NamedTemporaryFile
 
 from discord import ChannelType
 from discord.errors import NotFound
+import pytest
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+
+from discord_bot.database import BASE
+from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.source_download import SourceDownload
+
+class TestHelperException(Exception):
+    '''
+    Test helper exception
+    '''
+
+def random_id(length=12):
+    '''
+    Generate a random id of the given length
+    '''
+    return ''.join(choice(digits) for _ in range(length))
+
+def random_string(length=12):
+    '''
+    Generate string of given length
+    '''
+    return ''.join(choice(ascii_lowercase) for _ in range(length))
+
+def generate_fake_context(bot=None):
+    '''
+    Generate Fake Context
+    '''
+    fake_bot_user = FakeBotUser()
+    fake_guild = FakeGuild()
+    fake_author = FakeAuthor()
+    fake_channel = FakeChannel(members=[fake_bot_user, fake_author], guild=fake_guild)
+    context = FakeContext(author=fake_author, guild=fake_guild, channel=fake_channel)
+    # Setup some other bits
+    fake_guild.members = [fake_author]
+    fake_guild.voice_client = None
+    fake_role = FakeRole()
+    fake_author.roles = [fake_role]
+    fake_guild.roles = [fake_role]
+    fake_role.members = [fake_author]
+
+
+    if bot is None:
+        bot = fake_bot_yielder(guilds=[fake_guild], channels=[fake_channel], user=fake_bot_user)()
+    context.bot = bot
+    return {
+        'bot': bot,
+        'guild': fake_guild,
+        'author': fake_author,
+        'channel': fake_channel,
+        'context': context,
+    }
+
+def fake_source_dict(fakes, download_file=True, is_direct_search=False):
+    '''
+    Assumes fakes from fake_context
+    '''
+    search_type = SearchType.SEARCH
+    search_string = random_string()
+    if is_direct_search:
+        search_type = SearchType.DIRECT
+        search_string = f'https://foo.example/{random_string()}'
+    return SourceDict(fakes['guild'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+
+@contextmanager
+def fake_source_download(file_dir, source_dict=None, fake_context=None, extractor='youtube', download_file=True, is_direct_search=False):  #pylint:disable=redefined-outer-name
+    '''
+    Assumes you pass it a random file path for now
+    '''
+    if source_dict is None and fake_context is None:
+        raise TestHelperException('Source dict or fake context must be provided')
+    if source_dict is None:
+        source_dict = fake_source_dict(fake_context, download_file=download_file, is_direct_search=is_direct_search)
+    with NamedTemporaryFile(dir=file_dir, suffix='.mp3', delete=False) as tmp_file:
+        file_path = Path(tmp_file.name)
+        file_path.write_text('testing', encoding='utf-8')
+        webpage_url = f'https://foo.example/{random_string()}'
+        if source_dict.search_type == SearchType.DIRECT:
+            webpage_url = source_dict.search_string
+        source_download = SourceDownload(file_path, {
+            'duration': 120,
+            'webpage_url': webpage_url,
+            'title': random_string(),
+            'id': random_string(),
+            'uploader': random_string(),
+            'extractor': extractor,
+            },
+        source_dict)
+        yield source_download
+
+@pytest.fixture(scope="function")
+def fake_engine():
+    engine = create_engine('sqlite+pysqlite:///:memory:')
+    BASE.metadata.create_all(engine)
+    BASE.metadata.bind = engine
+
+    try:
+        yield engine
+    finally:
+        BASE.metadata.drop_all(engine)
+
+@pytest.fixture(scope="function")
+def fake_context():
+    yield generate_fake_context()
 
 @contextmanager
 def mock_session(engine):
@@ -32,14 +141,15 @@ class FakeEmjoi():
         self.id = 1234
 
 class FakeMessage():
-    def __init__(self, id=None, content=None):
-        self.id = id or 'fake-message-1234'
-        self.created_at = datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)
+    def __init__(self, id=None, content=None, channel=None, author=None, created_at=None):
+        self.id = id or random_id()
+        self.created_at = created_at or datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)
         self.deleted = False
         self.content = content
+        self.channel = channel or FakeChannel()
         if content is None:
             self.content = 'fake message content that was typed by a real human'
-        self.author = FakeAuthor()
+        self.author = author or FakeAuthor()
         self.delete_after = None
 
     async def delete(self):
@@ -53,22 +163,22 @@ class FakeMessage():
 
 class FakeRole():
     def __init__(self, id=None, name=None):
-        self.id = id or 'fake-role-1234'
-        self.name = name or 'fake-role-name'
+        self.id = id or random_id()
+        self.name = name or random_string()
         self.members = []
 
 class FakeBotUser():
     def __init__(self):
-        self.id = 'fake-user-1234'
+        self.id = random_id()
 
     def __str__(self):
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self, emojis=None, members=None, roles=None, voice=None):
-        self.id = 'fake-guild-1234'
-        self.name = 'fake-guild-name'
-        self.emojis = emojis
+    def __init__(self, members=None, roles=None, voice=None):
+        self.id = random_id()
+        self.name = random_string()
+        self.emojis = []
         self.left_guild = False
         self.members = members or []
         self.roles = roles or []
@@ -94,9 +204,9 @@ class FakeGuild():
 
 class FakeAuthor():
     def __init__(self, id=None, roles=None, bot=False, voice=None):
-        self.id = id or 'fake-user-id-123'
-        self.name = 'fake-user-name-123'
-        self.display_name = 'fake-display-name-123'
+        self.id = id or random_id()
+        self.name = random_string()
+        self.display_name = random_string()
         self.bot = bot
         self.roles = roles or []
         self.voice = voice
@@ -108,13 +218,10 @@ class FakeAuthor():
         self.roles.remove(role)
 
 class FakeChannel():
-    def __init__(self, id=None, fake_message=None, no_messages=False, channel_type=ChannelType.text, members=None, guild=None):
-        self.id = id or 'fake-channel-id-123'
-        if no_messages:
-            self.messages = []
-        else:
-            fake_message = fake_message or FakeMessage()
-            self.messages = [fake_message]
+    def __init__(self, id=None, channel_type=ChannelType.text, members=None, guild=None):
+        self.id = id or random_id()
+        self.name = random_string()
+        self.messages = []
         self.type = channel_type
         self.members = members
         self.guild = guild or FakeGuild()
@@ -129,6 +236,8 @@ class FakeChannel():
         raise NotFound(FakeResponse(), 'Unable to find message')
 
     async def connect(self, reconnect=False): #pylint:disable=unused-argument
+        self.guild.voice_client = FakeVoiceClient()
+        await self.guild.voice_client.move_to(self)
         return True
 
     async def send(self, message_content, **_kwargs):
@@ -136,28 +245,32 @@ class FakeChannel():
         self.messages.append(message)
         return message
 
+
 class FakeIntents():
     def __init__(self):
         self.members = True
 
 
-def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
+def fake_bot_yielder(start_sleep=0, user=None, guilds=None, channels=None):
     class FakeBot():
         def __init__(self, *_args, **_kwargs):
             self.startup_functions = []
-            self.user = FakeBotUser()
+            self.user = user or FakeBotUser()
             self.cogs = []
             self.guilds = guilds or []
             self.token = None
-            self.fake_channel = fake_channel
+            self.channels = channels or []
             if guilds:
                 self.guild = guilds[0]
             self.intents = FakeIntents()
             self.bot_closed = False
             self.loop = None
 
-        async def fetch_channel(self, _channel_id):
-            return self.fake_channel
+        async def fetch_channel(self, channel_id):
+            for channel in self.channels:
+                if channel.id == channel_id:
+                    return channel
+            return None
 
         async def fetch_guild(self, guild_id):
             for guild in self.guilds:
@@ -195,8 +308,8 @@ def fake_bot_yielder(start_sleep=0, guilds=None, fake_channel=None):
     return FakeBot
 
 class FakeVoiceClient():
-    def __init__(self, channel=None):
-        self.channel = channel or FakeChannel()
+    def __init__(self):
+        self.channel = None
 
     def play(self, *_args, after=None, **_kwargs):
         if after:
@@ -214,13 +327,13 @@ class FakeVoiceClient():
         return True
 
 class FakeContext():
-    def __init__(self, fake_bot=None, fake_guild=None, author=None, voice_client=None, channel=None):
+    def __init__(self, bot=None, guild=None, author=None, voice_client=None, channel=None):
         self.author = author or FakeAuthor()
-        self.guild = fake_guild or FakeGuild()
+        self.guild = guild or FakeGuild()
         self.channel = channel or FakeChannel()
         self.messages_sent = []
-        self.bot = fake_bot
-        self.voice_client = voice_client
+        self.bot = bot
+        self.voice_client = voice_client or FakeVoiceClient()
 
     async def send(self, message):
         self.messages_sent.append(message)
