@@ -71,10 +71,10 @@ class General(CogHelper):
             total += num
             roll_values.append(num)
         if rolls == 1:
-            message = f'{ctx.author.name} rolled a {total}'
+            message = f'{ctx.author.display_name} rolled a {total}'
         else:
             roll_values_message = ' + '.join(f'{d}' for d in roll_values)
-            message = f'{ctx.author.name} rolled: {roll_values_message} = {total}'
+            message = f'{ctx.author.display_name} rolled: {roll_values_message} = {total}'
 
         return await async_retry_discord_message_command(partial(ctx.send, message))
 

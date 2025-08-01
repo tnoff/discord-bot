@@ -13,3 +13,4 @@ docker/.env
 htmlcov/
 .cache
 *.db
+CLAUDE.md

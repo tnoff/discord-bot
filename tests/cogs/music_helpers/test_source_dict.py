@@ -1,13 +1,11 @@
 import pytest
 
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-
-from tests.helpers import FakeMessage
+from tests.helpers import FakeMessage, fake_source_dict, generate_fake_context
 
 @pytest.mark.asyncio
 async def test_source_dict_basics():
-    x = SourceDict('1234', 'foobar', '2345', 'foo bar video', SearchType.SEARCH)
+    fake_context = generate_fake_context()
+    x = fake_source_dict(fake_context)
     assert x.download_file is True
     assert not x.video_non_exist_callback_functions
     assert await x.edit_message('foo') is False
@@ -19,6 +17,6 @@ async def test_source_dict_basics():
     assert await x.edit_message('foo bar') is True
     assert await x.delete_message('') is True
 
-    assert str(x) == 'foo bar video'
-    x = SourceDict('1234', 'foobar', '2345', 'https://example.com', SearchType.SEARCH)
-    assert str(x) == '<https://example.com>'
+    assert str(x) == x.search_string
+    x_direct = fake_source_dict(fake_context, is_direct_search=True)
+    assert str(x_direct) == f'<{x_direct.search_string}>'

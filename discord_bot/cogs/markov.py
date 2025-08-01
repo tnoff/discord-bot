@@ -302,7 +302,6 @@ class Markov(CogHelper):
 
             if markov:
                 return await async_retry_discord_message_command(partial(ctx.send, 'Channel already has markov turned on'))
-
             channel = await self.bot.fetch_channel(ctx.channel.id)
             if channel.type not in [ChannelType.text, ChannelType.voice]:
                 return await async_retry_discord_message_command(partial(ctx.send, 'Not a valid markov channel, cannot turn on markov'))
