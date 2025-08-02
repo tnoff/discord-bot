@@ -195,16 +195,18 @@ class MusicPlayer:
             # Tends to be more annoying that anything
             await channel.connect()
             return True
-        if self.guild.voice_client.channel.id == channel.id:
+        if self.guild.voice_client.channel and self.guild.voice_client.channel.id == channel.id:
             return True
         await self.guild.voice_client.move_to(channel)
         return True
 
-    def voice_channel_active(self):
+    def voice_channel_inactive(self):
         '''
         Check if voice channel has active users
         '''
         if not self.guild.voice_client:
+            return True
+        if not self.guild.voice_client.channel:
             return True
         for member in self.guild.voice_client.channel.members:
             if member.id != self.bot.user.id:

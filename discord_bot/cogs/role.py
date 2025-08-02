@@ -256,9 +256,6 @@ class RoleAssignment(CogHelper):
         role_obj = self.get_role(ctx, role)
         if role_obj is None:
             return await ctx.send(f'Unable to find role "{role}"')
-        # Check for rejected list
-        if role_obj.id in self.get_rejected_roles_list(ctx):
-            return await ctx.send(f'Unable to list users for role "{role}", in reject list')
 
         headers = [
             {
@@ -354,15 +351,28 @@ class RoleAssignment(CogHelper):
         ]
         table = DapperTable(headers, rows_per_message=15)
         rows = []
+        # Print managed rows first, save self servic for later
+        # Make sure we order them by name for ease
+        managed = []
+        self_service = []
         for role, is_self_service in self.get_managed_roles(ctx).items():
-            row = [f'@{role.name}']
             if is_self_service:
-                row += ['Self-Serve']
-            else:
-                row += ['Full']
-            rows.append(row)
-        # Sort output
-        rows = sorted(rows)
+                self_service.append(role.name)
+                continue
+            managed.append(role.name)
+        managed = sorted(managed)
+        self_service = sorted(self_service)
+        for item in managed:
+            rows.append([
+                f'@{item}',
+                'Full',
+            ])
+        for item in self_service:
+            rows.append([
+                f'@{item}',
+                'Self-Serve'
+            ])
+
         for row in rows:
             table.add_row(row)
         if table.size() == 0:
