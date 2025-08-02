@@ -14,3 +14,4 @@ htmlcov/
 .cache
 *.db
 CLAUDE.md
+.venv
