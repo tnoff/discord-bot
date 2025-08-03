@@ -44,3 +44,11 @@ $ pytest --cov=discord_bot --cov-report=html tests
 ```
 
 This will drop html files of coverage into the `htmlcov` directory.
+
+## Alembic Database Upgrades
+
+Generate a revision
+
+```
+$ alembic revision --autogenerate -m "description of change"
+```

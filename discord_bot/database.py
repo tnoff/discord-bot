@@ -125,15 +125,3 @@ class VideoCacheGuild(BASE):
     id = Column(Integer, primary_key=True)
     guild_id = Column(Integer, ForeignKey('guild.id'))
     video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
-
-
-class SearchString(BASE):
-    '''
-    Search string cache
-    '''
-    __tablename__ = 'search_string'
-    id = Column(Integer, primary_key=True)
-    last_iterated_at = Column(DateTime)
-    created_at = Column(DateTime)
-    search_string = Column(String(2048))
-    video_url = Column(String(256))

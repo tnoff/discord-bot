@@ -8,7 +8,7 @@ def test_source_download_with_cache():
         with fake_source_download(tmp_dir, fake_context=fake_context) as x:
             original_file_path = x.file_path
             x.ready_file()
-            assert str(x) == x.webpage_url
+            assert str(x) == x.webpage_url  # pylint: disable=no-member
             assert str(x.file_path) != str(original_file_path)
             assert f'/{fake_context["guild"].id}/' in str(x.file_path)
             x.delete()
