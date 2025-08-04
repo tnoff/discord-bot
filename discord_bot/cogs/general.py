@@ -37,7 +37,7 @@ class General(CogHelper):
         Dice rolls
 
         input_value: input_value string, can be one number or other input_value
-        
+
         Can give standard '!roll 6', for random number between 1 and 6
         Can give 'd' prefix, '!roll d6', for random number between 1 and 6
         Can give multipliers, '!roll 2d6', to get two random numbers between 1 and 6, and add total

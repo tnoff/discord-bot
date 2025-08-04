@@ -62,7 +62,7 @@ class SpotifyClient():
                   pagination_limit: int = 50) -> List[dict]:
         '''
         Get all album tracks
-        
+
         album_id : Album id from spotify
         pagination_limit : Limit of each API call
         '''
