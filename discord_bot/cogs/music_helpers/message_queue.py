@@ -6,6 +6,8 @@ from typing import Callable, List
 from discord_bot.utils.queue import Queue
 
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.batched_message import BatchedMessageItem
+from discord_bot.cogs.music_helpers.message_formatter import MessageStatus
 
 
 class SourceLifecycleStage(Enum):
@@ -23,6 +25,7 @@ class MessageType(Enum):
     PLAY_ORDER = 'play_order'
     SOURCE_LIFECYCLE = 'source_lifecycle'
     SINGLE_MESSAGE = 'single_message'
+    BATCHED_MESSAGE = 'batched_message'
 
 class MessageItem():
     '''
@@ -54,10 +57,18 @@ class MessageQueue():
     '''
     Message queue to handle diff types of messages
     '''
-    def __init__(self):
+    def __init__(self, batch_size: int = 15, batch_timeout: int = 30, delete_after: int = 300):
         self.source_lifecycle_queue = {}
         self.play_order_queue = {}
         self.single_message_queue = Queue()
+
+        # Batching system
+        self.pending_batches: dict[int, BatchedMessageItem] = {}  # guild_id -> batch
+        self.active_batches: dict[str, BatchedMessageItem] = {}  # batch_id -> batch
+        self.batch_updates_queue = Queue()  # Queue of batches needing updates
+        self.batch_size = batch_size
+        self.batch_timeout = batch_timeout
+        self.delete_after = delete_after
 
     def get_next_message(self):
         '''
@@ -66,6 +77,9 @@ class MessageQueue():
         item = self.get_play_order()
         if item:
             return MessageType.PLAY_ORDER, item
+        item = self.get_batch_update()
+        if item:
+            return MessageType.BATCHED_MESSAGE, item
         item = self.get_source_lifecycle()
         if item:
             return MessageType.SOURCE_LIFECYCLE, item
@@ -175,3 +189,108 @@ class MessageQueue():
             return self.single_message_queue.get_nowait()
         except QueueEmpty:
             return None
+
+    # Batching Methods
+
+    def should_batch_items(self, guild_id: int, num_items: int) -> bool:
+        '''
+        Determine if items should be batched based on count and timing
+        '''
+        # Always batch if we have 2 or more items
+        if num_items >= 2:
+            return True
+
+        # Check if we have a pending batch that's been waiting
+        if guild_id in self.pending_batches:
+            pending_batch = self.pending_batches[guild_id]
+            time_waiting = datetime.now(timezone.utc) - pending_batch.created_at
+            if time_waiting.total_seconds() >= self.batch_timeout:
+                return True
+
+        return False
+
+    def add_items_to_batch(self, guild_id: int, source_dicts: List[SourceDict], send_function: Callable, channel_id: int = None) -> str:
+        '''
+        Add multiple SourceDicts to a batch, create new batch if needed
+        Returns batch_id of the first finalized batch
+        '''
+        # Get or create batch for this guild
+        if guild_id not in self.pending_batches:
+            self.pending_batches[guild_id] = BatchedMessageItem(guild_id, self.batch_size, self.delete_after, channel_id)
+
+        batch = self.pending_batches[guild_id]
+        first_finalized_batch_id = None
+
+        # Add items to batch
+        for source_dict in source_dicts:
+            if not batch.add_source_dict(source_dict):
+                # Batch is full, finalize it
+                self._finalize_batch(batch, send_function)
+                if first_finalized_batch_id is None:
+                    first_finalized_batch_id = batch.batch_id
+                # Create a new batch and add the current item
+                batch = BatchedMessageItem(guild_id, self.batch_size, self.delete_after, channel_id)
+                self.pending_batches[guild_id] = batch
+                batch.add_source_dict(source_dict)
+
+        # If current batch should be finalized (either full or meets batching criteria), finalize it
+        if batch.is_batch_full() or self.should_batch_items(guild_id, len(batch.source_dicts)):
+            self._finalize_batch(batch, send_function)
+            self.pending_batches.pop(guild_id, None)
+            if first_finalized_batch_id is None:
+                first_finalized_batch_id = batch.batch_id
+
+        # Return the first finalized batch ID, or current batch ID if none finalized
+        return first_finalized_batch_id or batch.batch_id
+
+    def _finalize_batch(self, batch: BatchedMessageItem, send_function: Callable):
+        '''
+        Move batch from pending to active and queue initial send
+        '''
+        self.active_batches[batch.batch_id] = batch
+
+        # Create initial message send function
+        def send_batch_message():
+            content = batch.generate_message_content()
+            return send_function(content)
+
+        # Add to updates queue for initial send
+        batch.send_function = send_batch_message
+        batch.lifecycle_stage = SourceLifecycleStage.SEND
+        self.batch_updates_queue.put_nowait(batch)
+
+    def update_batch_item(self, batch_id: str, source_uuid: str, status: MessageStatus, error_msg: str = None) -> bool:
+        '''
+        Update status of individual item in batch
+        '''
+        if batch_id not in self.active_batches:
+            return False
+
+        batch = self.active_batches[batch_id]
+        if batch.update_item_status(source_uuid, status, error_msg):
+            # Queue batch for message update
+            batch.lifecycle_stage = SourceLifecycleStage.EDIT
+            self.batch_updates_queue.put_nowait(batch)
+            return True
+
+        return False
+
+    def get_batch_update(self) -> BatchedMessageItem:
+        '''
+        Get next batch that needs message update
+        '''
+        try:
+            return self.batch_updates_queue.get_nowait()
+        except QueueEmpty:
+            return None
+
+    def cleanup_completed_batch(self, batch_id: str):
+        '''
+        Remove completed batch from active batches
+        '''
+        if batch_id in self.active_batches:
+            batch = self.active_batches[batch_id]
+            if batch.is_processing_complete():
+                self.active_batches.pop(batch_id)
+                return True
+        return False
