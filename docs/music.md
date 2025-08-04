@@ -220,17 +220,6 @@ music:
       max_cache_files: 2048
 ```
 
-Additionally there is a `SearchString` table for storing search strings and their corresponding downloaded videos. By default this is only enabled on Spotify searches, since the Artist Name and Song Name used in these and the relevant video they correspond to should be static.
-
-You can set how many entries you want in this table via `max_search_cache_entries`:
-
-```
-music:
-  download:
-    cache:
-      max_search_cache_entries: 1024
-```
-
 Here is a diagram of how the layers of caching interact with each other:
 
 ![](./images/download-cache.png)

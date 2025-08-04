@@ -746,28 +746,6 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
             assert cog.players[fake_context['guild'].id].get_queue_items()
             assert cog.video_cache.get_webpage_url_item(sd.source_dict)
 
-@pytest.mark.asyncio
-async def test_add_source_to_player_caches_search(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
-    config = {
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                }
-            }
-        }
-    } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    with TemporaryDirectory() as tmp_dir:
-        s = SourceDict(fake_context['guild'], fake_context['author'].display_name, fake_context['author'].id, 'foo artist foo title', SearchType.SPOTIFY)
-        with fake_source_download(tmp_dir, source_dict=s) as sd:
-            await cog.add_source_to_player(sd, cog.players[fake_context['guild'].id])
-            assert cog.players[fake_context['guild'].id].get_queue_items()
-            assert not cog.video_cache.get_webpage_url_item(sd.source_dict)
-            assert cog.search_string_cache.check_cache(sd.source_dict)
 
 @pytest.mark.asyncio
 async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -1554,23 +1532,19 @@ def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disa
             'download': {
                 'cache': {
                     'enable_cache_files': True,
-                    'max_cache_files': 100,
-                    'max_search_cache_entries': 50
+                    'max_cache_files': 100
                 }
             }
         }
     }
 
-    with patch('discord_bot.cogs.music.VideoCacheClient') as mock_video_cache, \
-         patch('discord_bot.cogs.music.SearchCacheClient') as mock_search_cache:
+    with patch('discord_bot.cogs.music.VideoCacheClient') as mock_video_cache:
 
         cog = Music(fake_context['bot'], config, fake_engine)
 
-        # Verify cache clients were created
+        # Verify cache client was created
         assert mock_video_cache.called
-        assert mock_search_cache.called
         assert cog.video_cache is not None
-        assert cog.search_string_cache is not None
 
 def test_music_cache_count_callback(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test cache count callback method with database"""

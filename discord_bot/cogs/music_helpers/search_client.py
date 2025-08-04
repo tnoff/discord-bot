@@ -13,7 +13,6 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.utils.clients.spotify import SpotifyClient
@@ -64,7 +63,6 @@ class SearchClient():
     '''
     def __init__(self, message_queue: MessageQueue,
                  spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
-                 search_cache_client: SearchCacheClient = None,
                  number_shuffles: int = 5):
         '''
         Init download client
@@ -73,13 +71,11 @@ class SearchClient():
         spotify_client : Spotify Client
         youtube_client : Youtube Client
         youtube_music_client : Youtube Music Client
-        search_cache_client: The bots search cache client
         number_shuffles : Number of shuffles post api calls
         '''
         self.message_queue = message_queue
         self.spotify_client = spotify_client
         self.youtube_client = youtube_client
-        self.search_cache_client = search_cache_client
         self.youtube_music_client = youtube_music_client
         self.number_shuffles = number_shuffles
 
@@ -247,14 +243,7 @@ class SearchClient():
         all_entries = []
         for search_string in search_strings:
             entry = SourceDict(guild_id, requester_name, requester_id, search_string, search_type)
-            # Check in search cache
-            # Else fallback to youtube music check
-            if self.search_cache_client:
-                result = self.search_cache_client.check_cache(entry)
-                if result:
-                    entry.add_youtube_result(result)
-                    all_entries.append(entry)
-                    continue
+            # Fallback to youtube music check
             if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)
                 if result:

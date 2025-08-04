@@ -122,7 +122,7 @@ def test_webpage_get_source(fake_engine):  #pylint:disable=redefined-outer-name
             x.iterate_file(s)
             result = x.get_webpage_url_item(s.source_dict)
             assert result.file_path
-            assert result.webpage_url == s.source_dict.search_string
+            assert result.webpage_url == s.source_dict.search_string  # pylint: disable=no-member
 
 def test_webpage_get_source_non_existing(fake_engine):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
@@ -161,4 +161,4 @@ def test_search_existing_file(fake_engine):  #pylint:disable=redefined-outer-nam
             result = x.search_existing_file(test_extractor, s.id) #pylint:disable=no-member
             assert result.base_path == str(s.file_path)
             generated = x.generate_download_from_existing(s.source_dict, result)
-            assert generated.webpage_url == s.webpage_url
+            assert generated.webpage_url == s.webpage_url  # pylint: disable=no-member

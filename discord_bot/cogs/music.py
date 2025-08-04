@@ -36,7 +36,6 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
-from discord_bot.cogs.music_helpers.search_cache_client import SearchCacheClient
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup
@@ -204,12 +203,6 @@ MUSIC_SECTION_SCHEMA = {
                             'type': 'number',
                             'minimum': 1,
                         },
-                        # Max to keep in search cache
-                        # Mostly used to keep spotify resuls around
-                        'max_search_cache_entries': {
-                            'type': 'number',
-                            'minimum': 1,
-                        },
                     }
                 },
                 'storage': {
@@ -311,7 +304,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         download_dir_path = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('download_dir_path', None)
         self.enable_cache = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('enable_cache_files', False)
         max_cache_files = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('max_cache_files', 2048)
-        max_search_cache_entries = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('max_search_cache_entries', 4096)
         ytdlp_options = self.settings.get('music', {}).get('download', {}).get('extra_ytdlp_options', {})
         banned_videos_list = self.settings.get('music', {}).get('download', {}).get('banned_videos_list', [])
 
@@ -360,7 +352,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session),
                                                 self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None))
             self.video_cache.verify_cache()
-            self.search_string_cache = SearchCacheClient(partial(self.with_db_session), max_search_cache_entries)
 
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -394,7 +385,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ytdl.add_post_processor(VideoEditing(), when='post_process')
         self.search_client = SearchClient(self.message_queue, spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                           youtube_music_client=self.youtube_music_client,
-                                          search_cache_client=self.search_string_cache,
                                           number_shuffles=self.number_shuffles)
         self.download_client = DownloadClient(ytdl, self.download_dir)
 
