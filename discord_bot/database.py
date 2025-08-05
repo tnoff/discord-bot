@@ -125,3 +125,27 @@ class VideoCacheGuild(BASE):
     id = Column(Integer, primary_key=True)
     guild_id = Column(Integer, ForeignKey('guild.id'))
     video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
+
+
+class VideoRequestAnalytics(BASE):
+    '''
+    Analytics for video download requests and cache usage patterns
+    '''
+    __tablename__ = 'video_request_analytics'
+    id = Column(Integer, primary_key=True)
+    # Request identification
+    server_id = Column(String(128))  # Discord server ID
+    # Video information
+    video_url = Column(String(256))   # Final video URL (webpage_url)
+    search_string = Column(String(512))  # Original search string
+    search_type = Column(String(32))  # SearchType enum value
+    video_title = Column(String(1024), nullable=True)  # Video title if available
+    video_id = Column(String(32), nullable=True)       # Video ID if available
+    extractor = Column(String(256), nullable=True)     # yt-dlp extractor used
+    # Cache analytics
+    cache_hit_pre_queue = Column(Boolean, default=False)   # Found in cache before entering download queue
+    cache_hit_post_queue = Column(Boolean, default=False)  # Found in cache during download (yt-dlp filter)
+    download_attempted = Column(Boolean, default=False)    # Whether download was attempted
+    download_successful = Column(Boolean, default=False)   # Whether download completed successfully
+    # Timing
+    created_at = Column(DateTime)

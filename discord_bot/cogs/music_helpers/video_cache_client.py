@@ -189,7 +189,7 @@ class VideoCacheClient():
     def verify_cache(self):
         '''
         Remove files in directory that are not cached
-    
+
         '''
         # Find items that don't exist anymore
         # And get list of ones that do

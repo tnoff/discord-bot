@@ -28,7 +28,7 @@ class YoutubeClient():
                     'part': 'snippet',
                     'playlistId': playlist_id,
                     'maxResults': pagination_limit,
-                    'pageToken': page_token 
+                    'pageToken': page_token
                 }
                 req = self.client.playlistItems().list(**data_inputs).execute() #pylint:disable=no-member
                 for item in req['items']:

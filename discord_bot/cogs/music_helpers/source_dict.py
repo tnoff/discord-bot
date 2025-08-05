@@ -50,6 +50,9 @@ class SourceDict():
         # Set message for later
         self.message = None
 
+        # Batch ID for batched message system
+        self.batch_id = None
+
     def add_youtube_result(self, video_url: str) -> bool:
         '''
         Add result from cache or youtube music
@@ -68,7 +71,12 @@ class SourceDict():
     async def delete_message(self, _message_content: str, **_kwargs):
         '''
         Delete message if existing
+        For batched items, this is handled by the batch system
         '''
+        if self.batch_id:
+            # Batched items don't have individual message deletion
+            return True
+
         if not self.message:
             return False
 
@@ -78,10 +86,15 @@ class SourceDict():
     async def edit_message(self, content: str, delete_after: int = None):
         '''
         Edit message contents
+        For batched items, this is handled by the batch system
 
         content : Message content
         delete_after : Delete after X seconds
         '''
+        if self.batch_id:
+            # Batched items don't have individual message editing
+            return True
+
         if not self.message:
             return False
         await self.message.edit(content=content, delete_after=delete_after)
