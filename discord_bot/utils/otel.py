@@ -20,6 +20,13 @@ class MetricNaming(Enum):
     CACHE_FILE_COUNT = 'cache_file_count'
     CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
+    # Video analytics metrics
+    VIDEO_REQUESTS_TOTAL = 'video_requests_total'
+    VIDEO_CACHE_HIT_RATE_PRE_QUEUE = 'video_cache_hit_rate_pre_queue'
+    VIDEO_CACHE_HIT_RATE_POST_QUEUE = 'video_cache_hit_rate_post_queue'
+    VIDEO_CACHE_HIT_RATE_OVERALL = 'video_cache_hit_rate_overall'
+    VIDEO_DOWNLOAD_SUCCESS_RATE = 'video_download_success_rate'
+    VIDEO_REQUESTS_BY_SEARCH_TYPE = 'video_requests_by_search_type'
 
 class AttributeNaming(Enum):
     '''

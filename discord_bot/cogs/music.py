@@ -39,8 +39,9 @@ from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchExc
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
 from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.cogs.music_helpers.video_analytics import VideoAnalyticsTracker
 
-from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup
+from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup, VideoRequestAnalytics
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
@@ -355,6 +356,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                 self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None))
             self.video_cache.verify_cache()
 
+        # Video analytics tracker
+        self.video_analytics = None
+        if self.db_engine:
+            self.video_analytics = VideoAnalyticsTracker(partial(self.with_db_session))
+            # Add analytics metrics
+            create_observable_gauge(METER_PROVIDER, MetricNaming.VIDEO_REQUESTS_TOTAL.value, self.__video_requests_total_callback, 'Total video requests')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.VIDEO_CACHE_HIT_RATE_PRE_QUEUE.value, self.__video_cache_hit_rate_pre_queue_callback, 'Cache hit rate before download queue')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.VIDEO_CACHE_HIT_RATE_POST_QUEUE.value, self.__video_cache_hit_rate_post_queue_callback, 'Cache hit rate during download')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.VIDEO_CACHE_HIT_RATE_OVERALL.value, self.__video_cache_hit_rate_overall_callback, 'Overall cache hit rate')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.VIDEO_DOWNLOAD_SUCCESS_RATE.value, self.__video_download_success_rate_callback, 'Download success rate')
+
 
         self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
@@ -505,6 +517,56 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return [
             Observation(total)
         ]
+
+    def __video_requests_total_callback(self, _options):
+        '''
+        Video analytics: total requests
+        '''
+        if not self.video_analytics:
+            return [Observation(0)]
+        
+        summary = self.video_analytics.get_analytics_summary()
+        return [Observation(summary.get('total_requests', 0))]
+
+    def __video_cache_hit_rate_pre_queue_callback(self, _options):
+        '''
+        Video analytics: cache hit rate before download queue
+        '''
+        if not self.video_analytics:
+            return [Observation(0.0)]
+        
+        summary = self.video_analytics.get_analytics_summary()
+        return [Observation(summary.get('pre_queue_cache_hit_rate', 0.0))]
+
+    def __video_cache_hit_rate_post_queue_callback(self, _options):
+        '''
+        Video analytics: cache hit rate during download
+        '''
+        if not self.video_analytics:
+            return [Observation(0.0)]
+        
+        summary = self.video_analytics.get_analytics_summary()
+        return [Observation(summary.get('post_queue_cache_hit_rate', 0.0))]
+
+    def __video_cache_hit_rate_overall_callback(self, _options):
+        '''
+        Video analytics: overall cache hit rate
+        '''
+        if not self.video_analytics:
+            return [Observation(0.0)]
+        
+        summary = self.video_analytics.get_analytics_summary()
+        return [Observation(summary.get('overall_cache_hit_rate', 0.0))]
+
+    def __video_download_success_rate_callback(self, _options):
+        '''
+        Video analytics: download success rate
+        '''
+        if not self.video_analytics:
+            return [Observation(0.0)]
+        
+        summary = self.video_analytics.get_analytics_summary()
+        return [Observation(summary.get('download_success_rate', 0.0))]
 
     async def cog_load(self):
         '''
@@ -762,8 +824,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             source_download = await self.__check_video_cache(source_dict)
             if source_download:
                 cached_items.append((source_dict, source_download))
+                # Track analytics for pre-queue cache hit
+                if self.video_analytics:
+                    self.video_analytics.create_request_record(source_dict, cache_hit_pre_queue=True)
             else:
                 download_items.append(source_dict)
+                # Track analytics for items that need downloading
+                if self.video_analytics:
+                    analytics_id = self.video_analytics.create_request_record(source_dict, cache_hit_pre_queue=False)
+                    # Store analytics ID in source_dict for later updates
+                    source_dict.analytics_id = analytics_id
 
         # Process cached items immediately (no batching needed)
         for source_dict, source_download in cached_items:
@@ -773,10 +843,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Handle download items with batching if appropriate
         broke_early = False
         if download_items:
+            batch_id = None
             if self.message_queue.should_batch_items(ctx.guild.id, len(download_items)):
                 # Use batched approach for large numbers of items
                 batch_id = self.message_queue.add_items_to_batch(ctx.guild.id, download_items, partial(ctx.send))
                 self.logger.debug(f'Created batch {batch_id} for {len(download_items)} items')
+                
+                # Batch created for large numbers of items
+                pass
             else:
                 # Use individual messages for small numbers of items
                 for source_dict in download_items:
@@ -1044,6 +1118,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     source_download = self.video_cache.generate_download_from_existing(source_dict, e.video_cache)
                     self.update_download_lockfile(source_download)
                     span.set_status(StatusCode.OK)
+                    
+                    # Track analytics for post-queue cache hit
+                    if self.video_analytics and hasattr(source_dict, 'analytics_id'):
+                        self.video_analytics.update_cache_hit_post_queue(source_dict.analytics_id, e.video_cache)
                 except (BotDownloadFlagged) as e:
                     self.logger.warning(f'Bot flagged while downloading video "{str(source_dict)}", {str(e)}')
                     self.update_batch_item_status(source_dict, ItemStatus.FAILED, "bot flagged")
@@ -1070,8 +1148,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Final none check in case we couldn't download video
             if not await self.__ensure_video_download_result(source_dict, source_download):
                 span.set_status(StatusCode.ERROR)
+                # Track analytics for failed download
+                if self.video_analytics and hasattr(source_dict, 'analytics_id'):
+                    self.video_analytics.update_download_result(source_dict.analytics_id, source_download, success=False)
                 return
             span.set_status(StatusCode.OK)
+            
+            # Track analytics for successful download
+            if self.video_analytics and hasattr(source_dict, 'analytics_id'):
+                self.video_analytics.update_download_result(source_dict.analytics_id, source_download, success=True)
             # Callback functions if given
             for func in source_dict.post_download_callback_functions:
                 await func(source_download)
