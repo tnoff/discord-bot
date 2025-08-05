@@ -33,6 +33,7 @@ from discord_bot.cogs.music_helpers.download_client import DownloadClient, Downl
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.batched_message import ItemStatus
+from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
@@ -781,7 +782,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 for source_dict in download_items:
                     self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
                                                                 partial(ctx.send),
-                                                                f'Downloading and processing "{str(source_dict)}"')
+                                                                MessageFormatter.format_downloading_message(source_dict))
 
             # Queue all items for download
             for source_dict in download_items:
@@ -794,7 +795,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     break
                 except QueueFull:
                     self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT, partial(source_dict.edit_message),
-                                                                f'Unable to add item "{source_dict}" to queue, queue is full',
+                                                                MessageFormatter.format_queue_full_message(source_dict),
                                                                 delete_after=self.delete_after)
                     broke_early = True
                     break  # Changed from continue to break to match original behavior
@@ -937,7 +938,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.warning(f'Play queue full, aborting download of item "{str(source_download.source_dict)}"')
                 self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                             partial(source_download.source_dict.edit_message),
-                                                            f'Play queue is full, cannot add "{str(source_download.source_dict)}"',
+                                                            MessageFormatter.format_play_queue_full_message(source_download.source_dict),
                                                             delete_after=self.delete_after)
                 source_download.delete()
                 return False
@@ -972,7 +973,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if source_download is None:
             self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_dict.edit_message),
-                                                        f'Issue downloading video "{str(source_dict)}", skipping', delete_after=self.delete_after)
+                                                        MessageFormatter.format_download_failed_message(source_dict), delete_after=self.delete_after)
             return False
         return True
 
@@ -1703,7 +1704,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if source_download is None:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        f'Unable to add playlist item "{str(source_download.source_dict)}", issue generating source',
+                                                        MessageFormatter.format_playlist_item_failed_message(source_download.source_dict),
                                                         delete_after=self.delete_after)
             return
         self.logger.info(f'Adding video_url "{source_download.webpage_url}" to playlist "{playlist_id}" '
@@ -1713,18 +1714,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except PlaylistMaxLength:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        'Cannot add more items to playlist, already max size',
+                                                        MessageFormatter.format_playlist_max_size_message(),
                                                         delete_after=self.delete_after)
             return
         if playlist_item_id:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        f'Added item "{source_download.title}" to playlist',
+                                                        MessageFormatter.format_playlist_item_added_message(source_download.title),
                                                         delete_after=self.delete_after)
             return
         self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                     partial(source_download.source_dict.edit_message),
-                                                    f'Unable to add playlist item "{str(source_download.source_dict)}", likely already exists',
+                                                    MessageFormatter.format_playlist_item_exists_message(source_download.source_dict),
                                                     delete_after=self.delete_after)
         return
 
@@ -1748,7 +1749,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
 
         if is_history:
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually', delete_after=self.delete_after)])
+            self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_history_playlist_error(), delete_after=self.delete_after)])
             return
 
         try:
@@ -1761,7 +1762,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for source_dict in source_entries:
             source_dict.download_file = False
             self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND, partial(ctx.send),
-                                                        f'Downloading and processing "{str(source_dict)}" to add to playlist')
+                                                        MessageFormatter.format_downloading_message(source_dict))
             source_dict.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
@@ -1973,7 +1974,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Saving queue contents to playlist "{name}", is_history? {is_history}')
 
         if len(queue_copy) == 0:
-            self.message_queue.iterate_single_message([partial(ctx.send, 'There are no videos to add to playlist',
+            self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_no_videos_message(),
                                                                delete_after=self.delete_after)])
             return
 
@@ -1981,14 +1982,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 playlist_item_id = self.__playlist_insert_item(playlist_id, data.webpage_url, data.title, data.uploader)
             except PlaylistMaxLength:
-                self.message_queue.iterate_single_message([partial(ctx.send, 'Cannot add more items to playlist, already max size',
+                self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_playlist_max_size_message(),
                                                            delete_after=self.delete_after)])
                 break
             if playlist_item_id:
-                self.message_queue.iterate_single_message([partial(ctx.send, f'Added item "{data.title}" to playlist', delete_after=self.delete_after)])
+                self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_playlist_item_added_message(data.title), delete_after=self.delete_after)])
                 continue
-            self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add playlist item "{data.title}", likely already exists', delete_after=self.delete_after)])
-        self.message_queue.iterate_single_message([partial(ctx.send, f'Finished adding items to playlist "{name}"', delete_after=self.delete_after)])
+            self.message_queue.iterate_single_message([partial(ctx.send, f'❌ Unable to add playlist item "{data.title}" (skipped: already exists)', delete_after=self.delete_after)])
+        self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_finished_playlist_message(name), delete_after=self.delete_after)])
         return
 
     async def __delete_non_existing_item(self, item_id: int, item_video_url: str, ctx: Context):
@@ -2142,13 +2143,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 try:
                     playlist_item_id = self.__playlist_insert_item(playlist_one_id, item.video_url, item.title, item.uploader)
                 except PlaylistMaxLength:
-                    self.message_queue.iterate_single_message([partial(ctx.send, f'Cannot add more items to playlist "{playlist_one_id}", already max size', delete_after=self.delete_after)])
+                    self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_playlist_max_size_message(), delete_after=self.delete_after)])
                     return
                 if playlist_item_id:
-                    self.message_queue.iterate_single_message([partial(ctx.send, f'Added item "{item.title}" to playlist {playlist_index_one}',
+                    self.message_queue.iterate_single_message([partial(ctx.send, MessageFormatter.format_playlist_item_added_message(item.title),
                                                             delete_after=self.delete_after)])
                     continue
-                self.message_queue.iterate_single_message([partial(ctx.send, f'Unable to add playlist item "{item.title}", likely already exists',
+                self.message_queue.iterate_single_message([partial(ctx.send, f'❌ Unable to add playlist item "{item.title}" (skipped: already exists)',
                                                         delete_after=self.delete_after)])
         await self.__playlist_delete(playlist_index_two)
 

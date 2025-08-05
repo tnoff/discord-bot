@@ -1001,7 +1001,7 @@ async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redef
     cog.message_queue.get_next_message()
     m1 = cog.message_queue.get_next_message()
     assert m1[1].source_dict == s1
-    assert m1[1].message_content == f'Unable to add item "{s1}" to queue, queue is full'
+    assert m1[1].message_content == f'❌ {s1} (failed: queue is full)'
 
 @pytest.mark.asyncio()
 async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -1103,7 +1103,7 @@ async def test_playlsit_add_item_invalid_history(fake_engine, mocker, fake_conte
     await cog.playlist_item_add(cog, fake_context['context'], 0, search='https://foo.example')
     result0 = cog.message_queue.get_single_message()
 
-    assert result0[0].args[0] == 'Unable to add "https://foo.example" to history playlist, is reserved and cannot be added to manually'
+    assert result0[0].args[0] == '❌ Cannot add to history playlist, is reserved and cannot be added to manually'
 
 @pytest.mark.asyncio()
 async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name

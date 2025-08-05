@@ -1,28 +1,12 @@
 from datetime import datetime, timezone
 from enum import Enum
-import re
 from typing import Dict, List, Optional
 from uuid import uuid4
 
 from discord import Message
 
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
-
-
-def _format_search_string_for_discord(search_string: str) -> str:
-    '''
-    Format search string to prevent Discord embeds for URLs
-    Wraps URLs in <> to suppress embeds while keeping other text unchanged
-    '''
-    # Pattern to match URLs that are NOT already wrapped in <>
-    # Uses negative lookbehind (?<!<) and negative lookahead (?!>)
-    url_pattern = r'(?<!<)https?://[^\s<>"{}|\\^`\[\]]+(?!>)'
-
-    def wrap_url(match):
-        url = match.group(0)
-        return f'<{url}>'
-
-    return re.sub(url_pattern, wrap_url, search_string)
+from discord_bot.cogs.music_helpers.message_formatter import _format_search_string_for_discord
 
 
 class ItemStatus(Enum):
