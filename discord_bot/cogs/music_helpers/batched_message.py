@@ -15,7 +15,7 @@ class BatchedMessageItem:
     Items are removed from display once completed successfully
     '''
 
-    def __init__(self, guild_id: int, batch_size: int = 15, auto_delete_after: int = 30, channel_id: int = None, items_per_message: int = 10):
+    def __init__(self, guild_id: int, batch_size: int = 15, channel_id: int = None, items_per_message: int = 10):
         self.batch_id = str(uuid4())
         self.guild_id = guild_id
         self.channel_id = channel_id
@@ -27,7 +27,6 @@ class BatchedMessageItem:
         self.created_at = datetime.now(timezone.utc)
         self.last_updated = datetime.now(timezone.utc)
         self.batch_size = batch_size
-        self.auto_delete_after = auto_delete_after
         self.items_per_message = items_per_message
 
         # Counters
@@ -195,12 +194,6 @@ class BatchedMessageItem:
     def should_auto_delete(self) -> bool:
         '''Check if message should be auto-deleted'''
         return self.is_processing_complete()
-
-    def get_delete_after(self) -> Optional[int]:
-        '''Get delete_after value if message should auto-delete'''
-        if self.should_auto_delete():
-            return self.auto_delete_after
-        return None
 
     def set_message(self, message: Message, message_index: int = 0):
         '''Set a Discord message for this batch at specific index'''

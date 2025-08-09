@@ -726,7 +726,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     elif item.lifecycle_stage == SourceLifecycleStage.EDIT:
                         # Update existing batch message
                         content = item.generate_message_content()
-                        delete_after = item.get_delete_after() if item.is_processing_complete() else None
+                        delete_after = self.delete_after if item.is_processing_complete() else None
                         await async_retry_discord_message_command(
                             partial(item.edit_message, content, delete_after=delete_after)
                         )

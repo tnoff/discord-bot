@@ -57,7 +57,7 @@ class MessageQueue():
     '''
     Message queue to handle diff types of messages
     '''
-    def __init__(self, batch_size: int = 15, batch_timeout: int = 30, delete_after: int = 300):
+    def __init__(self, batch_size: int = 15, batch_timeout: int = 30):
         self.source_lifecycle_queue = {}
         self.play_order_queue = {}
         self.single_message_queue = Queue()
@@ -68,7 +68,6 @@ class MessageQueue():
         self.batch_updates_queue = Queue()  # Queue of batches needing updates
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
-        self.delete_after = delete_after
 
     def get_next_message(self):
         '''
@@ -216,7 +215,7 @@ class MessageQueue():
         '''
         # Get or create batch for this guild
         if guild_id not in self.pending_batches:
-            self.pending_batches[guild_id] = BatchedMessageItem(guild_id, self.batch_size, self.delete_after, channel_id)
+            self.pending_batches[guild_id] = BatchedMessageItem(guild_id, self.batch_size, channel_id)
 
         batch = self.pending_batches[guild_id]
         first_finalized_batch_id = None
@@ -229,7 +228,7 @@ class MessageQueue():
                 if first_finalized_batch_id is None:
                     first_finalized_batch_id = batch.batch_id
                 # Create a new batch and add the current item
-                batch = BatchedMessageItem(guild_id, self.batch_size, self.delete_after, channel_id)
+                batch = BatchedMessageItem(guild_id, self.batch_size, channel_id)
                 self.pending_batches[guild_id] = batch
                 batch.add_source_dict(source_dict)
 
