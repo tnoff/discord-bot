@@ -187,7 +187,7 @@ class Markov(CogHelper):
     def delete_channel_relations(self, db_session: Session, channel_id: str):
         '''
         Delete all relations related to channel
-        
+
         db_session : Sqlalchemy db_session
         channel_id: Markov Channel ID (DB ID)
         '''

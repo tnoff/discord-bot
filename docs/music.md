@@ -132,9 +132,46 @@ Remove an item from a playlist
 !playlist item-remove <playlist id> <item id>
 ```
 
+## Play Queue
+
+When items are placed into the play queue for a server, you'll see a list of videos queued up to play. There is a 'Wait Time' which lists the approximate wait time of each video. The order on the very left hand side can be used for the `!bump` and `!remove` commands as well.
+
+Note that wait time is calculated after each video being played or skipped. The 'Wait Time' of the first item is the length of the current video being played, he wait time of the 2nd item is the length of the current video being played plus the first item in the queue, and so forth.
+
+![](./images/queue2.png)
+
+## Download Queue
+
+For single video requests there is a message generated when the bot receives the request that prints a "Downloading item" message, this will be deleted once the video downloads. This is to make it more obvious to the user that the request was accepted and is in progress.
+
+### Batched Download Queue
+
+The bot features an intelligent **batched message system** that significantly improves the user experience when processing multiple videos. It includes:
+
+- **Multiple video requests (2+)**: Automatically batched into grouped messages
+- **Large playlists (30+ items)**: Split across multiple batched messages for optimal display
+
+### Real-time Status Display
+Batched messages show live updates with status icons:
+- ⏳ **Pending**: Items waiting to be processed
+- 🔄 **Downloading**: Items currently being downloaded
+- ❌ **Failed**: Items that failed with detailed error messages
+
+**Example batched message:**
+```
+🎵 Processing Playlist (2/5 items)
+⏳ 1. My Favorite Song Artist Name
+🔄 2. <https://youtube.com/watch?v=abc123> (downloading...)
+❌ 4. Another Song Title (failed: video unavailable)
+❌ 5. <https://youtube.com/watch?v=def456> (failed: age restricted)
+
+(This message will be deleted in 30 seconds)
+```
+
+
 ## Spotify Enablement
 
-You can pass [Spotify API](https://developer.spotify.com/) credentials to the config to allow for Spotify playlists and albums to be given as input. This will request the track information from Spotify, then the bot will run a search for "`<artist name>` `<song name>`", and download the first result.
+You can pass [Spotify API](https://developer.spotify.com/) credentials to the config to allow for Spotify playlists and albums to be given as input. This will request the track information from Spotify, then the bot will run a search for "`<artist name>` `<track name>`", and download the first result.
 
 You can pass the Spotify credentials into the config:
 
@@ -168,6 +205,8 @@ Note that with either Spotify playlists/albums or Youtube playlist input, you ca
 
 ## Under the Hood
 
+### Video Processing
+
 All videos are downloaded by the bot via [yt-dlp](https://github.com/yt-dlp/yt-dlp). The video audio is then left on disk and deleted after the video is played. You can specify what directory the videos are downloaded to in the config:
 
 ```
@@ -194,7 +233,6 @@ music:
   download:
     max_song_length: 3600 # In seconds
 ```
-
 
 ### Caching
 
