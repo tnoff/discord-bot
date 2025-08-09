@@ -56,7 +56,7 @@ async def test_cache_cleanup_uploads_object_storage(fake_engine, mocker, fake_co
             'download': {
                 'cache': {
                     'enable_cache_files': True,
-                    'max_cache_files': 0
+                    'max_cache_files': 1
                 },
                 'storage': {
                     'backend': 's3',
@@ -68,23 +68,24 @@ async def test_cache_cleanup_uploads_object_storage(fake_engine, mocker, fake_co
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    fake_backup_client = mocker.patch('discord_bot.cogs.music.BackupClient')
-    fake_backup_client.return_value.upload_file.return_value = True
+    mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
 
     cog = Music(fake_context['bot'], config, fake_engine)
 
     with TemporaryDirectory() as tmp_dir:
         with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
-            cog.video_cache.iterate_file(sd)
+            with fake_source_download(tmp_dir, fake_context=fake_context) as sd2:
+                cog.video_cache.iterate_file(sd)
+                cog.video_cache.iterate_file(sd2)
 
-            with mock_session(fake_engine) as db_session:
-                assert db_session.query(VideoCache).count() == 1
+                with mock_session(fake_engine) as db_session:
+                    assert db_session.query(VideoCache).count() == 2
 
-            await cog.cache_cleanup()
+                await cog.cache_cleanup()
 
-            with mock_session(fake_engine) as db_session:
-                assert db_session.query(VideoCache).count() == 0
-                assert db_session.query(VideoCacheBackup).count() == 1
+                with mock_session(fake_engine) as db_session:
+                    assert db_session.query(VideoCache).count() == 1
+                    assert db_session.query(VideoCacheBackup).count() == 1
 
 @pytest.mark.asyncio()
 async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -93,7 +94,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
             'download': {
                 'cache': {
                     'enable_cache_files': True,
-                    'max_cache_files': 0
+                    'max_cache_files': 1
                 }
             }
         }
@@ -105,15 +106,17 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
 
     with TemporaryDirectory() as tmp_dir:
         with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
-            cog.video_cache.iterate_file(sd)
+            with fake_source_download(tmp_dir, fake_context=fake_context) as sd2:
+                cog.video_cache.iterate_file(sd)
+                cog.video_cache.iterate_file(sd2)
 
-            with mock_session(fake_engine) as db_session:
-                assert db_session.query(VideoCache).count() == 1
+                with mock_session(fake_engine) as db_session:
+                    assert db_session.query(VideoCache).count() == 2
 
-            await cog.cache_cleanup()
+                await cog.cache_cleanup()
 
-            with mock_session(fake_engine) as db_session:
-                assert db_session.query(VideoCache).count() == 0
+                with mock_session(fake_engine) as db_session:
+                    assert db_session.query(VideoCache).count() == 1
 
 @pytest.mark.asyncio()
 async def test_cache_cleanup_skips_source_in_transit(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -122,7 +125,7 @@ async def test_cache_cleanup_skips_source_in_transit(fake_engine, mocker, fake_c
             'download': {
                 'cache': {
                     'enable_cache_files': True,
-                    'max_cache_files': 0
+                    'max_cache_files': 1
                 }
             }
         }
@@ -136,7 +139,7 @@ async def test_cache_cleanup_skips_source_in_transit(fake_engine, mocker, fake_c
         with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
             cog.video_cache.iterate_file(sd)
             # Add item to in-transit dict to mimic source being processed
-            cog.video_cache.processing_video_items[sd.webpage_url] = True
+            cog.sources_in_transit[sd.webpage_url] = True
 
             with mock_session(fake_engine) as db_session:
                 assert db_session.query(VideoCache).count() == 1

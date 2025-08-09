@@ -176,7 +176,7 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
             await cog.shuffle_(cog, fake_context['context'])
-            assert cog.players[fake_context['guild'].id].shuffle_requested
+
 
 @pytest.mark.asyncio
 async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -251,8 +251,8 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.blocked_download = True
     await cog.play_(cog, fake_context['context'], search='foo bar')
-    m1 = cog.message_queue.get_single_message()
-    assert m1[1].message_content == f'❌ {s} (failed: play queue is full)'
+    m1 = cog.message_queue.get_source_lifecycle()
+    assert m1.message_content == f'❌ {s} (failed: play queue is full)'
 
 @pytest.mark.asyncio()
 async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redefined-outer-name

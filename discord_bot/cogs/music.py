@@ -285,7 +285,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # General options
         self.delete_after = self.settings.get('music', {}).get('general', {}).get('message_delete_after', 300) # seconds
         # Message queue bits
-        self.message_queue = MessageQueue(delete_after=self.delete_after)
+        self.message_queue = MessageQueue()
         self.player_messages = {}
         # History Playlist Queue
         self.history_playlist_queue = None
@@ -1062,7 +1062,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(source_dict)}", {str(e)}')
-                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e.user_message))
+                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e))
                     source_download = None
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)

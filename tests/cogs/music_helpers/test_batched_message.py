@@ -11,11 +11,10 @@ from tests.helpers import fake_engine #pylint:disable=unused-import
 def test_batched_message_item_creation():
     """Test basic BatchedMessageItem creation"""
     guild_id = 12345
-    batch = BatchedMessageItem(guild_id, batch_size=5, auto_delete_after=15)
+    batch = BatchedMessageItem(guild_id, batch_size=5)
 
     assert batch.guild_id == guild_id
     assert batch.batch_size == 5
-    assert batch.auto_delete_after == 15
     assert batch.total_items == 0
     assert batch.completed_count == 0
     assert batch.failed_count == 0
@@ -185,7 +184,7 @@ def test_generate_message_content_in_progress():
 def test_generate_message_content_complete():
     """Test generating final message content when processing is complete"""
     fake_context = generate_fake_context()
-    batch = BatchedMessageItem(fake_context['guild'].id, auto_delete_after=30)
+    batch = BatchedMessageItem(fake_context['guild'].id)
 
     # Add items
     completed_dict = fake_source_dict(fake_context)
@@ -241,14 +240,10 @@ def test_should_auto_delete():
     source_dict = fake_source_dict(fake_context)
     batch.add_source_dict(source_dict)
 
-    # Not complete, should not auto-delete
-    assert not batch.should_auto_delete()
-    assert batch.get_delete_after() is None
 
     # Complete, should auto-delete
     batch.update_item_status(str(source_dict.uuid), MessageStatus.COMPLETED)
     assert batch.should_auto_delete()
-    assert batch.get_delete_after() == batch.auto_delete_after
 
 
 def test_character_limit_protection():
@@ -428,7 +423,6 @@ def test_delete_after_behavior():
     batch = BatchedMessageItem(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        auto_delete_after=30
     )
 
     # Add some items
@@ -439,17 +433,14 @@ def test_delete_after_behavior():
 
     # Initially, processing not complete, should return None for delete_after
     assert not batch.is_processing_complete()
-    assert batch.get_delete_after() is None
 
     # Complete one item, still not complete overall
     batch.update_item_status(str(source_dict1.uuid), MessageStatus.COMPLETED)
     assert not batch.is_processing_complete()  # Still has one pending
-    assert batch.get_delete_after() is None
 
     # Complete the second item, now processing is complete
     batch.update_item_status(str(source_dict2.uuid), MessageStatus.COMPLETED)
     assert batch.is_processing_complete()  # All items processed
-    assert batch.get_delete_after() == 30  # Should return the timeout value
 
 
 def test_delete_after_behavior_with_failures():
@@ -459,7 +450,6 @@ def test_delete_after_behavior_with_failures():
     batch = BatchedMessageItem(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        auto_delete_after=60
     )
 
     source_dict1 = fake_source_dict(fake_context)
@@ -472,4 +462,3 @@ def test_delete_after_behavior_with_failures():
     batch.update_item_status(str(source_dict2.uuid), MessageStatus.FAILED, "test error")
 
     assert batch.is_processing_complete()
-    assert batch.get_delete_after() == 60

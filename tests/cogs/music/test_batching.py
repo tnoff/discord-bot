@@ -212,7 +212,7 @@ async def test_message_loop_handles_batched_messages(fake_engine, fake_context):
 def test_batch_message_content_generation():
     """Test that batch message content is generated correctly"""
     test_context = generate_fake_context()
-    batch = BatchedMessageItem(test_context['guild'].id, auto_delete_after=30)
+    batch = BatchedMessageItem(test_context['guild'].id)
 
     # Add items with different search string types
     spotify_dict = fake_source_dict(test_context)
