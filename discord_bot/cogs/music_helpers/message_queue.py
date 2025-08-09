@@ -196,7 +196,7 @@ class MessageQueue():
         Determine if items should be batched based on count and timing
         '''
         # Always batch if we have 2 or more items
-        if num_items >= 2:
+        if num_items > 1:
             return True
 
         # Check if we have a pending batch that's been waiting
