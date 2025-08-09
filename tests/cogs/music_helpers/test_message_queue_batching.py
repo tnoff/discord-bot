@@ -9,7 +9,7 @@ from tests.helpers import fake_engine #pylint:disable=unused-import
 
 def test_message_queue_batching_init():
     """Test MessageQueue initialization with batching parameters"""
-    queue = MessageQueue(batch_size=10, batch_timeout=60, delete_after=30)
+    queue = MessageQueue(batch_size=10, batch_timeout=60)
 
     assert queue.batch_size == 10
     assert queue.batch_timeout == 60
@@ -19,7 +19,7 @@ def test_message_queue_batching_init():
 
 def test_should_batch_items():
     """Test logic for determining when to batch items"""
-    queue = MessageQueue(batch_size=15, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=15, batch_timeout=30)
     guild_id = 12345
 
     # Should batch when we have 2 or more items (new threshold)
@@ -32,7 +32,7 @@ def test_should_batch_items():
 
 def test_add_items_to_batch_large_batch():
     """Test adding large number of items creates batch immediately"""
-    queue = MessageQueue(batch_size=5, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=5, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -68,7 +68,7 @@ def test_add_items_to_batch_large_batch():
 
 def test_add_items_to_batch_single_item():
     """Test adding single item creates pending batch (below threshold)"""
-    queue = MessageQueue(batch_size=15, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=15, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -93,7 +93,7 @@ def test_add_items_to_batch_single_item():
 
 def test_update_batch_item():
     """Test updating individual item status in batch"""
-    queue = MessageQueue(batch_size=5, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=5, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -129,7 +129,7 @@ def test_update_batch_item():
 
 def test_update_batch_item_with_error():
     """Test updating batch item with error message"""
-    queue = MessageQueue(batch_size=5, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=5, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -153,7 +153,7 @@ def test_update_batch_item_with_error():
 
 def test_update_nonexistent_batch():
     """Test updating non-existent batch returns False"""
-    queue = MessageQueue(delete_after=30)
+    queue = MessageQueue()
 
     result = queue.update_batch_item("fake-batch-id", "fake-uuid", MessageStatus.COMPLETED)
     assert result is False
@@ -161,7 +161,7 @@ def test_update_nonexistent_batch():
 
 def test_cleanup_completed_batch():
     """Test cleaning up completed batches"""
-    queue = MessageQueue(batch_size=2, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=2, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -187,7 +187,7 @@ def test_cleanup_completed_batch():
 
 def test_get_batch_update():
     """Test getting batch updates from queue"""
-    queue = MessageQueue(batch_size=3, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=3, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -219,7 +219,7 @@ def test_get_batch_update():
 
 def test_message_queue_priority():
     """Test that batched messages have correct priority in get_next_message"""
-    queue = MessageQueue(batch_size=2, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=2, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 
@@ -248,7 +248,7 @@ def test_message_queue_priority():
 
 def test_batch_overflow():
     """Test handling when batch overflows to create multiple batches"""
-    queue = MessageQueue(batch_size=3, batch_timeout=30, delete_after=30)
+    queue = MessageQueue(batch_size=3, batch_timeout=30)
     fake_context = generate_fake_context()
     guild_id = fake_context['guild'].id
 

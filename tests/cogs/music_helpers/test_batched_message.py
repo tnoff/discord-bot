@@ -174,7 +174,7 @@ def test_generate_message_content_in_progress():
 
     content = batch.generate_message_content()
 
-    assert "Processing (1/4 items)" in content
+    assert "Processing (2/4 items, 1 succeeded, 1 failed)" in content
     assert "⏳ 1. Pending Song" in content
     assert "🔄 2. Downloading Song (downloading...)" in content
     # Completed song should NOT appear
@@ -202,9 +202,10 @@ def test_generate_message_content_complete():
 
     content = batch.generate_message_content()
 
-    assert "Multi-video Input Processing Complete (1/2 items succeeded)" in content
+    assert "Multi-video Input Processing Complete (1/2 succeeded, 1 failed)" in content
     assert "❌ 2. Failed Song (failed: age restricted)" in content
-    assert "1 video successfully added to queue" in content
+    assert "✅ 1 video successfully added to queue" in content
+    assert "❌ 1 video failed to process" in content
     # Completed song should not appear
     assert "Success Song" not in content
 
@@ -251,25 +252,35 @@ def test_should_auto_delete():
 
 
 def test_character_limit_protection():
-    """Test that message content respects Discord's 2000 character limit"""
+    """Test that batch splits items across multiple messages"""
     fake_context = generate_fake_context()
-    batch = BatchedMessageItem(fake_context['guild'].id, batch_size=50)  # Large batch
+    batch = BatchedMessageItem(fake_context['guild'].id, batch_size=50, items_per_message=10)  # Large batch with 10 items per message
 
-    # Add many items with long search strings to exceed character limit
-    for i in range(30):
+    # Add many items to test multi-message functionality
+    for i in range(25):
         source_dict = fake_source_dict(fake_context)
-        # Create a long search string to test character limits
-        source_dict.search_string = f"Very Long Song Title That Goes On And On {i+1} - Artist Name That Is Also Very Long"
+        source_dict.search_string = f"Song Title {i+1} - Artist Name"
         batch.add_source_dict(source_dict)
 
-    content = batch.generate_message_content()
+    # Should need 3 messages for 25 items (10 + 10 + 5)
+    assert batch.get_required_message_count() == 3
 
-    # Should not exceed Discord's 2000 character limit
-    assert len(content) <= 2000
+    # Test message groups
+    message_groups = batch.get_message_groups()
+    assert len(message_groups) == 3
+    assert len(message_groups[0]) == 10  # First message has 10 items
+    assert len(message_groups[1]) == 10  # Second message has 10 items
+    assert len(message_groups[2]) == 5   # Third message has 5 items
 
-    # Should contain truncation notice if content was truncated
-    if len(batch.get_visible_items()) > 10:  # If we have many items
-        assert "truncated due to message length" in content or len(content) < 1800  # Either truncated or naturally short
+    # Test content generation for each message
+    content_0 = batch.generate_message_content(0)
+    content_1 = batch.generate_message_content(1)
+    content_2 = batch.generate_message_content(2)
+
+    # All messages should have the same header with message indicator
+    assert "[Message 1/3]" in content_0
+    assert "[Message 2/3]" in content_1
+    assert "[Message 3/3]" in content_2
 
 
 @pytest.mark.asyncio
@@ -295,13 +306,88 @@ async def test_message_operations():
 
     batch.set_message(mock_message)
 
-    assert batch.message == mock_message
+    assert batch.messages[0] == mock_message
 
     # Test edit message (can't easily test call args with async mock)
     await batch.edit_message("test content", delete_after=30)
 
     # Test delete message
     await batch.delete_message()
+
+
+def test_failed_items_display():
+    """Test that failed items are displayed correctly with counts"""
+    fake_context = generate_fake_context()
+    batch = BatchedMessageItem(fake_context['guild'].id, items_per_message=10)
+
+    # Add multiple items with mixed success/failure
+    for i in range(5):
+        source_dict = fake_source_dict(fake_context)
+        source_dict.search_string = f"Song {i+1}"
+        batch.add_source_dict(source_dict)
+
+    # Set different statuses: 2 completed, 2 failed, 1 pending
+    uuids = [str(sd.uuid) for sd in batch.source_dicts]
+    batch.update_item_status(uuids[0], MessageStatus.COMPLETED)
+    batch.update_item_status(uuids[1], MessageStatus.COMPLETED)
+    batch.update_item_status(uuids[2], MessageStatus.FAILED, "network error")
+    batch.update_item_status(uuids[3], MessageStatus.FAILED, "video unavailable")
+    # uuids[4] stays PENDING
+
+    # Test in-progress header
+    content = batch.generate_message_content()
+    assert "Processing (4/5 items, 2 succeeded, 2 failed)" in content
+
+    # Complete the last item
+    batch.update_item_status(uuids[4], MessageStatus.COMPLETED)
+
+    # Test completed header and summary
+    content = batch.generate_message_content()
+    assert "Multi-video Input Processing Complete (3/5 succeeded, 2 failed)" in content
+    assert "✅ 3 videos successfully added to queue" in content
+    assert "❌ 2 videos failed to process" in content
+
+
+def test_failed_items_only_success_display():
+    """Test display when only successful items exist"""
+    fake_context = generate_fake_context()
+    batch = BatchedMessageItem(fake_context['guild'].id)
+
+    # Add items that all succeed
+    for i in range(3):
+        source_dict = fake_source_dict(fake_context)
+        source_dict.search_string = f"Success Song {i+1}"
+        batch.add_source_dict(source_dict)
+
+    # Complete all successfully
+    for source_dict in batch.source_dicts:
+        batch.update_item_status(str(source_dict.uuid), MessageStatus.COMPLETED)
+
+    content = batch.generate_message_content()
+    assert "Multi-video Input Processing Complete (3/3 succeeded)" in content
+    assert "✅ 3 videos successfully added to queue" in content
+    assert "❌" not in content  # No failure message should appear
+
+
+def test_failed_items_only_failure_display():
+    """Test display when only failed items exist"""  
+    fake_context = generate_fake_context()
+    batch = BatchedMessageItem(fake_context['guild'].id)
+
+    # Add items that all fail
+    for i in range(2):
+        source_dict = fake_source_dict(fake_context)
+        source_dict.search_string = f"Failed Song {i+1}"
+        batch.add_source_dict(source_dict)
+
+    # Fail all items
+    batch.update_item_status(str(batch.source_dicts[0].uuid), MessageStatus.FAILED, "error 1")
+    batch.update_item_status(str(batch.source_dicts[1].uuid), MessageStatus.FAILED, "error 2")
+
+    content = batch.generate_message_content()
+    assert "Multi-video Input Processing Complete (0/2 succeeded, 2 failed)" in content
+    assert "✅" not in content  # No success message should appear
+    assert "❌ 2 videos failed to process" in content
 
 
 def test_format_search_string_for_discord():

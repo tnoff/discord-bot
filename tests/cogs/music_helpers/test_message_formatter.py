@@ -152,9 +152,9 @@ class TestMessageFormatterMethods:
         '''Test queue full message formatter'''
         fake_context = generate_fake_context()
         source_dict = fake_source_dict(fake_context)
-        result = MessageFormatter.format_queue_full_message(source_dict)
+        result = MessageFormatter.format_play_queue_full_message(source_dict)
 
-        expected = f"❌ {source_dict.search_string} (failed: queue is full)"
+        expected = f"❌ {source_dict.search_string} (failed: play queue is full)"
         assert result == expected
 
     def test_format_play_queue_full_message(self):

@@ -239,7 +239,7 @@ def test_batch_message_content_generation():
     # URL should be wrapped in <> to prevent Discord embeds
     assert "<https://www.youtube.com/watch?v=aB3cD4eF5gH> (downloading...)" in content
     assert "Test Song Artist Name (failed: video unavailable)" in content
-    assert "Processing (0/3 items)" in content
+    assert "Processing (1/3 items, 0 succeeded, 1 failed)" in content
 
 
 @pytest.mark.asyncio

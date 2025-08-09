@@ -5,7 +5,7 @@ from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLif
 from tests.helpers import FakeContext, FakeMessage, fake_source_dict, generate_fake_context
 
 def test_message_send_to_edit_override():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
@@ -16,7 +16,7 @@ def test_message_send_to_edit_override():
     assert result.lifecycle_stage == SourceLifecycleStage.SEND
 
 def test_message_send_to_delete_override():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
@@ -26,7 +26,7 @@ def test_message_send_to_delete_override():
     assert result is None
 
 def test_message_send_to_edit_to_delete_override():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
@@ -37,7 +37,7 @@ def test_message_send_to_edit_to_delete_override():
     assert result is None
 
 def test_message_edit_to_edit_override():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     mes = FakeMessage()
@@ -48,7 +48,7 @@ def test_message_edit_to_edit_override():
     assert result.message_content == 'Second edited content'
 
 def test_message_edit_to_delete_override():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     mes = FakeMessage()
@@ -60,7 +60,7 @@ def test_message_edit_to_delete_override():
     assert result.lifecycle_stage == SourceLifecycleStage.DELETE
 
 def test_single_message():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     c = FakeContext()
     func = partial(c.send, 'Sending test message')
     mq.iterate_single_message(func)
@@ -68,7 +68,7 @@ def test_single_message():
     assert result == func
 
 def test_multiple_send_messages_return_order():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     y = fake_source_dict(fake_context)
@@ -85,7 +85,7 @@ def test_multiple_send_messages_return_order():
     assert result.lifecycle_stage == SourceLifecycleStage.SEND
 
 def test_player_order():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     mq.iterate_play_order('1234')
     mq.iterate_play_order('2345')
     mq.iterate_play_order('1234')
@@ -94,7 +94,7 @@ def test_player_order():
     assert mq.get_play_order() is None
 
 def test_return_order():
-    mq = MessageQueue(delete_after=30)
+    mq = MessageQueue()
     mq.iterate_play_order('1234')
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)

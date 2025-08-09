@@ -69,13 +69,6 @@ class MessageFormatter:
         return MessageFormatter.format_single_message(source_dict, MessageStatus.DOWNLOADING)
 
     @staticmethod
-    def format_queue_full_message(source_dict: SourceDict) -> str:
-        '''
-        Format message for queue full errors
-        '''
-        return MessageFormatter.format_single_message(source_dict, MessageStatus.FAILED, "queue is full")
-
-    @staticmethod
     def format_play_queue_full_message(source_dict: SourceDict) -> str:
         '''
         Format message for play queue full errors

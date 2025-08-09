@@ -795,7 +795,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     break
                 except QueueFull:
                     self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT, partial(source_dict.edit_message),
-                                                                MessageFormatter.format_queue_full_message(source_dict),
+                                                                MessageFormatter.format_play_queue_full_message(source_dict),
                                                                 delete_after=self.delete_after)
                     broke_early = True
                     break  # Changed from continue to break to match original behavior

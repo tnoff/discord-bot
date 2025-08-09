@@ -16,7 +16,7 @@ from tests.helpers import FakeChannel, fake_context, fake_source_download, FakeV
 @contextmanager
 def with_music_player(fake_context): #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
-        message_queue = MessageQueue(delete_after=30)
+        message_queue = MessageQueue()
         history_queue = Queue()
         player = MusicPlayer(logging, fake_context['context'], [], 10, 0.01, Path(tmp_dir), message_queue, None, history_queue)
         yield player

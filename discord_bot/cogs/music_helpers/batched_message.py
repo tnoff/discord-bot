@@ -15,19 +15,20 @@ class BatchedMessageItem:
     Items are removed from display once completed successfully
     '''
 
-    def __init__(self, guild_id: int, batch_size: int = 15, auto_delete_after: int = 30, channel_id: int = None):
+    def __init__(self, guild_id: int, batch_size: int = 15, auto_delete_after: int = 30, channel_id: int = None, items_per_message: int = 10):
         self.batch_id = str(uuid4())
         self.guild_id = guild_id
         self.channel_id = channel_id
         self.source_dicts: List[SourceDict] = []
         self.status_map: Dict[str, MessageStatus] = {}  # uuid -> status
         self.error_map: Dict[str, str] = {}  # uuid -> error message
-        self.message: Optional[Message] = None
-        self.message_id: Optional[int] = None
+        self.messages: List[Optional[Message]] = []  # Multiple Discord messages
+        self.message_ids: List[Optional[int]] = []  # Message IDs for each message
         self.created_at = datetime.now(timezone.utc)
         self.last_updated = datetime.now(timezone.utc)
         self.batch_size = batch_size
         self.auto_delete_after = auto_delete_after
+        self.items_per_message = items_per_message
 
         # Counters
         self.total_items = 0
@@ -89,52 +90,92 @@ class BatchedMessageItem:
 
         return visible_items
 
-    def generate_message_content(self) -> str:
+    def get_message_groups(self) -> List[List[tuple]]:
         '''
-        Generate the formatted message content
+        Split visible items into groups for multiple Discord messages
+        Returns list of groups, each containing up to items_per_message items
+        '''
+        visible_items = self.get_visible_items()
+        groups = []
+
+        for i in range(0, len(visible_items), self.items_per_message):
+            group = visible_items[i:i + self.items_per_message]
+            groups.append(group)
+
+        return groups
+
+    def generate_message_content(self, message_index: int = 0) -> str:
+        '''
+        Generate the formatted message content for a specific message
         Shows only pending, downloading, failed, and skipped items
         Completed items are hidden
         '''
-        visible_items = self.get_visible_items()
+        message_groups = self.get_message_groups()
 
-        # Header with progress
-        if self.is_processing_complete():
-            header = f"Multi-video Input Processing Complete ({self.completed_count}/{self.total_items} items succeeded)"
+        # Special case: if processing is complete and no visible items, show completion summary
+        if self.is_processing_complete() and len(message_groups) == 0:
+            if message_index > 0:
+                return ""  # Only show completion summary on first message
+            items_for_message = []
+            total_messages = 1
         else:
-            header = f"Processing ({self.completed_count}/{self.total_items} items)"
+            # Handle case where message_index is out of range
+            if message_index >= len(message_groups):
+                return ""
+            items_for_message = message_groups[message_index]
+            total_messages = len(message_groups)
+
+        # Header with progress (same across all messages)
+        if self.is_processing_complete():
+            if self.failed_count > 0:
+                header = f"Multi-video Input Processing Complete ({self.completed_count}/{self.total_items} succeeded, {self.failed_count} failed)"
+            else:
+                header = f"Multi-video Input Processing Complete ({self.completed_count}/{self.total_items} succeeded)"
+        else:
+            processed_count = self.completed_count + self.failed_count
+            if self.failed_count > 0:
+                header = f"Processing ({processed_count}/{self.total_items} items, {self.completed_count} succeeded, {self.failed_count} failed)"
+            else:
+                header = f"Processing ({processed_count}/{self.total_items} items)"
+
+        # Add message indicator if multiple messages
+        if total_messages > 1:
+            header += f" [Message {message_index + 1}/{total_messages}]"
 
         lines = [header]
 
-        # Add visible items (with Discord 2000 char limit protection)
-        DISCORD_CHAR_LIMIT = 2000
-        RESERVE_CHARS = 200  # Reserve space for completion summary and safety margin
-        current_length = len(header) + 1  # +1 for newline
-
-        for item_num, source_dict, status, error_msg in visible_items:
+        # Add visible items for this message
+        for item_num, source_dict, status, error_msg in items_for_message:
             # Use MessageFormatter for consistent formatting
             formatted_line = MessageFormatter.format_single_message(source_dict, status, error_msg)
             line = f"{status.value} {item_num}. {formatted_line[2:]}"  # Keep emoji, add number, remove original emoji
-
-            # Check if adding this line would exceed Discord's limit
-            line_length = len(line) + 1  # +1 for newline
-            if current_length + line_length + RESERVE_CHARS > DISCORD_CHAR_LIMIT:
-                # Add truncation notice
-                remaining_items = len(visible_items) - len(lines) + 1  # +1 because header is first line
-                lines.append(f"... and {remaining_items} more items (truncated due to message length)")
-                break
-
             lines.append(line)
-            current_length += line_length
 
-        # Add completion summary if done
-        if self.is_processing_complete():
+        # Add completion summary if done (only on last message)
+        if self.is_processing_complete() and message_index == total_messages - 1:
+            lines.append("")
             if self.completed_count > 0:
-                lines.append("")
                 video_word = "video" if self.completed_count == 1 else "videos"
-                lines.append(f"{self.completed_count} {video_word} successfully added to queue")
-
+                lines.append(f"✅ {self.completed_count} {video_word} successfully added to queue")
+            if self.failed_count > 0:
+                failed_word = "video" if self.failed_count == 1 else "videos"
+                lines.append(f"❌ {self.failed_count} {failed_word} failed to process")
 
         return "\n".join(lines)
+
+    def generate_all_message_contents(self) -> List[str]:
+        '''
+        Generate content for all messages
+        Returns list of message contents
+        '''
+        message_groups = self.get_message_groups()
+        contents = []
+
+        for i in range(len(message_groups)):
+            content = self.generate_message_content(i)
+            contents.append(content)
+
+        return contents
 
     def is_batch_full(self) -> bool:
         '''Check if batch has reached capacity'''
@@ -161,17 +202,51 @@ class BatchedMessageItem:
             return self.auto_delete_after
         return None
 
-    def set_message(self, message: Message):
-        '''Set the Discord message for this batch'''
-        self.message = message
-        self.message_id = message.id
+    def set_message(self, message: Message, message_index: int = 0):
+        '''Set a Discord message for this batch at specific index'''
+        # Ensure we have enough slots for this message index
+        while len(self.messages) <= message_index:
+            self.messages.append(None)
+            self.message_ids.append(None)
 
-    async def delete_message(self):
-        '''Delete the Discord message'''
-        if self.message:
-            await self.message.delete()
+        self.messages[message_index] = message
+        self.message_ids[message_index] = message.id
 
-    async def edit_message(self, content: str, delete_after: int = None):
-        '''Edit the Discord message content'''
-        if self.message:
-            await self.message.edit(content=content, delete_after=delete_after)
+    def set_messages(self, messages: List[Message]):
+        '''Set multiple Discord messages for this batch'''
+        self.messages = messages
+        self.message_ids = [msg.id if msg else None for msg in messages]
+
+    async def delete_message(self, message_index: int = None):
+        '''Delete Discord message(s)'''
+        if message_index is not None:
+            # Delete specific message
+            if message_index < len(self.messages) and self.messages[message_index]:
+                await self.messages[message_index].delete()
+                self.messages[message_index] = None
+                self.message_ids[message_index] = None
+        else:
+            # Delete all messages
+            for i, message in enumerate(self.messages):
+                if message:
+                    await message.delete()
+                    self.messages[i] = None
+                    self.message_ids[i] = None
+
+    async def edit_message(self, content: str, message_index: int = 0, delete_after: int = None):
+        '''Edit a specific Discord message content'''
+        if message_index < len(self.messages) and self.messages[message_index]:
+            await self.messages[message_index].edit(content=content, delete_after=delete_after)
+
+    async def edit_all_messages(self, contents: List[str], delete_after: int = None):
+        '''Edit all Discord messages with corresponding content'''
+        for i, content in enumerate(contents):
+            if i < len(self.messages) and self.messages[i]:
+                await self.messages[i].edit(content=content, delete_after=delete_after)
+
+    def get_required_message_count(self) -> int:
+        '''Get the number of Discord messages needed for all visible items'''
+        visible_items = self.get_visible_items()
+        if not visible_items:
+            return 0
+        return (len(visible_items) + self.items_per_message - 1) // self.items_per_message

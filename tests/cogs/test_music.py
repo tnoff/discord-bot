@@ -1001,7 +1001,7 @@ async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redef
     cog.message_queue.get_next_message()
     m1 = cog.message_queue.get_next_message()
     assert m1[1].source_dict == s1
-    assert m1[1].message_content == f'❌ {s1} (failed: queue is full)'
+    assert m1[1].message_content == f'❌ {s1} (failed: play queue is full)'
 
 @pytest.mark.asyncio()
 async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name

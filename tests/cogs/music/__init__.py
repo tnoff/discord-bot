@@ -1,0 +1,1 @@
+# Music cog tests directory
