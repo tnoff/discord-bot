@@ -1046,7 +1046,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     span.set_status(StatusCode.OK)
                 except (BotDownloadFlagged) as e:
                     self.logger.warning(f'Bot flagged while downloading video "{str(source_dict)}", {str(e)}')
-                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, "bot flagged")
+                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e.user_message))
                     await self.__return_bad_video(source_dict, e, skip_callback_functions=True)
                     self.logger.warning(f'Adding additional time {self.youtube_wait_period_min} to usual youtube backoff since bot was flagged')
                     self.update_download_lockfile(source_download, add_additional_backoff=self.youtube_wait_period_min)
@@ -1055,14 +1055,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return
                 except (DownloadClientException) as e:
                     self.logger.warning(f'Known error while downloading video "{str(source_dict)}", {str(e)}')
-                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e))
+                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e.user_message))
                     await self.__return_bad_video(source_dict, e)
                     self.update_download_lockfile(source_download)
                     span.set_status(StatusCode.OK)
                     return
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(source_dict)}", {str(e)}')
-                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, "download error")
+                    self.update_batch_item_status(source_dict, MessageStatus.FAILED, str(e.user_message))
                     source_download = None
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
