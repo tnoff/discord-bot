@@ -31,6 +31,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
+from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -849,7 +850,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.warning(f'Play queue full, aborting download of item "{str(source_download.source_dict)}"')
                 self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                             partial(source_download.source_dict.edit_message),
-                                                            f'Play queue is full, cannot add "{str(source_download.source_dict)}"',
+                                                            MessageFormatter.format_play_queue_full_message(str(source_download.source_dict)),
                                                             delete_after=self.delete_after)
                 source_download.delete()
                 return False
@@ -884,7 +885,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if source_download is None:
             self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_dict.edit_message),
-                                                        f'Issue downloading video "{str(source_dict)}", skipping', delete_after=self.delete_after)
+                                                        MessageFormatter.format_video_download_issue_message(str(source_dict)), delete_after=self.delete_after)
             return False
         return True
 
@@ -1158,6 +1159,42 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.message_queue.iterate_single_message([partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)])
 
+    async def enqueue_source_dicts(self, ctx: Context, player: MusicPlayer, entries: List[SourceDict]) -> bool:
+        '''
+        Enqueue source dicts to a player or download queue
+
+        ctx: Discord Context
+        player: Music Player
+        entries: List of source dicts
+
+        Returns true if all items added, false if some were not
+        '''
+        for source_dict in entries:
+            try:
+                # Check cache first
+                source_download = await self.__check_video_cache(source_dict)
+                if source_download:
+                    self.logger.debug(f'Search "{str(source_dict)}" found in cache, placing in player queue')
+                    await self.add_source_to_player(source_download, player)
+                    continue
+                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
+                                                            partial(ctx.send),
+                                                            MessageFormatter.format_downloading_message(str(source_dict)))
+                self.logger.debug(f'Handing off source_dict {str(source_dict)} to download queue')
+                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
+            except PutsBlocked:
+                self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE,
+                                                            partial(source_dict.delete_message), '')
+                return False
+            except QueueFull:
+                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
+                                                            partial(source_dict.edit_message),
+                                                            MessageFormatter.format_download_queue_full_message(str(source_dict)),
+                                                            delete_after=self.delete_after)
+                return False
+        return True
+
     @command(name='play')
     @command_wrapper
     async def play_(self, ctx, *, search: str):
@@ -1189,30 +1226,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
-        for source_dict in entries:
-            try:
-                # Check cache first
-                source_download = await self.__check_video_cache(source_dict)
-                if source_download:
-                    self.logger.debug(f'Search "{str(source_dict)}" found in cache, placing in player queue')
-                    await self.add_source_to_player(source_download, player)
-                    continue
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
-                                                            partial(ctx.send),
-                                                            f'Downloading and processing "{str(source_dict)}"')
-                self.logger.debug(f'Handing off source_dict {str(source_dict)} to download queue')
-                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
-            except PutsBlocked:
-                self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE,
-                                                            partial(source_dict.delete_message), '')
-                return
-            except QueueFull:
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT,
-                                                            partial(source_dict.edit_message),
-                                                            f'Unable to add "{str(source_dict)}" to queue, download queue is full',
-                                                            delete_after=self.delete_after)
-                return
+
+        await self.enqueue_source_dicts(ctx, player, entries)
 
     @command(name='skip')
     @command_wrapper
@@ -1631,7 +1646,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if source_download is None:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        f'Unable to add playlist item "{str(source_download.source_dict)}", issue generating source',
+                                                        MessageFormatter.format_playlist_generation_issue_message(str(source_download.source_dict)),
                                                         delete_after=self.delete_after)
             return
         self.logger.info(f'Adding video_url "{source_download.webpage_url}" to playlist "{playlist_id}" '
@@ -1641,18 +1656,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except PlaylistMaxLength:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        'Cannot add more items to playlist, already max size',
+                                                        MessageFormatter.format_playlist_max_length_message(),
                                                         delete_after=self.delete_after)
             return
         if playlist_item_id:
             self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                         partial(source_download.source_dict.edit_message),
-                                                        f'Added item "{source_download.title}" to playlist',
+                                                        MessageFormatter.format_playlist_item_added_message(source_download.title),
                                                         delete_after=self.delete_after)
             return
         self.message_queue.iterate_source_lifecycle(source_download.source_dict, SourceLifecycleStage.EDIT,
                                                     partial(source_download.source_dict.edit_message),
-                                                    f'Unable to add playlist item "{str(source_download.source_dict)}", likely already exists',
+                                                    MessageFormatter.format_playlist_item_add_failed_message(str(source_download.source_dict)),
                                                     delete_after=self.delete_after)
         return
 
@@ -1689,7 +1704,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for source_dict in source_entries:
             source_dict.download_file = False
             self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND, partial(ctx.send),
-                                                        f'Downloading and processing "{str(source_dict)}" to add to playlist')
+                                                        MessageFormatter.format_downloading_for_playlist_message(str(source_dict)))
             source_dict.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
@@ -1928,43 +1943,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             db_session.delete(item)
             db_session.commit()
 
-    async def __playlist_enqueue_items(self, ctx: Context, source_dicts: List[SourceDict], player: MusicPlayer):
-        '''
-        Enqueue items from a playlist
-        ctx: Standard discord context
-        source dicts: Source dicts to hand off
-        is_history: Is this a history playlist, pass into entries
-        player: MusicPlayer
-        '''
-        # Track if we broke early for eventual return block
-        broke_early = False
-        for source_dict in source_dicts:
-            try:
-                # Just add directly to download queue here, since we already know the video id
-                source_download = await self.__check_video_cache(source_dict)
-                if source_download:
-                    self.logger.debug(f'Search "{source_download}" found in cache, placing in player queue')
-                    await self.add_source_to_player(source_download, player)
-                    continue
-                self.logger.debug(f'Handing off "{source_download}" to download queue')
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.SEND,
-                                                            partial(ctx.send),
-                                                            f'Downloading and processing "{source_dict}"')
-                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
-            except QueueFull:
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.EDIT, partial(source_dict.edit_message),
-                                                            f'Unable to add item "{source_dict}" to queue, queue is full',
-                                                            delete_after=self.delete_after)
-                broke_early = True
-                break
-            except PutsBlocked:
-                self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                self.message_queue.iterate_source_lifecycle(source_dict, SourceLifecycleStage.DELETE, partial(source_dict.delete_message), '')
-                break
-        # Update queue strings finally just to be safe
-        self.message_queue.iterate_play_order(player.guild.id)
-        return broke_early
-
     async def __playlist_queue(self, ctx: Context, player: MusicPlayer, playlist_id: int, shuffle: bool, max_num: int, is_history: bool = False):
         def list_playlist_items(db_session: Session, playlist_id: int):
             return db_session.query(PlaylistItem).\
@@ -2007,7 +1985,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 else:
                     max_num = 0
 
-            broke_early = await self.__playlist_enqueue_items(ctx, playlist_items, player)
+            broke_early = await self.enqueue_source_dicts(ctx, player, playlist_items)
 
             playlist_name = retry_database_commands(db_session, partial(get_playlist_name, db_session, playlist_id))
             if is_history:
