@@ -34,7 +34,7 @@ class MessageItem():
         self.lifecycle_stage = lifecycle_stage
         self.function = function
         self.message_content = message_content
-        self.delete_after= delete_after
+        self.delete_after = delete_after
         self.created_at = datetime.now(timezone.utc)
         self.last_iterated_at = datetime.now(timezone.utc)
 

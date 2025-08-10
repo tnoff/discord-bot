@@ -133,7 +133,7 @@ class SearchClient():
                 if not self.spotify_client:
                     raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
 
-                sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
+                sd = SourceDict(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
                 search_string_message = search.replace(' shuffle', '')
                 self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
                 spotify_args = {}
@@ -169,7 +169,7 @@ class SearchClient():
                 if not self.youtube_client:
                     raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
-                sd = SourceDict(text_channel.guild.id, None, None, search, SearchType.OTHER)
+                sd = SourceDict(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
                 search_string_message = search.replace(' shuffle', '')
                 self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
@@ -222,13 +222,14 @@ class SearchClient():
         to_run = partial(self.__search_youtube_music, search_string)
         return await loop.run_in_executor(None, to_run)
 
-    async def check_source(self, search: str, guild_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop,
+    async def check_source(self, search: str, guild_id: int, channel_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop,
                            max_results: int, text_channel: TextChannel) -> List[SourceDict]:
         '''
         Generate sources from input
 
         search : Search string
         guild_id : Server/Guild id
+        channel_id: Channel Id
         requester_name : Display name of requester
         requester_id : ID of requester
         loop : Bot run loop
@@ -242,7 +243,7 @@ class SearchClient():
 
         all_entries = []
         for search_string in search_strings:
-            entry = SourceDict(guild_id, requester_name, requester_id, search_string, search_type)
+            entry = SourceDict(guild_id, channel_id, requester_name, requester_id, search_string, search_type)
             # Fallback to youtube music check
             if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)

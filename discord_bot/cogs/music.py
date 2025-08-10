@@ -1220,7 +1220,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         try:
-            entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
+            entries = await self.search_client.check_source(search, ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
                                                               self.queue_max_size, ctx.channel)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
@@ -1695,7 +1695,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         try:
-            source_entries = await self.search_client.check_source(search, ctx.guild.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
+            source_entries = await self.search_client.check_source(search, ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id, self.bot.loop,
                                                                      self.queue_max_size, ctx.channel)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
@@ -1963,6 +1963,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             playlist_items = []
             for item in retry_database_commands(db_session, partial(list_playlist_items, db_session, playlist_id)):
                 source_dict = SourceDict(ctx.guild.id,
+                                         ctx.channel.id,
                                          ctx.author.display_name,
                                          ctx.author.id,
                                          item.video_url,

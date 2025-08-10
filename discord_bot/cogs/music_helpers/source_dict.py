@@ -15,7 +15,7 @@ class SourceDict():
     '''
     Original source of play request
     '''
-    def __init__(self, guild_id: int, requester_name: str, requester_id: int, search_string: str,
+    def __init__(self, guild_id: int, channel_id: int, requester_name: str, requester_id: int, search_string: str,
                  search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
                  added_from_history: bool = False,
                  download_file: bool = True,
@@ -25,6 +25,7 @@ class SourceDict():
         Generate new source dict options
 
         guild_id : Guild where video was requested
+        channel_id : Channel where video was requested
         requester_name: Display name of original requester
         requester_id : User id of original requester
         search_string : Search string of original request
@@ -35,6 +36,7 @@ class SourceDict():
         post_download_callback_functions : Call these functions after video downloads
         '''
         self.guild_id = guild_id
+        self.channel_id = channel_id
         self.requester_name =  requester_name
         self.requester_id = requester_id
         # Keep original search string for later
