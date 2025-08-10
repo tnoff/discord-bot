@@ -659,3 +659,55 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
     cog = Music(fake_context['bot'], config, None)
     assert cog.backup_storage_options['backend'] == 's3'
     assert cog.backup_storage_options['bucket_name'] == 'test-bucket'
+
+@pytest.mark.asyncio
+async def test_message_formatter_integration_play_queue_full():  #pylint:disable=redefined-outer-name
+    """Test MessageFormatter integration with play queue full scenario."""
+    from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter  # pylint: disable=import-outside-toplevel
+
+    # Test that MessageFormatter produces correct format for play queue full scenarios
+    test_item = "Test Song Title"
+
+    # Test default reason (play queue is full)
+    result = MessageFormatter.format_play_queue_full_message(test_item)
+    expected = "❌ Test Song Title (failed: play queue is full)"
+    assert result == expected
+
+    # Test custom reason
+    result = MessageFormatter.format_play_queue_full_message(test_item, "custom error reason")
+    expected = "❌ Test Song Title (failed: custom error reason)"
+    assert result == expected
+
+    # Test download queue format
+    result = MessageFormatter.format_download_queue_full_message(test_item)
+    expected = 'Unable to add "Test Song Title" to queue, download queue is full'
+    assert result == expected
+
+@pytest.mark.asyncio
+async def test_message_formatter_integration_different_queue_types():  #pylint:disable=redefined-outer-name
+    """Test that MessageFormatter handles different queue full scenarios correctly."""
+    from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter  # pylint: disable=import-outside-toplevel
+
+    # Test various item formats
+    test_cases = [
+        ("Simple Song", "❌ Simple Song (failed: play queue is full)"),
+        ("Song with special chars !@#", "❌ Song with special chars !@# (failed: play queue is full)"),
+        ("", "❌  (failed: play queue is full)"),
+        (123, "❌ 123 (failed: play queue is full)"),
+    ]
+
+    for item_str, expected in test_cases:
+        result = MessageFormatter.format_play_queue_full_message(item_str)
+        assert result == expected
+
+    # Test download queue formatting
+    download_cases = [
+        ("Simple Song", 'Unable to add "Simple Song" to queue, download queue is full'),
+        ("Song with special chars !@#", 'Unable to add "Song with special chars !@#" to queue, download queue is full'),
+        ("", 'Unable to add "" to queue, download queue is full'),
+        (456, 'Unable to add "456" to queue, download queue is full'),
+    ]
+
+    for item_str, expected in download_cases:
+        result = MessageFormatter.format_download_queue_full_message(item_str)
+        assert result == expected
