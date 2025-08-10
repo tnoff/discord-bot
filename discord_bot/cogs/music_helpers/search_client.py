@@ -13,6 +13,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.utils.clients.spotify import SpotifyClient
@@ -133,7 +134,7 @@ class SearchClient():
                 if not self.spotify_client:
                     raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
 
-                sd = SourceDict(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
+                sd = MessageContext(text_channel.guild.id, text_channel.id)
                 search_string_message = search.replace(' shuffle', '')
                 self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
                 spotify_args = {}

@@ -706,7 +706,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 try:
                     result = await async_retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
                     if item.lifecycle_stage == SourceLifecycleStage.SEND:
-                        item.source_dict.set_message(result)
+                        item.message_context.set_message(result)
                     return True
                 except NotFound:
                     if item.lifecycle_stage == SourceLifecycleStage.DELETE:
