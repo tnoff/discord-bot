@@ -22,7 +22,7 @@ async def test_download_queue_no_download(mocker, fake_context):  #pylint:disabl
     async def fake_callback(source_download: SourceDownload):
         source_download.i_was_called = True
 
-    s = SourceDict(fake_context['guild'].id, fake_context['author'].display_name, fake_context['author'].id,
+    s = SourceDict(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id,
                    'https://foo.example.com/title', SearchType.DIRECT, download_file=False, post_download_callback_functions=[fake_callback])
     sd = SourceDownload(None, {'webpage_url': 'https://foo.example.com/title'}, s)
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
@@ -147,7 +147,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
 
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    s = SourceDict(fake_context['guild'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
+    s = SourceDict(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
                     video_non_exist_callback_functions=[partial(bump_value)])
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
@@ -165,7 +165,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
 
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_error())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    s = SourceDict(fake_context['guild'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
+    s = SourceDict(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
                     video_non_exist_callback_functions=[partial(bump_value)])
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)

@@ -72,7 +72,7 @@ def fake_source_dict(fakes, download_file=True, is_direct_search=False):
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
-    return SourceDict(fakes['guild'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+    return SourceDict(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
 
 @contextmanager
 def fake_source_download(file_dir, source_dict=None, fake_context=None, extractor='youtube', download_file=True, is_direct_search=False):  #pylint:disable=redefined-outer-name

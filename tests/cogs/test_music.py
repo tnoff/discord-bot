@@ -323,7 +323,7 @@ async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redef
     await cog.play_(cog, fake_context['context'], search='foo bar')
     cog.message_queue.get_next_message()
     m1 = cog.message_queue.get_next_message()
-    assert m1[1].source_dict == s1
+    assert m1[1].message_context.channel_id == s1.channel_id
     assert m1[1].message_content == f'Unable to add "{s1}" to queue, download queue is full'
 
 @pytest.mark.asyncio()

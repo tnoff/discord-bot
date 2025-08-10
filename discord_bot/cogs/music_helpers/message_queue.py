@@ -5,8 +5,7 @@ from typing import Callable, List
 
 from discord_bot.utils.queue import Queue
 
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-
+from discord_bot.cogs.music_helpers.message_context import MessageContext
 
 class SourceLifecycleStage(Enum):
     '''
@@ -28,13 +27,13 @@ class MessageItem():
     '''
     Message item class
     '''
-    def __init__(self, source_dict: SourceDict, lifecycle_stage: SourceLifecycleStage, function: Callable,
+    def __init__(self, message_context: MessageContext, lifecycle_stage: SourceLifecycleStage, function: Callable,
                  message_content: str, delete_after: int):
-        self.source_dict = source_dict
+        self.message_context = message_context
         self.lifecycle_stage = lifecycle_stage
         self.function = function
         self.message_content = message_content
-        self.delete_after= delete_after
+        self.delete_after = delete_after
         self.created_at = datetime.now(timezone.utc)
         self.last_iterated_at = datetime.now(timezone.utc)
 
@@ -113,29 +112,29 @@ class MessageQueue():
         self.single_message_queue.put_nowait(function_list)
         return True
 
-    def iterate_source_lifecycle(self, source_dict: SourceDict, lifecycle_stage: SourceLifecycleStage, function: Callable,
+    def iterate_source_lifecycle(self, message_context: MessageContext, lifecycle_stage: SourceLifecycleStage, function: Callable,
                                  message_content: str, delete_after: int = None) -> bool:
         '''
         Add source lifecycle to queue
 
-        source_dict : Original source dict
+        message_context : Message Context to use
         lifecycle_stage : Lifecycle state of call
         function : Function to call
         message_content: message content
         delete_after: Delete message after
         custom_uuid: Use custom uuid instead of source dicts
         '''
-        if str(source_dict.uuid) not in self.source_lifecycle_queue:
-            self.source_lifecycle_queue[str(source_dict.uuid)] = MessageItem(source_dict, lifecycle_stage, function, message_content, delete_after)
+        if str(message_context.uuid) not in self.source_lifecycle_queue:
+            self.source_lifecycle_queue[str(message_context.uuid)] = MessageItem(message_context, lifecycle_stage, function, message_content, delete_after)
             return True
-        current_value = self.source_lifecycle_queue[str(source_dict.uuid)]
+        current_value = self.source_lifecycle_queue[str(message_context.uuid)]
         # If existing value is send and new value is edit, override the send with new content
         if current_value.lifecycle_stage == SourceLifecycleStage.SEND and lifecycle_stage != SourceLifecycleStage.DELETE:
             current_value.update_item(message_content, delete_after)
             return True
         # If sending existing value and deleting, just remove
         if current_value.lifecycle_stage == SourceLifecycleStage.SEND and lifecycle_stage == SourceLifecycleStage.DELETE:
-            self.source_lifecycle_queue.pop(str(source_dict.uuid))
+            self.source_lifecycle_queue.pop(str(message_context.uuid))
             return True
         # If editing, update the edit
         if current_value.lifecycle_stage == SourceLifecycleStage.EDIT and lifecycle_stage != SourceLifecycleStage.DELETE:

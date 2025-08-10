@@ -93,7 +93,7 @@ class MockYoutubeMusic():
 async def test_spotify_message_check():
     x = SearchClient(MessageQueue())
     with pytest.raises(InvalidSearchURL) as exc:
-        await x.check_source('https://open.spotify.com/playlist/1111', '1234', 'foo bar requester', '2345', None, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/playlist/1111', '1234', '5678', 'foo bar requester', '2345', None, 5, FakeChannel())
     assert str(exc.value) == 'Missing spotify creds'
     assert exc.value.user_message == 'Spotify URLs invalid, no spotify credentials available to bot'
 
@@ -103,7 +103,7 @@ async def test_spotify_throw_exception():
     mq = MessageQueue()
     x = SearchClient(mq, spotify_client=MockSpotifyRaise())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'If this is an official Spotify playlist' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
@@ -116,7 +116,7 @@ async def test_spotify_throw_exception_403():
     mq = MessageQueue()
     x = SearchClient(mq, spotify_client=MockSpotifyRaiseUnauth())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
@@ -129,7 +129,7 @@ async def test_spotify_throw_oauth():
     mq = MessageQueue()
     x = SearchClient(mq, spotify_client=MockSpotifyRaiseUnauth())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
@@ -140,7 +140,7 @@ async def test_spotify_throw_oauth():
 async def test_spotify_album_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].requester_id == '2345'
     assert result[0].search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
@@ -151,7 +151,7 @@ async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     # If no search cache is hit, make sure that youtube music returns the proper url
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic())
-    result = await x.check_source('https://open.spotify.com/album/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].requester_id == '2345'
     assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
     assert result[0].original_search_string == 'foo track foo artists'
@@ -162,7 +162,7 @@ async def test_spotify_album_get_shuffle():
     loop = asyncio.get_running_loop()
     mq = MessageQueue()
     x = SearchClient(mq, spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/album/1111 shuffle', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/album/1111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].requester_id == '2345'
     assert result[0].search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
@@ -174,21 +174,21 @@ async def test_spotify_album_get_shuffle():
 async def test_spotify_playlist_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/playlist/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/playlist/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_playlist_get_shuffle():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_track_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/track/1111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://open.spotify.com/track/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
 
 @pytest.mark.asyncio(scope="session")
@@ -196,14 +196,14 @@ async def test_youtube_no_creds():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue())
     with pytest.raises(InvalidSearchURL) as exc:
-        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Missing youtube creds' in str(exc.value)
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_playlist():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), youtube_client=MockYoutubeClient())
-    result = await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
 
@@ -212,7 +212,7 @@ async def test_youtube_playlist_shuffle():
     loop = asyncio.get_running_loop()
     mq = MessageQueue()
     x = SearchClient(mq, youtube_client=MockYoutubeClient())
-    result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
     assert mq.get_source_lifecycle() is None
@@ -222,14 +222,14 @@ async def test_youtube_error():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), youtube_client=MockYoutubeRaise())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert 'Issue fetching youtube info' in str(exc.value)
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_short():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue())
-    result = await x.check_source('https://www.youtube.com/shorts/aaaaaaaaaaa?extra=foo', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://www.youtube.com/shorts/aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/shorts/aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
 
@@ -237,7 +237,7 @@ async def test_youtube_short():
 async def test_youtube_video():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue())
-    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
 
@@ -245,7 +245,7 @@ async def test_youtube_video():
 async def test_fxtwitter():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue())
-    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
     assert result[0].search_type == SearchType.DIRECT
 
@@ -253,7 +253,7 @@ async def test_fxtwitter():
 async def test_basic_search():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue())
-    result = await x.check_source('foo bar', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('foo bar', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo bar'
     assert result[0].search_type == SearchType.SEARCH
 
@@ -262,7 +262,7 @@ async def test_basic_search():
 async def test_basic_search_with_youtube_music():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), youtube_music_client=MockYoutubeMusic)
-    result = await x.check_source('foo bar', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('foo bar', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
     assert result[0].search_type == SearchType.SEARCH
     assert result[0].original_search_string == 'foo bar'
@@ -271,7 +271,7 @@ async def test_basic_search_with_youtube_music():
 async def test_basic_search_with_youtube_music_skips_direct():
     loop = asyncio.get_running_loop()
     x = SearchClient(MessageQueue(), youtube_music_client=MockYoutubeMusic)
-    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa', '1234', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
     assert result[0].original_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
