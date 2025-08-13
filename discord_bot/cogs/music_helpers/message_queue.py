@@ -19,9 +19,9 @@ class MessageType(Enum):
     '''
     Types of messages queue returns
     '''
-    PLAY_ORDER = 'play_order'
-    SOURCE_LIFECYCLE = 'source_lifecycle'
-    SINGLE_MESSAGE = 'single_message'
+    MULTIPLE_MUTABLE = 'multiple_mutable'
+    SINGLE_MUTABLE = 'single_mutable'
+    SINGLE_IMMUTABLE = 'single_immutable'
 
 class MessageItem():
     '''
@@ -64,13 +64,13 @@ class MessageQueue():
         '''
         item = self.get_play_order()
         if item:
-            return MessageType.PLAY_ORDER, item
+            return MessageType.MULTIPLE_MUTABLE, item
         item = self.get_source_lifecycle()
         if item:
-            return MessageType.SOURCE_LIFECYCLE, item
+            return MessageType.SINGLE_MUTABLE, item
         item = self.get_single_message()
         if item:
-            return MessageType.SINGLE_MESSAGE, item
+            return MessageType.SINGLE_IMMUTABLE, item
         return None, None
 
     def iterate_play_order(self, guild_id: int) -> bool:

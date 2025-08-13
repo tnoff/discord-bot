@@ -698,11 +698,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
 
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
-            if source_type == MessageType.SINGLE_MESSAGE:
+            if source_type == MessageType.SINGLE_IMMUTABLE:
                 for func in item:
                     await async_retry_discord_message_command(func, allow_404=True)
                 return True
-            if source_type == MessageType.SOURCE_LIFECYCLE:
+            if source_type == MessageType.SINGLE_MUTABLE:
                 try:
                     result = await async_retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
                     if item.lifecycle_stage == MessageLifecycleStage.SEND:
@@ -713,7 +713,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         self.logger.warning(f'Unable to find message for deletion for source {item}')
                         return False
                     raise
-            if source_type == MessageType.PLAY_ORDER:
+            if source_type == MessageType.MULTIPLE_MUTABLE:
                 await self.player_update_queue_order(item)
                 return True
             return False

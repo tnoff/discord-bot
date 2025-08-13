@@ -102,12 +102,12 @@ def test_return_order():
     func = partial(c.send, 'Sending test message')
     mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
     mq.iterate_single_message([func])
-    assert mq.get_next_message() == (MessageType.PLAY_ORDER, '1234')
+    assert mq.get_next_message() == (MessageType.MULTIPLE_MUTABLE, '1234')
     type, result = mq.get_next_message()
-    assert type == MessageType.SOURCE_LIFECYCLE
+    assert type == MessageType.SINGLE_MUTABLE
     assert result.message_content == 'First message content'
     type, funcs = mq.get_next_message()
-    assert type == MessageType.SINGLE_MESSAGE
+    assert type == MessageType.SINGLE_IMMUTABLE
     assert funcs == [func]
     type, item = mq.get_next_message()
     assert type is None

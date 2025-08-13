@@ -52,7 +52,7 @@ async def test_music_player_loop_basic(fake_context): #pylint:disable=redefined-
             await player.player_loop()
             assert player._history.get_nowait() == source_download #pylint:disable=protected-access
             assert player._play_queue.empty() #pylint:disable=protected-access
-            assert player.messsage_queue.get_next_message() == (MessageType.PLAY_ORDER, fake_context['guild'].id)
+            assert player.messsage_queue.get_next_message() == (MessageType.MULTIPLE_MUTABLE, fake_context['guild'].id)
 
 @pytest.mark.asyncio
 async def test_music_player_join_already_there(fake_context): #pylint:disable=redefined-outer-name
