@@ -6,7 +6,7 @@ import pytest
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.message_queue import SourceLifecycleStage
+from discord_bot.cogs.music_helpers.message_queue import MessageLifecycleStage
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict
@@ -50,7 +50,7 @@ async def test_message_loop_source_lifecycle(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     x = fake_source_dict(fake_context)
-    cog.message_queue.iterate_source_lifecycle(x, SourceLifecycleStage.SEND, fake_context['channel'].send, 'Original message')
+    cog.message_queue.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, fake_context['channel'].send, 'Original message')
     await cog.send_messages()
     assert x.message.content == 'Original message'
 
@@ -63,5 +63,5 @@ async def test_message_loop_source_lifecycle_delete(mocker, fake_context):  #pyl
         raise NotFound(FakeResponse(), 'Message not found')
 
     x = fake_source_dict(fake_context)
-    cog.message_queue.iterate_source_lifecycle(x, SourceLifecycleStage.DELETE, delete_message_raise, '')
+    cog.message_queue.iterate_source_lifecycle(x, MessageLifecycleStage.DELETE, delete_message_raise, '')
     assert not await cog.send_messages()

@@ -7,7 +7,7 @@ from discord_bot.utils.queue import Queue
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 
-class SourceLifecycleStage(Enum):
+class MessageLifecycleStage(Enum):
     '''
     Stages of a source message lifecycle
     '''
@@ -27,7 +27,7 @@ class MessageItem():
     '''
     Message item class
     '''
-    def __init__(self, message_context: MessageContext, lifecycle_stage: SourceLifecycleStage, function: Callable,
+    def __init__(self, message_context: MessageContext, lifecycle_stage: MessageLifecycleStage, function: Callable,
                  message_content: str, delete_after: int):
         self.message_context = message_context
         self.lifecycle_stage = lifecycle_stage
@@ -37,7 +37,7 @@ class MessageItem():
         self.created_at = datetime.now(timezone.utc)
         self.last_iterated_at = datetime.now(timezone.utc)
 
-    def update_item(self, message_content: str, delete_after: int, lifecycle_stage: SourceLifecycleStage = None, function: Callable = None):
+    def update_item(self, message_content: str, delete_after: int, lifecycle_stage: MessageLifecycleStage = None, function: Callable = None):
         '''
         Update items content
         '''
@@ -112,7 +112,7 @@ class MessageQueue():
         self.single_message_queue.put_nowait(function_list)
         return True
 
-    def iterate_source_lifecycle(self, message_context: MessageContext, lifecycle_stage: SourceLifecycleStage, function: Callable,
+    def iterate_source_lifecycle(self, message_context: MessageContext, lifecycle_stage: MessageLifecycleStage, function: Callable,
                                  message_content: str, delete_after: int = None) -> bool:
         '''
         Add source lifecycle to queue
@@ -129,19 +129,19 @@ class MessageQueue():
             return True
         current_value = self.source_lifecycle_queue[str(message_context.uuid)]
         # If existing value is send and new value is edit, override the send with new content
-        if current_value.lifecycle_stage == SourceLifecycleStage.SEND and lifecycle_stage != SourceLifecycleStage.DELETE:
+        if current_value.lifecycle_stage == MessageLifecycleStage.SEND and lifecycle_stage != MessageLifecycleStage.DELETE:
             current_value.update_item(message_content, delete_after)
             return True
         # If sending existing value and deleting, just remove
-        if current_value.lifecycle_stage == SourceLifecycleStage.SEND and lifecycle_stage == SourceLifecycleStage.DELETE:
+        if current_value.lifecycle_stage == MessageLifecycleStage.SEND and lifecycle_stage == MessageLifecycleStage.DELETE:
             self.source_lifecycle_queue.pop(str(message_context.uuid))
             return True
         # If editing, update the edit
-        if current_value.lifecycle_stage == SourceLifecycleStage.EDIT and lifecycle_stage != SourceLifecycleStage.DELETE:
+        if current_value.lifecycle_stage == MessageLifecycleStage.EDIT and lifecycle_stage != MessageLifecycleStage.DELETE:
             current_value.update_item(message_content, delete_after)
             return True
-        if current_value.lifecycle_stage == SourceLifecycleStage.EDIT and lifecycle_stage == SourceLifecycleStage.DELETE:
-            current_value.update_item('', 0, function=function, lifecycle_stage=SourceLifecycleStage.DELETE)
+        if current_value.lifecycle_stage == MessageLifecycleStage.EDIT and lifecycle_stage == MessageLifecycleStage.DELETE:
+            current_value.update_item('', 0, function=function, lifecycle_stage=MessageLifecycleStage.DELETE)
             return True
         return False
 

@@ -14,7 +14,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, SourceLifecycleStage
+from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage
 from discord_bot.cogs.music_helpers.source_dict import SourceDict
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
@@ -136,7 +136,7 @@ class SearchClient():
 
                 sd = MessageContext(text_channel.guild.id, text_channel.id)
                 search_string_message = search.replace(' shuffle', '')
-                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
+                self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.SEND, text_channel.send, f'Gathering spotify data from url "<{search_string_message}>"')
                 spotify_args = {}
                 should_shuffle = False
                 if spotify_album_matcher:
@@ -152,11 +152,11 @@ class SearchClient():
                 try:
                     search_strings = await loop.run_in_executor(None, to_run)
                 except SpotifyOauthError as e:
-                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.DELETE, sd.delete_message, '')
                     message = 'Issue gathering info from spotify, credentials seem invalid'
                     raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
                 except SpotifyException as e:
-                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.DELETE, sd.delete_message, '')
                     message = 'Issue gathering info from spotify url "{search}"'
                     if e.http_status == 404:
                         message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
@@ -172,13 +172,13 @@ class SearchClient():
 
                 sd = SourceDict(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
                 search_string_message = search.replace(' shuffle', '')
-                self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
+                self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
                 to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
                 try:
                     search_strings = await loop.run_in_executor(None, to_run)
                 except HttpError as e:
-                    self.message_queue.iterate_source_lifecycle(sd, SourceLifecycleStage.DELETE, sd.delete_message, '')
+                    self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.DELETE, sd.delete_message, '')
                     raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
                 if should_shuffle:
                     for _ in range(self.number_shuffles):
@@ -254,5 +254,5 @@ class SearchClient():
                     continue
             all_entries.append(entry)
         if sent_message:
-            self.message_queue.iterate_source_lifecycle(sent_message, SourceLifecycleStage.DELETE, sent_message.delete_message, '')
+            self.message_queue.iterate_source_lifecycle(sent_message, MessageLifecycleStage.DELETE, sent_message.delete_message, '')
         return all_entries
