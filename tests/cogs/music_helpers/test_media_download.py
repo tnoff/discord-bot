@@ -1,11 +1,11 @@
 from tempfile import TemporaryDirectory
 
-from tests.helpers import fake_source_download, generate_fake_context
+from tests.helpers import fake_media_download, generate_fake_context
 
-def test_source_download_with_cache():
+def test_media_download_with_cache():
     with TemporaryDirectory() as tmp_dir:
         fake_context = generate_fake_context()
-        with fake_source_download(tmp_dir, fake_context=fake_context) as x:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as x:
             original_file_path = x.file_path
             x.ready_file()
             assert str(x) == x.webpage_url  # pylint: disable=no-member

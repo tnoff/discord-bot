@@ -6,11 +6,11 @@ import pytest
 from discord_bot.cogs.music import Music
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.common import SearchType
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_source_download
+from tests.helpers import fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import FakeMessage
 
@@ -90,7 +90,7 @@ async def test_player_update_queue_order_only_new(mocker, fake_context):  #pylin
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             await cog.player_update_queue_order(player.guild.id)
             assert cog.player_messages[player.guild.id][0].content == f'```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || {sd.title} /// {sd.uploader}```' #pylint:disable=no-member
@@ -105,7 +105,7 @@ async def test_player_update_queue_order_delete_and_edit(mocker, fake_context): 
         FakeMessage(content='second message')
     ]
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             await cog.player_update_queue_order(player.guild.id)
             assert cog.player_messages[player.guild.id][0].content == f'```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || {sd.title} /// {sd.uploader}```' #pylint:disable=no-member
@@ -121,7 +121,7 @@ async def test_player_update_queue_order_no_edit(mocker, fake_context):  #pylint
         fake_message,
     ]
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             await cog.player_update_queue_order(player.guild.id)
             assert cog.player_messages[player.guild.id][0].id == 'first-123'
@@ -149,10 +149,10 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             await cog.add_source_to_player(sd, cog.players[fake_context['guild'].id])
             assert cog.players[fake_context['guild'].id].get_queue_items()
-            assert cog.video_cache.get_webpage_url_item(sd.source_dict)
+            assert cog.video_cache.get_webpage_url_item(sd.media_request)
 
 
 @pytest.mark.asyncio
@@ -172,7 +172,7 @@ async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_conte
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.players[fake_context['guild'].id]._play_queue.block() #pylint:disable=protected-access
     with TemporaryDirectory() as tmp_dir:
-        s = SourceDict(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'foo artist foo title', SearchType.SPOTIFY)
-        with fake_source_download(tmp_dir, source_dict=s) as sd:
+        s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'foo artist foo title', SearchType.SPOTIFY)
+        with fake_media_download(tmp_dir, media_request=s) as sd:
             result = await cog.add_source_to_player(sd, cog.players[fake_context['guild'].id])
             assert not result

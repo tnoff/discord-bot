@@ -48,23 +48,23 @@ class ThirdPartyNaming(Enum):
     YOUTUBE_PLAYLIST = 'youtube.playlist.id'
     YOUTUBE_MUSIC_SEARCH = 'youtube_music.search_string'
 
-class MusicSourceDictNaming(Enum):
+class MediaRequestNaming(Enum):
     '''
-    Music source dict naming
+    Media request naming
     '''
-    SEARCH_STRING = 'music.source_dict.search_string'
-    REQUESTER = 'music.source_dict.requester'
-    GUILD = 'music.source_dict.guild'
-    SEARCH_TYPE = 'music.source_dict.search_type'
-    UUID = 'music.source_dict.uuid'
+    SEARCH_STRING = 'music.media_request.search_string'
+    REQUESTER = 'music.media_request.requester'
+    GUILD = 'music.media_request.guild'
+    SEARCH_TYPE = 'music.media_request.search_type'
+    UUID = 'music.media_request.uuid'
 
-class MusicSourceDownloadNaming(Enum):
+class MusicMediaDownloadNaming(Enum):
     '''
-    Music source download naming
+    Music media download naming
     '''
-    VIDEO_URL = 'music.source_download.video_url'
-    VIDEO_ID = 'music.source_download.video_id'
-    EXTRACTOR = 'music.source_download.extractor'
+    VIDEO_URL = 'music.media_download.video_url'
+    VIDEO_ID = 'music.media_download.video_id'
+    EXTRACTOR = 'music.media_download.extractor'
 
 class MusicVideoCacheNaming(Enum):
     '''

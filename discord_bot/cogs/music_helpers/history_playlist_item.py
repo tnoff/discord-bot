@@ -1,9 +1,9 @@
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 class HistoryPlaylistItem:
     '''
     Item to update history playlists
     '''
-    def __init__(self, playlist_id: int, source_download: SourceDownload):
+    def __init__(self, playlist_id: int, media_download: MediaDownload):
         self.playlist_id = playlist_id
-        self.source_download = source_download
+        self.media_download = media_download

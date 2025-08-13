@@ -11,7 +11,7 @@ from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageTy
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.utils.queue import Queue
 
-from tests.helpers import FakeChannel, fake_context, fake_source_download, FakeVoiceClient #pylint:disable=unused-import
+from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
 @contextmanager
 def with_music_player(fake_context): #pylint:disable=redefined-outer-name
@@ -36,8 +36,8 @@ async def test_music_player_loop_exit_with_async_timeout(fake_context): #pylint:
 async def test_music_player_loop_exiting_voice_client(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = None
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as source_download:
-            player.add_to_play_queue(source_download)
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
             with pytest.raises(ExitEarlyException) as exc:
                 await player.player_loop()
             assert 'No voice client in guild, ending loop' in str(exc.value)
@@ -47,10 +47,10 @@ async def test_music_player_loop_exiting_voice_client(fake_context): #pylint:dis
 async def test_music_player_loop_basic(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as source_download:
-            player.add_to_play_queue(source_download)
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
             await player.player_loop()
-            assert player._history.get_nowait() == source_download #pylint:disable=protected-access
+            assert player._history.get_nowait() == media_download #pylint:disable=protected-access
             assert player._play_queue.empty() #pylint:disable=protected-access
             assert player.messsage_queue.get_next_message() == (MessageType.MULTIPLE_MUTABLE, fake_context['guild'].id)
 
@@ -98,10 +98,10 @@ async def test_music_player_voice_channel_with_only_bot(fake_context): #pylint:d
 async def test_music_player_loop_rollover_history(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as sd:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             await player.player_loop()
-            with fake_source_download(player.file_dir, fake_context=fake_context) as sd2:
+            with fake_media_download(player.file_dir, fake_context=fake_context) as sd2:
                 player.add_to_play_queue(sd2)
                 await player.player_loop()
                 assert player._play_queue.empty() #pylint:disable=protected-access
@@ -112,7 +112,7 @@ async def test_music_player_loop_rollover_history(fake_context): #pylint:disable
 def test_music_get_player_messages(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as sd:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             result = player.get_queue_order_messages()
             assert result == [f'```Pos|| Wait Time|| Title /// Uploader\n--------------------------------------------------------------------------------------------------\n1  || 0:00:00  || {sd.title} /// {sd.uploader}```'] #pylint:disable=no-member
@@ -120,7 +120,7 @@ def test_music_get_player_messages(fake_context): #pylint:disable=redefined-oute
 def test_music_get_player_paths(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as sd:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             result = player.get_file_paths()
             assert result[0] == sd.file_path
@@ -128,7 +128,7 @@ def test_music_get_player_paths(fake_context): #pylint:disable=redefined-outer-n
 def test_music_clear_queue_messages(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as sd:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             result = player.get_queue_items()
             assert len(result) == 1
@@ -141,7 +141,7 @@ def test_music_clear_queue_messages(fake_context): #pylint:disable=redefined-out
 def test_music_clear_queue_messages_clear(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
-        with fake_source_download(player.file_dir, fake_context=fake_context) as sd:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             player.clear_queue()
             result = player.get_queue_items()

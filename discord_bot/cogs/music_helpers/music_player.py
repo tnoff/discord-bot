@@ -13,7 +13,7 @@ from discord.errors import ClientException
 
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
@@ -102,9 +102,9 @@ class MusicPlayer:
                 await self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.logger.info(f'Now playing "{source.webpage_url}" requested '
-                            f'by "{source.source_dict.requester_id}" in guild {self.guild.id}, url '
+                            f'by "{source.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{source.webpage_url}"')
-        self.np_message = f'Now playing {source.webpage_url} requested by {source.source_dict.requester_name}'
+        self.np_message = f'Now playing {source.webpage_url} requested by {source.media_request.requester_name}'
         self.messsage_queue.iterate_play_order(self.guild.id)
 
         await self.next.wait()
@@ -213,7 +213,7 @@ class MusicPlayer:
                 return True
         return False
 
-    def add_to_play_queue(self, source_download: SourceDownload) -> bool:
+    def add_to_play_queue(self, source_download: MediaDownload) -> bool:
         '''
         Add source download to this play queue
         '''
@@ -226,7 +226,7 @@ class MusicPlayer:
         '''
         return self._play_queue.empty()
 
-    def clear_queue(self) -> List[SourceDownload]:
+    def clear_queue(self) -> List[MediaDownload]:
         '''
         Clear queue and return items
         '''
@@ -242,25 +242,25 @@ class MusicPlayer:
         self._play_queue.shuffle()
         return True
 
-    def remove_queue_item(self, queue_index: int) -> SourceDownload:
+    def remove_queue_item(self, queue_index: int) -> MediaDownload:
         '''
         Remove item from queue
         '''
         return self._play_queue.remove_item(queue_index)
 
-    def bump_queue_item(self, queue_index: int) -> SourceDownload:
+    def bump_queue_item(self, queue_index: int) -> MediaDownload:
         '''
         Bump queue item
         '''
         return self._play_queue.bump_item(queue_index)
 
-    def get_queue_items(self) -> List[SourceDownload]:
+    def get_queue_items(self) -> List[MediaDownload]:
         '''
         Get a copy of the queue items
         '''
         return self._play_queue.items()
 
-    def get_history_items(self) -> List[SourceDownload]:
+    def get_history_items(self) -> List[MediaDownload]:
         '''
         Get a copy of the history items
         '''

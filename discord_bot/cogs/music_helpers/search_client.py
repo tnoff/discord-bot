@@ -15,11 +15,11 @@ from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTE
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
+from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
-from discord_bot.utils.otel import otel_span_wrapper, MusicSourceDictNaming
+from discord_bot.utils.otel import otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -122,7 +122,7 @@ class SearchClient():
         search : Original search string
         loop: Bot event loop
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={MusicSourceDictNaming.SEARCH_STRING.value: search}):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={MediaRequestNaming.SEARCH_STRING.value: search}):
             spotify_playlist_matcher = match(SPOTIFY_PLAYLIST_REGEX, search)
             spotify_album_matcher = match(SPOTIFY_ALBUM_REGEX, search)
             spotify_track_matcher = match(SPOTIFY_TRACK_REGEX, search)
@@ -170,7 +170,7 @@ class SearchClient():
                 if not self.youtube_client:
                     raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
-                sd = SourceDict(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
+                sd = MediaRequest(text_channel.guild.id, text_channel.id, None, None, search, SearchType.OTHER)
                 search_string_message = search.replace(' shuffle', '')
                 self.message_queue.iterate_source_lifecycle(sd, MessageLifecycleStage.SEND, text_channel.send, f'Gathering youtube data from url "<{search_string_message}>"')
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
@@ -224,7 +224,7 @@ class SearchClient():
         return await loop.run_in_executor(None, to_run)
 
     async def check_source(self, search: str, guild_id: int, channel_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop,
-                           max_results: int, text_channel: TextChannel) -> List[SourceDict]:
+                           max_results: int, text_channel: TextChannel) -> List[MediaRequest]:
         '''
         Generate sources from input
 
@@ -244,7 +244,7 @@ class SearchClient():
 
         all_entries = []
         for search_string in search_strings:
-            entry = SourceDict(guild_id, channel_id, requester_name, requester_id, search_string, search_type)
+            entry = MediaRequest(guild_id, channel_id, requester_name, requester_id, search_string, search_type)
             # Fallback to youtube music check
             if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)

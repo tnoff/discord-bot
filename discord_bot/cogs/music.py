@@ -35,8 +35,8 @@ from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
-from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
-from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
+from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
+from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup
@@ -659,17 +659,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Add all videos to metrics
         VIDEOS_PLAYED_COUNTER.add(1, attributes={
-            DiscordContextNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+            DiscordContextNaming.GUILD.value: history_item.media_download.media_request.guild_id
         })
         # Skip if added from history
-        if history_item.source_download.source_dict.added_from_history:
-            self.logger.info(f'Played video "{history_item.source_download.webpage_url}" was original played from history, skipping history add')
+        if history_item.media_download.media_request.added_from_history:
+            self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
             return
 
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.CONSUMER):
             with self.with_db_session() as db_session:
-                self.logger.info(f'Attempting to add url "{history_item.source_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.source_download.source_dict.guild_id}')
-                retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.source_download.webpage_url, history_item.playlist_id))
+                self.logger.info(f'Attempting to add url "{history_item.media_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.media_download.media_request.guild_id}')
+                retry_database_commands(db_session, partial(delete_existing_item, db_session, history_item.media_download.webpage_url, history_item.playlist_id))
 
                 # Delete number of rows necessary to add list
                 existing_items = retry_database_commands(db_session, partial(get_playlist_size, db_session, history_item.playlist_id))
@@ -677,11 +677,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if delta > 0:
                     self.logger.info(f'Need to delete {delta} items from history playlist {history_item.playlist_id}')
                     retry_database_commands(db_session, partial(delete_extra_items, db_session, history_item.playlist_id, delta))
-                self.logger.info(f'Adding new history item "{history_item.source_download.webpage_url}" to playlist {history_item.playlist_id}')
-                self.__playlist_insert_item(history_item.playlist_id, history_item.source_download.webpage_url, history_item.source_download.title, history_item.source_download.uploader)
+                self.logger.info(f'Adding new history item "{history_item.media_download.webpage_url}" to playlist {history_item.playlist_id}')
+                self.__playlist_insert_item(history_item.playlist_id, history_item.media_download.webpage_url, history_item.media_download.title, history_item.media_download.uploader)
                 # Update metrics
                 VIDEOS_PLAYED_COUNTER.add(1, attributes={
-                    DiscordContextNaming.GUILD.value: history_item.source_download.source_dict.guild_id
+                    DiscordContextNaming.GUILD.value: history_item.media_download.media_request.guild_id
                 })
 
     async def send_messages(self):
@@ -806,72 +806,72 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             await sleep(1)
 
-    async def __cache_search(self, source_download: SourceDownload):
+    async def __cache_search(self, media_download: MediaDownload):
         '''
         Cache search string in db session
-        source_download     : Source Download from DownloadClient
+        media_download     : Media Download from DownloadClient
         '''
         if not self.search_string_cache:
             return False
-        self.logger.info(f'Search cache enabled, attempting to add webpage "{source_download.webpage_url}"')
-        self.search_string_cache.iterate(source_download)
+        self.logger.info(f'Search cache enabled, attempting to add webpage "{media_download.webpage_url}"')
+        self.search_string_cache.iterate(media_download)
         return True
 
-    async def add_source_to_player(self, source_download: SourceDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
+    async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
         '''
         Add source to player queue
 
-        source_dict : Standard source_dict for pre-download
-        source_download : Standard SourceDownload for post download
+        media_request : Standard media_request for pre-download
+        media_download : Standard MediaDownload for post download
         player : MusicPlayer
         skiP_update_queue_strings : Skip queue string update
         '''
-        attributes = source_download_attributes(source_download)
+        attributes = media_download_attributes(media_download)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes):
             try:
                 if self.video_cache:
-                    self.logger.info(f'Iterating file on base path {str(source_download.base_path)}')
-                    self.video_cache.iterate_file(source_download)
-                self.sources_in_transit[source_download.source_dict.uuid] = str(source_download.base_path)
-                source_download.ready_file(guild_path=player.file_dir)
-                self.sources_in_transit.pop(source_download.source_dict.uuid)
-                player.add_to_play_queue(source_download)
-                self.logger.info(f'Adding "{source_download.webpage_url}" '
-                                f'to queue in guild {source_download.source_dict.guild_id}')
+                    self.logger.info(f'Iterating file on base path {str(media_download.base_path)}')
+                    self.video_cache.iterate_file(media_download)
+                self.sources_in_transit[media_download.media_request.uuid] = str(media_download.base_path)
+                media_download.ready_file(guild_path=player.file_dir)
+                self.sources_in_transit.pop(media_download.media_request.uuid)
+                player.add_to_play_queue(media_download)
+                self.logger.info(f'Adding "{media_download.webpage_url}" '
+                                f'to queue in guild {media_download.media_request.guild_id}')
                 if not skip_update_queue_strings:
                     self.message_queue.iterate_play_order(player.guild.id)
-                self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.DELETE,
-                                                            partial(source_download.source_dict.delete_message), '')
+                self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.DELETE,
+                                                            partial(media_download.media_request.delete_message), '')
 
                 # If we have a result, add to search cache
-                await self.__cache_search(source_download)
+                await self.__cache_search(media_download)
                 return True
             except QueueFull:
-                self.logger.warning(f'Play queue full, aborting download of item "{str(source_download.source_dict)}"')
-                self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.EDIT,
-                                                            partial(source_download.source_dict.edit_message),
-                                                            MessageFormatter.format_play_queue_full_message(str(source_download.source_dict)),
+                self.logger.warning(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
+                self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.EDIT,
+                                                            partial(media_download.media_request.edit_message),
+                                                            MessageFormatter.format_play_queue_full_message(str(media_download.media_request)),
                                                             delete_after=self.delete_after)
-                source_download.delete()
+                media_download.delete()
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
-                self.logger.warning(f'Puts Blocked on queue in guild "{source_download.source_dict.guild_id}", assuming shutdown')
-                self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.DELETE,
-                                                            partial(source_download.source_dict.delete_message), '')
-                source_download.delete()
+                self.logger.warning(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
+                self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.DELETE,
+                                                            partial(media_download.media_request.delete_message), '')
+                media_download.delete()
                 return False
 
-    def update_download_lockfile(self, source_download: SourceDownload,
+    def update_download_lockfile(self, media_download: MediaDownload,
                                  add_additional_backoff: int=None) -> bool:
         '''
         Update the download lockfile
 
-        source_download : Source Download
+        media_download : Media Download
         add_additional_backoff : Add more backoff time to existing timestamp
 
         '''
-        if source_download and source_download.extractor != 'youtube':
+        if media_download and media_download.extractor != 'youtube':
             return False
         new_timestamp = int(datetime.now(timezone.utc).timestamp())
         if add_additional_backoff:
@@ -879,30 +879,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.last_download_lockfile.write_text(str(new_timestamp))
         return True
 
-    # Take both source dict and source download
-    # Since source download might be none
-    async def __ensure_video_download_result(self, source_dict: SourceDict, source_download: SourceDownload):
-        if source_download is None:
-            self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.EDIT,
-                                                        partial(source_dict.edit_message),
-                                                        MessageFormatter.format_video_download_issue_message(str(source_dict)), delete_after=self.delete_after)
+    # Take both source dict and media download
+    # Since media download might be none
+    async def __ensure_video_download_result(self, media_request: MediaRequest, media_download: MediaDownload):
+        if media_download is None:
+            self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.EDIT,
+                                                        partial(media_request.edit_message),
+                                                        MessageFormatter.format_video_download_issue_message(str(media_request)), delete_after=self.delete_after)
             return False
         return True
 
-    async def __return_bad_video(self, source_dict: SourceDict, exception: DownloadClientException,
+    async def __return_bad_video(self, media_request: MediaRequest, exception: DownloadClientException,
                                  skip_callback_functions: bool=False):
         message = exception.user_message
-        self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.EDIT,
-                                                    partial(source_dict.edit_message), message, delete_after=self.delete_after)
+        self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.EDIT,
+                                                    partial(media_request.edit_message), message, delete_after=self.delete_after)
         if not skip_callback_functions:
-            for func in source_dict.video_non_exist_callback_functions:
+            for func in media_request.video_non_exist_callback_functions:
                 await func()
         return
 
-    async def __check_video_cache(self, source_dict: SourceDict):
+    async def __check_video_cache(self, media_request: MediaRequest):
         if not self.video_cache:
             return None
-        return self.video_cache.get_webpage_url_item(source_dict)
+        return self.video_cache.get_webpage_url_item(media_request)
 
 
     async def download_files(self): #pylint:disable=too-many-statements
@@ -914,77 +914,77 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         try:
-            source_dict = self.download_queue.get_nowait()
+            media_request = self.download_queue.get_nowait()
         except QueueEmpty:
             return
 
-        attributes = source_dict_attributes(source_dict)
+        attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.download_files', kind=SpanKind.CONSUMER, attributes=attributes) as span:
             # If not meant to download, dont check for player
             # Check for player, if doesn't exist return
             player = None
-            if source_dict.download_file:
-                player = await self.get_player(source_dict.guild_id, create_player=False)
+            if media_request.download_file:
+                player = await self.get_player(media_request.guild_id, create_player=False)
                 if not player:
-                    self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.DELETE,
-                                                                partial(source_dict.delete_message), '')
+                    self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.DELETE,
+                                                                partial(media_request.delete_message), '')
                     return
 
                 # Check if queue in shutdown, if so return
                 if player.shutdown_called:
                     self.logger.warning(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-                    self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.DELETE,
-                                                                partial(source_dict.delete_message), '')
+                    self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.DELETE,
+                                                                partial(media_request.delete_message), '')
                     return
-            self.logger.debug(f'Gathered new item to download "{str(source_dict)}", guild "{source_dict.guild_id}"')
+            self.logger.debug(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
             # If cache enabled and search string with 'https://' given, try to grab this first
-            source_download = await self.__check_video_cache(source_dict)
+            media_download = await self.__check_video_cache(media_request)
             # Else grab from ytdlp
-            if not source_download:
+            if not media_download:
                 # Make sure we wait for next video download
                 # Dont spam the video client
                 await self.youtube_backoff_time(self.youtube_wait_period_min, self.youtube_wait_period_max_variance)
                 try:
-                    source_download = await self.download_client.create_source(source_dict, self.bot.loop)
-                    self.update_download_lockfile(source_download)
+                    media_download = await self.download_client.create_source(media_request, self.bot.loop)
+                    self.update_download_lockfile(media_download)
                 except ExistingFileException as e:
                     # File exists on disk already, create again from cache
-                    self.logger.debug(f'Existing file found for download {str(source_dict)}, using existing file from url "{e.video_cache.video_url}"')
-                    source_download = self.video_cache.generate_download_from_existing(source_dict, e.video_cache)
-                    self.update_download_lockfile(source_download)
+                    self.logger.debug(f'Existing file found for download {str(media_request)}, using existing file from url "{e.video_cache.video_url}"')
+                    media_download = self.video_cache.generate_download_from_existing(media_request, e.video_cache)
+                    self.update_download_lockfile(media_download)
                     span.set_status(StatusCode.OK)
                 except (BotDownloadFlagged) as e:
-                    self.logger.warning(f'Bot flagged while downloading video "{str(source_dict)}", {str(e)}')
-                    await self.__return_bad_video(source_dict, e, skip_callback_functions=True)
+                    self.logger.warning(f'Bot flagged while downloading video "{str(media_request)}", {str(e)}')
+                    await self.__return_bad_video(media_request, e, skip_callback_functions=True)
                     self.logger.warning(f'Adding additional time {self.youtube_wait_period_min} to usual youtube backoff since bot was flagged')
-                    self.update_download_lockfile(source_download, add_additional_backoff=self.youtube_wait_period_min)
+                    self.update_download_lockfile(media_download, add_additional_backoff=self.youtube_wait_period_min)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return
                 except (DownloadClientException) as e:
-                    self.logger.warning(f'Known error while downloading video "{str(source_dict)}", {str(e)}')
-                    await self.__return_bad_video(source_dict, e)
-                    self.update_download_lockfile(source_download)
+                    self.logger.warning(f'Known error while downloading video "{str(media_request)}", {str(e)}')
+                    await self.__return_bad_video(media_request, e)
+                    self.update_download_lockfile(media_download)
                     span.set_status(StatusCode.OK)
                     return
                 except DownloadError as e:
-                    self.logger.error(f'Unknown error while downloading video "{str(source_dict)}", {str(e)}')
-                    source_download = None
+                    self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
+                    media_download = None
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
 
             # Final none check in case we couldn't download video
-            if not await self.__ensure_video_download_result(source_dict, source_download):
+            if not await self.__ensure_video_download_result(media_request, media_download):
                 span.set_status(StatusCode.ERROR)
                 return
             span.set_status(StatusCode.OK)
             # Callback functions if given
-            for func in source_dict.post_download_callback_functions:
-                await func(source_download)
+            for func in media_request.post_download_callback_functions:
+                await func(media_download)
 
-            if source_dict.download_file and player:
+            if media_request.download_file and player:
                 # Add sources to players
-                if not await self.add_source_to_player(source_download, player):
+                if not await self.add_source_to_player(media_download, player):
                     return
 
     def __get_history_playlist(self, guild_id: int):
@@ -1159,7 +1159,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.message_queue.iterate_single_message([partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)])
 
-    async def enqueue_source_dicts(self, ctx: Context, player: MusicPlayer, entries: List[SourceDict]) -> bool:
+    async def enqueue_media_requests(self, ctx: Context, player: MusicPlayer, entries: List[MediaRequest]) -> bool:
         '''
         Enqueue source dicts to a player or download queue
 
@@ -1169,28 +1169,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         Returns true if all items added, false if some were not
         '''
-        for source_dict in entries:
+        for media_request in entries:
             try:
                 # Check cache first
-                source_download = await self.__check_video_cache(source_dict)
-                if source_download:
-                    self.logger.debug(f'Search "{str(source_dict)}" found in cache, placing in player queue')
-                    await self.add_source_to_player(source_download, player)
+                media_download = await self.__check_video_cache(media_request)
+                if media_download:
+                    self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
+                    await self.add_source_to_player(media_download, player)
                     continue
-                self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.SEND,
+                self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.SEND,
                                                             partial(ctx.send),
-                                                            MessageFormatter.format_downloading_message(str(source_dict)))
-                self.logger.debug(f'Handing off source_dict {str(source_dict)} to download queue')
-                self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
+                                                            MessageFormatter.format_downloading_message(str(media_request)))
+                self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
+                self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except PutsBlocked:
                 self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.DELETE,
-                                                            partial(source_dict.delete_message), '')
+                self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.DELETE,
+                                                            partial(media_request.delete_message), '')
                 return False
             except QueueFull:
-                self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.EDIT,
-                                                            partial(source_dict.edit_message),
-                                                            MessageFormatter.format_download_queue_full_message(str(source_dict)),
+                self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.EDIT,
+                                                            partial(media_request.edit_message),
+                                                            MessageFormatter.format_download_queue_full_message(str(media_request)),
                                                             delete_after=self.delete_after)
                 return False
         return True
@@ -1227,7 +1227,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
 
-        await self.enqueue_source_dicts(ctx, player, entries)
+        await self.enqueue_media_requests(ctx, player, entries)
 
     @command(name='skip')
     @command_wrapper
@@ -1638,36 +1638,36 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                            video_url, video_uploader, playlist_id))
             return playlist_item_id
 
-    async def __add_playlist_item_function(self, ctx: Context, playlist_id: int, source_download: SourceDownload):
+    async def __add_playlist_item_function(self, ctx: Context, playlist_id: int, media_download: MediaDownload):
         '''
-        Call this when the source download eventually completes
-        source_download : Source Download from download client
+        Call this when the media download eventually completes
+        media_download : Media Download from download client
         '''
-        if source_download is None:
-            self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.EDIT,
-                                                        partial(source_download.source_dict.edit_message),
-                                                        MessageFormatter.format_playlist_generation_issue_message(str(source_download.source_dict)),
+        if media_download is None:
+            self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.EDIT,
+                                                        partial(media_download.media_request.edit_message),
+                                                        MessageFormatter.format_playlist_generation_issue_message(str(media_download.media_request)),
                                                         delete_after=self.delete_after)
             return
-        self.logger.info(f'Adding video_url "{source_download.webpage_url}" to playlist "{playlist_id}" '
+        self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
                          f' in guild {ctx.guild.id}')
         try:
-            playlist_item_id = self.__playlist_insert_item(playlist_id, source_download.webpage_url, source_download.title, source_download.uploader)
+            playlist_item_id = self.__playlist_insert_item(playlist_id, media_download.webpage_url, media_download.title, media_download.uploader)
         except PlaylistMaxLength:
-            self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.EDIT,
-                                                        partial(source_download.source_dict.edit_message),
+            self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.EDIT,
+                                                        partial(media_download.media_request.edit_message),
                                                         MessageFormatter.format_playlist_max_length_message(),
                                                         delete_after=self.delete_after)
             return
         if playlist_item_id:
-            self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.EDIT,
-                                                        partial(source_download.source_dict.edit_message),
-                                                        MessageFormatter.format_playlist_item_added_message(source_download.title),
+            self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.EDIT,
+                                                        partial(media_download.media_request.edit_message),
+                                                        MessageFormatter.format_playlist_item_added_message(media_download.title),
                                                         delete_after=self.delete_after)
             return
-        self.message_queue.iterate_source_lifecycle(source_download.source_dict, MessageLifecycleStage.EDIT,
-                                                    partial(source_download.source_dict.edit_message),
-                                                    MessageFormatter.format_playlist_item_add_failed_message(str(source_download.source_dict)),
+        self.message_queue.iterate_source_lifecycle(media_download.media_request, MessageLifecycleStage.EDIT,
+                                                    partial(media_download.media_request.edit_message),
+                                                    MessageFormatter.format_playlist_item_add_failed_message(str(media_download.media_request)),
                                                     delete_after=self.delete_after)
         return
 
@@ -1701,12 +1701,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             self.message_queue.iterate_single_message([partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)])
             return
-        for source_dict in source_entries:
-            source_dict.download_file = False
-            self.message_queue.iterate_source_lifecycle(source_dict, MessageLifecycleStage.SEND, partial(ctx.send),
-                                                        MessageFormatter.format_downloading_for_playlist_message(str(source_dict)))
-            source_dict.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
-            self.download_queue.put_nowait(source_dict.guild_id, source_dict, priority=self.server_queue_priority.get(ctx.guild.id, None))
+        for media_request in source_entries:
+            media_request.download_file = False
+            self.message_queue.iterate_source_lifecycle(media_request, MessageLifecycleStage.SEND, partial(ctx.send),
+                                                        MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
+            media_request.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
+            self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
     @playlist.command(name='item-remove')
     @command_wrapper
@@ -1962,7 +1962,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with self.with_db_session() as db_session:
             playlist_items = []
             for item in retry_database_commands(db_session, partial(list_playlist_items, db_session, playlist_id)):
-                source_dict = SourceDict(ctx.guild.id,
+                media_request = MediaRequest(ctx.guild.id,
                                          ctx.channel.id,
                                          ctx.author.display_name,
                                          ctx.author.id,
@@ -1970,7 +1970,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                          SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                          added_from_history=is_history,
                                          video_non_exist_callback_functions=[partial(self.__delete_non_existing_item, item.id, item.video_url, ctx)] if is_history else [])
-                playlist_items.append(source_dict)
+                playlist_items.append(media_request)
 
             if shuffle:
                 for _ in range(self.number_shuffles):
@@ -1986,7 +1986,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 else:
                     max_num = 0
 
-            broke_early = await self.enqueue_source_dicts(ctx, player, playlist_items)
+            broke_early = await self.enqueue_media_requests(ctx, player, playlist_items)
 
             playlist_name = retry_database_commands(db_session, partial(get_playlist_name, db_session, playlist_id))
             if is_history:

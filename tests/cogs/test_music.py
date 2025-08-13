@@ -11,10 +11,10 @@ from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadError
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
-from tests.helpers import fake_source_dict, fake_source_download
+from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 
@@ -26,24 +26,24 @@ BASE_MUSIC_CONFIG = {
     },
 }
 
-def yield_fake_search_client(source_dict: SourceDict = None):
+def yield_fake_search_client(media_request: MediaRequest = None):
     class FakeSearchClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def check_source(self, *_args, **_kwargs):
-            return [source_dict]
+            return [media_request]
 
     return FakeSearchClient
 
-def yield_fake_download_client(source_download: SourceDownload):
+def yield_fake_download_client(media_download: MediaDownload):
 
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def create_source(self, *_args, **_kwargs):
-            return source_download
+            return media_download
 
     return FakeDownloadClient
 
@@ -67,7 +67,7 @@ def yield_download_client_download_error():
 
     return FakeDownloadClient
 
-def yield_search_client_check_source(source_dict_list: List[SourceDict]):
+def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
     class FakeSearchClient():
         def __init__(self, *_args, **_kwargs):
             pass
@@ -94,7 +94,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
             await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
             assert fake_context['guild'].id not in cog.players
@@ -153,11 +153,11 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -173,11 +173,11 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -191,7 +191,7 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
@@ -208,11 +208,11 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -226,11 +226,11 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -244,11 +244,11 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -264,7 +264,7 @@ async def test_stop(fake_engine, mocker, fake_context):  #pylint:disable=redefin
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
             await cog.stop_(cog, fake_context['context'])
             assert fake_context['guild'].id not in cog.players
@@ -277,13 +277,13 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             fake_channel2 = FakeChannel(guild=fake_context['guild'])
             fake_context2 = FakeContext(guild=fake_context['guild'], channel=fake_channel2, bot=fake_context['bot'], author=fake_context['author'])
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.source_dict))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.download_files()
@@ -352,10 +352,10 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.source_dict]))
+            mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.video_cache.iterate_file(sd)
             await cog.play_(cog, fake_context['context'], search='foo bar')

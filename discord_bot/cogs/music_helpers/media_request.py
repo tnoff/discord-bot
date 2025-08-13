@@ -2,9 +2,10 @@ from typing import Callable, List, Literal
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.utils.otel import MusicSourceDictNaming
+from discord_bot.utils.otel import MediaRequestNaming
 
-class SourceDict(MessageContext):
+
+class MediaRequest(MessageContext):
     '''
     Original source of play request
     '''
@@ -15,7 +16,7 @@ class SourceDict(MessageContext):
                  video_non_exist_callback_functions: List[Callable] = None,
                  post_download_callback_functions: List[Callable] = None):
         '''
-        Generate new source dict options
+        Generate new media request options
 
         guild_id : Guild where video was requested
         channel_id : Channel where video was requested
@@ -60,14 +61,14 @@ class SourceDict(MessageContext):
         return return_string
 
 
-def source_dict_attributes(source_dict: SourceDict) -> dict:
+def media_request_attributes(media_request: MediaRequest) -> dict:
     '''
-    Return source dict attributes for spans
+    Return media request attributes for spans
     '''
     return {
-        MusicSourceDictNaming.SEARCH_STRING.value: source_dict.search_string,
-        MusicSourceDictNaming.REQUESTER.value: source_dict.requester_id,
-        MusicSourceDictNaming.GUILD.value: source_dict.guild_id,
-        MusicSourceDictNaming.SEARCH_TYPE.value: source_dict.search_type.value,
-        MusicSourceDictNaming.UUID.value: str(source_dict.uuid),
+        MediaRequestNaming.SEARCH_STRING.value: media_request.search_string,
+        MediaRequestNaming.REQUESTER.value: media_request.requester_id,
+        MediaRequestNaming.GUILD.value: media_request.guild_id,
+        MediaRequestNaming.SEARCH_TYPE.value: media_request.search_type.value,
+        MediaRequestNaming.UUID.value: str(media_request.uuid),
     }

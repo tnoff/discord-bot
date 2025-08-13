@@ -11,7 +11,7 @@ from discord_bot.cogs.music_helpers.download_client import ExistingFileException
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 
-from tests.helpers import mock_session, fake_source_download
+from tests.helpers import mock_session, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 def test_match_generator_no_data():
@@ -52,7 +52,7 @@ def test_match_generator_banned_vidoes():
 
 def test_match_generator_video_exists(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(Path(tmp_dir), fake_context=fake_context) as sd:
+        with fake_media_download(Path(tmp_dir), fake_context=fake_context) as sd:
             x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None)
             x.iterate_file(sd)
             func = match_generator(None, None, video_cache_search=partial(x.search_existing_file))

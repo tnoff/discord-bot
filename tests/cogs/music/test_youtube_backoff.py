@@ -4,11 +4,11 @@ import pytest
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
-from tests.helpers import fake_source_download
+from tests.helpers import fake_media_download
 
 
 @pytest.mark.asyncio
@@ -19,7 +19,7 @@ async def test_youtube_backoff_time_doesnt_exist_yet(fake_context):  #pylint:dis
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
 async def test_youtube_backoff_time(freezer, fake_context):  #pylint:disable=redefined-outer-name
-    sd = SourceDownload(None, {
+    sd = MediaDownload(None, {
         'extractor': 'youtube'
     }, None)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
@@ -31,7 +31,7 @@ async def test_youtube_backoff_time(freezer, fake_context):  #pylint:disable=red
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
 async def test_youtube_backoff_time_with_bot_shutdown(freezer, fake_context):  #pylint:disable=redefined-outer-name
-    sd = SourceDownload(None, {
+    sd = MediaDownload(None, {
         'extractor': 'youtube'
     }, None)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
@@ -46,7 +46,7 @@ async def test_youtube_backoff_time_with_bot_shutdown(freezer, fake_context):  #
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
 async def test_youtube_last_update_time_with_more_backoff(freezer, fake_context):  #pylint:disable=redefined-outer-name
-    sd = SourceDownload(None, {
+    sd = MediaDownload(None, {
         'extractor': 'youtube'
     }, None)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
@@ -62,7 +62,7 @@ async def test_update_download_lockfile_method(fake_context):  #pylint:disable=r
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     with TemporaryDirectory() as tmp_dir:
-        with fake_source_download(tmp_dir, fake_context=fake_context) as sd:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             # Test basic lockfile update
             cog.update_download_lockfile(sd)
 
