@@ -215,7 +215,7 @@ async def test_youtube_playlist_shuffle():
     result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
-    assert mq.get_source_lifecycle() is None
+    assert mq.get_next_single_mutable() is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_error():

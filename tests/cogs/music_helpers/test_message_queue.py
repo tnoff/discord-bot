@@ -9,9 +9,9 @@ def test_message_send_to_edit_override():
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
+    result = mq.get_next_single_mutable()
     assert result.message_content == 'Edited message content'
     assert result.lifecycle_stage == MessageLifecycleStage.SEND
 
@@ -20,9 +20,9 @@ def test_message_send_to_delete_override():
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.DELETE, x.delete_message, '')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
+    mq.update_single_mutable(x, MessageLifecycleStage.DELETE, x.delete_message, '')
+    result = mq.get_next_single_mutable()
     assert result is None
 
 def test_message_send_to_edit_to_delete_override():
@@ -30,10 +30,10 @@ def test_message_send_to_edit_to_delete_override():
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.DELETE, x.delete_message, '')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.SEND, c.send, 'Original message content')
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
+    mq.update_single_mutable(x, MessageLifecycleStage.DELETE, x.delete_message, '')
+    result = mq.get_next_single_mutable()
     assert result is None
 
 def test_message_edit_to_edit_override():
@@ -42,9 +42,9 @@ def test_message_edit_to_edit_override():
     x = fake_source_dict(fake_context)
     mes = FakeMessage()
     x.set_message(mes)
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Second edited content')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Second edited content')
+    result = mq.get_next_single_mutable()
     assert result.message_content == 'Second edited content'
 
 def test_message_edit_to_delete_override():
@@ -53,9 +53,9 @@ def test_message_edit_to_delete_override():
     x = fake_source_dict(fake_context)
     mes = FakeMessage()
     x.set_message(mes)
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.DELETE, x.delete_message, '')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content', delete_after=5)
+    mq.update_single_mutable(x, MessageLifecycleStage.DELETE, x.delete_message, '')
+    result = mq.get_next_single_mutable()
     assert result.message_content == ''
     assert result.lifecycle_stage == MessageLifecycleStage.DELETE
 
@@ -63,8 +63,8 @@ def test_single_message():
     mq = MessageQueue()
     c = FakeContext()
     func = partial(c.send, 'Sending test message')
-    mq.iterate_single_message(func)
-    result = mq.get_single_message()
+    mq.send_single_immutable(func)
+    result = mq.get_single_immutable()
     assert result == func
 
 def test_multiple_send_messages_return_order():
@@ -73,35 +73,35 @@ def test_multiple_send_messages_return_order():
     x = fake_source_dict(fake_context)
     y = fake_source_dict(fake_context)
     c = FakeContext()
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
-    mq.iterate_source_lifecycle(y, MessageLifecycleStage.SEND, c.send, 'Second message content')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
-    result = mq.get_source_lifecycle()
+    mq.update_single_mutable(x, MessageLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
+    mq.update_single_mutable(y, MessageLifecycleStage.SEND, c.send, 'Second message content')
+    mq.update_single_mutable(x, MessageLifecycleStage.EDIT, x.edit_message, 'Edited message content')
+    result = mq.get_next_single_mutable()
     print(result)
     assert result.message_content == 'Edited message content'
     assert result.lifecycle_stage == MessageLifecycleStage.SEND
-    result = mq.get_source_lifecycle()
+    result = mq.get_next_single_mutable()
     assert result.message_content == 'Second message content'
     assert result.lifecycle_stage == MessageLifecycleStage.SEND
 
 def test_player_order():
     mq = MessageQueue()
-    mq.iterate_play_order('1234')
-    mq.iterate_play_order('2345')
-    mq.iterate_play_order('1234')
-    assert '1234' == mq.get_play_order()
-    assert '2345' == mq.get_play_order()
-    assert mq.get_play_order() is None
+    mq.update_multiple_mutable('1234')
+    mq.update_multiple_mutable('2345')
+    mq.update_multiple_mutable('1234')
+    assert '1234' == mq.get_next_multiple_mutable()
+    assert '2345' == mq.get_next_multiple_mutable()
+    assert mq.get_next_multiple_mutable() is None
 
 def test_return_order():
     mq = MessageQueue()
-    mq.iterate_play_order('1234')
+    mq.update_multiple_mutable('1234')
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     c = FakeContext()
     func = partial(c.send, 'Sending test message')
-    mq.iterate_source_lifecycle(x, MessageLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
-    mq.iterate_single_message([func])
+    mq.update_single_mutable(x, MessageLifecycleStage.SEND, c.send, 'First message content', delete_after=5)
+    mq.send_single_immutable([func])
     assert mq.get_next_message() == (MessageType.MULTIPLE_MUTABLE, '1234')
     type, result = mq.get_next_message()
     assert type == MessageType.SINGLE_MUTABLE

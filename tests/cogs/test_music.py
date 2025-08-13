@@ -366,7 +366,7 @@ async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_random_play(cog, fake_context['context'])
-    result = cog.message_queue.get_single_message()
+    result = cog.message_queue.get_single_immutable()
     assert result[0].args[0] == 'Function deprecated, please use `!playlist queue 0`'
 
 
