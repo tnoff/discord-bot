@@ -1,11 +1,11 @@
 alembic==1.16.4
 async-timeout==5.0.1
 beautifulsoup4==4.13.4
-boto3==1.40.2
+boto3==1.40.7
 click==8.1.8
 discord.py==2.5.2
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.9
-google-api-python-client==2.177.0
+google-api-python-client==2.178.0
 jsonschema==4.25.0
 moviepy==2.2.1
 opentelemetry-sdk==1.36.0
@@ -21,6 +21,6 @@ pyaml-env==1.2.2
 pytz==2025.2
 requests==2.32.4
 spotipy==2.25.1
-SQLAlchemy==2.0.42
-yt-dlp==2025.7.21
+SQLAlchemy==2.0.43
+yt-dlp==2025.8.11
 ytmusicapi==1.10.3
