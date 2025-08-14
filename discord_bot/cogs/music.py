@@ -348,7 +348,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         self.video_cache = None
-        self.search_string_cache = None
         if self.enable_cache and self.db_engine:
             self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session),
                                                 self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None))
@@ -806,17 +805,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             await sleep(1)
 
-    async def __cache_search(self, media_download: MediaDownload):
-        '''
-        Cache search string in db session
-        media_download     : Media Download from DownloadClient
-        '''
-        if not self.search_string_cache:
-            return False
-        self.logger.info(f'Search cache enabled, attempting to add webpage "{media_download.webpage_url}"')
-        self.search_string_cache.iterate(media_download)
-        return True
-
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
         '''
         Add source to player queue
@@ -843,8 +831,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.DELETE,
                                                             partial(media_download.media_request.delete_message), '')
 
-                # If we have a result, add to search cache
-                await self.__cache_search(media_download)
                 return True
             except QueueFull:
                 self.logger.warning(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
