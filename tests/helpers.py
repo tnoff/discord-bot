@@ -14,8 +14,8 @@ from sqlalchemy import create_engine
 
 from discord_bot.database import BASE
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.source_dict import SourceDict
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 class TestHelperException(Exception):
     '''
@@ -72,24 +72,24 @@ def fake_source_dict(fakes, download_file=True, is_direct_search=False):
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
-    return SourceDict(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+    return MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
 
 @contextmanager
-def fake_source_download(file_dir, source_dict=None, fake_context=None, extractor='youtube', download_file=True, is_direct_search=False):  #pylint:disable=redefined-outer-name
+def fake_media_download(file_dir, media_request=None, fake_context=None, extractor='youtube', download_file=True, is_direct_search=False):  #pylint:disable=redefined-outer-name
     '''
     Assumes you pass it a random file path for now
     '''
-    if source_dict is None and fake_context is None:
+    if media_request is None and fake_context is None:
         raise TestHelperException('Source dict or fake context must be provided')
-    if source_dict is None:
-        source_dict = fake_source_dict(fake_context, download_file=download_file, is_direct_search=is_direct_search)
+    if media_request is None:
+        media_request = fake_source_dict(fake_context, download_file=download_file, is_direct_search=is_direct_search)
     with NamedTemporaryFile(dir=file_dir, suffix='.mp3', delete=False) as tmp_file:
         file_path = Path(tmp_file.name)
         file_path.write_text('testing', encoding='utf-8')
         webpage_url = f'https://foo.example/{random_string()}'
-        if source_dict.search_type == SearchType.DIRECT:
-            webpage_url = source_dict.search_string
-        source_download = SourceDownload(file_path, {
+        if media_request.search_type == SearchType.DIRECT:
+            webpage_url = media_request.search_string
+        media_download = MediaDownload(file_path, {
             'duration': 120,
             'webpage_url': webpage_url,
             'title': random_string(),
@@ -97,8 +97,8 @@ def fake_source_download(file_dir, source_dict=None, fake_context=None, extracto
             'uploader': random_string(),
             'extractor': extractor,
             },
-        source_dict)
-        yield source_download
+        media_request)
+        yield media_download
 
 @pytest.fixture(scope="function")
 def fake_engine():

@@ -3,7 +3,7 @@ import pytest
 from tests.helpers import FakeMessage, fake_source_dict, generate_fake_context
 
 @pytest.mark.asyncio
-async def test_source_dict_basics():
+async def test_media_request_basics():
     fake_context = generate_fake_context()
     x = fake_source_dict(fake_context)
     assert x.download_file is True

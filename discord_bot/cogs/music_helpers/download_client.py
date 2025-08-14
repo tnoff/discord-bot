@@ -10,8 +10,8 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.database import VideoCache
 
-from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
-from discord_bot.cogs.music_helpers.source_download import SourceDownload
+from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
+from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.utils.otel import otel_span_wrapper
 
 class DownloadClientException(Exception):
@@ -115,14 +115,14 @@ class DownloadClient():
         self.ytdl = ytdl
         self.download_dir = download_dir
 
-    def __prepare_data_source(self, source_dict: SourceDict):
+    def __prepare_data_source(self, media_request: MediaRequest):
         '''
         Prepare source from youtube url
         '''
-        span_attributes = source_dict_attributes(source_dict)
+        span_attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
             try:
-                data = self.ytdl.extract_info(source_dict.search_string, download=source_dict.download_file)
+                data = self.ytdl.extract_info(media_request.search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
@@ -131,34 +131,34 @@ class DownloadClient():
                 if 'Private video' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(source_dict)}" is unvailable, cannot download') from error
+                    raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(media_request)}" is unvailable, cannot download') from error
                 if 'Video unavailable' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(source_dict)}" is unavailable, cannot download') from error
+                    raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(media_request)}" is unavailable, cannot download') from error
                 if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(source_dict)}" is age restricted, cannot download') from error
+                    raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(media_request)}" is age restricted, cannot download') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
-                    raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(source_dict)}" flagged as bot download, skipping') from error
+                    raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(media_request)}" flagged as bot download, skipping') from error
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
                 raise
-            # Make sure we get the first source_dict here
+            # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:
                 data = data['entries'][0]
             except IndexError as error:
-                raise VideoNotFoundException('No videos found', user_message=f'No videos found for searhc "{str(source_dict)}"') from error
+                raise VideoNotFoundException('No videos found', user_message=f'No videos found for search "{str(media_request)}"') from error
             # Key Error if a single video is passed
             except KeyError:
                 pass
 
             file_path = None
-            if source_dict.download_file:
+            if media_request.download_file:
                 try:
                     file_path = Path(data['requested_downloads'][0]['filepath'])
                     if not file_path.exists():
@@ -172,11 +172,11 @@ class DownloadClient():
                 file_path.unlink()
                 file_path = new_path
             span.set_status(StatusCode.OK)
-            return SourceDownload(file_path, data, source_dict)
+            return MediaDownload(file_path, data, media_request)
 
-    async def create_source(self, source_dict: SourceDict, loop):
+    async def create_source(self, media_request: MediaRequest, loop):
         '''
         Download data from youtube search
         '''
-        to_run = partial(self.__prepare_data_source, source_dict=source_dict)
+        to_run = partial(self.__prepare_data_source, media_request=media_request)
         return await loop.run_in_executor(None, to_run)

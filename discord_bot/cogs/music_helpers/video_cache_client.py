@@ -12,10 +12,10 @@ from discord_bot.database import VideoCache, VideoCacheGuild, Guild, VideoCacheB
 from discord_bot.utils.common import rm_tree, run_commit
 from discord_bot.utils.clients.s3 import upload_file, delete_file, get_file
 from discord_bot.cogs.music_helpers.common import StorageOptions
-from discord_bot.cogs.music_helpers.source_download import SourceDownload, source_download_attributes
-from discord_bot.cogs.music_helpers.source_dict import SourceDict, source_dict_attributes
+from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
+from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming, MusicSourceDownloadNaming
+from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming, MusicMediaDownloadNaming
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 
@@ -214,43 +214,43 @@ class VideoCacheClient():
                     if file_path not in existing_files:
                         file_path.unlink()
 
-    def iterate_file(self, source_download: SourceDownload) -> bool:
+    def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
         Bump file path
-        source_download : All options from source download in ytdlp
-        source_dict     : Original dict that called function
+        media_download : All options from media download in ytdlp
+        media_request     : Original request that called function
         '''
-        attributes = source_download_attributes(source_download)
+        attributes = media_download_attributes(media_download)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.iterate_file', kind=SpanKind.INTERNAL, attributes=attributes):
             now = datetime.now(timezone.utc)
             with self.session_generator() as db_session:
-                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_download.webpage_url))
+                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, media_download.webpage_url))
                 if video_cache:
                     video_cache.count += 1
                     video_cache.last_iterated_at = now
                     # Unmark deletion here just in case
                     video_cache.ready_for_deletion = False
-                    self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), video_cache)
+                    self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, media_download.media_request.guild_id), video_cache)
                     retry_database_commands(db_session, partial(run_commit, db_session))
                     return True
                 cache_item = VideoCache(
-                    video_id=source_download.id,
-                    video_url=source_download.webpage_url,
-                    title=source_download.title,
-                    uploader=source_download.uploader,
-                    duration=source_download.duration,
-                    extractor=source_download.extractor,
+                    video_id=media_download.id,
+                    video_url=media_download.webpage_url,
+                    title=media_download.title,
+                    uploader=media_download.uploader,
+                    duration=media_download.duration,
+                    extractor=media_download.extractor,
                     last_iterated_at=now,
                     created_at=now,
-                    base_path=str(source_download.base_path),
+                    base_path=str(media_download.base_path),
                     count=1,
                     ready_for_deletion=False,
                 )
                 retry_database_commands(db_session, partial(add_video_cache, db_session, cache_item))
-                self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, source_download.source_dict.guild_id), cache_item)
+                self.__ensure_guild_video(db_session, self.__ensure_guild(db_session, media_download.media_request.guild_id), cache_item)
                 return True
 
-    def __generate_source_download(self, video_cache: VideoCache, source_dict: SourceDict):
+    def __generate_source_download(self, video_cache: VideoCache, media_request: MediaRequest):
         '''
         Generate source download
         '''
@@ -262,38 +262,38 @@ class VideoCacheClient():
             'extractor': video_cache.extractor,
             'webpage_url': video_cache.video_url,
         }
-        return SourceDownload(Path(str(video_cache.base_path)), ytdlp_data, source_dict)
+        return MediaDownload(Path(str(video_cache.base_path)), ytdlp_data, media_request)
 
-    def get_webpage_url_item(self, source_dict: SourceDict) -> SourceDownload:
+    def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
         '''
         Get item with matching webpage url
-        source_dict : Source dict to create SourceFile with
+        media_request : Media request to create SourceFile with
         '''
-        attributes = source_dict_attributes(source_dict)
+        attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
             with self.session_generator() as db_session:
-                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, source_dict.search_string))
+                video_cache = retry_database_commands(db_session, partial(get_video_cache, db_session, media_request.search_string))
                 if not video_cache:
                     return None
 
-                return self.__generate_source_download(video_cache, source_dict)
+                return self.__generate_source_download(video_cache, media_request)
 
-    def generate_download_from_existing(self, source_dict: SourceDict, video_cache: VideoCache) -> SourceDownload:
+    def generate_download_from_existing(self, media_request: MediaRequest, video_cache: VideoCache) -> MediaDownload:
         '''
         Generate a source download from a file that already exists
         '''
-        attributes = source_dict_attributes(source_dict)
+        attributes = media_request_attributes(media_request)
         attributes[MusicVideoCacheNaming.ID.value] = video_cache.id
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.generate_download', kind=SpanKind.INTERNAL, attributes=attributes):
-            return self.__generate_source_download(video_cache, source_dict)
+            return self.__generate_source_download(video_cache, media_request)
 
     def search_existing_file(self, extractor: str, video_id: str) -> VideoCache:
         '''
         Search cache for existing files
         '''
         attributes = {
-            MusicSourceDownloadNaming.VIDEO_ID.value: video_id,
-            MusicSourceDownloadNaming.EXTRACTOR.value: extractor,
+            MusicMediaDownloadNaming.VIDEO_ID.value: video_id,
+            MusicMediaDownloadNaming.EXTRACTOR.value: extractor,
         }
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_existing', kind=SpanKind.INTERNAL, attributes=attributes):
             with self.session_generator() as db_session:
