@@ -152,7 +152,7 @@ class DownloadClient():
             try:
                 data = data['entries'][0]
             except IndexError as error:
-                raise VideoNotFoundException('No videos found', user_message=f'No videos found for searhc "{str(media_request)}"') from error
+                raise VideoNotFoundException('No videos found', user_message=f'No videos found for search "{str(media_request)}"') from error
             # Key Error if a single video is passed
             except KeyError:
                 pass
