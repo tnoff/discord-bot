@@ -6,11 +6,9 @@ import pytest
 from discord_bot.cogs.music import Music
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
-from discord_bot.cogs.music_helpers.common import SearchType
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_media_download
+from tests.helpers import fake_media_download, fake_source_dict
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import FakeMessage
 
@@ -172,7 +170,7 @@ async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_conte
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.players[fake_context['guild'].id]._play_queue.block() #pylint:disable=protected-access
     with TemporaryDirectory() as tmp_dir:
-        s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'foo artist foo title', SearchType.SPOTIFY)
+        s = fake_source_dict(fake_context)
         with fake_media_download(tmp_dir, media_request=s) as sd:
             result = await cog.add_source_to_player(sd, cog.players[fake_context['guild'].id])
             assert not result

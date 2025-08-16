@@ -147,14 +147,12 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
 
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
-                    video_non_exist_callback_functions=[partial(bump_value)])
+    s = fake_source_dict(fake_context)
+    s.video_non_exist_callback_functions = [partial(bump_value)]
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
-
-
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -165,8 +163,8 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
 
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_error())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id, 'https://foo.example', SearchType.DIRECT,
-                    video_non_exist_callback_functions=[partial(bump_value)])
+    s = fake_source_dict(fake_context)
+    s.video_non_exist_callback_functions = [partial[bump_value]]
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()

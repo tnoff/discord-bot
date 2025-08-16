@@ -29,6 +29,7 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
 from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
@@ -835,23 +836,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                 f'to queue in guild {media_download.media_request.guild_id}')
                 if not skip_update_queue_strings:
                     self.message_queue.update_multiple_mutable(player.guild.id)
-                self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.DELETE,
-                                                            partial(media_download.media_request.delete_message), '')
+                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.DELETE,
+                                                         partial(media_download.media_request.message_context.delete_message), '')
 
                 return True
             except QueueFull:
                 self.logger.warning(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
-                self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.EDIT,
-                                                            partial(media_download.media_request.edit_message),
-                                                            MessageFormatter.format_play_queue_full_message(str(media_download.media_request)),
-                                                            delete_after=self.delete_after)
+                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
+                                                         partial(media_download.media_request.message_context.edit_message),
+                                                         MessageFormatter.format_play_queue_full_message(str(media_download.media_request)),
+                                                         delete_after=self.delete_after)
                 media_download.delete()
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
                 self.logger.warning(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
-                self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.DELETE,
-                                                            partial(media_download.media_request.delete_message), '')
+                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.DELETE,
+                                                         partial(media_download.media_request.message_context.delete_message), '')
                 media_download.delete()
                 return False
 
@@ -876,17 +877,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     # Since media download might be none
     async def __ensure_video_download_result(self, media_request: MediaRequest, media_download: MediaDownload):
         if media_download is None:
-            self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.EDIT,
-                                                        partial(media_request.edit_message),
-                                                        MessageFormatter.format_video_download_issue_message(str(media_request)), delete_after=self.delete_after)
+            self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
+                                                     partial(media_request.message_context.edit_message),
+                                                     MessageFormatter.format_video_download_issue_message(str(media_request)), delete_after=self.delete_after)
             return False
         return True
 
     async def __return_bad_video(self, media_request: MediaRequest, exception: DownloadClientException,
                                  skip_callback_functions: bool=False):
         message = exception.user_message
-        self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.EDIT,
-                                                    partial(media_request.edit_message), message, delete_after=self.delete_after)
+        self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
+                                                 partial(media_request.message_context.edit_message), message, delete_after=self.delete_after)
         if not skip_callback_functions:
             for func in media_request.video_non_exist_callback_functions:
                 await func()
@@ -919,15 +920,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if media_request.download_file:
                 player = await self.get_player(media_request.guild_id, create_player=False)
                 if not player:
-                    self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.DELETE,
-                                                                partial(media_request.delete_message), '')
+                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.DELETE,
+                                                             partial(media_request.message_context.delete_message), '')
                     return
 
                 # Check if queue in shutdown, if so return
                 if player.shutdown_called:
                     self.logger.warning(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-                    self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.DELETE,
-                                                                partial(media_request.delete_message), '')
+                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.DELETE,
+                                                             partial(media_request.message_context.delete_message), '')
                     return
             self.logger.debug(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
             # If cache enabled and search string with 'https://' given, try to grab this first
@@ -1056,7 +1057,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             pending_items = self.download_queue.clear_queue(guild.id)
             self.logger.debug(f'Found {len(pending_items)} existing download items')
             for source in pending_items:
-                self.message_queue.update_single_mutable(source, MessageLifecycleStage.DELETE, source.delete_message, '')
+                self.message_queue.update_single_mutable(source.message_context, MessageLifecycleStage.DELETE, source.message_context.delete_message, '')
 
             self.logger.debug(f'Deleting download dir for guild {guild.id}')
             guild_path = self.download_dir / f'{guild.id}'
@@ -1170,21 +1171,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
                     await self.add_source_to_player(media_download, player)
                     continue
-                self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.SEND,
-                                                            partial(ctx.send),
-                                                            MessageFormatter.format_downloading_message(str(media_request)))
+                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+                media_request.message_context = message_context
+                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND,
+                                                         partial(ctx.send),
+                                                         MessageFormatter.format_downloading_message(str(media_request)))
                 self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
                 self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except PutsBlocked:
                 self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.DELETE,
-                                                            partial(media_request.delete_message), '')
+                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.DELETE,
+                                                        partial(message_context.delete_message), '')
                 return False
             except QueueFull:
-                self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.EDIT,
-                                                            partial(media_request.edit_message),
-                                                            MessageFormatter.format_download_queue_full_message(str(media_request)),
-                                                            delete_after=self.delete_after)
+                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.EDIT,
+                                                         partial(message_context.edit_message),
+                                                         MessageFormatter.format_download_queue_full_message(str(media_request)),
+                                                         delete_after=self.delete_after)
                 return False
         return True
 
@@ -1637,31 +1640,31 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         media_download : Media Download from download client
         '''
         if media_download is None:
-            self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.EDIT,
-                                                        partial(media_download.media_request.edit_message),
-                                                        MessageFormatter.format_playlist_generation_issue_message(str(media_download.media_request)),
-                                                        delete_after=self.delete_after)
+            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
+                                                     partial(media_download.media_request.message_context.edit_message),
+                                                     MessageFormatter.format_playlist_generation_issue_message(str(media_download.media_request)),
+                                                     delete_after=self.delete_after)
             return
         self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
                          f' in guild {ctx.guild.id}')
         try:
             playlist_item_id = self.__playlist_insert_item(playlist_id, media_download.webpage_url, media_download.title, media_download.uploader)
         except PlaylistMaxLength:
-            self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.EDIT,
-                                                        partial(media_download.media_request.edit_message),
-                                                        MessageFormatter.format_playlist_max_length_message(),
-                                                        delete_after=self.delete_after)
+            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
+                                                     partial(media_download.media_request.message_context.edit_message),
+                                                     MessageFormatter.format_playlist_max_length_message(),
+                                                     delete_after=self.delete_after)
             return
         if playlist_item_id:
-            self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.EDIT,
-                                                        partial(media_download.media_request.edit_message),
-                                                        MessageFormatter.format_playlist_item_added_message(media_download.title),
-                                                        delete_after=self.delete_after)
+            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
+                                                     partial(media_download.media_request.message_context.edit_message),
+                                                     MessageFormatter.format_playlist_item_added_message(media_download.title),
+                                                     delete_after=self.delete_after)
             return
-        self.message_queue.update_single_mutable(media_download.media_request, MessageLifecycleStage.EDIT,
-                                                    partial(media_download.media_request.edit_message),
-                                                    MessageFormatter.format_playlist_item_add_failed_message(str(media_download.media_request)),
-                                                    delete_after=self.delete_after)
+        self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
+                                                 partial(media_download.media_request.message_context.edit_message),
+                                                 MessageFormatter.format_playlist_item_add_failed_message(str(media_download.media_request)),
+                                                 delete_after=self.delete_after)
         return
 
     @playlist.command(name='item-add')
@@ -1696,8 +1699,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         for media_request in source_entries:
             media_request.download_file = False
-            self.message_queue.update_single_mutable(media_request, MessageLifecycleStage.SEND, partial(ctx.send),
-                                                        MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
+            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+            media_request.message_context = message_context
+            self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND, partial(ctx.send),
+                                                     MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
             media_request.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
@@ -1955,6 +1960,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with self.with_db_session() as db_session:
             playlist_items = []
             for item in retry_database_commands(db_session, partial(list_playlist_items, db_session, playlist_id)):
+                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 media_request = MediaRequest(ctx.guild.id,
                                          ctx.channel.id,
                                          ctx.author.display_name,
@@ -1962,7 +1968,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                          item.video_url,
                                          SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                          added_from_history=is_history,
-                                         video_non_exist_callback_functions=[partial(self.__delete_non_existing_item, item.id, item.video_url, ctx)] if is_history else [])
+                                         video_non_exist_callback_functions=[partial(self.__delete_non_existing_item, item.id, item.video_url, ctx)] if is_history else [],
+                                         message_context=message_context)
                 playlist_items.append(media_request)
 
             if shuffle:

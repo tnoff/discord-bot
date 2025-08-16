@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 
 from discord_bot.database import BASE
+from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
@@ -69,10 +70,13 @@ def fake_source_dict(fakes, download_file=True, is_direct_search=False):
     '''
     search_type = SearchType.SEARCH
     search_string = random_string()
+    message_context = MessageContext(fakes['guild'].id, fakes['channel'].id)
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
-    return MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+    mr.message_context = message_context
+    return mr
 
 @contextmanager
 def fake_media_download(file_dir, media_request=None, fake_context=None, extractor='youtube', download_file=True, is_direct_search=False):  #pylint:disable=redefined-outer-name
