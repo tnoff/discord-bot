@@ -14,7 +14,7 @@ from typing import Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
-from discord.errors import DiscordServerError
+from discord.errors import DiscordServerError, Forbidden
 from discord import VoiceChannel
 from discord.errors import NotFound
 from opentelemetry.trace import SpanKind
@@ -696,7 +696,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
             return True
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER) as span:
             if source_type == MessageType.SINGLE_IMMUTABLE:
                 for func in item:
                     await async_retry_discord_message_command(func, allow_404=True)
@@ -707,6 +707,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     if item.lifecycle_stage == MessageLifecycleStage.SEND:
                         item.message_context.set_message(result)
                     return True
+                except Forbidden as e:
+                    # Add some extra context so we can debug when this happens
+                    span.set_attributes({
+                        DiscordContextNaming.GUILD.value: item.message_context.guild_id,
+                        DiscordContextNaming.CHANNEL.value: item.message_context.channel_id,
+                    })
+                    raise e
                 except NotFound:
                     if item.lifecycle_stage == MessageLifecycleStage.DELETE:
                         self.logger.warning(f'Unable to find message for deletion for source {item}')
