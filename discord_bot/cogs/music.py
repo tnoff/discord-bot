@@ -28,12 +28,12 @@ from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.common import SearchType, MessageLifecycleStage, MessageType
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
 from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage, MessageType
+from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
@@ -706,13 +706,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 try:
                     result = await async_retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
                     if item.lifecycle_stage == MessageLifecycleStage.SEND:
-                        item.message_context.set_message(result)
+                        item.set_message(result)
                     return True
                 except Forbidden as e:
                     # Add some extra context so we can debug when this happens
                     span.set_attributes({
-                        DiscordContextNaming.GUILD.value: item.message_context.guild_id,
-                        DiscordContextNaming.CHANNEL.value: item.message_context.channel_id,
+                        DiscordContextNaming.GUILD.value: item.guild_id,
+                        DiscordContextNaming.CHANNEL.value: item.channel_id,
                     })
                     raise e
                 except NotFound:

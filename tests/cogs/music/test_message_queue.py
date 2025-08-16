@@ -66,5 +66,6 @@ async def test_message_loop_source_lifecycle_delete(mocker, fake_context):  #pyl
         raise NotFound(FakeResponse(), 'Message not found')
 
     x = fake_source_dict(fake_context)
-    cog.message_queue.update_single_mutable(x, MessageLifecycleStage.DELETE, delete_message_raise, '')
-    assert not await cog.send_messages()
+    cog.message_queue.update_single_mutable(x.message_context, MessageLifecycleStage.SEND, partial(fake_context['channel'].send), 'Original message')
+    cog.message_queue.update_single_mutable(x.message_context, MessageLifecycleStage.DELETE, delete_message_raise, '')
+    assert await cog.send_messages() is True

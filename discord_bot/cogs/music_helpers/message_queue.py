@@ -1,51 +1,12 @@
 from asyncio import QueueEmpty
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Callable, List
+
 
 from discord_bot.utils.queue import Queue
 
+from discord_bot.cogs.music_helpers.common import MessageType, MessageLifecycleStage
 from discord_bot.cogs.music_helpers.message_context import MessageContext
-
-class MessageLifecycleStage(Enum):
-    '''
-    Stages of a source message lifecycle
-    '''
-    SEND = 'send'
-    EDIT = 'edit'
-    DELETE = 'delete'
-
-class MessageType(Enum):
-    '''
-    Types of messages queue returns
-    '''
-    MULTIPLE_MUTABLE = 'multiple_mutable'
-    SINGLE_MUTABLE = 'single_mutable'
-    SINGLE_IMMUTABLE = 'single_immutable'
-
-class MessageItem():
-    '''
-    Message item class
-    '''
-    def __init__(self, message_context: MessageContext, lifecycle_stage: MessageLifecycleStage, function: Callable,
-                 message_content: str, delete_after: int):
-        self.message_context = message_context
-        self.lifecycle_stage = lifecycle_stage
-        self.function = function
-        self.message_content = message_content
-        self.delete_after = delete_after
-        self.created_at = datetime.now(timezone.utc)
-        self.last_iterated_at = datetime.now(timezone.utc)
-
-    def update_item(self, message_content: str, delete_after: int, lifecycle_stage: MessageLifecycleStage = None):
-        '''
-        Update items content
-        '''
-        self.message_content = message_content
-        self.delete_after = delete_after
-        self.last_iterated_at = datetime.now(timezone.utc)
-        if lifecycle_stage:
-            self.lifecycle_stage = lifecycle_stage
 
 class MessageQueue():
     '''
@@ -123,12 +84,16 @@ class MessageQueue():
         custom_uuid: Use custom uuid instead of source dicts
         '''
         if str(message_context.uuid) not in self.single_mutable_queue:
-            self.single_mutable_queue[str(message_context.uuid)] = MessageItem(message_context, lifecycle_stage, function, message_content, delete_after)
+            message_context.function = function
+            message_context.message_content = message_content
+            message_context.delete_after = delete_after
+            self.single_mutable_queue[str(message_context.uuid)] = message_context
             return True
         current_value = self.single_mutable_queue[str(message_context.uuid)]
         # If existing value is send and new value is edit, override the send with new content
         if current_value.lifecycle_stage == MessageLifecycleStage.SEND and lifecycle_stage != MessageLifecycleStage.DELETE:
-            current_value.update_item(message_content, delete_after)
+            current_value.message_content = message_content
+            current_value.delete_after = delete_after
             return True
         # If sending existing value and deleting, just remove
         if current_value.lifecycle_stage == MessageLifecycleStage.SEND and lifecycle_stage == MessageLifecycleStage.DELETE:
@@ -137,10 +102,14 @@ class MessageQueue():
         # If editing, update the edit
         if current_value.lifecycle_stage == MessageLifecycleStage.EDIT and lifecycle_stage != MessageLifecycleStage.DELETE:
             current_value.update_item(message_content, delete_after)
+            current_value.message_content = message_content
+            current_value.delete_after = delete_after
             return True
         if current_value.lifecycle_stage == MessageLifecycleStage.EDIT and lifecycle_stage == MessageLifecycleStage.DELETE:
-            current_value.update_item('', 0, lifecycle_stage=MessageLifecycleStage.DELETE)
+            current_value.message_content = None
+            current_value.delete_after = None
             current_value.function = function
+            current_value.lifecycle_stage = MessageLifecycleStage.DELETE
             return True
         return False
 

@@ -10,11 +10,11 @@ from googleapiclient.errors import HttpError
 from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.common import SearchType, MessageLifecycleStage
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage
+from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient

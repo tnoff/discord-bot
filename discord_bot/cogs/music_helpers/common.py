@@ -26,3 +26,20 @@ class StorageOptions(Enum):
     Storage options
     '''
     S3 = 's3'
+
+
+class MessageLifecycleStage(Enum):
+    '''
+    Stages of a source message lifecycle
+    '''
+    SEND = 'send'
+    EDIT = 'edit'
+    DELETE = 'delete'
+
+class MessageType(Enum):
+    '''
+    Types of messages queue returns
+    '''
+    MULTIPLE_MUTABLE = 'multiple_mutable'
+    SINGLE_MUTABLE = 'single_mutable'
+    SINGLE_IMMUTABLE = 'single_immutable'
