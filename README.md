@@ -16,7 +16,7 @@ To install the python package, install the pip file within the repo
 
 ```
 $ git clone https://github.com/tnoff/discord-bot.git
-$ pip install discord-bot/discord_bot/
+$ pip install discord-bot/
 ```
 
 ## Docker
