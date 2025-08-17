@@ -158,6 +158,12 @@ class FakeMessage():
 
     async def delete(self):
         self.deleted = True
+        # Remove this message from the channel's message list
+        if self.channel and hasattr(self.channel, 'messages'):
+            try:
+                self.channel.messages.remove(self)
+            except ValueError:
+                pass  # Message wasn't in the list
         return True
 
     async def edit(self, content, delete_after=None):
@@ -245,7 +251,7 @@ class FakeChannel():
         return True
 
     async def send(self, message_content, **_kwargs):
-        message = FakeMessage(content=message_content)
+        message = FakeMessage(content=message_content, channel=self)
         self.messages.append(message)
         return message
 

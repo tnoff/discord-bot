@@ -1,9 +1,20 @@
+from datetime import datetime, timezone, timedelta
 from functools import partial
+
+import pytest
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageLifecycleStage, MessageType
 
 from tests.helpers import FakeContext, fake_source_dict, generate_fake_context
+
+
+def update_message_references(bundle, messages):
+    """Helper function to update message references in tests"""
+    for i, message in enumerate(messages):
+        if i < len(bundle.message_contexts) and message and hasattr(message, 'id'):
+            bundle.message_contexts[i].set_message(message)
+
 
 def test_message_send_to_edit_override():
     mq = MessageQueue()
@@ -17,6 +28,7 @@ def test_message_send_to_edit_override():
     assert result.message_content == 'Edited message content'
     assert result.lifecycle_stage == MessageLifecycleStage.SEND
 
+
 def test_message_send_to_delete_override():
     mq = MessageQueue()
     fake_context = generate_fake_context()
@@ -27,6 +39,7 @@ def test_message_send_to_delete_override():
     mq.update_single_mutable(x.message_context, MessageLifecycleStage.DELETE, x.message_context.delete_message, '')
     result = mq.get_next_single_mutable()
     assert result is None
+
 
 def test_message_send_to_edit_to_delete_override():
     mq = MessageQueue()
@@ -40,6 +53,7 @@ def test_message_send_to_edit_to_delete_override():
     result = mq.get_next_single_mutable()
     assert result is None
 
+
 def test_message_edit_to_edit_override():
     mq = MessageQueue()
     fake_context = generate_fake_context()
@@ -51,6 +65,7 @@ def test_message_edit_to_edit_override():
     mq.update_single_mutable(x.message_context, MessageLifecycleStage.EDIT, x.message_context.edit_message, 'Second edited content')
     result = mq.get_next_single_mutable()
     assert result.message_content == 'Second edited content'
+
 
 def test_message_edit_to_delete_override():
     mq = MessageQueue()
@@ -64,6 +79,7 @@ def test_message_edit_to_delete_override():
     result = mq.get_next_single_mutable()
     assert result is None
 
+
 def test_single_message():
     mq = MessageQueue()
     c = FakeContext()
@@ -71,6 +87,7 @@ def test_single_message():
     mq.send_single_immutable(func)
     result = mq.get_single_immutable()
     assert result == func
+
 
 def test_multiple_send_messages_return_order():
     mq = MessageQueue()
@@ -91,32 +108,585 @@ def test_multiple_send_messages_return_order():
     assert result.message_content == 'Second message content'
     assert result.lifecycle_stage == MessageLifecycleStage.SEND
 
-def test_player_order():
+
+def test_multiple_mutable_bundle_order():
+    """Test that multiple mutable bundles are processed in chronological order"""
     mq = MessageQueue()
-    mq.update_multiple_mutable('1234')
-    mq.update_multiple_mutable('2345')
-    mq.update_multiple_mutable('1234')
-    assert '1234' == mq.get_next_multiple_mutable()
-    assert '2345' == mq.get_next_multiple_mutable()
+    fake_context = generate_fake_context()
+
+    # Create first bundle
+    mq.update_multiple_mutable('bundle-1234', fake_context['channel'])
+    # Create second bundle
+    mq.update_multiple_mutable('bundle-2345', fake_context['channel'])
+    # Update first bundle again (should queue it for processing again)
+    mq.update_multiple_mutable('bundle-1234', fake_context['channel'])
+
+    # Should return bundle-1234 first (oldest created_at, never sent)
+    assert 'bundle-1234' == mq.get_next_multiple_mutable()
+    # Then bundle-2345 (next oldest created_at, never sent)
+    assert 'bundle-2345' == mq.get_next_multiple_mutable()
+    # Then nothing
     assert mq.get_next_multiple_mutable() is None
 
+
 def test_return_order():
+    """Test the priority order of get_next_message"""
     mq = MessageQueue()
-    mq.update_multiple_mutable('1234')
     fake_context = generate_fake_context()
+
+    # Add multiple mutable bundle
+    mq.update_multiple_mutable('bundle-1234', fake_context['channel'])
+
+    # Add single mutable message
     x = fake_source_dict(fake_context)
     message = MessageContext(fake_context['guild'], fake_context['channel'])
     x.message_context = message
+    mq.update_single_mutable(x.message_context, MessageLifecycleStage.SEND,
+                            partial(fake_context['context'].send), 'First message content', delete_after=5)
+
+    # Add single immutable message
     func = partial(fake_context['context'].send, 'Sending test message')
-    mq.update_single_mutable(x.message_context, MessageLifecycleStage.SEND, partial(fake_context['context'].send), 'First message content', delete_after=5)
     mq.send_single_immutable([func])
-    assert mq.get_next_message() == (MessageType.MULTIPLE_MUTABLE, '1234')
-    type, result = mq.get_next_message()
-    assert type == MessageType.SINGLE_MUTABLE
+
+    # Should prioritize multiple mutable first
+    assert mq.get_next_message() == (MessageType.MULTIPLE_MUTABLE, 'bundle-1234')
+
+    # Then single mutable
+    msg_type, result = mq.get_next_message()
+    assert msg_type == MessageType.SINGLE_MUTABLE
     assert result.message_content == 'First message content'
-    type, funcs = mq.get_next_message()
-    assert type == MessageType.SINGLE_IMMUTABLE
+
+    # Then single immutable
+    msg_type, funcs = mq.get_next_message()
+    assert msg_type == MessageType.SINGLE_IMMUTABLE
     assert funcs == [func]
-    type, item = mq.get_next_message()
-    assert type is None
+
+    # Then nothing
+    msg_type, item = mq.get_next_message()
+    assert msg_type is None
     assert item is None
+
+
+def test_mutable_bundle_persistence():
+    """Test that mutable bundles persist and can be reused"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "play-order-12345"
+
+    # Register via update_multiple_mutable
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+
+    # Verify it exists by checking if we can get it as next message
+    result = mq.get_next_multiple_mutable()
+    assert result == index_name
+
+    # Register again - should reuse the same bundle
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+
+    # Should be available again
+    result = mq.get_next_multiple_mutable()
+    assert result == index_name
+
+
+@pytest.mark.asyncio
+async def test_update_mutable_bundle_content():
+    """Test updating mutable bundle content"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "play-order-12345"
+
+    # Register bundle
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+
+    # Update with initial content
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Should return dispatch functions
+    assert len(dispatch_functions) == 2
+
+    # Execute functions
+    for func in dispatch_functions:
+        await func()
+
+    # Check messages were created
+    assert len(fake_context['channel'].messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_update_nonexistent_mutable_bundle():
+    """Test updating a bundle that doesn't exist"""
+    mq = MessageQueue()
+
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content("non-existent", content)
+
+    # Should return empty list
+    assert len(dispatch_functions) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_mutable_bundle_channel():
+    """Test updating the channel for a mutable bundle"""
+    mq = MessageQueue()
+    fake_context1 = generate_fake_context()
+    fake_context2 = generate_fake_context()
+
+    index_name = "play-order-12345"
+
+    # Register bundle with first channel and add some content
+    mq.update_multiple_mutable(index_name, fake_context1['channel'])
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute functions to create messages in first channel
+    for func in dispatch_functions:
+        await func()
+
+    assert len(fake_context1['channel'].messages) == 2
+    assert len(fake_context2['channel'].messages) == 0
+
+    # Update to second channel
+    result = await mq.update_mutable_bundle_channel(index_name, fake_context2['channel'])
+    assert result is True
+
+    # Original channel should still have messages (they were "deleted" but our mock doesn't actually remove)
+    # But the bundle should now be configured for the new channel
+
+    # Add new content - should go to second channel
+    new_content = ["New Message 1"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    for func in dispatch_functions:
+        await func()
+
+    # New message should be in second channel
+    assert len(fake_context2['channel'].messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_update_mutable_bundle_channel_nonexistent():
+    """Test updating channel for non-existent bundle"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+
+    result = await mq.update_mutable_bundle_channel("non-existent", fake_context['channel'])
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_sticky_messages_clear_scenario():
+    """Test sticky message clearing when messages are not at end of channel"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-sticky-bundle"
+
+    # Register bundle and add content
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Sticky Message 1", "Sticky Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute functions to create messages
+    for func in dispatch_functions:
+        await func()
+
+    # Simulate messages being displaced by other messages
+    await fake_context['channel'].send("Interrupting message")
+
+    # Update content again - should trigger clearing logic
+    new_content = ["New Message 1"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    # Should have returned dispatch functions despite clearing
+    assert len(dispatch_functions) > 0
+
+
+def test_send_single_immutable_empty_list():
+    """Test sending empty function list returns True early"""
+    mq = MessageQueue()
+
+    result = mq.send_single_immutable([])
+    assert result is True
+
+    # Queue should still be empty
+    assert mq.get_single_immutable() is None
+
+
+def test_multiple_bundles_timestamp_comparison():
+    """Test that multiple bundles are ordered correctly by timestamp"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+
+    # Create bundles with different timestamps by manipulating the created_at
+    mq.update_multiple_mutable('bundle-new', fake_context['channel'])
+    mq.update_multiple_mutable('bundle-old', fake_context['channel'])
+
+    # Manually set different created_at times to force timestamp comparison
+    old_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+    new_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    mq.mutable_bundles['bundle-old'].created_at = old_time
+    mq.mutable_bundles['bundle-new'].created_at = new_time
+
+    # Should return older bundle first
+    assert mq.get_next_multiple_mutable() == 'bundle-old'
+    # Then newer bundle
+    assert mq.get_next_multiple_mutable() == 'bundle-new'
+
+
+def test_single_mutable_edit_lifecycle():
+    """Test EDIT lifecycle stage logic in update_single_mutable"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    message = MessageContext(fake_context['guild'], fake_context['channel'])
+
+    # Start with SEND
+    mq.update_single_mutable(message, MessageLifecycleStage.SEND,
+                           partial(fake_context['context'].send), 'Original message')
+
+    # Change to EDIT stage manually to test edit logic
+    message.lifecycle_stage = MessageLifecycleStage.EDIT
+    mq.single_mutable_queue[str(message.uuid)] = message
+
+    # Update with another EDIT - should trigger edit-to-edit logic
+    result = mq.update_single_mutable(message, MessageLifecycleStage.EDIT,
+                                    message.edit_message, 'Edited again')
+    assert result is True
+    assert mq.single_mutable_queue[str(message.uuid)].message_content == 'Edited again'
+
+
+def test_single_mutable_edit_to_delete_lifecycle():
+    """Test EDIT to DELETE lifecycle transition"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    message = MessageContext(fake_context['guild'], fake_context['channel'])
+
+    # Start with EDIT
+    message.lifecycle_stage = MessageLifecycleStage.EDIT
+    mq.single_mutable_queue[str(message.uuid)] = message
+
+    # Update with DELETE - should trigger edit-to-delete logic
+    result = mq.update_single_mutable(message, MessageLifecycleStage.DELETE,
+                                    message.delete_message, '')
+    assert result is True
+
+    stored_message = mq.single_mutable_queue[str(message.uuid)]
+    assert stored_message.lifecycle_stage == MessageLifecycleStage.DELETE
+    assert stored_message.message_content is None
+
+
+def test_single_mutable_timestamp_comparison():
+    """Test single mutable queue timestamp ordering with multiple items"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+
+    # Create multiple messages with different timestamps
+    message1 = MessageContext(fake_context['guild'], fake_context['channel'])
+    message2 = MessageContext(fake_context['guild'], fake_context['channel'])
+
+    # Manually set different created_at times
+    old_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+    new_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    message1.created_at = new_time  # Newer
+    message2.created_at = old_time  # Older
+
+    # Add to queue
+    mq.update_single_mutable(message1, MessageLifecycleStage.SEND,
+                           partial(fake_context['context'].send), 'New message')
+    mq.update_single_mutable(message2, MessageLifecycleStage.SEND,
+                           partial(fake_context['context'].send), 'Old message')
+
+    # Should return older message first
+    result = mq.get_next_single_mutable()
+    assert result.message_content == 'Old message'
+
+    # Then newer message
+    result = mq.get_next_single_mutable()
+    assert result.message_content == 'New message'
+
+
+@pytest.mark.asyncio
+async def test_update_mutable_bundle_channel_with_messages():
+    """Test updating bundle channel when bundle has existing messages"""
+    mq = MessageQueue()
+    fake_context1 = generate_fake_context()
+    fake_context2 = generate_fake_context()
+
+    index_name = "test-channel-update"
+
+    # Create bundle with messages
+    mq.update_multiple_mutable(index_name, fake_context1['channel'])
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute to create messages
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    # Update bundle to track message references
+    bundle = mq.mutable_bundles[index_name]
+    update_message_references(bundle, results)
+
+    # Now update channel - should trigger delete function execution
+    result = await mq.update_mutable_bundle_channel(index_name, fake_context2['channel'])
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_sticky_clear_with_messages():
+    """Test sticky clear scenario that actually executes clear functions"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-clear-execution"
+
+    # Create bundle with messages
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute to create messages and set references
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    bundle = mq.mutable_bundles[index_name]
+    update_message_references(bundle, results)
+
+    # Add an interrupting message to trigger sticky clearing
+    await fake_context['channel'].send("Interrupting message")
+
+    # Update content - should trigger clear function execution (line 91)
+    new_content = ["New Message"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+    assert len(dispatch_functions) > 0
+
+
+def test_single_mutable_update_failure():
+    """Test the failure case in update_single_mutable that returns False"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    message = MessageContext(fake_context['guild'], fake_context['channel'])
+
+    # Create a scenario that should return False
+    # Set up message with DELETE lifecycle stage
+    message.lifecycle_stage = MessageLifecycleStage.DELETE
+    mq.single_mutable_queue[str(message.uuid)] = message
+
+    # Try to update with SEND stage - should return False (line 199)
+    result = mq.update_single_mutable(message, MessageLifecycleStage.SEND,
+                                    partial(fake_context['context'].send), 'New message')
+    assert result is False
+
+
+def test_message_queue_creates_sticky_bundles_by_default():
+    """Test that MessageQueue creates bundles with sticky_messages=True by default"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-sticky-default"
+
+    # Register bundle
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+
+    # Bundle should be created with sticky_messages=True by default
+    bundle = mq.mutable_bundles[index_name]
+    assert bundle.sticky_messages is True
+
+
+@pytest.mark.asyncio
+async def test_message_queue_sticky_deletion_integration():
+    """Test that MessageQueue properly handles sticky deletion through update_mutable_bundle_content"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-sticky-deletion"
+
+    # Register bundle
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+
+    # Send initial content
+    initial_content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, initial_content)
+
+    # Execute functions to create messages
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    # Update bundle to track message references
+    bundle = mq.mutable_bundles[index_name]
+    update_message_references(bundle, results)
+
+    # Verify initial state
+    assert len(fake_context['channel'].messages) == 2
+    original_message_ids = [msg.id for msg in fake_context['channel'].messages]
+
+    # Add interrupting message to trigger sticky behavior
+    await fake_context['channel'].send("Interrupting message")
+    assert len(fake_context['channel'].messages) == 3
+
+    # Send new content - should trigger deletion and new sends
+    new_content = ["New Message 1", "New Message 2"]
+    new_dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    # Execute new dispatch functions
+    new_results = []
+    for func in new_dispatch_functions:
+        result = await func()
+        if result and hasattr(result, 'id'):
+            new_results.append(result)
+
+    # Update message references for new messages
+    update_message_references(bundle, new_results)
+
+    # Verify that original messages were deleted and new ones exist
+    current_messages = fake_context['channel'].messages
+    current_message_ids = [msg.id for msg in current_messages]
+
+    # Original messages should be gone
+    for original_id in original_message_ids:
+        assert original_id not in current_message_ids, f"Original message {original_id} should have been deleted"
+
+    # New content should exist
+    new_message_contents = [msg.content for msg in current_messages if msg.content in new_content]
+    assert "New Message 1" in new_message_contents
+    assert "New Message 2" in new_message_contents
+
+
+@pytest.mark.asyncio
+async def test_message_queue_update_references():
+    """Test that update_mutable_bundle_references properly sets message references"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-references"
+
+    # Register bundle and add content
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Message 1", "Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute functions to create messages
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    # Update references using the new method
+    success = await mq.update_mutable_bundle_references(index_name, results)
+    assert success
+
+    # Verify that message references were set
+    bundle = mq.mutable_bundles[index_name]
+    assert len(bundle.message_contexts) == 2
+    assert bundle.message_contexts[0].message is not None
+    assert bundle.message_contexts[1].message is not None
+    assert bundle.message_contexts[0].message.content == "Message 1"
+    assert bundle.message_contexts[1].message.content == "Message 2"
+
+
+@pytest.mark.asyncio
+async def test_message_queue_update_references_nonexistent():
+    """Test that update_mutable_bundle_references handles nonexistent bundles"""
+    mq = MessageQueue()
+
+    success = await mq.update_mutable_bundle_references("nonexistent", [])
+    assert success is False
+
+
+@pytest.mark.asyncio
+async def test_message_queue_full_workflow_with_sticky():
+    """Test the complete real-world workflow including sticky message handling"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-full-workflow"
+
+    # STEP 1: Initial message send (simulating first queue display)
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Song 1: Artist - Title", "Song 2: Another Artist - Another Title"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute and update references (simulating Music.cog workflow)
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    await mq.update_mutable_bundle_references(index_name, results)
+
+    # Verify initial state
+    bundle = mq.mutable_bundles[index_name]
+    assert len(fake_context['channel'].messages) == 2
+    assert bundle.message_contexts[0].message is not None
+    assert bundle.message_contexts[1].message is not None
+    original_message_ids = [msg.id for msg in fake_context['channel'].messages]
+
+    # STEP 2: User sends a message, displacing our queue messages
+    await fake_context['channel'].send("User typed !skip command")
+    assert len(fake_context['channel'].messages) == 3
+
+    # STEP 3: Queue changes, triggering message update (simulating after !skip)
+    new_content = ["Song 2: Another Artist - Another Title", "Song 3: Third Artist - Third Title"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    # Execute and update references
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    await mq.update_mutable_bundle_references(index_name, results)
+
+    # STEP 4: Verify sticky behavior worked correctly
+    current_messages = fake_context['channel'].messages
+    current_message_ids = [msg.id for msg in current_messages]
+
+    # Original queue messages should be deleted
+    for original_id in original_message_ids:
+        assert original_id not in current_message_ids, f"Original message {original_id} should have been deleted"
+
+    # New messages should exist with updated content
+    queue_messages = [msg for msg in current_messages if "Song" in msg.content]
+    assert len(queue_messages) == 2
+    assert "Song 2: Another Artist - Another Title" in [msg.content for msg in queue_messages]
+    assert "Song 3: Third Artist - Third Title" in [msg.content for msg in queue_messages]
+
+    # Bundle should have proper message references for future sticky checks
+    assert len(bundle.message_contexts) == 2
+    assert bundle.message_contexts[0].message is not None
+    assert bundle.message_contexts[1].message is not None
+
+
+@pytest.mark.asyncio
+async def test_message_queue_sticky_behavior_integration():
+    """Test sticky behavior through the message queue interface"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-sticky-integration"
+
+    # Register bundle and add content
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Sticky Message 1", "Sticky Message 2"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    # Execute functions to create messages
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    # Update bundle to track message references (using new method)
+    await mq.update_mutable_bundle_references(index_name, results)
+
+    # Add interrupting message to displace our messages
+    await fake_context['channel'].send("Interrupting message")
+
+    # Now our messages are no longer at end - sticky check should return True
+    bundle = mq.mutable_bundles[index_name]
+    should_clear = await bundle.should_clear_messages()
+    assert should_clear
+
+    # Update content - should trigger clearing and resending due to sticky behavior
+    new_content = ["New Sticky Message"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+    assert len(dispatch_functions) > 0  # Should have dispatch functions to send new content
