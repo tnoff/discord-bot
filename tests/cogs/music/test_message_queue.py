@@ -6,6 +6,7 @@ import pytest
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
+from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.message_queue import MessageLifecycleStage
 
@@ -44,7 +45,7 @@ async def test_message_loop_send_single_message(mocker, fake_context):  #pylint:
 async def test_message_play_order(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    cog.message_queue.update_multiple_mutable(fake_context['guild'].id)
+    cog.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{fake_context["guild"].id}')
     result = await cog.send_messages()
     assert result is True
 

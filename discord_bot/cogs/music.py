@@ -28,7 +28,7 @@ from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType, MessageLifecycleStage, MessageType
+from discord_bot.cogs.music_helpers.common import SearchType, MessageLifecycleStage, MessageType, MultipleMutableType
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
@@ -721,8 +721,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         return False
                     raise
             if source_type == MessageType.MULTIPLE_MUTABLE:
-                await self.player_update_queue_order(item)
-                return True
+                if MultipleMutableType.PLAY_ORDER.value in item:
+                    item = item.replace(f'{MultipleMutableType.PLAY_ORDER.value}-', '')
+                    await self.player_update_queue_order(item)
+                    return True
             return False
 
     async def cleanup_players(self):
@@ -837,7 +839,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                 f'to queue in guild {media_download.media_request.guild_id}')
                 if not skip_update_queue_strings:
-                    self.message_queue.update_multiple_mutable(player.guild.id)
+                    self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}')
                 self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.DELETE,
                                                          partial(media_download.media_request.message_context.delete_message), '')
 
@@ -1285,7 +1287,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         self.logger.info(f'Player clear called in guild {ctx.guild.id}')
         player.clear_queue()
-        self.message_queue.update_multiple_mutable(player.guild.id)
+        self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}')
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, 'Cleared player queue', delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
@@ -1353,7 +1355,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.send_single_immutable([message_context])
             return
         player.shuffle_queue()
-        self.message_queue.update_multiple_mutable(player.guild.id)
+        self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}')
 
     @command(name='remove')
     @command_wrapper
@@ -1398,7 +1400,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                            delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
         item.delete()
-        self.message_queue.update_multiple_mutable(player.guild.id)
+        self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}')
 
     @command(name='bump')
     @command_wrapper
@@ -1442,7 +1444,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                            delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
 
-        self.message_queue.update_multiple_mutable(player.guild.id)
+        self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}')
 
     @command(name='stop')
     @command_wrapper
@@ -1479,7 +1481,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player.text_channel = ctx.channel
         # Since the first step in update player order strings checks the text channel for the last message
         # This will set the messages to delete, and then the rest will happen
-        self.message_queue.update_multiple_mutable(ctx.guild.id)
+        self.message_queue.update_multiple_mutable(f'{MultipleMutableType.PLAY_ORDER.value}-{ctx.guild.id}')
 
     async def __get_playlist(self, playlist_index: int, ctx: Context):
         def check_playlist_count(db_session: Session, guild_id: str):

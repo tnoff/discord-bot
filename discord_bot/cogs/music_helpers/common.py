@@ -43,3 +43,9 @@ class MessageType(Enum):
     MULTIPLE_MUTABLE = 'multiple_mutable'
     SINGLE_MUTABLE = 'single_mutable'
     SINGLE_IMMUTABLE = 'single_immutable'
+
+class MultipleMutableType(Enum):
+    '''
+    Message Multiple Types
+    '''
+    PLAY_ORDER = 'play_order'

@@ -32,13 +32,13 @@ class MessageQueue():
             return MessageType.SINGLE_IMMUTABLE, item
         return None, None
 
-    def update_multiple_mutable(self, guild_id: int) -> bool:
+    def update_multiple_mutable(self, index_name: str) -> bool:
         '''
         Iterate play order queue
-        guild_id : Guild id to iterate
+        index_name : Index Name for mutable
         '''
-        if guild_id not in self.multiple_mutable_queue:
-            self.multiple_mutable_queue[guild_id] = datetime.now(timezone.utc)
+        if index_name not in self.multiple_mutable_queue:
+            self.multiple_mutable_queue[index_name] = datetime.now(timezone.utc)
             return True
         return True
 
