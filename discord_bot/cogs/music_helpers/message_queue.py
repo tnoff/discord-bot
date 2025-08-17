@@ -87,6 +87,7 @@ class MessageQueue():
             message_context.function = function
             message_context.message_content = message_content
             message_context.delete_after = delete_after
+            message_context.lifecycle_stage = lifecycle_stage
             self.single_mutable_queue[str(message_context.uuid)] = message_context
             return True
         current_value = self.single_mutable_queue[str(message_context.uuid)]

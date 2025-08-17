@@ -199,7 +199,7 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog.players[fake_context['guild'].id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context['context'])
             m0 = cog.message_queue.get_next_message()
-            assert m0[1][0].args[0] == f'```Pos|| Title /// Uploader\n--------------------------------------------------------------------------------------\n1  || {sd.title} /// {sd.uploader}```' #pylint:disable=no-member
+            assert m0[1][0].function.args[0] == f'```Pos|| Title /// Uploader\n--------------------------------------------------------------------------------------\n1  || {sd.title} /// {sd.uploader}```' #pylint:disable=no-member
 
 @pytest.mark.asyncio()
 async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -336,7 +336,7 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.play_(cog, fake_context['context'], search='foo bar')
     m0 = cog.message_queue.get_next_message()
-    assert m0[1][0].args[0] == 'woopsie'
+    assert m0[1][0].function.args[0] == 'woopsie'
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -367,7 +367,7 @@ async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_random_play(cog, fake_context['context'])
     result = cog.message_queue.get_single_immutable()
-    assert result[0].args[0] == 'Function deprecated, please use `!playlist queue 0`'
+    assert result[0].function.args[0] == 'Function deprecated, please use `!playlist queue 0`'
 
 
 def test_music_init_with_spotify_credentials(fake_context):  #pylint:disable=redefined-outer-name

@@ -34,7 +34,9 @@ async def test_message_loop_bot_shutdown(mocker, fake_context):  #pylint:disable
 async def test_message_loop_send_single_message(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    cog.message_queue.send_single_immutable([partial(fake_context['channel'].send, 'test message')])
+    mc = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
+    mc.function = partial(fake_context['channel'].send, 'test message')
+    cog.message_queue.send_single_immutable([mc])
     await cog.send_messages()
     assert fake_context['channel'].messages[0].content == 'test message'
 
