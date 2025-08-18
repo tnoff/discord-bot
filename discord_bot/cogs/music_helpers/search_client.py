@@ -217,7 +217,6 @@ class SearchClient():
         search_string: New search string
         loop: Loop to run function in
         '''
-        print('Search type', search_type, 'search string', search_string, 'loop', loop)
         if search_type in [SearchType.YOUTUBE, SearchType.DIRECT]:
             return None
         to_run = partial(self.__search_youtube_music, search_string)
