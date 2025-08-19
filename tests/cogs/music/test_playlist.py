@@ -50,7 +50,7 @@ async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disabl
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
 
 
 @pytest.mark.asyncio
@@ -64,7 +64,7 @@ async def test_list_playlist_with_history(fake_engine, mocker, fake_context):  #
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
 
 @pytest.mark.asyncio()
 async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -79,7 +79,7 @@ async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_conte
     await cog.playlist_item_add(cog, fake_context['context'], 0, search='https://foo.example')
     result0 = cog.message_queue.get_single_immutable()
 
-    assert result0[0].args[0] == 'Unable to add "https://foo.example" to history playlist, is reserved and cannot be added to manually'
+    assert result0[0].function.args[0] == 'Unable to add "https://foo.example" to history playlist, is reserved and cannot be added to manually'
 
 @pytest.mark.asyncio()
 async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -129,7 +129,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     cog.message_queue.get_next_message()
     cog.message_queue.get_next_message()
     m2 = cog.message_queue.get_next_message()
-    assert m2[1][0].args[0] == '```Pos|| Title /// Uploader\n----------------------------------------------------------------------\n1  || foo /// foobar```'
+    assert m2[1][0].function.args[0] == '```Pos|| Title /// Uploader\n----------------------------------------------------------------------\n1  || foo /// foobar```'
 
 @pytest.mark.asyncio()
 async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -163,7 +163,7 @@ async def test_playlist_delete_history(mocker, fake_engine, fake_context):  #pyl
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     await cog.playlist_delete(cog, fake_context['context'], 0)
     result = cog.message_queue.get_single_immutable()
-    assert result[0].args[0] == 'Cannot delete history playlist, is reserved'
+    assert result[0].function.args[0] == 'Cannot delete history playlist, is reserved'
 
 
 
@@ -186,7 +186,7 @@ async def test_playlist_rename_history(mocker, fake_engine, fake_context):  #pyl
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     await cog.playlist_rename(cog, fake_context['context'], 0, playlist_name='foo-bar-playlist')
     result = cog.message_queue.get_single_immutable()
-    assert result[0].args[0] == 'Cannot rename history playlist, is reserved'
+    assert result[0].function.args[0] == 'Cannot rename history playlist, is reserved'
 
 @pytest.mark.asyncio
 async def test_history_save(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -310,7 +310,7 @@ async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pyli
     await cog.playlist_merge(cog, fake_context['context'], 0, 1)
     cog.message_queue.get_single_immutable()
     result = cog.message_queue.get_single_immutable()
-    assert result[0].args[0] == 'Cannot merge history playlist, is reserved'
+    assert result[0].function.args[0] == 'Cannot merge history playlist, is reserved'
 
 def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test __playlist_insert_item private method"""

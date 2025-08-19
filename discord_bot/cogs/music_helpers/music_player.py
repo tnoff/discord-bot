@@ -11,6 +11,7 @@ from discord.ext.commands import Context
 from discord.errors import ClientException
 
 
+from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
@@ -105,7 +106,10 @@ class MusicPlayer:
                             f'by "{source.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{source.webpage_url}"')
         self.np_message = f'Now playing {source.webpage_url} requested by {source.media_request.requester_name}'
-        self.message_queue.update_multiple_mutable(self.guild.id)
+        self.message_queue.update_multiple_mutable(
+            f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}',
+            self.text_channel
+        )
 
         await self.next.wait()
         self.np_message = ''
@@ -133,7 +137,10 @@ class MusicPlayer:
 
         # Make sure we delete queue messages if nothing left
         if self._play_queue.empty():
-            self.message_queue.update_multiple_mutable(self.guild.id)
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}',
+                self.text_channel
+            )
 
     def get_queue_order_messages(self):
         '''

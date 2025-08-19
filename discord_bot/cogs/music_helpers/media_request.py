@@ -1,11 +1,12 @@
 from typing import Callable, List, Literal
+from uuid import uuid4
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.utils.otel import MediaRequestNaming
 
 
-class MediaRequest(MessageContext):
+class MediaRequest():
     '''
     Original source of play request
     '''
@@ -14,7 +15,8 @@ class MediaRequest(MessageContext):
                  added_from_history: bool = False,
                  download_file: bool = True,
                  video_non_exist_callback_functions: List[Callable] = None,
-                 post_download_callback_functions: List[Callable] = None):
+                 post_download_callback_functions: List[Callable] = None,
+                 message_context: MessageContext = None):
         '''
         Generate new media request options
 
@@ -29,7 +31,8 @@ class MediaRequest(MessageContext):
         video_non_exist_callback_functions: Call these functions if video not found or not available
         post_download_callback_functions : Call these functions after video downloads
         '''
-        super().__init__(guild_id, channel_id)
+        self.guild_id = guild_id
+        self.channel_id = channel_id
         self.requester_name =  requester_name
         self.requester_id = requester_id
         # Keep original search string for later
@@ -41,13 +44,10 @@ class MediaRequest(MessageContext):
         self.download_file = download_file
         self.video_non_exist_callback_functions = video_non_exist_callback_functions or []
         self.post_download_callback_functions = post_download_callback_functions or []
+        # Message Context
+        self.message_context = message_context
+        self.uuid = uuid4()
 
-    def add_youtube_result(self, video_url: str) -> bool:
-        '''
-        Add result from cache or youtube music
-        '''
-        self.search_string = video_url
-        return True
 
     def __str__(self):
         '''

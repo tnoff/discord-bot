@@ -76,7 +76,9 @@ async def test_delete_messages_main_loop(mocker, fake_context):  #pylint:disable
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_context['bot'], config, None)
     await cog.delete_messages_loop()
-    assert fake_context['channel'].messages[0].deleted is True
+    # Message should be deleted and removed from channel
+    assert len(fake_context['channel'].messages) == 0
+    assert fake_message.deleted is True
 
 @pytest.mark.asyncio
 @freeze_time('2024-01-01 12:00:00', tz_offset=0)
