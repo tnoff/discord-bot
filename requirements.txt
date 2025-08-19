@@ -6,7 +6,7 @@ click==8.1.8
 discord.py==2.5.2
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.0.9
 google-api-python-client==2.178.0
-jsonschema==4.25.0
+jsonschema==4.25.1
 moviepy==2.2.1
 opentelemetry-sdk==1.36.0
 # Dont pin these so dependabot updates are easier
