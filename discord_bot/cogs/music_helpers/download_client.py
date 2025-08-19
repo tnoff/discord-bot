@@ -43,6 +43,11 @@ class VideoUnavailableException(DownloadClientException):
     Video Unavailable while downloading
     '''
 
+class VideoViolatedTermsException(DownloadClientException):
+    '''
+    Video Removed for Violating Terms of Service
+    '''
+
 class PrivateVideoException(DownloadClientException):
     '''
     Private Video while downloading
@@ -84,13 +89,13 @@ def match_generator(max_video_length: int, banned_videos_list: List[str], video_
         Throw errors if filters dont match
         '''
         duration = info.get('duration')
-        if duration and max_video_length and duration > max_video_length:
-            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} exceeds max length of {max_video_length}, skipping')
         vid_url = info.get('webpage_url')
+        if duration and max_video_length and duration > max_video_length:
+            raise VideoTooLong('Video Too Long', user_message=f'Video "<{vid_url}>" duration {duration} seconds exceeds max length of {max_video_length} seconds, skipping')
         if vid_url and banned_videos_list:
             for banned_url in banned_videos_list:
                 if vid_url == banned_url:
-                    raise VideoBanned('Video Banned', user_message=f'Video url "{vid_url}" is banned, skipping')
+                    raise VideoBanned('Video Banned', user_message=f'Video url "<{vid_url}>" is banned, skipping')
         # Check if video exists within cache, and raise
         extractor = info.get('extractor')
         vid_id = info.get('id')
@@ -132,6 +137,10 @@ class DownloadClient():
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(media_request)}" is unvailable, cannot download') from error
+                if 'This video has been removed for violating' in str(error):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    raise VideoViolatedTermsException('Video taken down', user_message=f'Video from search "{str(media_request)}" is unvailable due to violating terms of service, cannot download') from error
                 if 'Video unavailable' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)

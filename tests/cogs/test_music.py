@@ -11,6 +11,7 @@ from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadError
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
+from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
@@ -663,7 +664,6 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
 @pytest.mark.asyncio
 async def test_message_formatter_integration_play_queue_full():  #pylint:disable=redefined-outer-name
     """Test MessageFormatter integration with play queue full scenario."""
-    from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter  # pylint: disable=import-outside-toplevel
 
     # Test that MessageFormatter produces correct format for play queue full scenarios
     test_item = "Test Song Title"
@@ -686,7 +686,6 @@ async def test_message_formatter_integration_play_queue_full():  #pylint:disable
 @pytest.mark.asyncio
 async def test_message_formatter_integration_different_queue_types():  #pylint:disable=redefined-outer-name
     """Test that MessageFormatter handles different queue full scenarios correctly."""
-    from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter  # pylint: disable=import-outside-toplevel
 
     # Test various item formats
     test_cases = [

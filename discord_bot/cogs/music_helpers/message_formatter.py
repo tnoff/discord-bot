@@ -32,17 +32,21 @@ class MessageFormatter:
         return f'Unable to add "{item_str}" to queue, download queue is full'
 
     @staticmethod
-    def format_video_download_issue_message(item_str: str) -> str:
+    def format_video_download_issue_message(item_str: str, error_message: str = None) -> str:
         """
         Format a message for when there's an issue downloading a video.
         
         Args:
             item_str: String representation of the item that failed to download
-            
+            error_message: Error message to show
+
         Returns:
             Formatted error message
         """
-        return f'Issue downloading video "{item_str}", skipping'
+        mess = f'Issue downloading video "{item_str}"'
+        if error_message:
+            mess = f'{mess}, error: "{error_message}"'
+        return mess
 
     @staticmethod
     def format_downloading_message(item_str: str) -> str:
