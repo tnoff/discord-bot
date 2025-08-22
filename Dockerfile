@@ -19,17 +19,6 @@ COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
 
 RUN pip install psycopg2 "${APPDIR}"
-# Temp fix for https://github.com/Rapptz/discord.py/issues/10207
-# Applies https://github.com/Rapptz/discord.py/pull/10210/files
-
-# Clone discord.py and patch it
-WORKDIR /tmp
-RUN git clone https://github.com/Rapptz/discord.py.git
-WORKDIR /tmp/discord.py
-RUN git fetch origin
-# Install discord.py from source
-RUN pip uninstall discord.py -y && pip install .
-RUN rm -rf /tmp/discord.py
 
 WORKDIR "/opt/discord"
 
