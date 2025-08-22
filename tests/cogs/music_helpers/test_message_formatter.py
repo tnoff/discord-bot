@@ -89,7 +89,7 @@ def test_format_video_download_issue_message():
     """Test format_video_download_issue_message."""
     item_str = "Test Song"
     result = MessageFormatter.format_video_download_issue_message(item_str)
-    expected = 'Issue downloading video "Test Song", skipping'
+    expected = 'Issue downloading video "Test Song"'
     assert result == expected
 
 def test_format_downloading_message():
@@ -144,7 +144,7 @@ def test_format_playlist_generation_issue_message():
 def test_all_methods_handle_empty_strings():
     """Test that all methods handle empty strings gracefully."""
     # Test methods that take item_str parameter
-    assert MessageFormatter.format_video_download_issue_message("") == 'Issue downloading video "", skipping'
+    assert MessageFormatter.format_video_download_issue_message("") == 'Issue downloading video ""'
     assert MessageFormatter.format_downloading_message("") == 'Downloading and processing ""'
     assert MessageFormatter.format_downloading_for_playlist_message("") == 'Downloading and processing "" to add to playlist'
     assert MessageFormatter.format_playlist_item_added_message("") == 'Added item "" to playlist'
@@ -155,7 +155,7 @@ def test_all_methods_handle_special_characters():
     """Test that all methods handle special characters properly."""
     item_with_quotes = 'Song "with quotes" & symbols'
 
-    assert MessageFormatter.format_video_download_issue_message(item_with_quotes) == 'Issue downloading video "Song "with quotes" & symbols", skipping'
+    assert MessageFormatter.format_video_download_issue_message(item_with_quotes) == 'Issue downloading video "Song "with quotes" & symbols"'
     assert MessageFormatter.format_downloading_message(item_with_quotes) == 'Downloading and processing "Song "with quotes" & symbols"'
     assert MessageFormatter.format_downloading_for_playlist_message(item_with_quotes) == 'Downloading and processing "Song "with quotes" & symbols" to add to playlist'
     assert MessageFormatter.format_playlist_item_added_message(item_with_quotes) == 'Added item "Song "with quotes" & symbols" to playlist'

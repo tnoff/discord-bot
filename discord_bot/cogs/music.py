@@ -921,6 +921,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
                     media_download = None
+                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
+                                                             partial(media_request.message_context.edit_message),
+                                                             MessageFormatter.format_video_download_issue_message(str(media_request), str(e)),
+                                                             delete_after=self.delete_after)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
 

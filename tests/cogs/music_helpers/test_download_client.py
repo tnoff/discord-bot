@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 import pytest
 from yt_dlp.utils import DownloadError
 
-from discord_bot.cogs.music_helpers.download_client import DownloadClient,  DownloadClientException
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, VideoTooLong, match_generator
 
 from tests.helpers import fake_source_dict, generate_fake_context
 
@@ -91,6 +91,12 @@ async def test_prepare_source_errors():
         await x.create_source(y, loop)
     assert 'Video Aged restricted' in str(exc.value)
 
+    x = DownloadClient(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"), None)
+    y = fake_source_dict(fake_context, download_file=False)
+    with pytest.raises(DownloadClientException) as exc:
+        await x.create_source(y, loop)
+    assert 'Video taken down' in str(exc.value)
+
     x = DownloadClient(yield_dlp_error('Video unavailable'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
@@ -114,3 +120,43 @@ async def test_prepare_source_errors():
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
     assert 'No videos found' in str(exc.value)
+
+def test_match_generator_video_too_long_improved_message():
+    """Test improved error message for VideoTooLong exception via match_generator"""
+    # Test the match_generator filter function directly
+    filter_func = match_generator(max_video_length=3600, banned_videos_list=None)
+
+    # Mock video info that exceeds max length
+    video_info = {
+        'webpage_url': 'https://example.com/long-video',
+        'title': 'Very Long Video',
+        'uploader': 'Test Uploader',
+        'duration': 7200,  # 2 hours, longer than max
+        'extractor': 'test-extractor',
+    }
+
+    with pytest.raises(VideoTooLong) as exc:
+        filter_func(video_info, incomplete=False)
+
+    # Check for improved error message format in user_message
+    error_msg = exc.value.user_message
+    assert 'https://example.com/long-video' in error_msg
+    assert 'duration 7200 seconds' in error_msg
+    assert 'exceeds max length of 3600 seconds' in error_msg
+
+def test_match_generator_video_within_length_limit():
+    """Test that videos within length limit pass through match_generator"""
+    # Test the match_generator filter function directly
+    filter_func = match_generator(max_video_length=3600, banned_videos_list=None)
+
+    # Mock video info that is within length limit
+    video_info = {
+        'webpage_url': 'https://example.com/short-video',
+        'title': 'Short Video',
+        'uploader': 'Test Uploader',
+        'duration': 1800,  # 30 minutes, within limit
+        'extractor': 'test-extractor',
+    }
+
+    # Should not raise any exception
+    filter_func(video_info, incomplete=False)
