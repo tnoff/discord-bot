@@ -1857,12 +1857,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 },
             ]
             table = DapperTable(headers, rows_per_message=15)
+            total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(get_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
                 table.add_row([
                     f'{count + 1}',
                     f'{item.title} /// {uploader}',
                 ])
+                total += 1
+            if not total:
+                self.message_queue.send_single_immutable(f'No items in playlist {playlist_id}')
+                return
             messages = [f'```{t}```' for t in table.print()]
             message_contexts = []
             for mess in messages:
