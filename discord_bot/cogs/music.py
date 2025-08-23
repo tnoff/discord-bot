@@ -2211,6 +2211,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Deprecated, please use !playlist queue 0
         '''
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0`', delete_after=self.delete_after)
+        message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0 shuffle`', delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
         return
