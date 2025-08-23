@@ -90,24 +90,25 @@ class MessageQueue():
         dispatch_functions = bundle.get_message_dispatch(message_content, clear_existing=should_clear)
         return dispatch_functions
 
-    async def update_mutable_bundle_references(self, index_name: str, results: List) -> bool:
+    async def update_mutable_bundle_references(self, index_name: str, message_results: List) -> bool:
         '''
         Update message references in a bundle after dispatch functions have been executed
 
         index_name: Unique identifier for the bundle
-        results: List of results from executing dispatch functions (Message objects for sends, booleans for deletes)
+        message_results: List of Message objects from send operations (delete results should be filtered out by caller)
         '''
         bundle = self.mutable_bundles.get(index_name)
         if not bundle:
             return False
 
-        # Update message references only for Message objects (send/update operations)
-        send_results = [r for r in results if r and hasattr(r, 'id')]
+        # Find contexts that need message references (those without existing messages)
+        # This handles the case where sticky clearing creates new contexts
+        contexts_needing_refs = [ctx for ctx in bundle.message_contexts if not ctx.message]
 
-        # Set message references for the contexts that correspond to new messages
-        for i, message in enumerate(send_results):
-            if i < len(bundle.message_contexts):
-                bundle.message_contexts[i].set_message(message)
+        # Set message references for contexts that need them
+        for i, message in enumerate(message_results):
+            if i < len(contexts_needing_refs):
+                contexts_needing_refs[i].set_message(message)
 
         return True
 

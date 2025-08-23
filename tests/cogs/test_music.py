@@ -368,7 +368,7 @@ async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_random_play(cog, fake_context['context'])
     result = cog.message_queue.get_single_immutable()
-    assert result[0].function.args[0] == 'Function deprecated, please use `!playlist queue 0`'
+    assert result[0].function.args[0] == 'Function deprecated, please use `!playlist queue 0 shuffle`'
 
 
 def test_music_init_with_spotify_credentials(fake_context):  #pylint:disable=redefined-outer-name

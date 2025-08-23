@@ -672,8 +672,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     for func in funcs:
                         result = await async_retry_discord_message_command(func)
                         results.append(result)
-                    # Update message references for new messages (only for send operations)
-                    await self.message_queue.update_mutable_bundle_references(item, results)
+                    # Update message references for new messages (only pass Message objects, not delete results)
+                    message_results = [r for r in results if r and hasattr(r, 'id')]
+                    await self.message_queue.update_mutable_bundle_references(item, message_results)
                     return True
             return False
 
@@ -1569,7 +1570,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             playlist = retry_database_commands(db_session, partial(create_playlist, db_session, playlist_name, str(ctx.guild.id)))
             self.logger.info(f'Playlist created "{playlist_name}" with ID {playlist.id} in guild {ctx.guild.id}')
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}"',
+            message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}" with id {playlist.id}',
                                                delete_after=self.delete_after)
             self.message_queue.send_single_immutable([message_context])
             return playlist.id
@@ -1760,6 +1761,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             media_request.message_context = message_context
             self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND, partial(ctx.send),
                                                      MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
+            media_download = await self.__check_video_cache(media_request)
+            if media_download:
+                self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in playlist item')
+                await self.__add_playlist_item_function(ctx, playlist_id, media_download)
+                continue
             media_request.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
@@ -1851,12 +1857,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 },
             ]
             table = DapperTable(headers, rows_per_message=15)
+            total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(get_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
                 table.add_row([
                     f'{count + 1}',
                     f'{item.title} /// {uploader}',
                 ])
+                total += 1
+            if not total:
+                self.message_queue.send_single_immutable(f'No items in playlist {playlist_id}')
+                return
             messages = [f'```{t}```' for t in table.print()]
             message_contexts = []
             for mess in messages:
@@ -2200,6 +2211,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Deprecated, please use !playlist queue 0
         '''
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0`', delete_after=self.delete_after)
+        message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0 shuffle`', delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
         return
