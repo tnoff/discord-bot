@@ -1760,6 +1760,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             media_request.message_context = message_context
             self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND, partial(ctx.send),
                                                      MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
+            media_download = await self.__check_video_cache(media_request)
+            if media_download:
+                self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in playlist item')
+                await self.__add_playlist_item_function(ctx, playlist_id, media_download)
+                continue
             media_request.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
