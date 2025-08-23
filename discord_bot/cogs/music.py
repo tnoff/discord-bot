@@ -672,8 +672,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     for func in funcs:
                         result = await async_retry_discord_message_command(func)
                         results.append(result)
-                    # Update message references for new messages (only for send operations)
-                    await self.message_queue.update_mutable_bundle_references(item, results)
+                    # Update message references for new messages (only pass Message objects, not delete results)
+                    message_results = [r for r in results if r and hasattr(r, 'id')]
+                    await self.message_queue.update_mutable_bundle_references(item, message_results)
                     return True
             return False
 

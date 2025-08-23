@@ -574,8 +574,9 @@ async def test_message_queue_update_references():
         result = await func()
         results.append(result)
 
-    # Update references using the new method
-    success = await mq.update_mutable_bundle_references(index_name, results)
+    # Update references using the new method (filter to only Message objects)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    success = await mq.update_mutable_bundle_references(index_name, message_results)
     assert success
 
     # Verify that message references were set
@@ -613,7 +614,8 @@ async def test_message_queue_full_workflow_with_sticky():
     for func in dispatch_functions:
         result = await func()
         results.append(result)
-    await mq.update_mutable_bundle_references(index_name, results)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
 
     # Verify initial state
     bundle = mq.mutable_bundles[index_name]
@@ -635,7 +637,8 @@ async def test_message_queue_full_workflow_with_sticky():
     for func in dispatch_functions:
         result = await func()
         results.append(result)
-    await mq.update_mutable_bundle_references(index_name, results)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
 
     # STEP 4: Verify sticky behavior worked correctly
     current_messages = fake_context['channel'].messages
@@ -676,7 +679,8 @@ async def test_message_queue_sticky_behavior_integration():
         results.append(result)
 
     # Update bundle to track message references (using new method)
-    await mq.update_mutable_bundle_references(index_name, results)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
 
     # Add interrupting message to displace our messages
     await fake_context['channel'].send("Interrupting message")
@@ -690,3 +694,187 @@ async def test_message_queue_sticky_behavior_integration():
     new_content = ["New Sticky Message"]
     dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
     assert len(dispatch_functions) > 0  # Should have dispatch functions to send new content
+
+
+@pytest.mark.asyncio
+async def test_message_queue_small_bundle_no_sticky_clearing():
+    """Test that 1-2 message bundles don't trigger sticky clearing, confirming the bug doesn't occur"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-small-bundle"
+
+    # STEP 1: Create bundle with only 1 message
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Single message"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    bundle = mq.mutable_bundles[index_name]
+    assert len(bundle.message_contexts) == 1
+    assert bundle.message_contexts[0].message is not None
+    original_message_id = bundle.message_contexts[0].message.id
+
+    # STEP 2: Add user message to displace our message
+    await fake_context['channel'].send("User interruption")
+
+    # STEP 3: Verify sticky clearing is NOT triggered (this is why the bug doesn't manifest with <3 messages)
+    should_clear = await bundle.should_clear_messages()
+    assert not should_clear, "Single message should NOT trigger sticky clearing - confirming bug doesn't occur with <3 messages"
+
+    # STEP 4: Update bundle content (should use edit, not clearing)
+    new_content = ["Updated single message"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    # STEP 5: Verify message reference is the same (edited in place, not recreated)
+    assert len(bundle.message_contexts) == 1
+    assert bundle.message_contexts[0].message is not None
+    new_message_id = bundle.message_contexts[0].message.id
+    assert new_message_id == original_message_id  # Should be the same message (edited)
+    assert bundle.message_contexts[0].message.content == "Updated single message"
+
+
+@pytest.mark.asyncio
+async def test_message_queue_large_bundle_reference_bug_prevention():
+    """Test that 3+ message bundles have proper reference mapping after fix"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-large-bundle"
+
+    # STEP 1: Create bundle with 4 messages (ensures 3+ threshold)
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Message 1", "Message 2", "Message 3", "Message 4"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    bundle = mq.mutable_bundles[index_name]
+    assert len(bundle.message_contexts) == 4
+    original_message_ids = [ctx.message.id for ctx in bundle.message_contexts]
+    original_contents = [ctx.message.content for ctx in bundle.message_contexts]
+
+    # Verify initial setup
+    assert "Message 1" in original_contents
+    assert "Message 4" in original_contents
+
+    # STEP 2: Add multiple user messages to displace our messages
+    await fake_context['channel'].send("User message 1")
+    await fake_context['channel'].send("User message 2")
+    await fake_context['channel'].send("User message 3")
+
+    # STEP 3: Update bundle content (should trigger sticky clearing and recreate all messages)
+    new_content = ["New Message A", "New Message B", "New Message C", "New Message D"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    # Track what operations are happening
+    delete_count = 0
+    send_count = 0
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+        if isinstance(result, bool):
+            delete_count += 1
+        elif hasattr(result, 'id'):
+            send_count += 1
+
+    # Should have deleted 4 old messages and sent 4 new ones
+    assert delete_count == 4, f"Expected 4 delete operations, got {delete_count}"
+    assert send_count == 4, f"Expected 4 send operations, got {send_count}"
+
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    # STEP 4: Verify all message references are properly mapped (this is where the bug would manifest)
+    assert len(bundle.message_contexts) == 4
+    new_message_ids = [ctx.message.id for ctx in bundle.message_contexts if ctx.message]
+    new_contents = [ctx.message.content for ctx in bundle.message_contexts if ctx.message]
+
+    # All contexts should have new message references (none should be None)
+    assert len(new_message_ids) == 4, "All contexts should have message references after sticky clearing"
+
+    # No old message IDs should persist
+    for old_id in original_message_ids:
+        assert old_id not in new_message_ids, f"Old message ID {old_id} should not persist after sticky clearing"
+
+    # All new content should be present
+    assert "New Message A" in new_contents
+    assert "New Message B" in new_contents
+    assert "New Message C" in new_contents
+    assert "New Message D" in new_contents
+
+    # Original content should not persist (this would be the bug symptom)
+    for old_content in original_contents:
+        assert old_content not in new_contents, f"Old content '{old_content}' should not persist"
+
+
+@pytest.mark.asyncio
+async def test_message_queue_mixed_results_reference_mapping():
+    """Test that mixed delete/send results are properly handled in reference mapping"""
+    mq = MessageQueue()
+    fake_context = generate_fake_context()
+    index_name = "test-mixed-results"
+
+    # STEP 1: Create bundle with 3 messages
+    mq.update_multiple_mutable(index_name, fake_context['channel'])
+    content = ["Initial 1", "Initial 2", "Initial 3"]
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    bundle = mq.mutable_bundles[index_name]
+
+    # STEP 2: Interrupt with user message to trigger sticky behavior
+    await fake_context['channel'].send("Interrupting message")
+
+    # STEP 3: Update with different number of messages to create mixed operations
+    new_content = ["Final A", "Final B"]  # Fewer messages = some deletes, some sends
+    dispatch_functions = await mq.update_mutable_bundle_content(index_name, new_content)
+
+    # Manually verify we get expected mixed results
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+
+    # Should have: [delete_result1, delete_result2, delete_result3, send_message1, send_message2]
+    delete_results = [r for r in results if isinstance(r, bool) and r]
+    send_results = [r for r in results if hasattr(r, 'id')]
+
+    assert len(delete_results) == 3, "Should delete 3 original messages"
+    assert len(send_results) == 2, "Should send 2 new messages"
+
+    # STEP 4: Apply reference mapping and verify correctness
+    message_results = [r for r in results if r and hasattr(r, 'id')]
+    await mq.update_mutable_bundle_references(index_name, message_results)
+
+    # Should have exactly 2 contexts with proper message references
+    assert len(bundle.message_contexts) == 2
+    assert all(ctx.message is not None for ctx in bundle.message_contexts)
+
+    # Verify content matches what we sent
+    actual_contents = [ctx.message.content for ctx in bundle.message_contexts]
+    assert "Final A" in actual_contents
+    assert "Final B" in actual_contents
