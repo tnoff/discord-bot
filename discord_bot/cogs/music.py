@@ -846,9 +846,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         message = exception.user_message
         self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
                                                  partial(media_request.message_context.edit_message), message, delete_after=self.delete_after)
-        if not skip_callback_functions:
-            for func in media_request.video_non_exist_callback_functions:
-                await func()
+        if not skip_callback_functions and media_request.history_playlist_item_id:
+            await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
 
     async def __check_video_cache(self, media_request: MediaRequest):
@@ -2032,12 +2031,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.message_queue.send_single_immutable([message_context])
         return
 
-    async def __delete_non_existing_item(self, item_id: int, item_video_url: str, ctx: Context):
-        self.logger.warning(f'Unable to find playlist item {item_id} in playlist, deleting')
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, content=f'Unable to find video "{item_video_url}" in playlist, deleting',
-                                           delete_after=self.delete_after)
-        self.message_queue.send_single_immutable([message_context])
+    async def __delete_non_existing_item(self, item_id: int):
+        self.logger.warning(f'Unable to find playlist item {item_id} from history playlist, deleting')
         with self.with_db_session() as db_session:
             item = db_session.query(PlaylistItem).get(item_id)
             db_session.delete(item)
@@ -2064,14 +2059,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in retry_database_commands(db_session, partial(list_playlist_items, db_session, playlist_id)):
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 media_request = MediaRequest(ctx.guild.id,
-                                         ctx.channel.id,
-                                         ctx.author.display_name,
-                                         ctx.author.id,
-                                         item.video_url,
-                                         SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                         added_from_history=is_history,
-                                         video_non_exist_callback_functions=[partial(self.__delete_non_existing_item, item.id, item.video_url, ctx)] if is_history else [],
-                                         message_context=message_context)
+                                             ctx.channel.id,
+                                             ctx.author.display_name,
+                                             ctx.author.id,
+                                             item.video_url,
+                                             SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
+                                             added_from_history=is_history,
+                                             history_playlist_item_id=item.id,
+                                             message_context=message_context)
                 playlist_items.append(media_request)
 
             if shuffle:
