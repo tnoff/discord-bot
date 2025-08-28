@@ -934,9 +934,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 span.set_status(StatusCode.ERROR)
                 return
             span.set_status(StatusCode.OK)
-            # Callback functions if given
-            for func in media_request.post_download_callback_functions:
-                await func(media_download)
+            # Check if we need to add to a playlist
+            if media_request.add_to_playlist:
+                await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
 
             if media_request.download_file and player:
                 # Add sources to players
@@ -1688,7 +1688,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                            video_url, video_uploader, playlist_id))
             return playlist_item_id
 
-    async def __add_playlist_item_function(self, ctx: Context, playlist_id: int, media_download: MediaDownload):
+    async def __add_playlist_item_function(self, playlist_id: int, media_download: MediaDownload):
         '''
         Call this when the media download eventually completes
         media_download : Media Download from download client
@@ -1700,7 +1700,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                      delete_after=self.delete_after)
             return
         self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
-                         f' in guild {ctx.guild.id}')
+                         f' in guild {media_download.media_request.guild_id}')
         try:
             playlist_item_id = self.__playlist_insert_item(playlist_id, media_download.webpage_url, media_download.title, media_download.uploader)
         except PlaylistMaxLength:
@@ -1764,9 +1764,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             media_download = await self.__check_video_cache(media_request)
             if media_download:
                 self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in playlist item')
-                await self.__add_playlist_item_function(ctx, playlist_id, media_download)
+                await self.__add_playlist_item_function(playlist_id, media_download)
                 continue
-            media_request.post_download_callback_functions = [partial(self.__add_playlist_item_function, ctx, playlist_id)] #pylint: disable=no-value-for-parameter
+            media_request.add_to_playlist = playlist_id
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
 
     @playlist.command(name='item-remove')

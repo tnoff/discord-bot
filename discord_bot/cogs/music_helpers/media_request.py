@@ -15,8 +15,8 @@ class MediaRequest():
                  added_from_history: bool = False,
                  download_file: bool = True,
                  video_non_exist_callback_functions: List[Callable] = None,
-                 post_download_callback_functions: List[Callable] = None,
-                 message_context: MessageContext = None):
+                 message_context: MessageContext = None,
+                 add_to_playlist: int = None):
         '''
         Generate new media request options
 
@@ -29,7 +29,7 @@ class MediaRequest():
         added_from_history : Whether or not this was added from history
         download_file : Download file eventually
         video_non_exist_callback_functions: Call these functions if video not found or not available
-        post_download_callback_functions : Call these functions after video downloads
+        add_to_playlist : Set to add to playlist after download
         '''
         self.guild_id = guild_id
         self.channel_id = channel_id
@@ -43,7 +43,7 @@ class MediaRequest():
         self.added_from_history = added_from_history
         self.download_file = download_file
         self.video_non_exist_callback_functions = video_non_exist_callback_functions or []
-        self.post_download_callback_functions = post_download_callback_functions or []
+        self.add_to_playlist = add_to_playlist
         # Message Context
         self.message_context = message_context
         self.uuid = uuid4()
