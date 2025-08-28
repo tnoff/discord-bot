@@ -16,7 +16,8 @@ class MediaRequest():
                  download_file: bool = True,
                  message_context: MessageContext = None,
                  add_to_playlist: int = None,
-                 history_playlist_item_id: int = None):
+                 history_playlist_item_id: int = None,
+                 multi_input_search_string: str = None):
         '''
         Generate new media request options
 
@@ -25,6 +26,7 @@ class MediaRequest():
         requester_name: Display name of original requester
         requester_id : User id of original requester
         search_string : Search string of original request
+        multi_input_search_string : Input for playlist type searches
         search_type : Type of search it was
         added_from_history : Whether or not this was added from history
         download_file : Download file eventually
@@ -36,6 +38,8 @@ class MediaRequest():
         self.requester_name =  requester_name
         self.requester_id = requester_id
         # Keep original search string for later
+        # In these cases, original search is what was passed into the search and search string is often youtube url
+        # For example original_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
         self.original_search_string = search_string
         self.search_string = search_string
         self.search_type = search_type
@@ -44,6 +48,7 @@ class MediaRequest():
         self.download_file = download_file
         self.history_playlist_item_id = history_playlist_item_id
         self.add_to_playlist = add_to_playlist
+        self.multi_input_search_string = multi_input_search_string
         # Message Context
         self.message_context = message_context
         self.uuid = uuid4()

@@ -164,7 +164,8 @@ class SearchClient():
                 if should_shuffle:
                     for _ in range(self.number_shuffles):
                         shuffle(search_strings)
-                return SearchType.SPOTIFY, search_strings, sd
+                spotify_search_original = search_string_message if spotify_track_matcher is None else None
+                return SearchType.SPOTIFY, search_strings, sd, spotify_search_original
 
             if youtube_playlist_matcher:
                 if not self.youtube_client:
@@ -183,23 +184,23 @@ class SearchClient():
                 if should_shuffle:
                     for _ in range(self.number_shuffles):
                         shuffle(search_strings)
-                return SearchType.YOUTUBE, search_strings, sd
+                return SearchType.YOUTUBE, search_strings, sd, search_string_message
 
             if youtube_short_match:
-                return SearchType.YOUTUBE, [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}'], None
+                return SearchType.YOUTUBE, [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}'], None, None
 
             if youtube_video_match:
-                return SearchType.YOUTUBE, [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'], None
+                return SearchType.YOUTUBE, [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'], None, None
 
             if FXTWITTER_VIDEO_PREFIX in search:
-                return SearchType.DIRECT, [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)], None
+                return SearchType.DIRECT, [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)], None, None
 
             # If we have https:// in url, assume its a direct
             if 'https://' in search:
-                return SearchType.DIRECT, [search], None
+                return SearchType.DIRECT, [search], None, None
 
             # Else assume this was a search message to put into youtube music
-            return SearchType.SEARCH, [search], None
+            return SearchType.SEARCH, [search], None, None
 
     def __search_youtube_music(self, search_string: str):
         '''
@@ -236,14 +237,15 @@ class SearchClient():
         max_results : Max results of items
         text_channel : Text channel to send messages to
         '''
-        search_type, search_strings, sent_message = await self.__check_source_types(search, loop, text_channel)
+        search_type, search_strings, sent_message, search_string_message = await self.__check_source_types(search, loop, text_channel)
         if max_results:
             search_strings = islice(search_strings, max_results)
 
         all_entries = []
         for search_string in search_strings:
             message_context = MessageContext(guild_id, channel_id)
-            entry = MediaRequest(guild_id, channel_id, requester_name, requester_id, search_string, search_type, message_context=message_context)
+            entry = MediaRequest(guild_id, channel_id, requester_name, requester_id, search_string, search_type, message_context=message_context,
+                                 multi_input_search_string=search_string_message)
             # Fallback to youtube music check
             if self.youtube_music_client:
                 result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)
