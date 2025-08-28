@@ -14,9 +14,8 @@ from typing import Optional, List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
-from discord.errors import DiscordServerError, Forbidden
+from discord.errors import DiscordServerError
 from discord import VoiceChannel
-from discord.errors import NotFound
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
@@ -28,7 +27,7 @@ from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType, MessageLifecycleStage, MessageType, MultipleMutableType
+from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
@@ -36,7 +35,7 @@ from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
-from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
+from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
 from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
@@ -56,6 +55,7 @@ from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, Attribute
 
 # GLOBALS
 PLAYHISTORY_PREFIX = '__playhistory__'
+PLAYHISTORY_NAME = 'Channel History'
 
 # Find numbers in strings
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
@@ -360,6 +360,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # So we dont delete them as they are in flight
         self.sources_in_transit = {}
 
+        # Multi Request bundles
+        self.multirequest_bundles = {}
+
         ytdlopts = {
             'format': 'bestaudio/best',
             'restrictfilenames': True,
@@ -563,6 +566,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if self.playlist_history_checkfile.exists():
                 self.playlist_history_checkfile.unlink()
 
+            self.multirequest_bundles.clear()
 
             return True
 
@@ -639,43 +643,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
             return True
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER) as span:
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
             if source_type == MessageType.SINGLE_IMMUTABLE:
                 for message_context in item:
                     await async_retry_discord_message_command(message_context.function, allow_404=True)
                 return True
-            if source_type == MessageType.SINGLE_MUTABLE:
-                try:
-                    result = await async_retry_discord_message_command(partial(item.function, item.message_content, delete_after=item.delete_after))
-                    if item.lifecycle_stage == MessageLifecycleStage.SEND:
-                        item.set_message(result)
-                    return True
-                except Forbidden as e:
-                    # Add some extra context so we can debug when this happens
-                    span.set_attributes({
-                        DiscordContextNaming.GUILD.value: item.guild_id,
-                        DiscordContextNaming.CHANNEL.value: item.channel_id,
-                    })
-                    raise e
-                except NotFound:
-                    if item.lifecycle_stage == MessageLifecycleStage.DELETE:
-                        self.logger.warning(f'Unable to find message for deletion for source {item}')
-                        return False
-                    raise
             if source_type == MessageType.MULTIPLE_MUTABLE:
-                if MultipleMutableType.PLAY_ORDER.value in item:
-                    guild_id = item.replace(f'{MultipleMutableType.PLAY_ORDER.value}-', '')
+                delete_after = None
+                message_content = []
+                if MultipleMutableType.REQUEST_BUNDLE.value in item:
+                    bundle_uuid = item.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
+                    bundle = self.multirequest_bundles.get(bundle_uuid)
+                    if bundle:
+                        # Set channel to default backup if necessary
+                        message_content = bundle.print()
+                        # More thread-safe: atomic check-and-remove operation
+                        if bundle.finished or bundle.is_shutdown:
+                            removed_bundle = self.multirequest_bundles.pop(bundle_uuid, None)
+                            # Only should set the delete after when bundle is finished, not in shutdown
+                            if bundle.finished and removed_bundle:
+                                delete_after = self.delete_after
+                    else:
+                        # Bundle already processed and removed, skip
+                        message_content = []
+
+                elif MultipleMutableType.PLAY_ORDER.value in item:
+                    guild_id = item.split(f'{MultipleMutableType.PLAY_ORDER.value}-', 1)[1]
                     player = self.players.get(int(guild_id), None)
                     message_content = player.get_queue_order_messages() if player else []
-                    funcs = await self.message_queue.update_mutable_bundle_content(item, message_content)
-                    results = []
-                    for func in funcs:
-                        result = await async_retry_discord_message_command(func)
-                        results.append(result)
-                    # Update message references for new messages (only pass Message objects, not delete results)
-                    message_results = [r for r in results if r and hasattr(r, 'id')]
-                    await self.message_queue.update_mutable_bundle_references(item, message_results)
-                    return True
+
+                elif MultipleMutableType.SEARCH.value in item:
+                    context_uuid = item.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
+                    message_content = self.search_client.messages.get(context_uuid, [])
+                    if not message_content:
+                        self.search_client.messages.pop(context_uuid, None)
+
+                funcs = await self.message_queue.update_mutable_bundle_content(item, message_content, delete_after=delete_after)
+                results = []
+                for func in funcs:
+                    result = await async_retry_discord_message_command(func)
+                    results.append(result)
+                # Update message references for new messages (only pass Message objects, not delete results)
+                message_results = [r for r in results if r and hasattr(r, 'id')]
+                await self.message_queue.update_mutable_bundle_references(item, message_results)
+                return True
             return False
 
     async def cleanup_players(self):
@@ -768,7 +779,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return True
             await sleep(1)
 
-    async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer, skip_update_queue_strings: bool = False):
+    async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
         Add source to player queue
 
@@ -779,6 +790,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         attributes = media_download_attributes(media_download)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes):
+            bundle = self.multirequest_bundles.get(media_download.media_request.bundle_uuid) if media_download.media_request.bundle_uuid else None
             try:
                 if self.video_cache:
                     self.logger.info(f'Iterating file on base path {str(media_download.base_path)}')
@@ -788,29 +800,41 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.sources_in_transit.pop(media_download.media_request.uuid)
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
-                                f'to queue in guild {media_download.media_request.guild_id}')
-                if not skip_update_queue_strings:
+                                 f'to queue in guild {media_download.media_request.guild_id}')
+                if bundle:
+                    bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.COMPLETED)
                     self.message_queue.update_multiple_mutable(
-                        f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
+                        f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                         player.text_channel,
+                        sticky_messages=False,
                     )
-                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.DELETE,
-                                                         partial(media_download.media_request.message_context.delete_message), '')
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
+                    player.text_channel,
+                )
 
                 return True
             except QueueFull:
                 self.logger.warning(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
-                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
-                                                         partial(media_download.media_request.message_context.edit_message),
-                                                         MessageFormatter.format_play_queue_full_message(str(media_download.media_request)),
-                                                         delete_after=self.delete_after)
+                if bundle:
+                    bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.FAILED, failure_reason=MessageFormatter.format_play_queue_full_message(str(media_download.media_request)))
+                    self.message_queue.update_multiple_mutable(
+                        f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                        player.text_channel,
+                        sticky_messages=False,
+                    )
                 media_download.delete()
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
                 self.logger.warning(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
-                self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.DELETE,
-                                                         partial(media_download.media_request.message_context.delete_message), '')
+                if bundle:
+                    bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.DISCARDED)
+                    self.message_queue.update_multiple_mutable(
+                        f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                        player.text_channel,
+                        sticky_messages=False,
+                    )
                 media_download.delete()
                 return False
 
@@ -835,17 +859,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     # Since media download might be none
     async def __ensure_video_download_result(self, media_request: MediaRequest, media_download: MediaDownload):
         if media_download is None:
-            self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
-                                                     partial(media_request.message_context.edit_message),
-                                                     MessageFormatter.format_video_download_issue_message(str(media_request)), delete_after=self.delete_after)
+            bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+            if not bundle:
+                return
+            bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=MessageFormatter.format_video_download_issue_message(str(media_request)))
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                bundle.text_channel,
+                sticky_messages=False,
+            )
             return False
         return True
 
     async def __return_bad_video(self, media_request: MediaRequest, exception: DownloadClientException,
                                  skip_callback_functions: bool=False):
         message = exception.user_message
-        self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
-                                                 partial(media_request.message_context.edit_message), message, delete_after=self.delete_after)
+        bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+        if not bundle:
+            return
+        bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=message)
+        self.message_queue.update_multiple_mutable(
+            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+            bundle.text_channel,
+            sticky_messages=False,
+        )
         if not skip_callback_functions and media_request.history_playlist_item_id:
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
@@ -874,20 +911,39 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # If not meant to download, dont check for player
             # Check for player, if doesn't exist return
             player = None
+            bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
             if media_request.download_file:
                 player = await self.get_player(media_request.guild_id, create_player=False)
                 if not player:
-                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.DELETE,
-                                                             partial(media_request.message_context.delete_message), '')
+                    if bundle:
+                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
+                        self.message_queue.update_multiple_mutable(
+                            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                            bundle.text_channel,
+                            sticky_messages=False,
+                        )
                     return
 
                 # Check if queue in shutdown, if so return
                 if player.shutdown_called:
                     self.logger.warning(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.DELETE,
-                                                             partial(media_request.message_context.delete_message), '')
+                    if bundle:
+                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
+                        self.message_queue.update_multiple_mutable(
+                            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                            player.text_channel,
+                            sticky_messages=False,
+                        )
                     return
             self.logger.debug(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
+            # Update bundle to show in progress
+            if bundle:
+                bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                    bundle.text_channel,
+                    sticky_messages=False,
+                )
             # If cache enabled and search string with 'https://' given, try to grab this first
             media_download = await self.__check_video_cache(media_request)
             # Else grab from ytdlp
@@ -921,10 +977,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
                     media_download = None
-                    self.message_queue.update_single_mutable(media_request.message_context, MessageLifecycleStage.EDIT,
-                                                             partial(media_request.message_context.edit_message),
-                                                             MessageFormatter.format_video_download_issue_message(str(media_request), str(e)),
-                                                             delete_after=self.delete_after)
+                    if bundle:
+                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED,
+                                                     failure_reason=str(e))
+                        self.message_queue.update_multiple_mutable(
+                            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                            bundle.text_channel,
+                            sticky_messages=False,
+                        )
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
 
@@ -1016,14 +1076,31 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player.text_channel,
             )
 
+
             self.logger.debug(f'Starting cleaning tasks on player for guild {guild.id}')
             await player.cleanup()
 
             self.logger.debug(f'Clearing download queue for guild {guild.id}')
             pending_items = self.download_queue.clear_queue(guild.id)
             self.logger.debug(f'Found {len(pending_items)} existing download items')
-            for source in pending_items:
-                self.message_queue.update_single_mutable(source.message_context, MessageLifecycleStage.DELETE, source.message_context.delete_message, '')
+            for media_request in pending_items:
+                bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+                if not bundle:
+                    continue
+                bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
+                # Dont update mutable until later
+                # Since these messages get discareded anyway
+
+            # Clear all bundles
+            for _uuid, item in self.multirequest_bundles.items():
+                if int(item.guild_id) != int(guild.id):
+                    continue
+                item.shutdown()
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}',
+                    player.text_channel,
+                    sticky_messages=False,
+                )
 
             self.logger.debug(f'Deleting download dir for guild {guild.id}')
             guild_path = self.download_dir / f'{guild.id}'
@@ -1140,36 +1217,35 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         Returns true if all items added, false if some were not
         '''
+        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+        self.multirequest_bundles[bundle.uuid] = bundle
         for media_request in entries:
             try:
+                bundle.add_media_request(media_request)
                 # Check cache first
                 media_download = await self.__check_video_cache(media_request)
                 if media_download:
                     self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
                     await self.add_source_to_player(media_download, player)
                     continue
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                media_request.message_context = message_context
-                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND,
-                                                         partial(ctx.send),
-                                                         MessageFormatter.format_downloading_message(str(media_request)))
                 self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
                 self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
             except PutsBlocked:
                 self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.DELETE,
-                                                        partial(message_context.delete_message), '')
                 return False
             except QueueFull:
-                self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.EDIT,
-                                                         partial(message_context.edit_message),
-                                                         MessageFormatter.format_download_queue_full_message(str(media_request)),
-                                                         delete_after=self.delete_after)
+                self.logger.warning(f'Queue full in guild {ctx.guild.id}, cannot add more media requests')
                 return False
         self.message_queue.update_multiple_mutable(
             f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
             player.text_channel,
         )
+        if bundle.total:
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                ctx.channel,
+                sticky_messages=False,
+            )
         return True
 
     @command(name='play')
@@ -1184,7 +1260,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             If spotify credentials are passed to the bot it can also be a spotify album or playlist.
             If youtube api credentials are passed to the bot it can also be a youtube playlsit.
-        
+
         shuffle: boolean [Optional]
             If the search input is a spotify url or youtube api playlist, it will shuffle the results from the api before passing it into the download queue
         '''
@@ -1412,7 +1488,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.send_single_immutable([message_context])
             return
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Bumped item {item.title} to top of queue',
+        message_context.function = partial(ctx.send, f'Bumped item "{item.title}" to top of queue',
                                            delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
 
@@ -1466,7 +1542,38 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ctx.channel,
         )
 
+    async def __get_playlist_public_view(self, playlist_id: int, guild_id: str):
+        '''
+        Get playlist by db id, and view which public index servers see it as
+        '''
+        def get_playlist(db_session: Session, playlist_id: int):
+            return db_session.query(Playlist).get(playlist_id)
+
+        def list_playlists(db_session: Session, guild_id: str):
+            return db_session.query(Playlist.id).\
+                filter(Playlist.server_id == str(guild_id)).\
+                filter(Playlist.is_history == False).\
+                order_by(Playlist.created_at.asc())
+
+        with self.with_db_session() as db_session:
+            playlist = retry_database_commands(db_session, partial(get_playlist, db_session, playlist_id))
+            if not playlist:
+                return None
+            if str(playlist.server_id) != str(guild_id):
+                return None
+            if playlist.is_history:
+                return 0
+
+            for (count, pid) in enumerate(retry_database_commands(db_session, partial(list_playlists, db_session, guild_id))):
+                if playlist_id == pid[0]:
+                    return count + 1
+            return None
+
     async def __get_playlist(self, playlist_index: int, ctx: Context):
+        '''
+        Get playlist by 'public' index
+        public index meaning what the users in the servers see
+        '''
         def check_playlist_count(db_session: Session, guild_id: str):
             return db_session.query(Playlist.id).\
                 filter(Playlist.server_id == str(guild_id)).\
@@ -1567,7 +1674,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return None
 
             playlist = retry_database_commands(db_session, partial(create_playlist, db_session, playlist_name, str(ctx.guild.id)))
-            self.logger.info(f'Playlist created "{playlist_name}" in guild {ctx.guild.id}')
+            self.logger.info(f'Playlist created "{playlist_name}" with id {playlist.id} in guild {ctx.guild.id}')
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
             message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}"',
                                                delete_after=self.delete_after)
@@ -1640,7 +1747,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
                 name = item.name
                 if item.is_history:
-                    name = 'History Playlist'
+                    name = PLAYHISTORY_NAME
                 table.add_row([
                     f'{count}',
                     name,
@@ -1692,32 +1799,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Call this when the media download eventually completes
         media_download : Media Download from download client
         '''
+        bundle = self.multirequest_bundles.get(media_download.media_request.bundle_uuid) if media_download.media_request.bundle_uuid else None
         if media_download is None:
-            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
-                                                     partial(media_download.media_request.message_context.edit_message),
-                                                     MessageFormatter.format_playlist_generation_issue_message(str(media_download.media_request)),
-                                                     delete_after=self.delete_after)
+            if bundle:
+                bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.FAILED,
+                                             failure_reason=MessageFormatter.format_playlist_generation_issue_message(str(media_download.media_request)))
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                    bundle.text_channel,
+                    sticky_messages=False,
+                )
             return
         self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
                          f' in guild {media_download.media_request.guild_id}')
         try:
             playlist_item_id = self.__playlist_insert_item(playlist_id, media_download.webpage_url, media_download.title, media_download.uploader)
         except PlaylistMaxLength:
-            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
-                                                     partial(media_download.media_request.message_context.edit_message),
-                                                     MessageFormatter.format_playlist_max_length_message(),
-                                                     delete_after=self.delete_after)
+            if bundle:
+                bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.FAILED,
+                                             failure_reason=MessageFormatter.format_playlist_max_length_message())
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                    bundle.text_channel,
+                    sticky_messages=False,
+                )
             return
         if playlist_item_id:
-            self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
-                                                     partial(media_download.media_request.message_context.edit_message),
-                                                     MessageFormatter.format_playlist_item_added_message(media_download.title),
-                                                     delete_after=self.delete_after)
+            if bundle:
+                playlist_public_view_id = await self.__get_playlist_public_view(playlist_id, media_download.media_request.guild_id)
+                bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.COMPLETED,
+                                             override_message=f'Successfully added item to playlist {playlist_public_view_id}')
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                    bundle.text_channel,
+                    sticky_messages=False,
+                )
             return
-        self.message_queue.update_single_mutable(media_download.media_request.message_context, MessageLifecycleStage.EDIT,
-                                                 partial(media_download.media_request.message_context.edit_message),
-                                                 MessageFormatter.format_playlist_item_add_failed_message(str(media_download.media_request)),
-                                                 delete_after=self.delete_after)
+        if bundle:
+            bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.FAILED,
+                                         failure_reason=MessageFormatter.format_playlist_item_add_failed_message())
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                bundle.text_channel,
+                sticky_messages=False,
+            )
         return
 
     @playlist.command(name='item-add')
@@ -1754,12 +1879,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             message_context.function = partial(ctx.send, f'{exc.user_message}', delete_after=self.delete_after)
             self.message_queue.send_single_immutable([message_context])
             return
+
+        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+        self.multirequest_bundles[bundle.uuid] = bundle  # Store bundle so messages can be processed
+
         for media_request in source_entries:
+            bundle.add_media_request(media_request)
             media_request.download_file = False
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            media_request.message_context = message_context
-            self.message_queue.update_single_mutable(message_context, MessageLifecycleStage.SEND, partial(ctx.send),
-                                                     MessageFormatter.format_downloading_for_playlist_message(str(media_request)))
             media_download = await self.__check_video_cache(media_request)
             if media_download:
                 self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in playlist item')
@@ -1767,6 +1893,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 continue
             media_request.add_to_playlist = playlist_id
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
+
+        self.message_queue.update_multiple_mutable(
+            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+            ctx.channel,
+            sticky_messages=False,
+        )
 
     @playlist.command(name='item-remove')
     @command_wrapper
@@ -2055,6 +2187,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Playlist queue called for playlist {playlist_id} in server "{ctx.guild.id}"')
 
         with self.with_db_session() as db_session:
+            playlist_name = retry_database_commands(db_session, partial(get_playlist_name, db_session, playlist_id))
+            if is_history:
+                playlist_name = PLAYHISTORY_NAME
             playlist_items = []
             for item in retry_database_commands(db_session, partial(list_playlist_items, db_session, playlist_id)):
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2066,6 +2201,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                              SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                              added_from_history=is_history,
                                              history_playlist_item_id=item.id,
+                                             multi_input_string=playlist_name,
                                              message_context=message_context)
                 playlist_items.append(media_request)
 
@@ -2085,26 +2221,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 else:
                     max_num = 0
 
-            broke_early = await self.enqueue_media_requests(ctx, player, playlist_items)
+            finished_all = await self.enqueue_media_requests(ctx, player, playlist_items)
 
-            playlist_name = retry_database_commands(db_session, partial(get_playlist_name, db_session, playlist_id))
-            if is_history:
-                playlist_name = 'Channel History'
-            if broke_early:
+
+            if not finished_all:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 message_context.function = partial(ctx.send, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
-            elif max_num:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Added {max_num} videos from "{playlist_name}" to queue',
-                                                   delete_after=self.delete_after)
-                self.message_queue.send_single_immutable([message_context])
-            else:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Added all videos in playlist "{playlist_name}" to queue',
-                                                   delete_after=self.delete_after)
-                self.message_queue.send_single_immutable([message_context])
+
             retry_database_commands(db_session, partial(playlist_update_queued, db_session, playlist_id))
 
     @playlist.command(name='queue')

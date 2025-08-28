@@ -282,6 +282,12 @@ def fake_bot_yielder(start_sleep=0, user=None, guilds=None, channels=None):
                     return channel
             return None
 
+        def get_channel(self, channel_id):
+            for channel in self.channels:
+                if channel.id == channel_id:
+                    return channel
+            return None
+
         async def fetch_guild(self, guild_id):
             for guild in self.guilds:
                 if guild.id == guild_id:
