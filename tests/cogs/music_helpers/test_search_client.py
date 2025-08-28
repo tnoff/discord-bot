@@ -144,7 +144,7 @@ async def test_spotify_album_get():
     assert result[0].requester_id == '2345'
     assert result[0].search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-
+    assert result[0].multi_input_search_string == 'https://open.spotify.com/album/1111'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_album_with_cache_miss_and_youtube_fallback():
@@ -156,6 +156,7 @@ async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
     assert result[0].original_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
+    assert result[0].multi_input_search_string == 'https://open.spotify.com/album/1111'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_album_get_shuffle():
@@ -166,6 +167,7 @@ async def test_spotify_album_get_shuffle():
     assert result[0].requester_id == '2345'
     assert result[0].search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
+    assert result[0].multi_input_search_string == 'https://open.spotify.com/album/1111'
     typer, result = mq.get_next_message()
     assert not typer
     assert not result
@@ -176,6 +178,7 @@ async def test_spotify_playlist_get():
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/playlist/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
+    assert result[0].multi_input_search_string == 'https://open.spotify.com/playlist/1111'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_playlist_get_shuffle():
@@ -183,6 +186,7 @@ async def test_spotify_playlist_get_shuffle():
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
+    assert result[0].multi_input_search_string == 'https://open.spotify.com/playlist/1111'
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_track_get():
@@ -190,6 +194,7 @@ async def test_spotify_track_get():
     x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/track/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo track foo artists'
+    assert result[0].multi_input_search_string is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_no_creds():
@@ -206,6 +211,7 @@ async def test_youtube_playlist():
     result = await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
+    assert result[0].multi_input_search_string == 'https://www.youtube.com/playlist?list=11111'
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_playlist_shuffle():
@@ -215,6 +221,7 @@ async def test_youtube_playlist_shuffle():
     result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
+    assert result[0].multi_input_search_string == 'https://www.youtube.com/playlist?list=11111'
     assert mq.get_next_single_mutable() is None
 
 @pytest.mark.asyncio(scope="session")
@@ -232,6 +239,7 @@ async def test_youtube_short():
     result = await x.check_source('https://www.youtube.com/shorts/aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/shorts/aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
+    assert result[0].multi_input_search_string is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_video():
@@ -240,6 +248,7 @@ async def test_youtube_video():
     result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
+    assert result[0].multi_input_search_string is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_fxtwitter():
@@ -248,6 +257,7 @@ async def test_fxtwitter():
     result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
     assert result[0].search_type == SearchType.DIRECT
+    assert result[0].multi_input_search_string is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_basic_search():
@@ -256,6 +266,7 @@ async def test_basic_search():
     result = await x.check_source('foo bar', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
     assert result[0].search_string == 'foo bar'
     assert result[0].search_type == SearchType.SEARCH
+    assert result[0].multi_input_search_string is None
 
 
 @pytest.mark.asyncio(scope="session")
@@ -266,6 +277,7 @@ async def test_basic_search_with_youtube_music():
     assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
     assert result[0].search_type == SearchType.SEARCH
     assert result[0].original_search_string == 'foo bar'
+    assert result[0].multi_input_search_string is None
 
 @pytest.mark.asyncio(scope="session")
 async def test_basic_search_with_youtube_music_skips_direct():
@@ -275,3 +287,4 @@ async def test_basic_search_with_youtube_music_skips_direct():
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
     assert result[0].original_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
+    assert result[0].multi_input_search_string is None
