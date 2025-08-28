@@ -1,4 +1,4 @@
-from typing import Callable, List, Literal
+from typing import Literal
 from uuid import uuid4
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
@@ -14,9 +14,9 @@ class MediaRequest():
                  search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
                  added_from_history: bool = False,
                  download_file: bool = True,
-                 video_non_exist_callback_functions: List[Callable] = None,
-                 post_download_callback_functions: List[Callable] = None,
-                 message_context: MessageContext = None):
+                 message_context: MessageContext = None,
+                 add_to_playlist: int = None,
+                 history_playlist_item_id: int = None):
         '''
         Generate new media request options
 
@@ -28,8 +28,8 @@ class MediaRequest():
         search_type : Type of search it was
         added_from_history : Whether or not this was added from history
         download_file : Download file eventually
-        video_non_exist_callback_functions: Call these functions if video not found or not available
-        post_download_callback_functions : Call these functions after video downloads
+        add_to_playlist : Set to add to playlist after download
+        history_playlist_item_id : Delete item from history playlist, pass in database id
         '''
         self.guild_id = guild_id
         self.channel_id = channel_id
@@ -42,8 +42,8 @@ class MediaRequest():
         # Optional values
         self.added_from_history = added_from_history
         self.download_file = download_file
-        self.video_non_exist_callback_functions = video_non_exist_callback_functions or []
-        self.post_download_callback_functions = post_download_callback_functions or []
+        self.history_playlist_item_id = history_playlist_item_id
+        self.add_to_playlist = add_to_playlist
         # Message Context
         self.message_context = message_context
         self.uuid = uuid4()
