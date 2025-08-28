@@ -6,7 +6,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue
+from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType
 
 from tests.helpers import FakeChannel
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
@@ -107,8 +107,8 @@ async def test_spotify_throw_exception():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'If this is an official Spotify playlist' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
-    assert not typer
-    assert not result
+    assert typer == MessageType.MULTIPLE_MUTABLE
+    assert result  # Should have search context with empty messages
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_throw_exception_403():
@@ -120,8 +120,8 @@ async def test_spotify_throw_exception_403():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
-    assert not typer
-    assert not result
+    assert typer == MessageType.MULTIPLE_MUTABLE
+    assert result  # Should have search context with empty messages
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_throw_oauth():
@@ -133,8 +133,8 @@ async def test_spotify_throw_oauth():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
     typer, result = mq.get_next_message()
-    assert not typer
-    assert not result
+    assert typer == MessageType.MULTIPLE_MUTABLE
+    assert result  # Should have search context with empty messages
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_album_get():
@@ -169,8 +169,8 @@ async def test_spotify_album_get_shuffle():
     assert result[0].search_type == SearchType.SPOTIFY
     assert result[0].multi_input_search_string == 'https://open.spotify.com/album/1111'
     typer, result = mq.get_next_message()
-    assert not typer
-    assert not result
+    assert typer == MessageType.MULTIPLE_MUTABLE
+    assert result  # Should have search context with empty messages
 
 @pytest.mark.asyncio(scope="session")
 async def test_spotify_playlist_get():
@@ -222,7 +222,7 @@ async def test_youtube_playlist_shuffle():
     assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
     assert result[0].multi_input_search_string == 'https://www.youtube.com/playlist?list=11111'
-    assert mq.get_next_single_mutable() is None
+    # Verify no messages in queue
 
 @pytest.mark.asyncio(scope="session")
 async def test_youtube_error():

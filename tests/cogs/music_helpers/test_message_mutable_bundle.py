@@ -27,7 +27,7 @@ def message_bundle(fake_context):  #pylint: disable=redefined-outer-name
         channel_id=fake_context['channel'].id,
         check_last_message_func=check_last_messages,
         send_function=send_function_wrapper,
-        delete_after=None
+        # delete_after=None
     )
     return bundle
 
@@ -350,7 +350,7 @@ def non_sticky_message_bundle(fake_context):  #pylint: disable=redefined-outer-n
         channel_id=fake_context['channel'].id,
         check_last_message_func=check_last_messages,
         send_function=send_function_wrapper,
-        delete_after=None,
+        # delete_after=None,
         sticky_messages=False
     )
     return bundle
@@ -440,7 +440,7 @@ async def test_sticky_messages_initialization_defaults():
         channel_id=test_context['channel'].id,
         check_last_message_func=check_last_messages,
         send_function=send_function_wrapper,
-        delete_after=None
+        # delete_after=None
     )
 
     # Should default to True
@@ -465,7 +465,7 @@ async def test_sticky_messages_explicit_false():
         channel_id=test_context['channel'].id,
         check_last_message_func=check_last_messages,
         send_function=send_function_wrapper,
-        delete_after=None,
+        # delete_after=None,
         sticky_messages=False
     )
 
@@ -491,7 +491,7 @@ async def test_sticky_messages_explicit_true():
         channel_id=test_context['channel'].id,
         check_last_message_func=check_last_messages,
         send_function=send_function_wrapper,
-        delete_after=None,
+        # delete_after=None,
         sticky_messages=True
     )
 

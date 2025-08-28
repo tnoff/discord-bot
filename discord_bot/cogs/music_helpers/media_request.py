@@ -2,7 +2,7 @@ from typing import Literal
 from uuid import uuid4
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
 from discord_bot.utils.otel import MediaRequestNaming
 
 
@@ -51,7 +51,8 @@ class MediaRequest():
         self.multi_input_search_string = multi_input_search_string
         # Message Context
         self.message_context = message_context
-        self.uuid = uuid4()
+        self.uuid = f'request.{uuid4()}'
+        self.bundle_uuid = None
 
 
     def __str__(self):
@@ -77,3 +78,102 @@ def media_request_attributes(media_request: MediaRequest) -> dict:
         MediaRequestNaming.SEARCH_TYPE.value: media_request.search_type.value,
         MediaRequestNaming.UUID.value: str(media_request.uuid),
     }
+
+# https://stackoverflow.com/questions/312443/how-do-i-split-a-list-into-equally-sized-chunks
+def chunk_list(input_list, size):
+    '''
+    Split list into equal sized chunks
+    '''
+    size = max(1, size)
+    return [input_list[i:i+size] for i in range(0, len(input_list), size)]
+
+class MultiMediaRequestBundle():
+    '''
+    Bundle of multiple media requests
+    '''
+    def __init__(self, guild_id: int, channel_id: int, items_per_message: int = 5):
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.uuid = f'request.bundle.{uuid4()}'
+        self.multi_input_search_string = None
+        self.items_per_message = min(items_per_message, 5)  # Enforce maximum of 5 items per message
+
+        self.media_requests = []
+        self.total = 0
+        self.completed = 0
+        self.failed = 0
+        self.discarded = 0
+
+    def add_media_request(self, media_request: MediaRequest):
+        '''
+        Add new media request
+        '''
+        if not self.multi_input_search_string and media_request.multi_input_search_string:
+            self.multi_input_search_string = media_request.multi_input_search_string
+        self.media_requests.append({
+            'search_string': media_request.original_search_string,
+            'status': MediaRequestLifecycleStage.QUEUED,
+            'uuid': media_request.uuid,
+            'failed_reason': None,
+        })
+        self.total += 1
+        media_request.bundle_uuid = self.uuid
+
+    def update_request_status(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage, failure_reason: str = None):
+        '''
+        Update the status of a media request in the bundle
+        '''
+        for item in self.media_requests:
+            if item['uuid'] != media_request.uuid:
+                continue
+            item['status'] = stage
+            if stage == MediaRequestLifecycleStage.COMPLETED:
+                self.completed += 1
+            if stage == MediaRequestLifecycleStage.DISCARDED:
+                self.discarded += 1
+            if stage == MediaRequestLifecycleStage.FAILED:
+                self.failed += 1
+                if failure_reason:
+                    item['failed_reason'] = failure_reason
+            return True
+        return False
+
+    @property
+    def finished(self):
+        '''
+        Check if we have finished processing
+        '''
+        return (self.completed + self.failed + self.discarded) == self.total
+
+    def print(self):
+        '''
+        Print out into multiple messages
+        '''
+        messages = []
+        if self.total > 1:
+            top_message = f'Downloading "<{self.multi_input_search_string}>"'
+            status = f'{self.completed}/{self.total} items downloaded successfully, {self.failed} failed'
+            messages = [top_message, status]
+        for item in self.media_requests:
+            if item['status'] == MediaRequestLifecycleStage.COMPLETED:
+                continue
+            if item['status'] == MediaRequestLifecycleStage.FAILED:
+                x = f'Media request failed download: "{item["search_string"]}"'
+                if item['failed_reason']:
+                    x = f'{x}, {item["failed_reason"]}'
+                messages.append(x)
+                continue
+            if item['status'] == MediaRequestLifecycleStage.QUEUED:
+                messages.append(f'Media request queued for download: "{item["search_string"]}"')
+                continue
+            if item['status'] == MediaRequestLifecycleStage.IN_PROGRESS:
+                messages.append(f'Downloading and processing media request: "{item["search_string"]}"')
+                continue
+            if item['status'] == MediaRequestLifecycleStage.DISCARDED:
+                continue
+        all_items = chunk_list(messages, self.items_per_message)
+        # Convert into messages from list
+        messages = []
+        for item in all_items:
+            messages.append('\n'.join(i for i in item))
+        return messages
