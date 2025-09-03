@@ -1918,8 +1918,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if query:
                 db_session.delete(query)
                 db_session.commit()
-                return True
-            return False
+                return query
+            return None
 
         if not await self.__check_database_session(ctx):
             return
@@ -1943,9 +1943,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         with self.with_db_session() as db_session:
-            if retry_database_commands(db_session, partial(remove_playlist_item_remove, db_session, playlist_id, (video_index - 1))):
+            item = retry_database_commands(db_session, partial(remove_playlist_item_remove, db_session, playlist_id, (video_index - 1)))
+            public_playlist_id = await self.__get_playlist_public_view(playlist_id, ctx.guild.id)
+            if item:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Removed item "{video_index}" from playlist',
+                message_context.function = partial(ctx.send, f'Removed item "{item.title}" from playlist {public_playlist_id}',
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
                 return
