@@ -7,10 +7,9 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from random import shuffle as random_shuffle, randint
-from re import match as re_match
 from shutil import disk_usage
 from tempfile import TemporaryDirectory, NamedTemporaryFile
-from typing import Optional, List
+from typing import List
 
 from dappertable import shorten_string_cjk, DapperTable
 from discord.ext.commands import Bot, Context, group, command
@@ -1998,7 +1997,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 ])
                 total += 1
             if not total:
-                self.message_queue.send_single_immutable(f'No items in playlist {playlist_id}')
+                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+                message_context.function = partial(ctx.send, f'No items in playlist {playlist_id}',
+                                                   delete_after=self.delete_after)
+                self.message_queue.send_single_immutable([message_context])
                 return
             messages = [f'```{t}```' for t in table.print()]
             message_contexts = []
@@ -2206,6 +2208,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                              message_context=message_context)
                 playlist_items.append(media_request)
 
+            # Check if playlist is empty and provide user feedback
+            if not playlist_items:
+                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+                message_context.function = partial(ctx.send, f'Playlist "{playlist_name}" contains no items to queue',
+                                                   delete_after=self.delete_after)
+                self.message_queue.send_single_immutable([message_context])
+                return
+
             if shuffle:
                 for _ in range(self.number_shuffles):
                     random_shuffle(playlist_items)
@@ -2235,15 +2245,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
     @playlist.command(name='queue')
     @command_wrapper
-    async def playlist_queue(self, ctx: Context, playlist_index: int, sub_command: Optional[str] = ''):
+    async def playlist_queue(self, ctx: Context, playlist_index: int, *args):
         '''
         Add playlist to queue
 
         playlist_index: integer [Required]
             ID of playlist
-        Sub commands - [shuffle] [max_number]
-            shuffle - Shuffle playlist when entering it into queue
-            max_num - Only add this number of videos to the queue
+        Additional arguments (can be in any order):
+            [shuffle] - Shuffle playlist when entering it into queue
+            [number] - Only add this number of videos to the queue (max_num)
+        
+        Examples:
+            !playlist queue 0 shuffle 16 # Shuffle Playlist 0 but only play 16 items
+            !playlist queue 0 16 shuffle # Shuffle Playlist 0 but only play 16 items
+            !playlist queue 0 shuffle
+            !playlist queue 0 16
         '''
         channel = await self.__check_author_voice_chat(ctx)
         if not channel:
@@ -2259,14 +2275,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_id, is_history = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
             return None
+
+        # Parse arguments - can be in any order
         shuffle = False
         max_num = None
-        if sub_command:
-            if 'shuffle' in sub_command.lower():
+
+        for arg in args:
+            arg_str = str(arg).lower()
+            if arg_str == 'shuffle':
                 shuffle = True
-            number_matcher = re_match(NUMBER_REGEX, sub_command.lower())
-            if number_matcher:
-                max_num = int(number_matcher.group('number'))
+            elif arg_str.isdigit() and max_num is None:  # Use first number found
+                max_num = int(arg_str)
+
         return await self.__playlist_queue(ctx, player, playlist_id, shuffle, max_num, is_history=is_history)
 
     @playlist.command(name='merge')
