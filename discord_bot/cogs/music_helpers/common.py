@@ -27,21 +27,21 @@ class StorageOptions(Enum):
     '''
     S3 = 's3'
 
-
-class MessageLifecycleStage(Enum):
+class MediaRequestLifecycleStage(Enum):
     '''
-    Stages of a source message lifecycle
+    Lifecycle of a media request through the system
     '''
-    SEND = 'send'
-    EDIT = 'edit'
-    DELETE = 'delete'
+    QUEUED = 'queued'
+    IN_PROGRESS = 'in_progress'
+    FAILED = 'failed'
+    COMPLETED = 'completed'
+    DISCARDED = 'discarded'
 
 class MessageType(Enum):
     '''
     Types of messages queue returns
     '''
     MULTIPLE_MUTABLE = 'multiple_mutable'
-    SINGLE_MUTABLE = 'single_mutable'
     SINGLE_IMMUTABLE = 'single_immutable'
 
 class MultipleMutableType(Enum):
@@ -49,3 +49,5 @@ class MultipleMutableType(Enum):
     Message Multiple Types
     '''
     PLAY_ORDER = 'play_order'
+    REQUEST_BUNDLE = 'request_bundle'
+    SEARCH = 'search'

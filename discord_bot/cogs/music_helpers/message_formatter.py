@@ -16,7 +16,7 @@ class MessageFormatter:
             Formatted error message
         """
         reason = failed_reason or "play queue is full"
-        return f'❌ {item_str} (failed: {reason})'
+        return f'{item_str} (failed: {reason})'
 
     @staticmethod
     def format_download_queue_full_message(item_str: str) -> str:
@@ -88,7 +88,7 @@ class MessageFormatter:
         return f'Added item "{title}" to playlist'
 
     @staticmethod
-    def format_playlist_item_add_failed_message(item_str: str, reason: str = "likely already exists") -> str:
+    def format_playlist_item_add_failed_message(reason: str = "likely already exists") -> str:
         """
         Format a message for when adding an item to a playlist fails.
         
@@ -99,7 +99,7 @@ class MessageFormatter:
         Returns:
             Formatted error message
         """
-        return f'Unable to add playlist item "{item_str}", {reason}'
+        return f'Unable to add playlist item: {reason}'
 
     @staticmethod
     def format_playlist_max_length_message() -> str:

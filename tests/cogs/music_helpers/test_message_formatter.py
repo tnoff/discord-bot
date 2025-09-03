@@ -4,7 +4,7 @@ def test_format_play_queue_full_message_default_reason():
     """Test format_play_queue_full_message with default reason."""
     item_str = "test song"
     result = MessageFormatter.format_play_queue_full_message(item_str)
-    expected = "❌ test song (failed: play queue is full)"
+    expected = "test song (failed: play queue is full)"
     assert result == expected
 
 def test_format_play_queue_full_message_custom_reason():
@@ -12,21 +12,21 @@ def test_format_play_queue_full_message_custom_reason():
     item_str = "test song"
     custom_reason = "server overloaded"
     result = MessageFormatter.format_play_queue_full_message(item_str, custom_reason)
-    expected = "❌ test song (failed: server overloaded)"
+    expected = "test song (failed: server overloaded)"
     assert result == expected
 
 def test_format_play_queue_full_message_empty_item():
     """Test format_play_queue_full_message with empty item string."""
     item_str = ""
     result = MessageFormatter.format_play_queue_full_message(item_str)
-    expected = "❌  (failed: play queue is full)"
+    expected = " (failed: play queue is full)"
     assert result == expected
 
 def test_format_play_queue_full_message_special_characters():
     """Test format_play_queue_full_message with special characters in item."""
     item_str = "Song with \"quotes\" & symbols"
     result = MessageFormatter.format_play_queue_full_message(item_str)
-    expected = "❌ Song with \"quotes\" & symbols (failed: play queue is full)"
+    expected = "Song with \"quotes\" & symbols (failed: play queue is full)"
     assert result == expected
 
 def test_format_download_queue_full_message_basic():
@@ -61,7 +61,7 @@ def test_format_play_queue_full_message_none_item():
     """Test format_play_queue_full_message handles None item gracefully."""
     # This should convert None to string "None"
     result = MessageFormatter.format_play_queue_full_message(None)
-    expected = "❌ None (failed: play queue is full)"
+    expected = "None (failed: play queue is full)"
     assert result == expected
 
 def test_format_download_queue_full_message_none_item():
@@ -75,7 +75,7 @@ def test_format_play_queue_full_message_numeric_item():
     """Test format_play_queue_full_message with numeric item."""
     item_str = 123
     result = MessageFormatter.format_play_queue_full_message(item_str)
-    expected = "❌ 123 (failed: play queue is full)"
+    expected = "123 (failed: play queue is full)"
     assert result == expected
 
 def test_format_download_queue_full_message_numeric_item():
@@ -115,17 +115,15 @@ def test_format_playlist_item_added_message():
 
 def test_format_playlist_item_add_failed_message_default_reason():
     """Test format_playlist_item_add_failed_message with default reason."""
-    item_str = "Test Song"
-    result = MessageFormatter.format_playlist_item_add_failed_message(item_str)
-    expected = 'Unable to add playlist item "Test Song", likely already exists'
+    result = MessageFormatter.format_playlist_item_add_failed_message()
+    expected = 'Unable to add playlist item: likely already exists'
     assert result == expected
 
 def test_format_playlist_item_add_failed_message_custom_reason():
     """Test format_playlist_item_add_failed_message with custom reason."""
-    item_str = "Test Song"
     reason = "invalid format"
-    result = MessageFormatter.format_playlist_item_add_failed_message(item_str, reason)
-    expected = 'Unable to add playlist item "Test Song", invalid format'
+    result = MessageFormatter.format_playlist_item_add_failed_message(reason)
+    expected = 'Unable to add playlist item: invalid format'
     assert result == expected
 
 def test_format_playlist_max_length_message():
@@ -148,7 +146,7 @@ def test_all_methods_handle_empty_strings():
     assert MessageFormatter.format_downloading_message("") == 'Downloading and processing ""'
     assert MessageFormatter.format_downloading_for_playlist_message("") == 'Downloading and processing "" to add to playlist'
     assert MessageFormatter.format_playlist_item_added_message("") == 'Added item "" to playlist'
-    assert MessageFormatter.format_playlist_item_add_failed_message("") == 'Unable to add playlist item "", likely already exists'
+    assert MessageFormatter.format_playlist_item_add_failed_message("") == 'Unable to add playlist item: '
     assert MessageFormatter.format_playlist_generation_issue_message("") == 'Unable to add playlist item "", issue generating source'
 
 def test_all_methods_handle_special_characters():
@@ -159,5 +157,5 @@ def test_all_methods_handle_special_characters():
     assert MessageFormatter.format_downloading_message(item_with_quotes) == 'Downloading and processing "Song "with quotes" & symbols"'
     assert MessageFormatter.format_downloading_for_playlist_message(item_with_quotes) == 'Downloading and processing "Song "with quotes" & symbols" to add to playlist'
     assert MessageFormatter.format_playlist_item_added_message(item_with_quotes) == 'Added item "Song "with quotes" & symbols" to playlist'
-    assert MessageFormatter.format_playlist_item_add_failed_message(item_with_quotes) == 'Unable to add playlist item "Song "with quotes" & symbols", likely already exists'
+    assert MessageFormatter.format_playlist_item_add_failed_message(item_with_quotes) == 'Unable to add playlist item: Song "with quotes" & symbols'
     assert MessageFormatter.format_playlist_generation_issue_message(item_with_quotes) == 'Unable to add playlist item "Song "with quotes" & symbols", issue generating source'

@@ -40,6 +40,39 @@ async def test_create_playlist_same_name_twice(fake_engine, mocker, fake_context
         assert db_session.query(Playlist).count() == 1
 
 @pytest.mark.asyncio
+async def test_create_playlist_message_includes_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist creation message includes the public playlist ID"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Create first playlist - should get public ID 1
+    await cog.playlist_create(cog, fake_context['context'], name='first-playlist')
+    first_message = cog.message_queue.get_single_immutable()
+    assert first_message[0].function.args[0] == 'Created playlist "first-playlist" with ID 1'
+
+    # Create second playlist - should get public ID 2
+    await cog.playlist_create(cog, fake_context['context'], name='second-playlist')
+    second_message = cog.message_queue.get_single_immutable()
+    assert second_message[0].function.args[0] == 'Created playlist "second-playlist" with ID 2'
+
+    # Verify playlists were actually created in database
+    with mock_session(fake_engine) as db_session:
+        assert db_session.query(Playlist).count() == 2
+
+@pytest.mark.asyncio
+async def test_create_playlist_message_with_none_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist creation message handles None public ID gracefully"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Mock __get_playlist_public_view to return None
+    mocker.patch.object(cog, '_Music__get_playlist_public_view', return_value=None)
+
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+    message = cog.message_queue.get_single_immutable()
+    assert message[0].function.args[0] == 'Created playlist "test-playlist" with ID None'
+
+@pytest.mark.asyncio
 async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -50,7 +83,7 @@ async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disabl
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 
 @pytest.mark.asyncio
@@ -64,7 +97,7 @@ async def test_list_playlist_with_history(fake_engine, mocker, fake_context):  #
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || History Playlist                                                || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 @pytest.mark.asyncio()
 async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -362,3 +395,347 @@ def test_get_history_playlist_method(fake_engine, fake_context):  #pylint:disabl
         assert playlists[0].server_id == str(fake_context['guild'].id)
         assert playlists[0].name.startswith('__playhistory__')
         assert playlists[0].is_history is True
+
+@pytest.mark.asyncio
+async def test_playlist_queue_with_shuffle_and_max_num(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist queue with shuffle and max_num arguments in different orders"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a playlist first
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+
+    # Test 1: shuffle followed by max_num
+    await cog.playlist_queue(cog, fake_context['context'], 1, 'shuffle', '16')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        True,        # shuffle=True
+        16,          # max_num=16
+        is_history=False
+    )
+
+    # Test 2: max_num followed by shuffle
+    await cog.playlist_queue(cog, fake_context['context'], 1, '16', 'shuffle')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        True,        # shuffle=True
+        16,          # max_num=16
+        is_history=False
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_with_only_shuffle(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist queue with only shuffle argument"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a playlist first
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+
+    # Test with only shuffle
+    await cog.playlist_queue(cog, fake_context['context'], 1, 'shuffle')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        True,        # shuffle=True
+        None,        # max_num=None
+        is_history=False
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_with_only_max_num(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist queue with only max_num argument"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a playlist first
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+
+    # Test with only max_num
+    await cog.playlist_queue(cog, fake_context['context'], 1, '25')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        False,       # shuffle=False
+        25,          # max_num=25
+        is_history=False
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_with_no_arguments(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist queue with no additional arguments"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a playlist first
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+
+    # Test with no additional arguments
+    await cog.playlist_queue(cog, fake_context['context'], 1)
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        False,       # shuffle=False
+        None,        # max_num=None
+        is_history=False
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_parameter_parsing_edge_cases(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test edge cases for playlist queue parameter parsing"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a playlist first
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+
+    # Test mixed order parameters with multiple numbers (should use first number found)
+    await cog.playlist_queue(cog, fake_context['context'], 1, 'shuffle', '25', '50')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        True,        # shuffle=True
+        25,          # max_num=25 (first number found)
+        is_history=False
+    )
+
+    # Test case sensitivity - SHUFFLE should work
+    playlist_queue_mock.reset_mock()
+    await cog.playlist_queue(cog, fake_context['context'], 1, 'SHUFFLE', '10')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        True,        # shuffle=True
+        10,          # max_num=10
+        is_history=False
+    )
+
+    # Test zero as max_num (should be handled properly)
+    playlist_queue_mock.reset_mock()
+    await cog.playlist_queue(cog, fake_context['context'], 1, '0')
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id
+        False,       # shuffle=False
+        0,           # max_num=0
+        is_history=False
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_history_playlist_basic_command(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that '!playlist queue 0' works for history playlist - entire playlist, no shuffle, no limit"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the __playlist_queue method to capture arguments
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    # Create a player to ensure history playlist exists
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    # Test the basic command: !playlist queue 0 (history playlist, no arguments)
+    await cog.playlist_queue(cog, fake_context['context'], 0)
+    playlist_queue_mock.assert_called_with(
+        fake_context['context'],
+        mocker.ANY,  # player object
+        mocker.ANY,  # playlist_id (history playlist ID)
+        False,       # shuffle=False (no shuffle)
+        None,        # max_num=None (no limit, entire playlist)
+        is_history=True  # This should be history playlist
+    )
+
+@pytest.mark.asyncio
+async def test_playlist_queue_comprehensive_integration(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Comprehensive integration test for all playlist queue functionality"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create player and playlists for comprehensive testing
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist-1')
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist-2')
+
+    # Mock the __playlist_queue method to capture all calls
+    playlist_queue_calls = []
+
+    async def capture_playlist_queue(*args, **kwargs):
+        playlist_queue_calls.append((args, kwargs))
+        return None
+
+    mocker.patch.object(cog, '_Music__playlist_queue', side_effect=capture_playlist_queue)  #pylint:disable=protected-access
+
+    # Test various command combinations
+    test_cases = [
+        # (playlist_index, args, expected_shuffle, expected_max_num, expected_is_history)
+        (0, [], False, None, True),  # History playlist, no args
+        (1, ['shuffle'], True, None, False),  # Regular playlist, shuffle only
+        (2, ['10'], False, 10, False),  # Regular playlist, max_num only
+        (1, ['shuffle', '5'], True, 5, False),  # shuffle then max_num
+        (2, ['15', 'shuffle'], True, 15, False),  # max_num then shuffle
+        (0, ['shuffle', '20'], True, 20, True),  # History playlist with args
+    ]
+
+    for i, (playlist_index, args, expected_shuffle, expected_max_num, expected_is_history) in enumerate(test_cases):
+        playlist_queue_calls.clear()
+        await cog.playlist_queue(cog, fake_context['context'], playlist_index, *args)
+
+        # Verify the call was made with expected parameters
+        assert len(playlist_queue_calls) == 1, f"Test case {i}: Expected 1 call, got {len(playlist_queue_calls)}"
+
+        call_args, call_kwargs = playlist_queue_calls[0]
+        # call_args: (ctx, player, playlist_id, shuffle, max_num)
+        assert call_args[3] == expected_shuffle, f"Test case {i}: Expected shuffle={expected_shuffle}, got {call_args[3]}"
+        assert call_args[4] == expected_max_num, f"Test case {i}: Expected max_num={expected_max_num}, got {call_args[4]}"
+        assert call_kwargs.get('is_history', False) == expected_is_history, f"Test case {i}: Expected is_history={expected_is_history}, got {call_kwargs.get('is_history', False)}"
+
+    # Verify our tests covered both regular and history playlists
+    history_tests = [case for case in test_cases if case[4]]  # is_history=True
+    regular_tests = [case for case in test_cases if not case[4]]  # is_history=False
+
+    assert len(history_tests) >= 2, "Should test history playlist functionality"
+    assert len(regular_tests) >= 4, "Should test regular playlist functionality"
+
+@pytest.mark.asyncio
+async def test_playlist_show_empty_playlist_message_context_fix(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist show on empty playlist creates proper MessageContext (bug fix for 'str' object has no attribute 'function')"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a player to ensure history playlist exists
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    # Create an empty playlist
+    await cog.playlist_create(cog, fake_context['context'], name='empty-playlist')
+
+    # Clear the message queue after playlist creation
+    cog.message_queue.get_single_immutable()  # Remove the playlist creation message
+
+    # Show the empty playlist - this should not crash
+    await cog.playlist_show(cog, fake_context['context'], 1)
+
+    # Verify message was queued properly (should be MessageContext object, not string)
+    messages = cog.message_queue.get_single_immutable()
+    assert len(messages) == 1
+    assert hasattr(messages[0], 'function'), "Message should be MessageContext object with function attribute"
+    assert callable(messages[0].function), "MessageContext.function should be callable"
+
+    # Verify the message content is correct - check the args which should contain our message
+    assert 'No items in playlist' in str(messages[0].function.args), \
+           f"Message should contain 'No items in playlist', got: {messages[0].function.args}"
+
+@pytest.mark.asyncio
+async def test_playlist_queue_empty_playlist_user_feedback(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist queue on empty playlist provides helpful user feedback message"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a player to ensure voice functionality works
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    # Create an empty playlist
+    await cog.playlist_create(cog, fake_context['context'], name='empty-playlist')
+
+    # Clear the message queue after playlist creation
+    cog.message_queue.get_single_immutable()  # Remove the playlist creation message
+
+    # Try to queue the empty playlist - should get helpful message
+    await cog.playlist_queue(cog, fake_context['context'], 1)
+
+    # Verify user gets helpful feedback message
+    messages = cog.message_queue.get_single_immutable()
+    assert len(messages) == 1
+    assert hasattr(messages[0], 'function'), "Message should be MessageContext object with function attribute"
+    assert callable(messages[0].function), "MessageContext.function should be callable"
+
+    # Verify the message content is correct
+    message_text = str(messages[0].function.args)
+    assert 'contains no items to queue' in message_text, \
+           f"Message should contain 'contains no items to queue', got: {message_text}"
+    assert 'empty-playlist' in message_text, \
+           f"Message should contain playlist name 'empty-playlist', got: {message_text}"
+
+@pytest.mark.asyncio
+async def test_playlist_queue_empty_history_playlist_feedback(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist queue on empty history playlist provides helpful feedback with correct name"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a player to ensure history playlist exists
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    # Try to queue empty history playlist (playlist index 0)
+    await cog.playlist_queue(cog, fake_context['context'], 0)
+
+    # Verify user gets helpful feedback message
+    messages = cog.message_queue.get_single_immutable()
+    assert len(messages) == 1
+    assert hasattr(messages[0], 'function'), "Message should be MessageContext object with function attribute"
+
+    # Verify the message content shows "Channel History" (not the database playlist name)
+    message_text = str(messages[0].function.args)
+    assert 'contains no items to queue' in message_text, \
+           f"Message should contain 'contains no items to queue', got: {message_text}"
+    assert 'Channel History' in message_text, \
+           f"Message should contain 'Channel History', got: {message_text}"

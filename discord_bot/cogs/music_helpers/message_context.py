@@ -6,7 +6,6 @@ from uuid import uuid4
 from discord import Message, TextChannel
 
 from discord_bot.utils.common import async_retry_discord_message_command
-from discord_bot.cogs.music_helpers.common import MessageLifecycleStage
 
 class MessageContext():
     '''
@@ -15,9 +14,8 @@ class MessageContext():
     def __init__(self, guild_id: int, channel_id: int):
         self.guild_id = guild_id
         self.channel_id = channel_id
-        self.uuid = uuid4()
+        self.uuid = f'context.{uuid4()}'
         self.created_at = datetime.now(timezone.utc)
-        self.lifecycle_stage = MessageLifecycleStage.SEND
 
         # Set after
         self.message_id = None
@@ -30,10 +28,10 @@ class MessageContext():
         '''
         Set message that was sent to channel when video was requested
 
-        message : Message object
+        message : Message object (can be None for failed messages)
         '''
         self.message = message
-        self.message_id = message.id
+        self.message_id = message.id if message else None
 
     async def delete_message(self, _message_content: str, **_kwargs):
         '''
@@ -57,12 +55,18 @@ class MessageContext():
         await self.message.edit(content=content, delete_after=delete_after)
         return True
 
+
+class MuableBundleInvalidMessageContent(Exception):
+    '''
+    Update has invalid message content
+    '''
+
 class MessageMutableBundle():
     '''
     Collection of multiple mutable messages
     '''
     def __init__(self, guild_id: int, channel_id: int, check_last_message_func: Callable,
-                 send_function: Callable, delete_after: int = None,
+                 send_function: Callable,
                  sticky_messages: bool = True):
         '''
         guild_id : Server ID
@@ -76,7 +80,6 @@ class MessageMutableBundle():
         self.channel_id = channel_id
         self.check_last_message_func = check_last_message_func
         self.send_function = send_function
-        self.delete_after = delete_after
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
         self.last_sent = None  # Track when this bundle was last processed
@@ -108,14 +111,17 @@ class MessageMutableBundle():
                 return True
         return False
 
-    def get_message_dispatch(self, message_content: List[str], clear_existing: bool = False) -> List[Callable]:
+    def get_message_dispatch(self, message_content: List[str], clear_existing: bool = False, delete_after: int = None) -> List[Callable]:
         '''
         Return list of functions to handle message updates
         Compares new content with existing messages and returns appropriate functions
         
         message_content: List of new message content
         clear_existing: If True, clear all existing messages before sending new ones (for sticky behavior)
+        delete_after: Set delete after on message
         '''
+        if not self.sticky_messages and self.message_contexts and len(message_content) > len(self.message_contexts):
+            raise MuableBundleInvalidMessageContent('Non sticky messages cant be greater ')
         dispatch_functions = []
 
         # Handle sticky clear behavior - delete all existing messages first
@@ -132,7 +138,7 @@ class MessageMutableBundle():
             for content in message_content:
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
-                send_func = partial(self.send_function, content=content, delete_after=self.delete_after)
+                send_func = partial(self.send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
@@ -162,12 +168,12 @@ class MessageMutableBundle():
                 context.message_content = new_content
                 if context.message:
                     # Message exists, edit it
-                    edit_func = partial(context.edit_message, content=new_content, delete_after=self.delete_after)
+                    edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
                     context.function = edit_func
                     dispatch_functions.append(edit_func)
                 else:
                     # Message doesn't exist yet, send it
-                    send_func = partial(self.send_function, content=new_content, delete_after=self.delete_after)
+                    send_func = partial(self.send_function, content=new_content, delete_after=delete_after)
                     context.function = send_func
                     dispatch_functions.append(send_func)
             # If content is the same, no action needed (no-op)
@@ -178,7 +184,7 @@ class MessageMutableBundle():
                 content = message_content[i]
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
-                send_func = partial(self.send_function, content=content, delete_after=self.delete_after)
+                send_func = partial(self.send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
