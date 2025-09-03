@@ -1675,8 +1675,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             playlist = retry_database_commands(db_session, partial(create_playlist, db_session, playlist_name, str(ctx.guild.id)))
             self.logger.info(f'Playlist created "{playlist_name}" with id {playlist.id} in guild {ctx.guild.id}')
+            public_playlist_id = await self.__get_playlist_public_view(playlist.id, ctx.guild.id)
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}"',
+            message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}" with ID {public_playlist_id}',
                                                delete_after=self.delete_after)
             self.message_queue.send_single_immutable([message_context])
             return playlist.id

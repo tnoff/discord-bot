@@ -40,6 +40,39 @@ async def test_create_playlist_same_name_twice(fake_engine, mocker, fake_context
         assert db_session.query(Playlist).count() == 1
 
 @pytest.mark.asyncio
+async def test_create_playlist_message_includes_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist creation message includes the public playlist ID"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Create first playlist - should get public ID 1
+    await cog.playlist_create(cog, fake_context['context'], name='first-playlist')
+    first_message = cog.message_queue.get_single_immutable()
+    assert first_message[0].function.args[0] == 'Created playlist "first-playlist" with ID 1'
+
+    # Create second playlist - should get public ID 2
+    await cog.playlist_create(cog, fake_context['context'], name='second-playlist')
+    second_message = cog.message_queue.get_single_immutable()
+    assert second_message[0].function.args[0] == 'Created playlist "second-playlist" with ID 2'
+
+    # Verify playlists were actually created in database
+    with mock_session(fake_engine) as db_session:
+        assert db_session.query(Playlist).count() == 2
+
+@pytest.mark.asyncio
+async def test_create_playlist_message_with_none_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test playlist creation message handles None public ID gracefully"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Mock __get_playlist_public_view to return None
+    mocker.patch.object(cog, '_Music__get_playlist_public_view', return_value=None)
+
+    await cog.playlist_create(cog, fake_context['context'], name='test-playlist')
+    message = cog.message_queue.get_single_immutable()
+    assert message[0].function.args[0] == 'Created playlist "test-playlist" with ID None'
+
+@pytest.mark.asyncio
 async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
