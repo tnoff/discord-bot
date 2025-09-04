@@ -215,6 +215,9 @@ class MultiMediaRequestBundle():
             if item['status'] == MediaRequestLifecycleStage.IN_PROGRESS:
                 messages.append(f'Downloading and processing media request: "{item["search_string"]}"')
                 continue
+            if item['status'] == MediaRequestLifecycleStage.BACKOFF:
+                messages.append(f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
+                continue
             if item['status'] == MediaRequestLifecycleStage.DISCARDED:
                 continue
         all_items = chunk_list(messages, self.items_per_message)

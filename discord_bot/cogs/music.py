@@ -935,21 +935,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         )
                     return
             self.logger.debug(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
-            # Update bundle to show in progress
-            if bundle:
-                bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                    bundle.text_channel,
-                    sticky_messages=False,
-                )
+
             # If cache enabled and search string with 'https://' given, try to grab this first
             media_download = await self.__check_video_cache(media_request)
             # Else grab from ytdlp
             if not media_download:
+                # Update bundle to show waiting on youtube backoff time
+                if bundle:
+                    bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+                    self.message_queue.update_multiple_mutable(
+                        f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                        bundle.text_channel,
+                        sticky_messages=False,
+                    )
                 # Make sure we wait for next video download
                 # Dont spam the video client
                 await self.youtube_backoff_time(self.youtube_wait_period_min, self.youtube_wait_period_max_variance)
+                # Update bundle to show in progress
+                if bundle:
+                    bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
+                    self.message_queue.update_multiple_mutable(
+                        f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                        bundle.text_channel,
+                        sticky_messages=False,
+                    )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
                     self.update_download_lockfile(media_download)
