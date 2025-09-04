@@ -294,3 +294,11 @@ def create_observable_gauge(meter_provider, name: str, function, description: st
         unit=unit,
         description=description,
     )
+
+def discord_format_string_embed(stringy: str) -> str:
+    '''
+    Format discord string so it is not embedded
+    '''
+    if 'https://' in stringy:
+        return f'<{stringy}>'
+    return stringy

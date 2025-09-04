@@ -6,6 +6,7 @@ from discord import TextChannel
 
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
+from discord_bot.utils.common import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming
 
 
@@ -65,9 +66,7 @@ class MediaRequest():
         https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
         '''
         return_string = self.original_search_string or self.search_string
-        if 'https://' in return_string:
-            return f'<{return_string}>'
-        return return_string
+        return discord_format_string_embed(return_string)
 
 
 def media_request_attributes(media_request: MediaRequest) -> dict:
@@ -128,9 +127,7 @@ class MultiMediaRequestBundle():
         '''
         if not self.multi_input_string and media_request.multi_input_string:
             self.multi_input_string = media_request.multi_input_string
-        search_string = media_request.original_search_string
-        if 'https://' in search_string:
-            search_string = f'<{search_string}>'
+        search_string = discord_format_string_embed(media_request.original_search_string)
         self.media_requests.append({
             'search_string': search_string,
             'status': MediaRequestLifecycleStage.QUEUED,
@@ -188,9 +185,7 @@ class MultiMediaRequestBundle():
         if self.is_shutdown:
             return []
         messages = []
-        multi_input = self.multi_input_string
-        if self.multi_input_string and 'https://' in self.multi_input_string:
-            multi_input = f'<{self.multi_input_string}>'
+        multi_input = discord_format_string_embed(self.multi_input_string) if self.multi_input_string else self.multi_input_string
         if self.total > 1:
             if self.finished:
                 messages = [f'Completed download of "{multi_input}"']
