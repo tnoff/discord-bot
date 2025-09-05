@@ -12,9 +12,10 @@ from discord_bot.cogs.music_helpers.download_client import DownloadClientExcepti
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music import VideoEditing
+from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
 
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
@@ -824,3 +825,73 @@ def test_music_init_with_audio_processing_disabled(fake_context):  #pylint:disab
 
             # Verify post-processor was NOT added
             mock_ytdl.return_value.add_post_processor.assert_not_called()
+
+
+def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylint:disable=redefined-outer-name
+    """Test BACKOFF status integration with MultipleMutableType - simpler integration test"""
+
+    # Test that BACKOFF can be used in the new workflow pattern
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = MediaRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_string='test song',
+        search_type=SearchType.SEARCH
+    )
+
+    # Add request and set to BACKOFF status
+    bundle.add_media_request(media_request)
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+
+    # Test that bundle print shows the BACKOFF message
+    result = bundle.print()
+    result_text = ' '.join(result)
+
+    # Should contain backoff message in the expected format used by music.py
+    expected_message = 'Waiting for youtube backoff time before processing media request: "test song"'
+    assert expected_message in result_text
+
+    # Test that MultipleMutableType can create the expected bundle key format
+    bundle_key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+    assert bundle_key.startswith('request_bundle-request.bundle.')
+
+    # Verify bundle status is correctly set
+    assert not bundle.finished  # BACKOFF status means not finished
+
+
+def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that BACKOFF enum value is properly imported and used"""
+
+    # Test that BACKOFF enum exists and has correct value
+    assert hasattr(MediaRequestLifecycleStage, 'BACKOFF')
+    assert MediaRequestLifecycleStage.BACKOFF.value == 'backoff'
+
+    # Test that BACKOFF can be used in bundle status updates
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = MediaRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_string='test song',
+        search_type=SearchType.SEARCH
+    )
+
+    bundle.add_media_request(media_request)
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+
+    # Verify status was set correctly
+    request_data = bundle.media_requests[0]
+    assert request_data['status'] == MediaRequestLifecycleStage.BACKOFF

@@ -259,3 +259,88 @@ def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_co
 
     # URL should be wrapped in angle brackets
     assert '<https://example.com/video>' in result_text
+
+
+def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that BACKOFF status shows appropriate message"""
+    media_request = MediaRequest(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        'test_user',
+        123456,
+        'test search string',
+        SearchType.SEARCH
+    )
+    media_request_bundle.add_media_request(media_request)
+
+    # Set to BACKOFF status
+    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+
+    result = media_request_bundle.print()
+    result_text = ' '.join(result)
+
+    # Should contain backoff message
+    assert 'Waiting for youtube backoff time before processing media request: "test search string"' in result_text
+
+
+def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
+    """Test bundle print with all possible lifecycle stages"""
+    # Create requests for each lifecycle stage
+    lifecycle_stages = [
+        MediaRequestLifecycleStage.QUEUED,
+        MediaRequestLifecycleStage.IN_PROGRESS,
+        MediaRequestLifecycleStage.BACKOFF,
+        MediaRequestLifecycleStage.COMPLETED,
+        MediaRequestLifecycleStage.FAILED,
+        MediaRequestLifecycleStage.DISCARDED
+    ]
+
+    for i, stage in enumerate(lifecycle_stages):
+        media_request = MediaRequest(
+            fake_context['guild'].id,
+            fake_context['channel'].id,
+            'test_user',
+            123456,
+            f'test search {i}',
+            SearchType.SEARCH
+        )
+        media_request_bundle.add_media_request(media_request)
+        media_request_bundle.update_request_status(media_request, stage)
+
+    result = media_request_bundle.print()
+    result_text = ' '.join(result)
+
+    # Should contain expected messages for visible stages
+    assert 'Media request queued for download: "test search 0"' in result_text
+    assert 'Downloading and processing media request: "test search 1"' in result_text
+    assert 'Waiting for youtube backoff time before processing media request: "test search 2"' in result_text
+    # COMPLETED items are skipped from output, so should not appear
+    assert 'test search 3' not in result_text
+    assert 'Media request failed download: "test search 4"' in result_text
+    # DISCARDED items should not appear in output
+    assert 'test search 5' not in result_text
+
+
+def test_media_request_bundle_finished_property_with_backoff(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that BACKOFF status doesn't mark bundle as finished"""
+    media_request = MediaRequest(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        'test_user',
+        123456,
+        'test search',
+        SearchType.SEARCH
+    )
+    media_request_bundle.add_media_request(media_request)
+
+    # BACKOFF status should not be considered finished
+    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+    assert not media_request_bundle.finished
+
+    # IN_PROGRESS status should not be considered finished
+    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
+    assert not media_request_bundle.finished
+
+    # COMPLETED status should be considered finished
+    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+    assert media_request_bundle.finished

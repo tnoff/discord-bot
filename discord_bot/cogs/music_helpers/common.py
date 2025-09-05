@@ -36,6 +36,7 @@ class MediaRequestLifecycleStage(Enum):
     FAILED = 'failed'
     COMPLETED = 'completed'
     DISCARDED = 'discarded'
+    BACKOFF = 'backoff'
 
 class MessageType(Enum):
     '''
