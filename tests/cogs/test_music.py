@@ -7,11 +7,11 @@ import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 
 from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadError
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.cogs.music_helpers.message_formatter import MessageFormatter
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music import VideoEditing
@@ -35,7 +35,15 @@ def yield_fake_search_client(media_request: MediaRequest = None):
             pass
 
         async def check_source(self, *_args, **_kwargs):
-            return [media_request]
+            if media_request:
+                # Convert MediaRequest to SearchResult
+                search_result = SearchResult(
+                    media_request.search_type,
+                    media_request.search_string,
+                    media_request.multi_input_string
+                )
+                return [search_result]
+            return []
 
     return FakeSearchClient
 
@@ -76,7 +84,16 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
             pass
 
         async def check_source(self, *_args, **_kwargs):
-            return source_dict_list
+            # Convert MediaRequest list to SearchResult list
+            search_results = []
+            for media_request in source_dict_list:
+                search_result = SearchResult(
+                    media_request.search_type,
+                    media_request.search_string,
+                    media_request.multi_input_string
+                )
+                search_results.append(search_result)
+            return search_results
 
     return FakeSearchClient
 
@@ -146,8 +163,11 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     await cog.play_(cog, fake_context['context'], search='foo bar')
     item0 = cog.download_queue.get_nowait()
     item1 = cog.download_queue.get_nowait()
-    assert item0 == s
-    assert item1 == s1
+    # Compare key properties since SearchClient refactoring creates new MediaRequest objects
+    assert item0.search_string == s.search_string
+    assert item0.search_type == s.search_type
+    assert item1.search_string == s1.search_string
+    assert item1.search_type == s1.search_type
 
 @pytest.mark.asyncio()
 async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -339,8 +359,20 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.play_(cog, fake_context['context'], search='foo bar')
-    m0 = cog.message_queue.get_next_message()
-    assert m0[1][0].function.args[0] == 'woopsie'
+
+    # With the new bundle system, search failures create bundles with error messages
+    # Check that a bundle was created and contains the error message
+    assert len(cog.multirequest_bundles) == 1
+    bundle = list(cog.multirequest_bundles.values())[0]
+
+    # The bundle should have finished with an error
+    assert bundle.search_finished is True
+    assert bundle.search_error == 'foo'  # The main exception message, not user_message
+
+    # Verify the bundle's print output contains the error message
+    bundle_messages = bundle.print()
+    assert len(bundle_messages) > 0
+    assert any('foo' in msg for msg in bundle_messages)
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -664,59 +696,6 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
     assert cog.backup_storage_options['backend'] == 's3'
     assert cog.backup_storage_options['bucket_name'] == 'test-bucket'
 
-@pytest.mark.asyncio
-async def test_message_formatter_integration_play_queue_full():  #pylint:disable=redefined-outer-name
-    """Test MessageFormatter integration with play queue full scenario."""
-
-    # Test that MessageFormatter produces correct format for play queue full scenarios
-    test_item = "Test Song Title"
-
-    # Test default reason (play queue is full)
-    result = MessageFormatter.format_play_queue_full_message(test_item)
-    expected = "Test Song Title (failed: play queue is full)"
-    assert result == expected
-
-    # Test custom reason
-    result = MessageFormatter.format_play_queue_full_message(test_item, "custom error reason")
-    expected = "Test Song Title (failed: custom error reason)"
-    assert result == expected
-
-    # Test download queue format
-    result = MessageFormatter.format_download_queue_full_message(test_item)
-    expected = 'Unable to add "Test Song Title" to queue, download queue is full'
-    assert result == expected
-
-@pytest.mark.asyncio
-async def test_message_formatter_integration_different_queue_types():  #pylint:disable=redefined-outer-name
-    """Test that MessageFormatter handles different queue full scenarios correctly."""
-
-    # Test various item formats
-    test_cases = [
-        ("Simple Song", "Simple Song (failed: play queue is full)"),
-        ("Song with special chars !@#", "Song with special chars !@# (failed: play queue is full)"),
-        ("", " (failed: play queue is full)"),
-        (123, "123 (failed: play queue is full)"),
-    ]
-
-    for item_str, expected in test_cases:
-        result = MessageFormatter.format_play_queue_full_message(item_str)
-        assert result == expected
-
-    # Test download queue formatting
-    download_cases = [
-        ("Simple Song", 'Unable to add "Simple Song" to queue, download queue is full'),
-        ("Song with special chars !@#", 'Unable to add "Song with special chars !@#" to queue, download queue is full'),
-        ("", 'Unable to add "" to queue, download queue is full'),
-        (456, 'Unable to add "456" to queue, download queue is full'),
-    ]
-
-    for item_str, expected in download_cases:
-        result = MessageFormatter.format_download_queue_full_message(item_str)
-        assert result == expected
-
-
-# Coverage improvement tests for high-priority uncovered lines
-
 def test_video_editing_post_processor_success():
     """Test VideoEditing post-processor success path - covers lines 255-263"""
 
@@ -843,6 +822,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
         requester_name='test_user',
         requester_id=123456,
         search_string='test song',
+        raw_search_string='test song',
         search_type=SearchType.SEARCH
     )
 
@@ -886,6 +866,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
         requester_name='test_user',
         requester_id=123456,
         search_string='test song',
+        raw_search_string='test song',
         search_type=SearchType.SEARCH
     )
 

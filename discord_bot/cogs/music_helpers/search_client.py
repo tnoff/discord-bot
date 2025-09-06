@@ -5,17 +5,13 @@ from re import match
 from random import shuffle
 from typing import List
 
-from discord import TextChannel
 from googleapiclient.errors import HttpError
 from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
-from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType
+from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
@@ -58,12 +54,39 @@ def check_youtube_video(search: str) -> bool:
     youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
     return youtube_short_match or youtube_video_match
 
+class SearchResult():
+    '''
+    SearchClient search results
+    '''
+    def __init__(self, search_type: SearchType, search_string: str, multi_search_input: str = None):
+        self.search_type = search_type
+        # Search string before it is passed to youtube music
+        self.raw_search_string = search_string
+        # Search string after youtube music search, if given
+        self.youtube_music_search_string = None
+        # If generated from a playlist/album
+        self.multi_search_input = multi_search_input
+
+    def add_youtube_music_result(self, youtube_music_result: str):
+        '''
+        Add result from youtube music
+        '''
+        self.youtube_music_search_string = youtube_music_result
+
+    @property
+    def resolved_search_string(self):
+        '''
+        Either youtube music or original search string
+        '''
+        if self.youtube_music_search_string:
+            return self.youtube_music_search_string
+        return self.raw_search_string
+
 class SearchClient():
     '''
     Wraps search functions
     '''
-    def __init__(self, message_queue: MessageQueue,
-                 spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
+    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
                  number_shuffles: int = 5):
         '''
         Init download client
@@ -74,13 +97,10 @@ class SearchClient():
         youtube_music_client : Youtube Music Client
         number_shuffles : Number of shuffles post api calls
         '''
-        self.message_queue = message_queue
         self.spotify_client = spotify_client
         self.youtube_client = youtube_client
         self.youtube_music_client = youtube_music_client
         self.number_shuffles = number_shuffles
-
-        self.messages = {}
 
     def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None):
         '''
@@ -117,7 +137,7 @@ class SearchClient():
             items.append(f'{YOUTUBE_VIDEO_PREFIX}{item}')
         return items
 
-    async def __check_source_types(self, search: str, loop: AbstractEventLoop, text_channel: TextChannel):
+    async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> List[SearchResult]:
         '''
         Create source types
 
@@ -135,14 +155,7 @@ class SearchClient():
             if spotify_playlist_matcher or spotify_album_matcher or spotify_track_matcher:
                 if not self.spotify_client:
                     raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
-                message_context = MessageContext(text_channel.guild.id, text_channel.id)
                 search_string_message = search.replace(' shuffle', '')
-                self.messages[message_context.uuid] = [f'Gathering spotify data from url "<{search_string_message}>"']
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                    text_channel,
-                    sticky_messages=False,
-                )
                 spotify_args = {}
                 should_shuffle = False
                 if spotify_album_matcher:
@@ -158,21 +171,9 @@ class SearchClient():
                 try:
                     search_strings = await loop.run_in_executor(None, to_run)
                 except SpotifyOauthError as e:
-                    self.messages[message_context.uuid] = []
-                    self.message_queue.update_multiple_mutable(
-                        f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                        text_channel,
-                        sticky_messages=False,
-                    )
                     message = 'Issue gathering info from spotify, credentials seem invalid'
                     raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
                 except SpotifyException as e:
-                    self.messages[message_context.uuid] = []
-                    self.message_queue.update_multiple_mutable(
-                        f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                        text_channel,
-                        sticky_messages=False,
-                    )
                     message = 'Issue gathering info from spotify url "{search}"'
                     if e.http_status == 404:
                         message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
@@ -181,52 +182,45 @@ class SearchClient():
                     for _ in range(self.number_shuffles):
                         shuffle(search_strings)
                 spotify_search_original = search_string_message if spotify_track_matcher is None else None
-                return SearchType.SPOTIFY, search_strings, message_context, spotify_search_original
+                results = []
+                for item in search_strings:
+                    results.append(SearchResult(SearchType.SPOTIFY, item, spotify_search_original))
+                return results
 
             if youtube_playlist_matcher:
                 if not self.youtube_client:
                     raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
-                message_context = MessageContext(text_channel.guild.id, text_channel.id)
                 search_string_message = search.replace(' shuffle', '')
-                self.messages[message_context.uuid] = [f'Gathering youtube data from url "<{search_string_message}>"']
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                    text_channel,
-                    sticky_messages=False,
-                )
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
                 to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
                 try:
                     search_strings = await loop.run_in_executor(None, to_run)
                 except HttpError as e:
-                    self.messages[message_context.uuid] = []
-                    self.message_queue.update_multiple_mutable(
-                        f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                        text_channel,
-                        sticky_messages=False,
-                    )
                     raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
                 if should_shuffle:
                     for _ in range(self.number_shuffles):
                         shuffle(search_strings)
-                return SearchType.YOUTUBE, search_strings, message_context, search_string_message
+                results = []
+                for item in search_strings:
+                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item, search_string_message))
+                return results
 
             if youtube_short_match:
-                return SearchType.YOUTUBE, [f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}'], None, None
+                return [SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}', None)]
 
             if youtube_video_match:
-                return SearchType.YOUTUBE, [f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}'], None, None
+                return [SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)]
 
             if FXTWITTER_VIDEO_PREFIX in search:
-                return SearchType.DIRECT, [search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX)], None, None
+                return [SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)]
 
             # If we have https:// in url, assume its a direct
             if 'https://' in search:
-                return SearchType.DIRECT, [search], None, None
+                return [SearchResult(SearchType.DIRECT, search, None)]
 
             # Else assume this was a search message to put into youtube music
-            return SearchType.SEARCH, [search], None, None
+            return [SearchResult(SearchType.SEARCH, search, None)]
 
     def __search_youtube_music(self, search_string: str):
         '''
@@ -249,8 +243,8 @@ class SearchClient():
         to_run = partial(self.__search_youtube_music, search_string)
         return await loop.run_in_executor(None, to_run)
 
-    async def check_source(self, search: str, guild_id: int, channel_id: int, requester_name: str, requester_id: str, loop: AbstractEventLoop,
-                           max_results: int, text_channel: TextChannel) -> List[MediaRequest]:
+    async def check_source(self, search: str, loop: AbstractEventLoop,
+                           max_results: int) -> List[SearchResult]:
         '''
         Generate sources from input
 
@@ -263,31 +257,14 @@ class SearchClient():
         max_results : Max results of items
         text_channel : Text channel to send messages to
         '''
-        search_type, search_strings, message_context, search_string_message = await self.__check_source_types(search, loop, text_channel)
-        if max_results:
-            search_strings = islice(search_strings, max_results)
+        search_results = await self.__check_source_types(search, loop)
+        if max_results is not None:
+            search_results = list(islice(search_results, max_results))
 
-        all_entries = []
-        for search_string in search_strings:
-            # Don't overwrite message_context from the search processing - create new context for MediaRequest only
-            entry_context = MessageContext(guild_id, channel_id)
-            entry = MediaRequest(guild_id, channel_id, requester_name, requester_id, search_string, search_type, message_context=entry_context,
-                                 multi_input_string=search_string_message)
-            # Fallback to youtube music check
+        for search_result in search_results:
             if self.youtube_music_client:
-                result = await self.__check_youtube_music(entry.search_type, entry.search_string, loop)
-                if result:
-                    entry.search_string = f'{YOUTUBE_VIDEO_PREFIX}{result}'
-                    all_entries.append(entry)
+                youtube_result = await self.__check_youtube_music(search_result.search_type, search_result.raw_search_string, loop)
+                if youtube_result:
+                    search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_result}')
                     continue
-            all_entries.append(entry)
-
-        # Clear search messages using the original message_context from search processing
-        if message_context:
-            self.messages[message_context.uuid] = []
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}',
-                text_channel,
-                sticky_messages=False,
-            )
-        return all_entries
+        return search_results

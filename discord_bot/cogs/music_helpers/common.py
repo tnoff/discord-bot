@@ -16,6 +16,7 @@ class SearchType(Enum):
     Search Types Supported
     '''
     SPOTIFY = 'spotify' # Spotify url was passed, these go to youtube eventually
+    YOUTUBE_PLAYLIST = 'youtube_playlist' # Youtube playlist was
     YOUTUBE = 'youtube' # Youtube url was passed
     DIRECT = 'direct' # Direct url for non-youtube passed
     SEARCH = 'search' # Search passed, goes to youtube
@@ -51,4 +52,3 @@ class MultipleMutableType(Enum):
     '''
     PLAY_ORDER = 'play_order'
     REQUEST_BUNDLE = 'request_bundle'
-    SEARCH = 'search'
