@@ -95,7 +95,7 @@ async def test_spotify_message_check():
     assert str(exc.value) == 'Missing spotify creds'
     assert exc.value.user_message == 'Spotify URLs invalid, no spotify credentials available to bot'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_exception():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyRaise())
@@ -104,7 +104,7 @@ async def test_spotify_throw_exception():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'If this is an official Spotify playlist' in str(exc.value.user_message)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_exception_403():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyRaiseUnauth())
@@ -113,7 +113,7 @@ async def test_spotify_throw_exception_403():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_oauth():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyRaiseUnauth())
@@ -122,7 +122,7 @@ async def test_spotify_throw_oauth():
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient())
@@ -131,7 +131,7 @@ async def test_spotify_album_get():
     assert result[0].search_type == SearchType.SPOTIFY
     assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     # If no search cache is hit, make sure that youtube music returns the proper url
     loop = asyncio.get_running_loop()
@@ -142,7 +142,7 @@ async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     assert result[0].search_type == SearchType.SPOTIFY
     assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_get_shuffle():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient())
@@ -151,7 +151,7 @@ async def test_spotify_album_get_shuffle():
     assert result[0].search_type == SearchType.SPOTIFY
     assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient())
@@ -159,7 +159,7 @@ async def test_spotify_playlist_get():
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get_shuffle():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient())
@@ -167,7 +167,7 @@ async def test_spotify_playlist_get_shuffle():
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_track_get():
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient())
@@ -175,7 +175,7 @@ async def test_spotify_track_get():
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_no_creds():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -183,7 +183,7 @@ async def test_youtube_no_creds():
         await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert 'Missing youtube creds' in str(exc.value)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist():
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_client=MockYoutubeClient())
@@ -192,7 +192,7 @@ async def test_youtube_playlist():
     assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
     assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist_shuffle():
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_client=MockYoutubeClient())
@@ -201,7 +201,7 @@ async def test_youtube_playlist_shuffle():
     assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
     assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_error():
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_client=MockYoutubeRaise())
@@ -209,7 +209,7 @@ async def test_youtube_error():
         await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert 'Issue fetching youtube info' in str(exc.value)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_short():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -218,7 +218,7 @@ async def test_youtube_short():
     assert result[0].search_type == SearchType.YOUTUBE
     assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_video():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -227,7 +227,7 @@ async def test_youtube_video():
     assert result[0].search_type == SearchType.YOUTUBE
     assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_fxtwitter():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -236,7 +236,7 @@ async def test_fxtwitter():
     assert result[0].search_type == SearchType.DIRECT
     assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -246,7 +246,7 @@ async def test_basic_search():
     assert result[0].multi_search_input is None
 
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music():
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_music_client=MockYoutubeMusic())
@@ -256,7 +256,7 @@ async def test_basic_search_with_youtube_music():
     assert result[0].raw_search_string == 'foo bar'
     assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music_skips_direct():
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_music_client=MockYoutubeMusic())

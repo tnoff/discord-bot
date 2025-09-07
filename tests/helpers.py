@@ -18,7 +18,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
-class TestHelperException(Exception):
+class HelperException(Exception):
     '''
     Test helper exception
     '''
@@ -114,6 +114,7 @@ def fake_engine():
         yield engine
     finally:
         BASE.metadata.drop_all(engine)
+        engine.dispose()
 
 @pytest.fixture(scope="function")
 def fake_context():

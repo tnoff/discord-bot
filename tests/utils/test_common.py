@@ -18,7 +18,7 @@ from discord_bot.utils.common import return_loop_runner
 
 from tests.helpers import fake_bot_yielder
 
-class TestException(Exception):
+class CommonException(Exception):
     pass
 
 def test_validate_minimal_config():
@@ -191,7 +191,7 @@ def test_rm_tree():
                 assert not path.exists()
                 assert not Path(tmp_dir).exists()
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner():
     def fake_func():
         raise ExitEarlyException('exiting')
@@ -202,7 +202,7 @@ async def test_return_loop_runner():
         assert await runner() is False
         assert path.read_text(encoding='utf-8') == '0'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_standard_exception():
     def fake_func():
         raise Exception('exiting') #pylint:disable=broad-exception-raised
@@ -213,18 +213,23 @@ async def test_return_loop_runner_standard_exception():
         assert await runner() is False
         assert path.read_text(encoding='utf-8') == '0'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_continue_exception():
 
     fake_bot = fake_bot_yielder()()
     class FakeException(Exception):
         pass
-    def fake_func():
-        fake_bot.bot_closed = True
-        raise FakeException('foo')
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise FakeException('foo')  # First call raises continue exception
+        fake_bot.bot_closed = True  # Second call closes bot to exit loop
     with NamedTemporaryFile() as tmpfile:
         path = Path(tmpfile.name)
         runner = return_loop_runner(fake_func, fake_bot, logging, path, continue_exceptions=FakeException)
-        runner()
-        assert not fake_bot.is_closed()
-        assert path.read_text(encoding='utf-8') == '1'
+        await runner()
+        assert fake_bot.is_closed()  # Bot should be closed after loop exits
+        assert call_count == 2  # Function should be called twice (continue exception, then close)
+        assert path.read_text(encoding='utf-8') == '0'  # Checkfile should show '0' after exit

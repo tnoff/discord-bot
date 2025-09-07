@@ -1574,7 +1574,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Get playlist by db id, and view which public index servers see it as
         '''
         def get_playlist(db_session: Session, playlist_id: int):
-            return db_session.query(Playlist).get(playlist_id)
+            return db_session.get(Playlist, playlist_id)
 
         def list_playlists(db_session: Session, guild_id: str):
             return db_session.query(Playlist.id).\
@@ -2081,7 +2081,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         def delete_playlist(db_session: Session, playlist_id: int):
             db_session.query(PlaylistItem).\
                 filter(PlaylistItem.playlist_id == playlist_id).delete()
-            query = db_session.query(Playlist).get(playlist_id)
+            query = db_session.get(Playlist, playlist_id)
             if query:
                 db_session.delete(query)
             db_session.commit()
@@ -2102,7 +2102,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             New name of playlist
         '''
         def rename_playlist(db_session: Session, playlist_id: int, playlist_name: str):
-            query = db_session.query(Playlist).get(playlist_id)
+            query = db_session.get(Playlist, playlist_id)
             query.name = playlist_name
             db_session.commit()
 
@@ -2209,7 +2209,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def __delete_non_existing_item(self, item_id: int):
         self.logger.warning(f'Unable to find playlist item {item_id} from history playlist, deleting')
         with self.with_db_session() as db_session:
-            item = db_session.query(PlaylistItem).get(item_id)
+            item = db_session.get(PlaylistItem, item_id)
             db_session.delete(item)
             db_session.commit()
 
@@ -2219,11 +2219,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 filter(PlaylistItem.playlist_id == playlist_id)
 
         def get_playlist_name(db_session: Session, playlist_id: int):
-            item = db_session.query(Playlist).get(playlist_id)
+            item = db_session.get(Playlist, playlist_id)
             return item.name
 
         def playlist_update_queued(db_session: Session, playlist_id: int):
-            item = db_session.query(Playlist).get(playlist_id)
+            item = db_session.get(Playlist, playlist_id)
             item.last_queued = datetime.now(timezone.utc)
             db_session.commit()
 

@@ -129,7 +129,7 @@ def delete_backup_item(db_session: Session, backup_item_id: int):
     '''
     Delete backup item
     '''
-    item = db_session.query(VideoCacheBackup).get(backup_item_id)
+    item = db_session.get(VideoCacheBackup, backup_item_id)
     if not item:
         return False
     db_session.delete(item)
