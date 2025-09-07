@@ -5,7 +5,7 @@ import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult
+from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult, check_youtube_video
 
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
 
@@ -51,13 +51,6 @@ class MockSpotifyRaiseUnauth():
 
     def album_get(self, _album_id):
         raise SpotifyException(403, -1, 'foo exception')
-
-class MockSpotifyOauth():
-    def __init__(self):
-        pass
-
-    def album_get(self, _album_id):
-        raise SpotifyOauthError(400, -1, 'foo exception')
 
 class MockYoutubeClient():
     def __init__(self):
@@ -365,3 +358,80 @@ async def test_search_workflow_max_results_limit():
     # Test with limit of 0 (should return empty)
     results = await x.check_source('https://open.spotify.com/album/1111', loop, 0)
     assert len(results) == 0
+
+def test_check_youtube_video_youtube_short():
+    """Test check_youtube_video with YouTube Short URL"""
+    youtube_short = "https://youtube.com/shorts/dQw4w9WgXcQ"
+    assert check_youtube_video(youtube_short) is not None
+
+
+def test_check_youtube_video_youtube_video():
+    """Test check_youtube_video with regular YouTube video URL"""
+    youtube_video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert check_youtube_video(youtube_video) is not None
+
+
+def test_check_youtube_video_non_youtube():
+    """Test check_youtube_video with non-YouTube URL"""
+    non_youtube = "https://example.com/video"
+    assert check_youtube_video(non_youtube) is None
+
+
+def test_check_youtube_video_plain_text():
+    """Test check_youtube_video with plain text search"""
+    plain_text = "some search query"
+    assert check_youtube_video(plain_text) is None
+
+
+def test_check_youtube_video_boolean_logic():
+    """Test check_youtube_video return value boolean logic"""
+    # Test that YouTube URLs return truthy values
+    youtube_video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    youtube_short = "https://youtube.com/shorts/dQw4w9WgXcQ"
+
+    # Should be truthy (regex match objects)
+    assert bool(check_youtube_video(youtube_video))
+    assert bool(check_youtube_video(youtube_short))
+
+    # Non-YouTube should be falsy (None)
+    plain_text = "some search query"
+    non_youtube_url = "https://example.com/video"
+
+    assert not bool(check_youtube_video(plain_text))
+    assert not bool(check_youtube_video(non_youtube_url))
+
+
+# Import existing mock from test_search_client.py to test OAuth error handling
+class MockSpotifyOauth:
+    """Mock Spotify client that raises SpotifyOauthError - matches existing test pattern"""
+
+    def __init__(self):
+        pass
+
+    def album_get(self, _album_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+    def playlist_get(self, _playlist_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+    def track_get(self, _track_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_spotify_oauth_error_handling():
+    """Test that SpotifyOauthError is properly handled and converted to ThirdPartyException"""
+    loop = asyncio.get_running_loop()
+
+    # Create SearchClient with mock that raises SpotifyOauthError
+    client = SearchClient(spotify_client=MockSpotifyOauth())
+
+    # Test with Spotify playlist URL that will trigger OAuth error
+    spotify_playlist_url = "https://open.spotify.com/playlist/37i9dQZEVXbNG2KDcFcKOF"
+
+    with pytest.raises(ThirdPartyException) as exc_info:
+        await client.check_source(spotify_playlist_url, loop, max_results=5)
+
+    # Verify the error message matches expected format
+    assert "Issue fetching spotify info" in str(exc_info.value)
+    assert exc_info.value.user_message == "Issue gathering info from spotify, credentials seem invalid"

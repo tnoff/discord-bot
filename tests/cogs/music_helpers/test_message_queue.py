@@ -3,7 +3,7 @@ from functools import partial
 
 import pytest
 
-from discord_bot.cogs.music_helpers.message_context import MessageContext
+from discord_bot.cogs.music_helpers.message_context import MessageContext, MessageMutableBundle
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 
@@ -747,3 +747,198 @@ def test_message_queue_exception_vs_other_errors(fake_context):  #pylint:disable
 
     # Other potential errors (like invalid bundle names) would raise different exceptions
     # but we don't test those here since they're not part of the None channel validation
+
+@pytest.fixture
+def comprehensive_non_sticky_bundle(fake_context):  #pylint:disable=redefined-outer-name
+    """Create a non-sticky MessageMutableBundle with detailed tracking for testing"""
+
+    # Track function calls for comprehensive validation
+    call_log = []
+
+    async def check_last_messages(count):
+        call_log.append(f"check_last_messages({count})")
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+
+    async def send_function_wrapper(content: str, delete_after: int = None):
+        call_log.append(f"send('{content}', delete_after={delete_after})")
+        return await fake_context['channel'].send(content)
+
+    bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=False
+    )
+
+    # Attach call_log to bundle for test access
+    bundle.call_log = call_log
+    return bundle
+
+
+def test_non_sticky_fallback_scenario_comprehensive(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test comprehensive non-sticky fallback scenario:
+    1. Set sticky_messages=False
+    2. Create initial messages
+    3. Exceed count with new messages
+    4. Verify fallback to sticky-like behavior (messages added, not deleted/re-sent)
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Verify bundle is correctly configured as non-sticky
+    assert bundle.sticky_messages is False
+
+    # Phase 1: Create initial messages
+    initial_content = ["Initial Message 1", "Initial Message 2"]
+    dispatch_functions_1 = bundle.get_message_dispatch(initial_content)
+
+    # Should create 2 send functions for initial messages
+    assert len(dispatch_functions_1) == 2
+    assert len(bundle.message_contexts) == 2
+
+    # Phase 2: Exceed existing count with more messages
+    # This is where the fallback behavior should kick in
+    extended_content = ["Updated Message 1", "Updated Message 2", "New Message 3", "New Message 4"]
+    dispatch_functions_2 = bundle.get_message_dispatch(extended_content)
+
+    # Key assertion: Should create dispatch functions for additional messages
+    # Non-sticky fallback behavior: instead of deleting all and re-sending,
+    # it should just add the new messages (acting like sticky=True)
+    assert len(dispatch_functions_2) >= 2  # At least 2 new messages
+    assert len(bundle.message_contexts) == 4  # Should now have 4 total contexts
+
+    # Verify that the bundle maintained all message contexts (didn't delete existing ones)
+    assert bundle.message_contexts[0].message_content == "Updated Message 1"
+    assert bundle.message_contexts[1].message_content == "Updated Message 2"
+    assert bundle.message_contexts[2].message_content == "New Message 3"
+    assert bundle.message_contexts[3].message_content == "New Message 4"
+
+
+def test_non_sticky_vs_sticky_behavior_comparison(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Test that demonstrates the fallback: non-sticky bundles act like sticky when exceeding count
+    """
+
+    # Setup identical functions for both bundles
+    async def check_last_messages(count):
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+
+    async def send_function_wrapper(content: str, delete_after: int = None):  #pylint:disable=unused-argument
+        return await fake_context['channel'].send(content)
+
+    # Create non-sticky bundle
+    non_sticky_bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=False
+    )
+
+    # Create sticky bundle for comparison
+    sticky_bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=True
+    )
+
+    # Both bundles start with 2 messages
+    initial_content = ["Message 1", "Message 2"]
+
+    non_sticky_bundle.get_message_dispatch(initial_content)
+    sticky_bundle.get_message_dispatch(initial_content)
+
+    # Both bundles exceed count with 4 messages
+    extended_content = ["Message 1", "Message 2", "Message 3", "Message 4"]
+
+    non_sticky_dispatch = non_sticky_bundle.get_message_dispatch(extended_content)
+    sticky_dispatch = sticky_bundle.get_message_dispatch(extended_content)
+
+    # Key assertion: When exceeding count, both should behave the same way
+    # (non-sticky falls back to sticky-like behavior)
+    assert len(non_sticky_bundle.message_contexts) == len(sticky_bundle.message_contexts)
+    assert len(non_sticky_bundle.message_contexts) == 4
+
+    # Both should have functions for the new messages
+    assert len(non_sticky_dispatch) >= 2  # At least 2 new messages
+    assert len(sticky_dispatch) >= 2     # At least 2 new messages
+
+
+def test_non_sticky_fallback_preserves_existing_messages(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test that non-sticky fallback preserves existing messages instead of deleting them
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Create some initial messages
+    initial_content = ["Preserve me 1", "Preserve me 2"]
+    bundle.get_message_dispatch(initial_content)
+
+    # Simulate that these messages were actually sent (set message_id)
+    bundle.message_contexts[0].message_id = "msg_1"
+    bundle.message_contexts[1].message_id = "msg_2"
+
+    # Now exceed the count
+    extended_content = ["Preserve me 1", "Preserve me 2", "I'm new 3", "I'm new 4"]
+    dispatch_functions = bundle.get_message_dispatch(extended_content)
+
+    # Should NOT include delete functions for existing messages
+    # Should only include send functions for new messages
+    assert len(dispatch_functions) == 2  # Only 2 new messages to send
+
+    # Verify existing contexts are preserved
+    assert bundle.message_contexts[0].message_id == "msg_1"
+    assert bundle.message_contexts[1].message_id == "msg_2"
+    assert bundle.message_contexts[0].message_content == "Preserve me 1"
+    assert bundle.message_contexts[1].message_content == "Preserve me 2"
+
+    # New contexts should be added
+    assert bundle.message_contexts[2].message_content == "I'm new 3"
+    assert bundle.message_contexts[3].message_content == "I'm new 4"
+    assert bundle.message_contexts[2].message_id is None  # Not sent yet
+    assert bundle.message_contexts[3].message_id is None  # Not sent yet
+
+
+def test_non_sticky_fallback_user_description_scenario(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test the exact scenario described:
+    'if sticky is set to False but the new message content is greater than what exists,
+    sticky is effectively ignored and the messages are delete and re-sent'
+
+    Actually tests that messages are NOT deleted and re-sent, but new ones are added
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Verify bundle configuration
+    assert bundle.sticky_messages is False
+
+    # Step 1: Create initial message content (2 messages)
+    existing_content = ["Existing 1", "Existing 2"]
+    initial_dispatch = bundle.get_message_dispatch(existing_content)
+    assert len(initial_dispatch) == 2
+    assert len(bundle.message_contexts) == 2
+
+    # Step 2: New message content is greater than what exists (4 messages > 2 messages)
+    greater_content = ["Updated 1", "Updated 2", "New 3", "New 4"]
+    fallback_dispatch = bundle.get_message_dispatch(greater_content)
+
+    # Step 3: Verify the fallback behavior
+    # According to current implementation: sticky is effectively ignored,
+    # but messages are NOT deleted and re-sent. Instead, new ones are added.
+
+    # Should have dispatch functions for the additional messages
+    assert len(fallback_dispatch) >= 2  # At least for the 2 new messages
+
+    # Should now have 4 total contexts (not deleted and re-created)
+    assert len(bundle.message_contexts) == 4
+
+    # Content should be updated properly
+    assert bundle.message_contexts[0].message_content == "Updated 1"
+    assert bundle.message_contexts[1].message_content == "Updated 2"
+    assert bundle.message_contexts[2].message_content == "New 3"
+    assert bundle.message_contexts[3].message_content == "New 4"

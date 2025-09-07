@@ -1065,8 +1065,8 @@ async def test_playlist_queue_adds_multi_input_string(fake_engine, fake_context)
 
         # Mock the enqueue_media_requests method
         captured_requests = []
-        async def mock_enqueue(ctx, player, requests, bundle):  #pylint:disable=unused-argument
-            captured_requests.extend(requests)
+        async def mock_enqueue(ctx, entries, bundle, player=None):  #pylint:disable=unused-argument
+            captured_requests.extend(entries)
             return True
 
         with patch.object(cog, 'enqueue_media_requests', side_effect=mock_enqueue):
@@ -1141,7 +1141,7 @@ async def test_playlist_queue_bundle_creation_with_text_channel(fake_context):  
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Call enqueue_media_requests directly to test bundle creation
-    result = await cog.enqueue_media_requests(fake_context['context'], mock_player, entries, bundle)
+    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, mock_player)
 
     # Verify bundle was created with correct text_channel
     assert result is True

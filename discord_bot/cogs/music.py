@@ -1211,8 +1211,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         message_context.function = partial(ctx.send, f'Connected to: {channel}', delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
 
-    async def enqueue_media_requests(self, ctx: Context, player: MusicPlayer, entries: List[MediaRequest],
-                                     bundle: MultiMediaRequestBundle) -> bool:
+    async def enqueue_media_requests(self, ctx: Context, entries: List[MediaRequest],
+                                     bundle: MultiMediaRequestBundle, player: MusicPlayer = None) -> bool:
         '''
         Enqueue source dicts to a player or download queue
 
@@ -1309,7 +1309,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                item.resolved_search_string, item.raw_search_string, item.search_type,
                                                multi_input_string=item.multi_search_input))
 
-        await self.enqueue_media_requests(ctx, player, media_requests, bundle)
+        await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
 
     @command(name='skip')
     @command_wrapper
@@ -1933,7 +1933,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                   multi_input_string=search_result.multi_search_input,
                                   download_file=False,
                                   add_to_playlist=playlist_id))
-        await self.enqueue_media_requests(ctx, None, media_requests, bundle)
+        await self.enqueue_media_requests(ctx, media_requests, bundle)
 
     @playlist.command(name='item-remove')
     @command_wrapper
@@ -2282,7 +2282,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 ctx.channel,
                 sticky_messages=False,
             )
-            finished_all = await self.enqueue_media_requests(ctx, player, playlist_items, bundle)
+            finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle, player=player)
 
 
             if not finished_all:

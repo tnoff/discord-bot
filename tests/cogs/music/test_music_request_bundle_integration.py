@@ -1306,7 +1306,7 @@ async def test_bundle_constructor_integration_with_music_cog(fake_context):  #py
     bundle.finish_search_request()
 
     # Test the method that actually creates bundles
-    result = await cog.enqueue_media_requests(fake_context['context'], mock_player, entries, bundle)
+    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, mock_player)
 
     # Verify bundle was created and stored
     assert result is True
