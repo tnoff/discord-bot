@@ -107,50 +107,55 @@ def main(execute, config_file): #pylint:disable=too-many-statements
         print('Unable to find sql statement in settings, assuming no db', file=stderr)
         db_engine = None
 
-    # Instrument otlp if enabled
-    otlp_settings = settings['general'].get('otlp', {})
+    try:
+        # Instrument otlp if enabled
+        otlp_settings = settings['general'].get('otlp', {})
 
-    logger_provider = None
-    if otlp_settings.get('enabled', False):
-        tracer_provider = TracerProvider()
-        trace.set_tracer_provider(tracer_provider)
-        # Add some tracing instrumentation
-        # https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/sqlalchemy/sqlalchemy.html
-        RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
-        SQLAlchemyInstrumentor().instrument(tracer_provider=tracer_provider, enable_commenter=True, commenter_options={})
-        # Set span exporters
-        span_exporter = OTLPSpanExporter()
-        trace.get_tracer_provider().add_span_processor(
-            BatchSpanProcessor(span_exporter)
-        )
-        # Set metrics
-        # Need to grab this directly for one reason or another with metrics
-        resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
-        exporter = OTLPMetricExporter()
-        reader = PeriodicExportingMetricReader(exporter)
-        provider = MeterProvider(resource=resource, metric_readers=[reader])
-        set_meter_provider(provider)
-        # Set logging
-        logger_provider = LoggerProvider()
-        set_logger_provider(logger_provider)
-        log_exporter = OTLPLogExporter()
-        logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
-        handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
-        logging.getLogger().addHandler(handler)
+        logger_provider = None
+        if otlp_settings.get('enabled', False):
+            tracer_provider = TracerProvider()
+            trace.set_tracer_provider(tracer_provider)
+            # Add some tracing instrumentation
+            # https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/sqlalchemy/sqlalchemy.html
+            RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
+            SQLAlchemyInstrumentor().instrument(tracer_provider=tracer_provider, enable_commenter=True, commenter_options={})
+            # Set span exporters
+            span_exporter = OTLPSpanExporter()
+            trace.get_tracer_provider().add_span_processor(
+                BatchSpanProcessor(span_exporter)
+            )
+            # Set metrics
+            # Need to grab this directly for one reason or another with metrics
+            resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
+            exporter = OTLPMetricExporter()
+            reader = PeriodicExportingMetricReader(exporter)
+            provider = MeterProvider(resource=resource, metric_readers=[reader])
+            set_meter_provider(provider)
+            # Set logging
+            logger_provider = LoggerProvider()
+            set_logger_provider(logger_provider)
+            log_exporter = OTLPLogExporter()
+            logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+            handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
+            logging.getLogger().addHandler(handler)
 
-    # Grab logger
-    print('Starting logging', file=stderr)
-    logger = get_logger('main', settings['general'].get('logging', {}))
+        # Grab logger
+        print('Starting logging', file=stderr)
+        logger = get_logger('main', settings['general'].get('logging', {}))
 
-    discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
-    discord_logger.setLevel(logging.DEBUG)
+        discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+        discord_logger.setLevel(logging.DEBUG)
 
-    if execute == CLIRunners.CLEAR_MARKOV.value:
-        clear_markov_relations(db_engine)
-        return
+        if execute == CLIRunners.CLEAR_MARKOV.value:
+            clear_markov_relations(db_engine)
+            return
 
-    # Default to run function
-    main_runner(settings, logger, db_engine)
+        # Default to run function
+        main_runner(settings, logger, db_engine)
+    finally:
+        # Ensure database engine is properly disposed
+        if db_engine:
+            db_engine.dispose()
 
 def clear_markov_relations(db_engine: Engine):
     '''
@@ -160,13 +165,16 @@ def clear_markov_relations(db_engine: Engine):
         click.echo('Unable to run markov clear relations, no db given')
         return False
     db_session = sessionmaker(bind=db_engine)()
-    click.echo('Running clear on all MarkovRelation rows')
-    db_session.query(MarkovRelation).delete()
-    db_session.commit()
-    for channel in db_session.query(MarkovChannel).all():
-        channel.last_message_id = None
+    try:
+        click.echo('Running clear on all MarkovRelation rows')
+        db_session.query(MarkovRelation).delete()
         db_session.commit()
-    return True
+        for channel in db_session.query(MarkovChannel).all():
+            channel.last_message_id = None
+            db_session.commit()
+        return True
+    finally:
+        db_session.close()
 
 def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     '''
