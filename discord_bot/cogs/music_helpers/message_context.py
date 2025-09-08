@@ -120,8 +120,6 @@ class MessageMutableBundle():
         clear_existing: If True, clear all existing messages before sending new ones (for sticky behavior)
         delete_after: Set delete after on message
         '''
-        if not self.sticky_messages and self.message_contexts and len(message_content) > len(self.message_contexts):
-            raise MuableBundleInvalidMessageContent('Non sticky messages cant be greater ')
         dispatch_functions = []
 
         # Handle sticky clear behavior - delete all existing messages first
@@ -138,6 +136,7 @@ class MessageMutableBundle():
             for content in message_content:
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
+                mc.delete_after = delete_after
                 send_func = partial(self.send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)
@@ -170,12 +169,23 @@ class MessageMutableBundle():
                     # Message exists, edit it
                     edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
                     context.function = edit_func
+                    context.delete_after = delete_after
                     dispatch_functions.append(edit_func)
                 else:
                     # Message doesn't exist yet, send it
                     send_func = partial(self.send_function, content=new_content, delete_after=delete_after)
                     context.function = send_func
+                    context.delete_after = delete_after
                     dispatch_functions.append(send_func)
+
+            # Delete after might be passed in on a new call
+            # If message existed and was actively edited, and now is final message
+            elif delete_after and not context.delete_after:
+                edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
+                context.function = edit_func
+                context.delete_after = delete_after
+                dispatch_functions.append(edit_func)
+
             # If content is the same, no action needed (no-op)
 
         # Handle adding new messages
@@ -184,6 +194,7 @@ class MessageMutableBundle():
                 content = message_content[i]
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
+                mc.delete_after = delete_after
                 send_func = partial(self.send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)

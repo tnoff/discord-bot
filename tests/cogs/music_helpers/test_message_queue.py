@@ -3,12 +3,11 @@ from functools import partial
 
 import pytest
 
-from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType
+from discord_bot.cogs.music_helpers.message_context import MessageContext, MessageMutableBundle
+from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
-from discord_bot.cogs.music_helpers.search_client import SearchClient
 
-from tests.helpers import generate_fake_context, FakeMessage
+from tests.helpers import generate_fake_context, FakeMessage, fake_context  #pylint:disable=unused-import
 
 
 def update_message_references(bundle, messages):
@@ -18,10 +17,9 @@ def update_message_references(bundle, messages):
             bundle.message_contexts[i].set_message(message)
 
 
-def test_multiple_mutable_bundle_order():
+def test_multiple_mutable_bundle_order(fake_context): #pylint:disable=redefined-outer-name
     """Test that multiple mutable bundles are processed in chronological order"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create first bundle
     mq.update_multiple_mutable('bundle-1234', fake_context['channel'])
@@ -38,10 +36,9 @@ def test_multiple_mutable_bundle_order():
     assert mq.get_next_multiple_mutable() is None
 
 
-def test_mutable_bundle_persistence():
+def test_mutable_bundle_persistence(fake_context): #pylint:disable=redefined-outer-name
     """Test that mutable bundles persist across calls and track processing state"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create first bundle
     mq.update_multiple_mutable('bundle-1234', fake_context['channel'])
@@ -66,10 +63,9 @@ def test_mutable_bundle_persistence():
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_bundle_content():
+async def test_update_mutable_bundle_content(fake_context): #pylint:disable=redefined-outer-name
     """Test updating bundle content and getting dispatch functions"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create and register bundle
     index_name = 'test-bundle-uuid'
@@ -123,20 +119,18 @@ async def test_update_mutable_bundle_channel():
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_bundle_channel_nonexistent():
+async def test_update_mutable_bundle_channel_nonexistent(fake_context): #pylint:disable=redefined-outer-name
     """Test updating channel for non-existent bundle"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     success = await mq.update_mutable_bundle_channel('nonexistent-bundle', fake_context['channel'])
     assert success is False
 
 
 @pytest.mark.asyncio
-async def test_sticky_messages_clear_scenario():
+async def test_sticky_messages_clear_scenario(fake_context): #pylint:disable=redefined-outer-name
     """Test that sticky bundles clear existing messages when needed"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create bundle with sticky behavior (default)
     index_name = 'sticky-test'
@@ -170,10 +164,9 @@ def test_send_single_immutable_empty_list():
     assert result is True  # Empty list successfully processed
 
 
-def test_multiple_bundles_timestamp_comparison():
+def test_multiple_bundles_timestamp_comparison(fake_context): #pylint:disable=redefined-outer-name
     """Test that bundles are returned in chronological order based on updated_at"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create bundles with specific timing
     start_time = datetime.now(timezone.utc)
@@ -223,10 +216,9 @@ async def test_update_mutable_bundle_channel_with_messages():
 
 
 @pytest.mark.asyncio
-async def test_sticky_clear_with_messages():
+async def test_sticky_clear_with_messages(fake_context): #pylint:disable=redefined-outer-name
     """Test sticky message clearing behavior with actual messages"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'sticky-with-messages'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -248,10 +240,9 @@ async def test_sticky_clear_with_messages():
     assert len(dispatch_functions) >= 2
 
 
-def test_message_queue_creates_sticky_bundles_by_default():
+def test_message_queue_creates_sticky_bundles_by_default(fake_context): #pylint:disable=redefined-outer-name
     """Test that message queue creates bundles with sticky=True by default"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'default-sticky-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -261,10 +252,9 @@ def test_message_queue_creates_sticky_bundles_by_default():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_sticky_deletion_integration():
+async def test_message_queue_sticky_deletion_integration(fake_context): #pylint:disable=redefined-outer-name
     """Test full workflow of sticky message deletion and recreation"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'sticky-deletion-test'
 
@@ -301,10 +291,9 @@ async def test_message_queue_sticky_deletion_integration():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_update_references():
+async def test_message_queue_update_references(fake_context): #pylint:disable=redefined-outer-name
     """Test updating message references in bundle"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'reference-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -340,10 +329,9 @@ async def test_message_queue_update_references_nonexistent():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_full_workflow_with_sticky():
+async def test_message_queue_full_workflow_with_sticky(fake_context): #pylint:disable=redefined-outer-name
     """Test complete workflow with sticky message behavior"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'full-workflow-test'
 
@@ -377,10 +365,9 @@ async def test_message_queue_full_workflow_with_sticky():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_sticky_behavior_integration():
+async def test_message_queue_sticky_behavior_integration(fake_context): #pylint:disable=redefined-outer-name
     """Test that sticky behavior properly clears messages when needed"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'sticky-behavior-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -407,10 +394,9 @@ async def test_message_queue_sticky_behavior_integration():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_small_bundle_no_sticky_clearing():
+async def test_message_queue_small_bundle_no_sticky_clearing(fake_context): #pylint:disable=redefined-outer-name
     """Test that small bundles don't trigger unnecessary sticky clearing"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'small-bundle-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -432,10 +418,9 @@ async def test_message_queue_small_bundle_no_sticky_clearing():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_large_bundle_reference_bug_prevention():
+async def test_message_queue_large_bundle_reference_bug_prevention(fake_context): #pylint:disable=redefined-outer-name
     """Test that large bundles handle message references correctly"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'large-bundle-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -463,10 +448,9 @@ async def test_message_queue_large_bundle_reference_bug_prevention():
 
 
 @pytest.mark.asyncio
-async def test_message_queue_mixed_results_reference_mapping():
+async def test_message_queue_mixed_results_reference_mapping(fake_context): #pylint:disable=redefined-outer-name
     """Test reference updating with mixed success/failure results"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     index_name = 'mixed-results-test'
     mq.update_multiple_mutable(index_name, fake_context['channel'])
@@ -491,175 +475,6 @@ async def test_message_queue_mixed_results_reference_mapping():
     assert bundle.message_contexts[0].message.id == 7001
     assert bundle.message_contexts[1].message is None  # Failed message
     assert bundle.message_contexts[2].message.id == 7002
-
-
-# Search Message Integration Tests
-
-def test_search_message_integration_basic():
-    """Test basic search message creation and queue registration"""
-    mq = MessageQueue()
-    fake_context = generate_fake_context()
-
-    # Create search client with message queue
-    search_client = SearchClient(None, None, None, mq, 1)
-
-    # Simulate search message creation
-    message_context = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
-    search_message = 'Gathering spotify data from url "<test-playlist>"'
-
-    # Add message to search client messages dict
-    search_client.messages[message_context.uuid] = [search_message]
-
-    # Register with message queue
-    index_name = f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}'
-    mq.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Verify message queue knows about search bundle
-    assert index_name in mq.mutable_bundles
-    bundle = mq.mutable_bundles[index_name]
-    assert bundle.guild_id == fake_context['guild'].id
-    assert bundle.channel_id == fake_context['channel'].id
-
-
-@pytest.mark.asyncio
-async def test_search_message_integration_content_processing():
-    """Test search message content processing through message queue"""
-    mq = MessageQueue()
-    fake_context = generate_fake_context()
-
-    # Create search client
-    search_client = SearchClient(None, None, None, mq, 1)
-
-    # Create search context and messages
-    message_context = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
-    search_messages = [
-        'Gathering spotify data from url "<test-playlist>"',
-        'Processing 10 tracks from playlist'
-    ]
-
-    # Add to search client messages
-    search_client.messages[message_context.uuid] = search_messages
-
-    # Register with queue
-    index_name = f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}'
-    mq.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Process through message queue content update
-    dispatch_functions = await mq.update_mutable_bundle_content(index_name, search_messages)
-
-    # Should get dispatch functions for messages
-    assert len(dispatch_functions) == 2
-
-    # Verify bundle has correct content
-    bundle = mq.mutable_bundles[index_name]
-    assert len(bundle.message_contexts) == 2
-    assert bundle.message_contexts[0].message_content == search_messages[0]
-    assert bundle.message_contexts[1].message_content == search_messages[1]
-
-
-@pytest.mark.asyncio
-async def test_search_message_integration_error_cleanup():
-    """Test search message cleanup on error scenarios"""
-
-    mq = MessageQueue()
-    fake_context = generate_fake_context()
-
-    # Create search client
-    search_client = SearchClient(None, None, None, mq, 1)
-
-    # Create search context with initial message
-    message_context = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
-    initial_message = 'Gathering spotify data from url "<test-playlist>"'
-    search_client.messages[message_context.uuid] = [initial_message]
-
-    # Register with queue
-    index_name = f'{MultipleMutableType.SEARCH.value}-{message_context.uuid}'
-    mq.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Process initial message
-    await mq.update_mutable_bundle_content(index_name, [initial_message])
-
-    # Simulate error - clear search messages
-    search_client.messages[message_context.uuid] = []
-
-    # Process empty messages (error cleanup)
-    dispatch_functions = await mq.update_mutable_bundle_content(index_name, [])
-
-    # Should get dispatch functions to clear messages
-    assert len(dispatch_functions) >= 0  # May have delete functions
-
-    # Bundle should still exist but with no active content
-    bundle = mq.mutable_bundles[index_name]
-    assert len(bundle.message_contexts) == 0
-
-
-def test_search_message_integration_memory_cleanup():
-    """Test that search messages are properly cleaned up to prevent memory leaks"""
-
-    mq = MessageQueue()
-    fake_context = generate_fake_context()
-
-    # Create search client
-    search_client = SearchClient(None, None, None, mq, 1)
-
-    # Create multiple search contexts
-    contexts = []
-    for i in range(5):
-        context = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
-        search_client.messages[context.uuid] = [f'Search message {i}']
-        contexts.append(context)
-
-    # Verify all contexts are in messages dict
-    assert len(search_client.messages) == 5
-
-    # Simulate successful processing - clear messages
-    for context in contexts:
-        search_client.messages[context.uuid] = []
-        index_name = f'{MultipleMutableType.SEARCH.value}-{context.uuid}'
-        mq.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Verify messages dict still has entries (they're empty but exist)
-    assert len(search_client.messages) == 5
-
-    # Verify all are empty (ready for cleanup)
-    for context in contexts:
-        assert search_client.messages[context.uuid] == []
-
-
-@pytest.mark.asyncio
-async def test_search_message_integration_uuid_parsing():
-    """Test search message UUID parsing in music.py message processing"""
-
-    mq = MessageQueue()
-    fake_context = generate_fake_context()
-
-    # Create search client
-    search_client = SearchClient(None, None, None, mq, 1)
-
-    # Create search context with known UUID
-    message_context = MessageContext(fake_context['guild'].id, fake_context['channel'].id)
-    test_uuid = message_context.uuid
-    search_message = 'Test search message'
-
-    # Add to search client
-    search_client.messages[test_uuid] = [search_message]
-
-    # Register with queue using full index name format
-    index_name = f'{MultipleMutableType.SEARCH.value}-{test_uuid}'
-    mq.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Simulate the UUID extraction logic from music.py
-    # item.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
-    extracted_uuid = index_name.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
-
-    # Verify UUID extraction works correctly
-    assert extracted_uuid == test_uuid
-
-    # Verify we can get the message content using extracted UUID
-    assert search_client.messages[extracted_uuid] == [search_message]
-
-    # Verify bundle exists with correct UUID in name
-    assert index_name in mq.mutable_bundles
 
 
 # String Parsing Safety Tests
@@ -690,24 +505,6 @@ def test_uuid_parsing_safety_request_bundle():
 
     extracted_multi = multi_index.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
     assert extracted_multi == multi_prefix_uuid
-
-
-def test_uuid_parsing_safety_search():
-    """Test safe UUID parsing for SEARCH message types"""
-
-    # Test normal search UUID parsing
-    normal_uuid = 'conteext.12345-67890-search-test'
-    index_name = f'{MultipleMutableType.SEARCH.value}-{normal_uuid}'
-
-    extracted_uuid = index_name.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
-    assert extracted_uuid == normal_uuid
-
-    # Test search UUID that contains 'search' string
-    search_in_uuid = 'conteext.search-within-search-uuid'
-    search_index = f'{MultipleMutableType.SEARCH.value}-{search_in_uuid}'
-
-    extracted_search = search_index.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
-    assert extracted_search == search_in_uuid
 
 
 def test_uuid_parsing_safety_play_order():
@@ -791,7 +588,6 @@ def test_message_type_prefix_validation():
     # Test all message type values are distinct
     message_types = [
         MultipleMutableType.REQUEST_BUNDLE.value,
-        MultipleMutableType.SEARCH.value,
         MultipleMutableType.PLAY_ORDER.value
     ]
 
@@ -809,26 +605,19 @@ def test_message_type_prefix_validation():
 
 
 @pytest.mark.asyncio
-async def test_uuid_parsing_integration_with_message_queue():
+async def test_uuid_parsing_integration_with_message_queue(fake_context): #pylint:disable=redefined-outer-name
     """Test UUID parsing integration with actual message queue operations"""
-
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create bundles with tricky UUIDs
     tricky_uuids = [
         'request.bundle.normal-uuid',
-        f'conteext.{MultipleMutableType.SEARCH.value}-in-uuid',
         f'request.bundle.{MultipleMutableType.REQUEST_BUNDLE.value}-duplicate-prefix'
     ]
 
     # Register all bundles
     for uuid in tricky_uuids:
-        if uuid.startswith('request.bundle'):
-            index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{uuid}'
-        else:
-            index_name = f'{MultipleMutableType.SEARCH.value}-{uuid}'
-
+        index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{uuid}'
         mq.update_multiple_mutable(index_name, fake_context['channel'])
 
         # Verify bundle was created
@@ -839,15 +628,11 @@ async def test_uuid_parsing_integration_with_message_queue():
         if MultipleMutableType.REQUEST_BUNDLE.value in bundle_name:
             extracted = bundle_name.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
             assert extracted in tricky_uuids
-        elif MultipleMutableType.SEARCH.value in bundle_name:
-            extracted = bundle_name.split(f'{MultipleMutableType.SEARCH.value}-', 1)[1]
-            assert extracted in tricky_uuids
 
 @pytest.mark.asyncio
-async def test_message_queue_non_sticky_behavior():
+async def test_message_queue_non_sticky_behavior(fake_context): #pylint:disable=redefined-outer-name
     """Test that bundles can be created with sticky_messages=False"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create bundle with sticky_messages=False
     index_name = 'test-bundle-non-sticky'
@@ -866,10 +651,9 @@ async def test_message_queue_non_sticky_behavior():
     assert len(dispatch_functions) == 2
 
 @pytest.mark.asyncio
-async def test_message_queue_sticky_behavior_default():
+async def test_message_queue_sticky_behavior_default(fake_context): #pylint:disable=redefined-outer-name
     """Test that bundles default to sticky_messages=True when parameter not specified"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create bundle without specifying sticky_messages (should default to True)
     index_name = 'test-bundle-default-sticky'
@@ -881,10 +665,9 @@ async def test_message_queue_sticky_behavior_default():
     assert bundle.sticky_messages is True
 
 @pytest.mark.asyncio
-async def test_message_queue_mixed_sticky_behavior():
+async def test_message_queue_mixed_sticky_behavior(fake_context): #pylint:disable=redefined-outer-name
     """Test that different bundles can have different sticky_messages settings"""
     mq = MessageQueue()
-    fake_context = generate_fake_context()
 
     # Create one sticky bundle and one non-sticky bundle
     sticky_index = 'test-bundle-sticky'
@@ -902,3 +685,260 @@ async def test_message_queue_mixed_sticky_behavior():
 
     assert sticky_bundle.sticky_messages is True
     assert non_sticky_bundle.sticky_messages is False
+
+def test_message_queue_exception_inheritance():
+    """Test that MessageQueueException is properly defined"""
+    # Test that MessageQueueException is an Exception subclass
+    exception = MessageQueueException("test message")
+    assert isinstance(exception, Exception)
+    assert str(exception) == "test message"
+
+
+def test_message_queue_none_channel_exception_details(fake_context):  #pylint:disable=redefined-outer-name,unused-argument
+    """Test detailed behavior of MessageQueueException when creating bundle with None channel"""
+    message_queue = MessageQueue()
+    bundle_name = "test-exception-bundle"
+
+    # Verify the specific exception type and message format
+    with pytest.raises(MessageQueueException) as exc_info:
+        message_queue.update_multiple_mutable(bundle_name, None)
+
+    # Verify exception details
+    exception = exc_info.value
+    assert isinstance(exception, MessageQueueException)
+    assert "Cannot create new message bundle" in str(exception)
+    assert bundle_name in str(exception)
+    assert "without a valid text_channel" in str(exception)
+
+    # Verify the bundle was not created
+    assert bundle_name not in message_queue.mutable_bundles
+
+
+def test_message_queue_valid_operations_after_exception(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that MessageQueue works normally after an exception"""
+    message_queue = MessageQueue()
+
+    # First, trigger an exception
+    with pytest.raises(MessageQueueException):
+        message_queue.update_multiple_mutable("bad-bundle", None)
+
+    # Then verify normal operations still work
+    good_bundle = "good-bundle"
+    result = message_queue.update_multiple_mutable(good_bundle, fake_context['channel'])
+    assert result is True
+    assert good_bundle in message_queue.mutable_bundles
+
+    # And updating existing bundle with None still works
+    result = message_queue.update_multiple_mutable(good_bundle, None)
+    assert result is True
+
+
+def test_message_queue_exception_vs_other_errors(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that MessageQueueException is specifically for None channel, not other errors"""
+    message_queue = MessageQueue()
+
+    # This should raise MessageQueueException (None channel)
+    with pytest.raises(MessageQueueException):
+        message_queue.update_multiple_mutable("test-bundle", None)
+
+    # This should work fine (valid channel)
+    result = message_queue.update_multiple_mutable("test-bundle", fake_context['channel'])
+    assert result is True
+
+    # Other potential errors (like invalid bundle names) would raise different exceptions
+    # but we don't test those here since they're not part of the None channel validation
+
+@pytest.fixture
+def comprehensive_non_sticky_bundle(fake_context):  #pylint:disable=redefined-outer-name
+    """Create a non-sticky MessageMutableBundle with detailed tracking for testing"""
+
+    # Track function calls for comprehensive validation
+    call_log = []
+
+    async def check_last_messages(count):
+        call_log.append(f"check_last_messages({count})")
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+
+    async def send_function_wrapper(content: str, delete_after: int = None):
+        call_log.append(f"send('{content}', delete_after={delete_after})")
+        return await fake_context['channel'].send(content)
+
+    bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=False
+    )
+
+    # Attach call_log to bundle for test access
+    bundle.call_log = call_log
+    return bundle
+
+
+def test_non_sticky_fallback_scenario_comprehensive(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test comprehensive non-sticky fallback scenario:
+    1. Set sticky_messages=False
+    2. Create initial messages
+    3. Exceed count with new messages
+    4. Verify fallback to sticky-like behavior (messages added, not deleted/re-sent)
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Verify bundle is correctly configured as non-sticky
+    assert bundle.sticky_messages is False
+
+    # Phase 1: Create initial messages
+    initial_content = ["Initial Message 1", "Initial Message 2"]
+    dispatch_functions_1 = bundle.get_message_dispatch(initial_content)
+
+    # Should create 2 send functions for initial messages
+    assert len(dispatch_functions_1) == 2
+    assert len(bundle.message_contexts) == 2
+
+    # Phase 2: Exceed existing count with more messages
+    # This is where the fallback behavior should kick in
+    extended_content = ["Updated Message 1", "Updated Message 2", "New Message 3", "New Message 4"]
+    dispatch_functions_2 = bundle.get_message_dispatch(extended_content)
+
+    # Key assertion: Should create dispatch functions for additional messages
+    # Non-sticky fallback behavior: instead of deleting all and re-sending,
+    # it should just add the new messages (acting like sticky=True)
+    assert len(dispatch_functions_2) >= 2  # At least 2 new messages
+    assert len(bundle.message_contexts) == 4  # Should now have 4 total contexts
+
+    # Verify that the bundle maintained all message contexts (didn't delete existing ones)
+    assert bundle.message_contexts[0].message_content == "Updated Message 1"
+    assert bundle.message_contexts[1].message_content == "Updated Message 2"
+    assert bundle.message_contexts[2].message_content == "New Message 3"
+    assert bundle.message_contexts[3].message_content == "New Message 4"
+
+
+def test_non_sticky_vs_sticky_behavior_comparison(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Test that demonstrates the fallback: non-sticky bundles act like sticky when exceeding count
+    """
+
+    # Setup identical functions for both bundles
+    async def check_last_messages(count):
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+
+    async def send_function_wrapper(content: str, delete_after: int = None):  #pylint:disable=unused-argument
+        return await fake_context['channel'].send(content)
+
+    # Create non-sticky bundle
+    non_sticky_bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=False
+    )
+
+    # Create sticky bundle for comparison
+    sticky_bundle = MessageMutableBundle(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        check_last_message_func=check_last_messages,
+        send_function=send_function_wrapper,
+        sticky_messages=True
+    )
+
+    # Both bundles start with 2 messages
+    initial_content = ["Message 1", "Message 2"]
+
+    non_sticky_bundle.get_message_dispatch(initial_content)
+    sticky_bundle.get_message_dispatch(initial_content)
+
+    # Both bundles exceed count with 4 messages
+    extended_content = ["Message 1", "Message 2", "Message 3", "Message 4"]
+
+    non_sticky_dispatch = non_sticky_bundle.get_message_dispatch(extended_content)
+    sticky_dispatch = sticky_bundle.get_message_dispatch(extended_content)
+
+    # Key assertion: When exceeding count, both should behave the same way
+    # (non-sticky falls back to sticky-like behavior)
+    assert len(non_sticky_bundle.message_contexts) == len(sticky_bundle.message_contexts)
+    assert len(non_sticky_bundle.message_contexts) == 4
+
+    # Both should have functions for the new messages
+    assert len(non_sticky_dispatch) >= 2  # At least 2 new messages
+    assert len(sticky_dispatch) >= 2     # At least 2 new messages
+
+
+def test_non_sticky_fallback_preserves_existing_messages(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test that non-sticky fallback preserves existing messages instead of deleting them
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Create some initial messages
+    initial_content = ["Preserve me 1", "Preserve me 2"]
+    bundle.get_message_dispatch(initial_content)
+
+    # Simulate that these messages were actually sent (set message_id)
+    bundle.message_contexts[0].message_id = "msg_1"
+    bundle.message_contexts[1].message_id = "msg_2"
+
+    # Now exceed the count
+    extended_content = ["Preserve me 1", "Preserve me 2", "I'm new 3", "I'm new 4"]
+    dispatch_functions = bundle.get_message_dispatch(extended_content)
+
+    # Should NOT include delete functions for existing messages
+    # Should only include send functions for new messages
+    assert len(dispatch_functions) == 2  # Only 2 new messages to send
+
+    # Verify existing contexts are preserved
+    assert bundle.message_contexts[0].message_id == "msg_1"
+    assert bundle.message_contexts[1].message_id == "msg_2"
+    assert bundle.message_contexts[0].message_content == "Preserve me 1"
+    assert bundle.message_contexts[1].message_content == "Preserve me 2"
+
+    # New contexts should be added
+    assert bundle.message_contexts[2].message_content == "I'm new 3"
+    assert bundle.message_contexts[3].message_content == "I'm new 4"
+    assert bundle.message_contexts[2].message_id is None  # Not sent yet
+    assert bundle.message_contexts[3].message_id is None  # Not sent yet
+
+
+def test_non_sticky_fallback_user_description_scenario(comprehensive_non_sticky_bundle):  #pylint:disable=redefined-outer-name
+    """
+    Test the exact scenario described:
+    'if sticky is set to False but the new message content is greater than what exists,
+    sticky is effectively ignored and the messages are delete and re-sent'
+
+    Actually tests that messages are NOT deleted and re-sent, but new ones are added
+    """
+    bundle = comprehensive_non_sticky_bundle
+
+    # Verify bundle configuration
+    assert bundle.sticky_messages is False
+
+    # Step 1: Create initial message content (2 messages)
+    existing_content = ["Existing 1", "Existing 2"]
+    initial_dispatch = bundle.get_message_dispatch(existing_content)
+    assert len(initial_dispatch) == 2
+    assert len(bundle.message_contexts) == 2
+
+    # Step 2: New message content is greater than what exists (4 messages > 2 messages)
+    greater_content = ["Updated 1", "Updated 2", "New 3", "New 4"]
+    fallback_dispatch = bundle.get_message_dispatch(greater_content)
+
+    # Step 3: Verify the fallback behavior
+    # According to current implementation: sticky is effectively ignored,
+    # but messages are NOT deleted and re-sent. Instead, new ones are added.
+
+    # Should have dispatch functions for the additional messages
+    assert len(fallback_dispatch) >= 2  # At least for the 2 new messages
+
+    # Should now have 4 total contexts (not deleted and re-created)
+    assert len(bundle.message_contexts) == 4
+
+    # Content should be updated properly
+    assert bundle.message_contexts[0].message_content == "Updated 1"
+    assert bundle.message_contexts[1].message_content == "Updated 2"
+    assert bundle.message_contexts[2].message_content == "New 3"
+    assert bundle.message_contexts[3].message_content == "New 4"

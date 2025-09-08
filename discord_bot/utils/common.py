@@ -2,8 +2,8 @@ from asyncio import sleep as async_sleep
 from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from re import sub
 from sys import stdout
-from traceback import format_exc
 from typing import Awaitable, Callable
 
 from jsonschema import validate
@@ -257,20 +257,14 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfi
             try:
                 await function()
             except continue_exceptions as e:
-                logger.exception(e)
-                logger.error(format_exc())
-                logger.warning(str(e))
+                logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
                 continue
             except exit_exceptions:
                 if checkfile:
                     checkfile.write_text('0')
                 return False
             except Exception as e:
-                logger.exception(e)
-                logger.error(format_exc())
-                logger.error(str(e))
-                print(f'Player loop exception {str(e)}')
-                print('Formatted exception:', format_exc())
+                logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
                 if checkfile:
                     checkfile.write_text('0')
                 return False
@@ -294,3 +288,12 @@ def create_observable_gauge(meter_provider, name: str, function, description: st
         unit=unit,
         description=description,
     )
+
+def discord_format_string_embed(stringy: str) -> str:
+    '''
+    Format discord string so it is not embedded
+    '''
+    # Regex to match URLs and wrap them in angle brackets to prevent embedding
+    # This matches https:// followed by non-whitespace characters
+    url_pattern = r'(https://\S+)'
+    return sub(url_pattern, r'<\1>', stringy)

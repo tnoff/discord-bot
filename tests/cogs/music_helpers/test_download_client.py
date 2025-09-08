@@ -60,7 +60,7 @@ class MockYoutubeMusic():
         return 'vid-1234'
 
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source():
     loop = asyncio.get_running_loop()
     with TemporaryDirectory() as tmp_dir:
@@ -71,7 +71,7 @@ async def test_prepare_source():
             result = await x.create_source(y, loop)
             assert result.webpage_url == 'https://example.foo.com'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_download():
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
@@ -80,7 +80,7 @@ async def test_prepare_source_no_download():
     result = await x.create_source(y, loop)
     assert result.webpage_url == 'https://example.foo.com'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_errors():
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()

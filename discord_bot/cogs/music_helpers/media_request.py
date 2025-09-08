@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from discord import TextChannel
 
-from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
+from discord_bot.utils.common import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming
 
 
@@ -14,10 +14,9 @@ class MediaRequest():
     Original source of play request
     '''
     def __init__(self, guild_id: int, channel_id: int, requester_name: str, requester_id: int, search_string: str,
-                 search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
+                 raw_search_string: str, search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
                  added_from_history: bool = False,
                  download_file: bool = True,
-                 message_context: MessageContext = None,
                  add_to_playlist: int = None,
                  history_playlist_item_id: int = None,
                  multi_input_string: str = None):
@@ -28,7 +27,8 @@ class MediaRequest():
         channel_id : Channel where video was requested
         requester_name: Display name of original requester
         requester_id : User id of original requester
-        search_string : Search string of original request
+        search_string : Search string, after processing
+        raw_search_string : Original search string
         multi_input_string : Input for playlist type searches
         search_type : Type of search it was
         added_from_history : Whether or not this was added from history
@@ -42,8 +42,8 @@ class MediaRequest():
         self.requester_id = requester_id
         # Keep original search string for later
         # In these cases, original search is what was passed into the search and search string is often youtube url
-        # For example original_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
-        self.original_search_string = search_string
+        # For example raw_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
+        self.raw_search_string = raw_search_string
         self.search_string = search_string
         self.search_type = search_type
         # Optional values
@@ -52,8 +52,7 @@ class MediaRequest():
         self.history_playlist_item_id = history_playlist_item_id
         self.add_to_playlist = add_to_playlist
         self.multi_input_string = multi_input_string
-        # Message Context
-        self.message_context = message_context
+        # Message Contextr
         self.uuid = f'request.{uuid4()}'
         self.bundle_uuid = None
 
@@ -64,10 +63,8 @@ class MediaRequest():
         Fix embed issues
         https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
         '''
-        return_string = self.original_search_string or self.search_string
-        if 'https://' in return_string:
-            return f'<{return_string}>'
-        return return_string
+        return_string = self.raw_search_string or self.search_string
+        return discord_format_string_embed(return_string)
 
 
 def media_request_attributes(media_request: MediaRequest) -> dict:
@@ -99,9 +96,15 @@ class MultiMediaRequestBundle():
         self.channel_id = channel_id
         self.text_channel = text_channel
         self.uuid = f'request.bundle.{uuid4()}'
-        self.multi_input_string = None
+
         self.items_per_message = max(1, min(items_per_message, 5))  # Enforce range of 1-5 items per message
 
+        # Search options
+        self.input_string = None
+        self.search_finished = False
+        self.search_error = None
+
+        # General attributes
         self.media_requests = []
         self.total = 0
         self.completed = 0
@@ -122,15 +125,25 @@ class MultiMediaRequestBundle():
         '''
         self.is_shutdown = True
 
+    def add_search_request(self, input_string: str):
+        '''
+        Add search request to show
+        '''
+        # Remove 'shuffle' from string
+        self.input_string = input_string.replace(' shuffle', '')
+
+    def finish_search_request(self, error_message: str = None):
+        '''
+        Finish search request
+        '''
+        self.search_finished = True
+        self.search_error = error_message
+
     def add_media_request(self, media_request: MediaRequest):
         '''
         Add new media request
         '''
-        if not self.multi_input_string and media_request.multi_input_string:
-            self.multi_input_string = media_request.multi_input_string
-        search_string = media_request.original_search_string
-        if 'https://' in search_string:
-            search_string = f'<{search_string}>'
+        search_string = discord_format_string_embed(media_request.raw_search_string)
         self.media_requests.append({
             'search_string': search_string,
             'status': MediaRequestLifecycleStage.QUEUED,
@@ -172,6 +185,10 @@ class MultiMediaRequestBundle():
         '''
         Check if we have finished processing
         '''
+        if self.search_finished and self.search_error:
+            return True
+        if not self.search_finished:
+            return False
         return (self.completed + self.failed + self.discarded) == self.total
 
     @property
@@ -185,35 +202,46 @@ class MultiMediaRequestBundle():
         '''
         Print out into multiple messages
         '''
+        # If shutdown, exit completely
         if self.is_shutdown:
             return []
+        # Check if we're in search mode
+        if not self.search_finished and self.input_string:
+            return [f'Processing search "{discord_format_string_embed(self.input_string)}"']
+        if self.search_finished and self.search_error:
+            return [f'Error processing search "{discord_format_string_embed(self.input_string)}", {self.search_error}']
+        # Else proceed as normal
         messages = []
-        multi_input = self.multi_input_string
-        if self.multi_input_string and 'https://' in self.multi_input_string:
-            multi_input = f'<{self.multi_input_string}>'
+        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
         if self.total > 1:
             if self.finished:
                 messages = [f'Completed download of "{multi_input}"']
             else:
                 messages = [f'Downloading "{multi_input}"']
-            messages.append(f'{self.completed}/{self.total} items downloaded successfully, {self.failed} failed')
+            messages.append(f'{self.completed}/{self.total} items processed successfully, {self.failed} failed')
         for item in self.media_requests:
             if item['override_message']:
                 messages.append(item['override_message'])
-                continue
             if item['status'] == MediaRequestLifecycleStage.COMPLETED:
                 continue
             if item['status'] == MediaRequestLifecycleStage.FAILED:
-                x = f'Media request failed download: "{item["search_string"]}"'
-                if item['failed_reason']:
-                    x = f'{x}, {item["failed_reason"]}'
-                messages.append(x)
+                if not item['override_message']:
+                    x = f'Media request failed download: "{item["search_string"]}"'
+                    if item['failed_reason']:
+                        x = f'{x}, {item["failed_reason"]}'
+                    messages.append(x)
                 continue
             if item['status'] == MediaRequestLifecycleStage.QUEUED:
-                messages.append(f'Media request queued for download: "{item["search_string"]}"')
+                if not item['override_message']:
+                    messages.append(f'Media request queued for download: "{item["search_string"]}"')
                 continue
             if item['status'] == MediaRequestLifecycleStage.IN_PROGRESS:
-                messages.append(f'Downloading and processing media request: "{item["search_string"]}"')
+                if not item['override_message']:
+                    messages.append(f'Downloading and processing media request: "{item["search_string"]}"')
+                continue
+            if item['status'] == MediaRequestLifecycleStage.BACKOFF:
+                if not item['override_message']:
+                    messages.append(f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
                 continue
             if item['status'] == MediaRequestLifecycleStage.DISCARDED:
                 continue

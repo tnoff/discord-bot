@@ -18,7 +18,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
-class TestHelperException(Exception):
+class HelperException(Exception):
     '''
     Test helper exception
     '''
@@ -74,7 +74,7 @@ def fake_source_dict(fakes, download_file=True, is_direct_search=False):
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
-    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_type, download_file=download_file)
+    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_string, search_type, download_file=download_file)
     mr.message_context = message_context
     return mr
 
@@ -84,7 +84,7 @@ def fake_media_download(file_dir, media_request=None, fake_context=None, extract
     Assumes you pass it a random file path for now
     '''
     if media_request is None and fake_context is None:
-        raise TestHelperException('Source dict or fake context must be provided')
+        raise HelperException('Source dict or fake context must be provided')
     if media_request is None:
         media_request = fake_source_dict(fake_context, download_file=download_file, is_direct_search=is_direct_search)
     with NamedTemporaryFile(dir=file_dir, suffix='.mp3', delete=False) as tmp_file:
@@ -114,6 +114,7 @@ def fake_engine():
         yield engine
     finally:
         BASE.metadata.drop_all(engine)
+        engine.dispose()
 
 @pytest.fixture(scope="function")
 def fake_context():

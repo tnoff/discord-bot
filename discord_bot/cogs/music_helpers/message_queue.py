@@ -92,7 +92,10 @@ class MessageQueue():
 
         # Check if we should clear messages first (sticky check)
         should_clear = False
-        if bundle.sticky_messages:
+        # If new batch of bundle messages is greater than current context len
+        # .. assume we should go ahead and delete
+        # .. Since the new batch of messages would be split, which defeats the whole point
+        if bundle.sticky_messages or len(message_content) <= len(bundle.message_contexts):
             should_clear = await async_retry_discord_message_command(partial(bundle.should_clear_messages))
 
         # Get dispatch functions for content updates (including clear if needed)

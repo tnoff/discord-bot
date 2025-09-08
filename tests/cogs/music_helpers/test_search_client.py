@@ -5,10 +5,8 @@ import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType
+from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult, check_youtube_video
 
-from tests.helpers import FakeChannel
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
 
 
@@ -54,13 +52,6 @@ class MockSpotifyRaiseUnauth():
     def album_get(self, _album_id):
         raise SpotifyException(403, -1, 'foo exception')
 
-class MockSpotifyOauth():
-    def __init__(self):
-        pass
-
-    def album_get(self, _album_id):
-        raise SpotifyOauthError(400, -1, 'foo exception')
-
 class MockYoutubeClient():
     def __init__(self):
         pass
@@ -91,244 +82,356 @@ class MockYoutubeMusic():
 
 @pytest.mark.asyncio
 async def test_spotify_message_check():
-    x = SearchClient(MessageQueue())
+    x = SearchClient()
     with pytest.raises(InvalidSearchURL) as exc:
-        await x.check_source('https://open.spotify.com/playlist/1111', '1234', '5678', 'foo bar requester', '2345', None, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/playlist/1111', asyncio.get_running_loop(), 5)
     assert str(exc.value) == 'Missing spotify creds'
     assert exc.value.user_message == 'Spotify URLs invalid, no spotify credentials available to bot'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_exception():
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyRaise())
+    x = SearchClient(spotify_client=MockSpotifyRaise())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'If this is an official Spotify playlist' in str(exc.value.user_message)
-    typer, result = mq.get_next_message()
-    assert typer == MessageType.MULTIPLE_MUTABLE
-    assert result  # Should have search context with empty messages
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_exception_403():
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyRaiseUnauth())
+    x = SearchClient(spotify_client=MockSpotifyRaiseUnauth())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
-    typer, result = mq.get_next_message()
-    assert typer == MessageType.MULTIPLE_MUTABLE
-    assert result  # Should have search context with empty messages
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_throw_oauth():
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyRaiseUnauth())
+    x = SearchClient(spotify_client=MockSpotifyRaiseUnauth())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert 'Issue fetching spotify info' in str(exc.value)
     assert 'Issue gathering info from spotify url' in str(exc.value.user_message)
-    typer, result = mq.get_next_message()
-    assert typer == MessageType.MULTIPLE_MUTABLE
-    assert result  # Should have search context with empty messages
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_get():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].requester_id == '2345'
-    assert result[0].search_string == 'foo track foo artists'
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
+    assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_input_string == 'https://open.spotify.com/album/1111'
+    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     # If no search cache is hit, make sure that youtube music returns the proper url
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic())
-    result = await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].requester_id == '2345'
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
-    assert result[0].original_search_string == 'foo track foo artists'
+    x = SearchClient(spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic())
+    result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
+    assert result[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_input_string == 'https://open.spotify.com/album/1111'
+    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_get_shuffle():
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/album/1111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].requester_id == '2345'
-    assert result[0].search_string == 'foo track foo artists'
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    result = await x.check_source('https://open.spotify.com/album/1111 shuffle', loop, 5)
+    assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_input_string == 'https://open.spotify.com/album/1111'
-    typer, result = mq.get_next_message()
-    assert typer == MessageType.MULTIPLE_MUTABLE
-    assert result  # Should have search context with empty messages
+    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/playlist/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'foo track foo artists'
-    assert result[0].multi_input_string == 'https://open.spotify.com/playlist/1111'
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    result = await x.check_source('https://open.spotify.com/playlist/1111', loop, 5)
+    assert result[0].raw_search_string == 'foo track foo artists'
+    assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get_shuffle():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'foo track foo artists'
-    assert result[0].multi_input_string == 'https://open.spotify.com/playlist/1111'
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', loop, 5)
+    assert result[0].raw_search_string == 'foo track foo artists'
+    assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_track_get():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), spotify_client=MockSpotifyClient())
-    result = await x.check_source('https://open.spotify.com/track/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'foo track foo artists'
-    assert result[0].multi_input_string is None
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    result = await x.check_source('https://open.spotify.com/track/1111', loop, 5)
+    assert result[0].raw_search_string == 'foo track foo artists'
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_no_creds():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue())
+    x = SearchClient()
     with pytest.raises(InvalidSearchURL) as exc:
-        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert 'Missing youtube creds' in str(exc.value)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), youtube_client=MockYoutubeClient())
-    result = await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
-    assert result[0].search_type == SearchType.YOUTUBE
-    assert result[0].multi_input_string == 'https://www.youtube.com/playlist?list=11111'
+    x = SearchClient(youtube_client=MockYoutubeClient())
+    result = await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
+    assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
+    assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
+    assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist_shuffle():
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, youtube_client=MockYoutubeClient())
-    result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
-    assert result[0].search_type == SearchType.YOUTUBE
-    assert result[0].multi_input_string == 'https://www.youtube.com/playlist?list=11111'
-    # Verify no messages in queue
+    x = SearchClient(youtube_client=MockYoutubeClient())
+    result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', loop, 5)
+    assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
+    assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
+    assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_error():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), youtube_client=MockYoutubeRaise())
+    x = SearchClient(youtube_client=MockYoutubeRaise())
     with pytest.raises(ThirdPartyException) as exc:
-        await x.check_source('https://www.youtube.com/playlist?list=11111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+        await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert 'Issue fetching youtube info' in str(exc.value)
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_short():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue())
-    result = await x.check_source('https://www.youtube.com/shorts/aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/shorts/aaaaaaaaaaa'
+    x = SearchClient()
+    result = await x.check_source('https://www.youtube.com/shorts/aaaaaaaaaaa?extra=foo', loop, 5)
+    assert result[0].raw_search_string == 'https://www.youtube.com/shorts/aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
-    assert result[0].multi_input_string is None
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_video():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue())
-    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
+    x = SearchClient()
+    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', loop, 5)
+    assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
-    assert result[0].multi_input_string is None
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_fxtwitter():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue())
-    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
+    x = SearchClient()
+    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', loop, 5)
+    assert result[0].raw_search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
     assert result[0].search_type == SearchType.DIRECT
-    assert result[0].multi_input_string is None
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue())
-    result = await x.check_source('foo bar', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'foo bar'
+    x = SearchClient()
+    result = await x.check_source('foo bar', loop, 5)
+    assert result[0].raw_search_string == 'foo bar'
     assert result[0].search_type == SearchType.SEARCH
-    assert result[0].multi_input_string is None
+    assert result[0].multi_search_input is None
 
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), youtube_music_client=MockYoutubeMusic)
-    result = await x.check_source('foo bar', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    result = await x.check_source('foo bar', loop, 5)
+    assert result[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
     assert result[0].search_type == SearchType.SEARCH
-    assert result[0].original_search_string == 'foo bar'
-    assert result[0].multi_input_string is None
+    assert result[0].raw_search_string == 'foo bar'
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music_skips_direct():
     loop = asyncio.get_running_loop()
-    x = SearchClient(MessageQueue(), youtube_music_client=MockYoutubeMusic)
-    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
-    assert result[0].search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
+    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa', loop, 5)
+    assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
-    assert result[0].original_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
-    assert result[0].multi_input_string is None
+    assert result[0].multi_search_input is None
 
-@pytest.mark.asyncio(scope="session")
-async def test_search_client_message_context_preservation():
-    """Test that search client properly preserves and clears message contexts"""
+
+# Tests for SearchResult class functionality
+def test_search_result_creation():
+    """Test SearchResult object creation"""
+    result = SearchResult(SearchType.SEARCH, 'test search', None)
+    assert result.search_type == SearchType.SEARCH
+    assert result.raw_search_string == 'test search'
+    assert result.youtube_music_search_string is None
+    assert result.multi_search_input is None
+
+
+def test_search_result_with_multi_input():
+    """Test SearchResult object creation with multi input"""
+    result = SearchResult(SearchType.SPOTIFY, 'track search', 'https://open.spotify.com/album/123')
+    assert result.search_type == SearchType.SPOTIFY
+    assert result.raw_search_string == 'track search'
+    assert result.youtube_music_search_string is None
+    assert result.multi_search_input == 'https://open.spotify.com/album/123'
+
+
+def test_search_result_add_youtube_music_result():
+    """Test adding YouTube music result to SearchResult"""
+    result = SearchResult(SearchType.SEARCH, 'foo bar', None)
+    assert result.resolved_search_string == 'foo bar'
+
+    result.add_youtube_music_result('https://www.youtube.com/watch?v=vid123')
+    assert result.youtube_music_search_string == 'https://www.youtube.com/watch?v=vid123'
+    assert result.resolved_search_string == 'https://www.youtube.com/watch?v=vid123'
+    assert result.raw_search_string == 'foo bar'  # Original should remain unchanged
+
+
+def test_search_result_resolved_search_string_fallback():
+    """Test that resolved_search_string falls back to raw_search_string when no YouTube music result"""
+    result = SearchResult(SearchType.DIRECT, 'https://example.com', None)
+    assert result.resolved_search_string == 'https://example.com'
+    assert result.youtube_music_search_string is None
+
+
+def test_search_result_resolved_search_string_with_youtube_music():
+    """Test that resolved_search_string prefers YouTube music result when available"""
+    result = SearchResult(SearchType.SEARCH, 'original search', None)
+    result.add_youtube_music_result('youtube result')
+    assert result.resolved_search_string == 'youtube result'
+    assert result.raw_search_string == 'original search'
+
+
+@pytest.mark.asyncio
+async def test_search_workflow_basic():
+    """Test the complete search workflow for basic searches"""
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyClient())
+    x = SearchClient()
+    results = await x.check_source('basic search', loop, 10)
 
-    # Test Spotify album search that creates messages
-    result = await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    assert len(results) == 1
+    assert results[0].search_type == SearchType.SEARCH
+    assert results[0].raw_search_string == 'basic search'
+    assert results[0].resolved_search_string == 'basic search'
+    assert results[0].multi_search_input is None
 
-    # Should return results
-    assert len(result) == 1
-    assert result[0].search_type == SearchType.SPOTIFY
 
-    # Search client messages should be empty after clearing (simulating successful completion)
-    # The message context should have been used properly and cleared
-    assert len([msg for msg in x.messages.values() if msg]) == 0  # All message contexts should be cleared
-
-@pytest.mark.asyncio(scope="session")
-async def test_search_client_message_persistence_during_processing():
-    """Test that search messages persist during processing and are cleared afterward"""
+@pytest.mark.asyncio
+async def test_search_workflow_direct_url():
+    """Test the search workflow for direct URLs"""
     loop = asyncio.get_running_loop()
-    mq = MessageQueue()
-    x = SearchClient(mq, spotify_client=MockSpotifyClient())
+    x = SearchClient()
+    results = await x.check_source('https://example.com', loop, 10)
 
-    # Mock the spotify client to delay and verify messages are set during processing
-    original_album_get = x.spotify_client.album_get
-    message_captured = None
+    assert len(results) == 1
+    assert results[0].search_type == SearchType.DIRECT
+    assert results[0].raw_search_string == 'https://example.com'
+    assert results[0].resolved_search_string == 'https://example.com'
 
-    def capture_messages_during_processing(album_id):
-        nonlocal message_captured
-        # Capture messages state during processing
-        message_captured = dict(x.messages)  # Copy current state
-        return original_album_get(album_id)
 
-    x.spotify_client.album_get = capture_messages_during_processing
+@pytest.mark.asyncio
+async def test_search_workflow_with_youtube_music():
+    """Test search workflow with YouTube Music integration"""
+    loop = asyncio.get_running_loop()
+    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    results = await x.check_source('search term', loop, 5)
 
-    # Process search
-    await x.check_source('https://open.spotify.com/album/1111', '1234', '5678', 'foo bar requester', '2345', loop, 5, FakeChannel())
+    assert len(results) == 1
+    assert results[0].search_type == SearchType.SEARCH
+    assert results[0].raw_search_string == 'search term'
+    assert results[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert results[0].youtube_music_search_string == 'https://www.youtube.com/watch?v=vid-1234'
 
-    # Verify messages were present during processing
-    assert message_captured is not None
-    assert any(msg for msg in message_captured.values())  # Should have had messages during processing
+
+@pytest.mark.asyncio
+async def test_search_workflow_max_results_limit():
+    """Test that max_results parameter properly limits results"""
+    loop = asyncio.get_running_loop()
+    x = SearchClient(spotify_client=MockSpotifyClient())
+
+    # MockSpotifyClient returns only 1 result, so this tests the limit logic
+    results = await x.check_source('https://open.spotify.com/album/1111', loop, 2)
+    assert len(results) == 1  # Can't exceed what Spotify returns
+
+    # Test with limit of 0 (should return empty)
+    results = await x.check_source('https://open.spotify.com/album/1111', loop, 0)
+    assert len(results) == 0
+
+def test_check_youtube_video_youtube_short():
+    """Test check_youtube_video with YouTube Short URL"""
+    youtube_short = "https://youtube.com/shorts/dQw4w9WgXcQ"
+    assert check_youtube_video(youtube_short) is not None
+
+
+def test_check_youtube_video_youtube_video():
+    """Test check_youtube_video with regular YouTube video URL"""
+    youtube_video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    assert check_youtube_video(youtube_video) is not None
+
+
+def test_check_youtube_video_non_youtube():
+    """Test check_youtube_video with non-YouTube URL"""
+    non_youtube = "https://example.com/video"
+    assert check_youtube_video(non_youtube) is None
+
+
+def test_check_youtube_video_plain_text():
+    """Test check_youtube_video with plain text search"""
+    plain_text = "some search query"
+    assert check_youtube_video(plain_text) is None
+
+
+def test_check_youtube_video_boolean_logic():
+    """Test check_youtube_video return value boolean logic"""
+    # Test that YouTube URLs return truthy values
+    youtube_video = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    youtube_short = "https://youtube.com/shorts/dQw4w9WgXcQ"
+
+    # Should be truthy (regex match objects)
+    assert bool(check_youtube_video(youtube_video))
+    assert bool(check_youtube_video(youtube_short))
+
+    # Non-YouTube should be falsy (None)
+    plain_text = "some search query"
+    non_youtube_url = "https://example.com/video"
+
+    assert not bool(check_youtube_video(plain_text))
+    assert not bool(check_youtube_video(non_youtube_url))
+
+
+# Import existing mock from test_search_client.py to test OAuth error handling
+class MockSpotifyOauth:
+    """Mock Spotify client that raises SpotifyOauthError - matches existing test pattern"""
+
+    def __init__(self):
+        pass
+
+    def album_get(self, _album_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+    def playlist_get(self, _playlist_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+    def track_get(self, _track_id):
+        raise SpotifyOauthError(400, -1, 'foo exception')
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_spotify_oauth_error_handling():
+    """Test that SpotifyOauthError is properly handled and converted to ThirdPartyException"""
+    loop = asyncio.get_running_loop()
+
+    # Create SearchClient with mock that raises SpotifyOauthError
+    client = SearchClient(spotify_client=MockSpotifyOauth())
+
+    # Test with Spotify playlist URL that will trigger OAuth error
+    spotify_playlist_url = "https://open.spotify.com/playlist/37i9dQZEVXbNG2KDcFcKOF"
+
+    with pytest.raises(ThirdPartyException) as exc_info:
+        await client.check_source(spotify_playlist_url, loop, max_results=5)
+
+    # Verify the error message matches expected format
+    assert "Issue fetching spotify info" in str(exc_info.value)
+    assert exc_info.value.user_message == "Issue gathering info from spotify, credentials seem invalid"
