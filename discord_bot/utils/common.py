@@ -6,6 +6,7 @@ from re import sub
 from sys import stdout
 from typing import Awaitable, Callable
 
+from aiohttp.client_exceptions import ServerDisconnectedError
 from jsonschema import validate
 from discord.errors import DiscordServerError, RateLimited, NotFound
 from discord.ext.commands import Bot
@@ -214,7 +215,7 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
             raise SkipRetrySleep('Skip sleep since we slept already')
     post_exception_functions = [check_429]
     # These are common discord api exceptions we can retry on
-    retry_exceptions = (RateLimited, DiscordServerError, TimeoutError)
+    retry_exceptions = (RateLimited, DiscordServerError, TimeoutError, ServerDisconnectedError)
     accepted_exceptions = ()
     if allow_404:
         accepted_exceptions = NotFound
