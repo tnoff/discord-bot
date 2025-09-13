@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable, List
 
 from async_timeout import timeout
-from dappertable import DapperTable
+from dappertable import DapperTable, DapperTableHeader, DapperTableHeaderOptions
 from discord import FFmpegPCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
@@ -153,20 +153,11 @@ class MusicPlayer:
         if not queue_items:
             return items
         headers = [
-            {
-                'name': 'Pos',
-                'length': 3,
-            },
-            {
-                'name': 'Wait Time',
-                'length': 9,
-            },
-            {
-                'name': 'Title /// Uploader',
-                'length': 80,
-            },
+            DapperTableHeader('Pos', 3),
+            DapperTableHeader('Wait Time', 9),
+            DapperTableHeader('Title /// Uploader', 80),
         ]
-        table = DapperTable(headers, rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
         duration = 0
         if self.current_source:
             duration = self.current_source.duration

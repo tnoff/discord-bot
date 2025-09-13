@@ -11,7 +11,7 @@ from shutil import disk_usage
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 from typing import List
 
-from dappertable import shorten_string_cjk, DapperTable
+from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader
 from discord.ext.commands import Bot, Context, group, command
 from discord.errors import DiscordServerError, NotFound
 from discord import VoiceChannel
@@ -1384,16 +1384,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         headers = [
-            {
-                'name': 'Pos',
-                'length': 3,
-            },
-            {
-                'name': 'Title /// Uploader',
-                'length': 80,
-            },
+            DapperTableHeader('Pos', 3),
+            DapperTableHeader('Title /// Uploader', 80),
         ]
-        table = DapperTable(headers, rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
         table_items = player.get_history_items()
         for (count, item) in enumerate(table_items):
             uploader = item.uploader or ''
@@ -1759,20 +1753,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 playlist_items = [history_playlist] + [i for i in playlist_items]
 
             headers = [
-                {
-                    'name': 'ID',
-                    'length': 3,
-                },
-                {
-                    'name': 'Playlist Name',
-                    'length': 64,
-                },
-                {
-                    'name': 'Last Queued',
-                    'length': 20,
-                }
+                DapperTableHeader('ID', 3),
+                DapperTableHeader('Playlist Name', 64),
+                DapperTableHeader('Last Queued', 20),
             ]
-            table = DapperTable(headers, rows_per_message=15)
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
             for (count, item) in enumerate(playlist_items):
                 last_queued = 'N/A'
                 if item.last_queued:
@@ -2019,16 +2004,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             headers = [
-                {
-                    'name': 'Pos',
-                    'length': 3,
-                },
-                {
-                    'name': 'Title /// Uploader',
-                    'length': 64,
-                },
+                DapperTableHeader('Pos', 3),
+                DapperTableHeader('Title /// Uploader', 64),
             ]
-            table = DapperTable(headers, rows_per_message=15)
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
             total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(get_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
