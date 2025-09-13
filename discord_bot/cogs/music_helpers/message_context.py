@@ -143,113 +143,62 @@ class MessageMutableBundle():
                 dispatch_functions.append(send_func)
             return dispatch_functions
 
-        # Use content-aware diffing to minimize operations
-        dispatch_functions.extend(self._get_content_aware_dispatch(message_content, delete_after))
-
-    def _find_exact_content_matches(self, old_content: List[str], new_content: List[str]) -> dict:
-        '''
-        Find exact content matches between old and new content lists.
-        Returns mapping of old_index -> new_index for exact matches.
-
-        old_content: List of existing message content
-        new_content: List of new message content
-
-        Returns: dict mapping old_index -> new_index for exact matches
-        '''
-        matches = {}
-        used_new_indices = set()
-
-        # For each old content, find first unused exact match in new content
-        for old_idx, old_text in enumerate(old_content):
-            for new_idx, new_text in enumerate(new_content):
-                if new_idx not in used_new_indices and old_text == new_text:
-                    matches[old_idx] = new_idx
-                    used_new_indices.add(new_idx)
-                    break
-
-        return matches
-
-    def _get_content_aware_dispatch(self, message_content: List[str], delete_after: int = None) -> List[Callable]:
-        '''
-        Generate dispatch functions using content-aware diffing to minimize operations.
-
-        message_content: List of new message content
-        delete_after: Set delete after on message
-
-        Returns: List of dispatch functions
-        '''
-        dispatch_functions = []
+        # Compare existing messages with new content
         existing_count = len(self.message_contexts)
         new_count = len(message_content)
 
-        # Get current content for comparison
-        old_content = [ctx.message_content for ctx in self.message_contexts]
-
-        # Find exact content matches
-        exact_matches = self._find_exact_content_matches(old_content, message_content)
-
-        # Determine which old messages to keep, edit, or delete
-        old_messages_to_keep = set(exact_matches.keys())
-        new_positions_filled = set(exact_matches.values())
-
-        # Create new context list for the final state
-        new_contexts = [None] * new_count
-
-        # Phase 1: Place exact matches in their new positions
-        for old_idx, new_idx in exact_matches.items():
-            old_context = self.message_contexts[old_idx]
-            new_contexts[new_idx] = old_context
-
-            # Handle delete_after updates for exact matches
-            if delete_after and not old_context.delete_after:
-                edit_func = partial(old_context.edit_message, content=old_context.message_content, delete_after=delete_after)
-                old_context.function = edit_func
-                old_context.delete_after = delete_after
-                dispatch_functions.append(edit_func)
-
-        # Phase 2: Handle remaining old messages (delete unused ones)
-        for old_idx in range(existing_count):
-            if old_idx not in old_messages_to_keep:
-                context = self.message_contexts[old_idx]
+        # Handle deletion of extra messages
+        if existing_count > new_count:
+            for i in range(new_count, existing_count):
+                context = self.message_contexts[i]
                 if context.message:
                     delete_func = partial(context.delete_message, "")
                     dispatch_functions.append(delete_func)
+            # Remove the extra contexts
+            self.message_contexts = self.message_contexts[:new_count]
 
-        # Phase 3: Handle remaining new positions (edit existing or send new)
-        for new_idx in range(new_count):
-            if new_idx not in new_positions_filled:
-                new_content_text = message_content[new_idx]
+        # Handle updating existing messages
+        for i in range(min(existing_count, new_count)):
+            context = self.message_contexts[i]
+            new_content = message_content[i]
 
-                # Try to find an existing unused message to edit
-                available_context = None
-                for old_idx in range(existing_count):
-                    if (old_idx not in old_messages_to_keep and
-                        self.message_contexts[old_idx].message and
-                        self.message_contexts[old_idx] not in [nc for nc in new_contexts if nc is not None]):
-                        available_context = self.message_contexts[old_idx]
-                        old_messages_to_keep.add(old_idx)  # Mark as used
-                        break
-
-                if available_context:
-                    # Edit existing message
-                    available_context.message_content = new_content_text
-                    edit_func = partial(available_context.edit_message, content=new_content_text, delete_after=delete_after)
-                    available_context.function = edit_func
-                    available_context.delete_after = delete_after
-                    new_contexts[new_idx] = available_context
+            # Check if content is different
+            if context.message_content != new_content:
+                context.message_content = new_content
+                if context.message:
+                    # Message exists, edit it
+                    edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
+                    context.function = edit_func
+                    context.delete_after = delete_after
                     dispatch_functions.append(edit_func)
                 else:
-                    # Create new message
-                    mc = MessageContext(self.guild_id, self.channel_id)
-                    mc.message_content = new_content_text
-                    mc.delete_after = delete_after
-                    send_func = partial(self.send_function, content=new_content_text, delete_after=delete_after)
-                    mc.function = send_func
-                    new_contexts[new_idx] = mc
+                    # Message doesn't exist yet, send it
+                    send_func = partial(self.send_function, content=new_content, delete_after=delete_after)
+                    context.function = send_func
+                    context.delete_after = delete_after
                     dispatch_functions.append(send_func)
 
-        # Update the message contexts to the new arrangement
-        self.message_contexts = new_contexts
+            # Delete after might be passed in on a new call
+            # If message existed and was actively edited, and now is final message
+            elif delete_after and not context.delete_after:
+                edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
+                context.function = edit_func
+                context.delete_after = delete_after
+                dispatch_functions.append(edit_func)
+
+            # If content is the same, no action needed (no-op)
+
+        # Handle adding new messages
+        if new_count > existing_count:
+            for i in range(existing_count, new_count):
+                content = message_content[i]
+                mc = MessageContext(self.guild_id, self.channel_id)
+                mc.message_content = content
+                mc.delete_after = delete_after
+                send_func = partial(self.send_function, content=content, delete_after=delete_after)
+                mc.function = send_func
+                self.message_contexts.append(mc)
+                dispatch_functions.append(send_func)
 
         return dispatch_functions
 
