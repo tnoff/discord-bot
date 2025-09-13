@@ -560,3 +560,99 @@ async def test_sticky_messages_deletion_before_new_content(message_bundle, fake_
     new_message_contents = [msg.content for msg in current_messages if msg.content in new_content]
     assert "New Message 1" in new_message_contents
     assert "New Message 2" in new_message_contents
+
+
+@pytest.mark.asyncio
+async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_context):  #pylint: disable=redefined-outer-name
+    """
+    Test the optimization scenario: existing [A, B, C, D] → new [A, B, D]
+
+    Current behavior (suboptimal):
+    - Deletes D (position 3)
+    - Edits C to show D content (position 2)
+
+    Desired behavior (optimal):
+    - Only deletes C (content that was actually removed)
+    - Leaves D untouched in its original position
+
+    This test documents the current behavior and will be used to validate
+    the optimization when implemented.
+    """
+    # Setup initial messages: [A, B, C, D]
+    initial_content = ["A", "B", "C", "D"]
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    update_message_references(message_bundle, results)
+
+    # Verify initial state
+    assert message_bundle.get_message_count() == 4
+    assert len(fake_context['channel'].messages) == 4
+
+    # Store original message objects and IDs for tracking
+    original_messages = fake_context['channel'].messages[:]
+    original_message_d = original_messages[3]  # The D message
+    original_message_c = original_messages[2]  # The C message
+
+    # Update to new content: [A, B, D] (removing C)
+    new_content = ["A", "B", "D"]
+    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+
+    # Analyze what operations are planned
+    delete_operations = []
+    edit_operations = []
+    send_operations = []
+
+    # Execute and categorize operations
+    for func in dispatch_functions:
+        # Check if this is a delete operation (bound to delete_message method)
+        if hasattr(func, 'func') and func.func.__name__ == 'delete_message':
+            delete_operations.append(func)
+        # Check if this is an edit operation (bound to edit_message method)
+        elif hasattr(func, 'func') and func.func.__name__ == 'edit_message':
+            edit_operations.append(func)
+        # Otherwise assume it's a send operation
+        else:
+            send_operations.append(func)
+
+        # Execute the operation
+        await func()
+
+    # CURRENT BEHAVIOR ASSERTIONS (what happens now - suboptimal)
+    # These assertions document the current suboptimal behavior
+    # They should pass with the current implementation
+
+    # Current behavior: 1 delete operation (deletes message D at position 3)
+    assert len(delete_operations) == 1, f"Expected 1 delete operation, got {len(delete_operations)}"
+
+    # Current behavior: 1 edit operation (edits message C to show D content)
+    assert len(edit_operations) == 1, f"Expected 1 edit operation, got {len(edit_operations)}"
+
+    # Current behavior: 0 send operations (no new messages needed)
+    assert len(send_operations) == 0, f"Expected 0 send operations, got {len(send_operations)}"
+
+    # DESIRED BEHAVIOR ASSERTIONS (what should happen after optimization)
+    # These assertions describe the optimal behavior we want to achieve
+    # They will FAIL with the current implementation but should pass after optimization
+
+    # Optimal behavior: 1 delete operation (only deletes message C)
+    assert len(delete_operations) == 1, f"Expected 1 delete operation, got {len(delete_operations)}"
+
+    # Optimal behavior: 0 edit operations (D message should be left alone)
+    assert len(edit_operations) == 0, f"Expected 0 edit operations, got {len(edit_operations)}"
+
+    # Optimal behavior: 0 send operations (no new messages needed)
+    assert len(send_operations) == 0, f"Expected 0 send operations, got {len(send_operations)}"
+
+    # Verify final state
+    assert message_bundle.get_message_count() == 3
+
+    # Verify content correctness regardless of implementation
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    assert "A" in message_contents
+    assert "B" in message_contents
+    assert "D" in message_contents
+    assert "C" not in message_contents
