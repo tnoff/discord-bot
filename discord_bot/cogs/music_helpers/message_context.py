@@ -115,6 +115,21 @@ class MessageMutableBundle():
                 return True
         return False
 
+    def _match_existing_message_content(self, message_content: List[str], delete_after: int | None) -> dict:
+        '''
+        Find matching existing message context that matches the new message content
+
+        Return a map of existing message context and what index it matches in message content
+        '''
+        # Assume we go front to back so match first item that matches
+        mapping = {}
+        for (new_index, message) in enumerate(message_content):
+            for (existing_index, context) in enumerate(self.message_contexts):
+                if context.message_content == message and delete_after == context.delete_after:
+                    mapping[existing_index] = new_index
+                    break
+        return mapping
+
     def get_message_dispatch(self, message_content: List[str], clear_existing: bool = False, delete_after: int = None) -> List[Callable]:
         '''
         Return list of functions to handle message updates
@@ -152,45 +167,46 @@ class MessageMutableBundle():
         new_count = len(message_content)
 
         # Handle deletion of extra messages
+        # This attempts to delete messages in the middle if possible as well
+        # For example if [A,B,C,D] exists, and new input [A,B,D] if given
+        # We'll attempt to only delete C as the dispatch
         if existing_count > new_count:
-            for i in range(new_count, existing_count):
-                context = self.message_contexts[i]
-                if context.message:
-                    delete_func = partial(context.delete_message, "")
+            expected_delete_count = existing_count - new_count
+            existing_mapping = self._match_existing_message_content(message_content, delete_after)
+            delete_count = 0
+            new_contexts = []
+            for index, item in reversed(list(enumerate(self.message_contexts))):
+                if existing_mapping.get(index, None) is not None:
+                    new_contexts.insert(0, item)
+                    continue
+                if delete_count < expected_delete_count:
+                    delete_func = partial(item.delete_message, "")
                     dispatch_functions.append(delete_func)
-            # Remove the extra contexts
-            self.message_contexts = self.message_contexts[:new_count]
-
-        # Handle updating existing messages
-        for i in range(min(existing_count, new_count)):
-            context = self.message_contexts[i]
-            new_content = message_content[i]
-
-            # Check if content is different
-            if context.message_content != new_content:
-                context.message_content = new_content
-                if context.message:
-                    # Message exists, edit it
-                    edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
-                    context.function = edit_func
-                    context.delete_after = delete_after
-                    dispatch_functions.append(edit_func)
-                else:
-                    # Message doesn't exist yet, send it
-                    send_func = partial(self.send_function, content=new_content, delete_after=delete_after)
-                    context.function = send_func
-                    context.delete_after = delete_after
-                    dispatch_functions.append(send_func)
-
-            # Delete after might be passed in on a new call
-            # If message existed and was actively edited, and now is final message
-            elif delete_after and not context.delete_after:
-                edit_func = partial(context.edit_message, content=new_content, delete_after=delete_after)
-                context.function = edit_func
-                context.delete_after = delete_after
+                    delete_count += 1
+                    continue
+                edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
+                item.function = edit_func
+                item.delete_after = delete_after
+                item.message_content = message_content[index]
                 dispatch_functions.append(edit_func)
+                new_contexts.insert(0, item)
+            self.message_contexts = new_contexts
+            return dispatch_functions
 
-            # If content is the same, no action needed (no-op)
+        # Update existing contexts
+        existing_mapping = self._match_existing_message_content(message_content, delete_after)
+        new_contexts = []
+        for index, item in enumerate(self.message_contexts):
+            if existing_mapping.get(index, None) == index:
+                new_contexts.append(item)
+                continue
+            edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
+            item.function = edit_func
+            item.delete_after = delete_after
+            item.message_content = message_content[index]
+            dispatch_functions.append(edit_func)
+            new_contexts.append(item)
+        self.message_contexts = new_contexts
 
         # Handle adding new messages
         if new_count > existing_count:

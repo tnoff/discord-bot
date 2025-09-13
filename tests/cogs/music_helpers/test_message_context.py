@@ -8,6 +8,7 @@ import pytest
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.message_context import MessageMutableBundle
 from tests.helpers import fake_context #pylint: disable=unused-import
+from tests.helpers import FakeMessage
 
 
 @pytest.fixture
@@ -104,6 +105,17 @@ def test_non_sticky_bundle_fewer_messages_allowed(non_sticky_bundle):  #pylint:d
     initial_content = ["Message 1", "Message 2", "Message 3"]
     dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content)
     assert len(dispatch_functions) == 3
+
+    fake1 = MessageContext(123, 123)
+    fake1.message = FakeMessage(content=initial_content[0])
+    fake1.message_content = initial_content[0]
+    fake2 = MessageContext(123, 123)
+    fake2.message = FakeMessage(content=initial_content[1])
+    fake2.message_content = initial_content[1]
+    fake3 = MessageContext(123, 123)
+    fake3.message = FakeMessage(content=initial_content[2])
+    fake3.message_content = initial_content[2]
+    non_sticky_bundle.message_contexts = [fake1, fake2, fake3]
 
     # Fewer messages should work
     fewer_content = ["Updated 1", "Updated 2"]
