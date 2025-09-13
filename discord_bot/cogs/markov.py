@@ -7,7 +7,7 @@ from re import match, sub, MULTILINE
 from tempfile import NamedTemporaryFile
 from typing import Optional, List
 
-from dappertable import DapperTable
+from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
 from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
@@ -347,10 +347,11 @@ class Markov(CogHelper):
             if not markov_channels.count():
                 return await async_retry_discord_message_command(partial(ctx.send, 'Markov not enabled for any channels in server'))
 
-            table = DapperTable([{
-                'name': 'Channel',
-                'length': 64,
-            }], rows_per_message=15)
+            headers = [
+                DapperTableHeader('Channel', 64),
+            ]
+
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.print():

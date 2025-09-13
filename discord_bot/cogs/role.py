@@ -1,7 +1,7 @@
 from re import search
 from typing import List
 
-from dappertable import DapperTable
+from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
 
 from discord import Member, Role
 from discord.errors import NotFound
@@ -228,17 +228,14 @@ class RoleAssignment(CogHelper):
         if not self.check_required_roles(ctx):
             return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
         headers = [
-            {
-                'name': 'Role Name',
-                'length': 30,
-            },
+            DapperTableHeader('Role Name', 30)
         ]
-        table = DapperTable(headers, rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
         for role in ctx.guild.roles:
             if role.id in self.get_rejected_roles_list(ctx):
                 continue
             table.add_row([f'@{role.name}'])
-        if table.size() == 0:
+        if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
             await ctx.send(f'```{item}```')
@@ -258,15 +255,12 @@ class RoleAssignment(CogHelper):
             return await ctx.send(f'Unable to find role "{role}"')
 
         headers = [
-            {
-                'name': 'User Name',
-                'length': 30,
-            },
+            DapperTableHeader('User Name', 30)
         ]
-        table = DapperTable(headers, rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
         for member in role_obj.members:
             table.add_row([f'@{member.display_name}'])
-        if table.size() == 0:
+        if table.size == 0:
             return await ctx.send(f'No users found for role "{role}"')
         for item in table.print():
             await ctx.send(f'```{item}```')
@@ -340,16 +334,10 @@ class RoleAssignment(CogHelper):
         if not self.check_required_roles(ctx):
             return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
         headers = [
-            {
-                'name': 'Role Name',
-                'length': 30,
-            },
-            {
-                'name': 'Control',
-                'length': 10,
-            },
+            DapperTableHeader('Role Name', 30),
+            DapperTableHeader('Control', 10)
         ]
-        table = DapperTable(headers, rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
         rows = []
         # Print managed rows first, save self servic for later
         # Make sure we order them by name for ease
@@ -375,7 +363,7 @@ class RoleAssignment(CogHelper):
 
         for row in rows:
             table.add_row(row)
-        if table.size() == 0:
+        if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
             await ctx.send(f'```{item}```')
