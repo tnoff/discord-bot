@@ -621,19 +621,6 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
         # Execute the operation
         await func()
 
-    # CURRENT BEHAVIOR ASSERTIONS (what happens now - suboptimal)
-    # These assertions document the current suboptimal behavior
-    # They should pass with the current implementation
-
-    # Current behavior: 1 delete operation (deletes message D at position 3)
-    assert len(delete_operations) == 1, f"Expected 1 delete operation, got {len(delete_operations)}"
-
-    # Current behavior: 1 edit operation (edits message C to show D content)
-    assert len(edit_operations) == 1, f"Expected 1 edit operation, got {len(edit_operations)}"
-
-    # Current behavior: 0 send operations (no new messages needed)
-    assert len(send_operations) == 0, f"Expected 0 send operations, got {len(send_operations)}"
-
     # DESIRED BEHAVIOR ASSERTIONS (what should happen after optimization)
     # These assertions describe the optimal behavior we want to achieve
     # They will FAIL with the current implementation but should pass after optimization
@@ -651,7 +638,7 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
     assert message_bundle.get_message_count() == 3
 
     # Verify content correctness regardless of implementation
-    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A" in message_contents
     assert "B" in message_contents
     assert "D" in message_contents
@@ -705,7 +692,7 @@ async def test_content_aware_diffing_edit_plus_removal(message_bundle, fake_cont
     assert len(edit_operations) == 1, f"Expected 1 edit operation, got {len(edit_operations)}"
 
     # Verify final content
-    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A'" in message_contents
     assert "B" in message_contents
     assert "D" in message_contents
@@ -757,7 +744,7 @@ async def test_content_aware_diffing_multiple_removals(message_bundle, fake_cont
     assert len(edit_operations) == 0, f"Expected 0 edit operations, got {len(edit_operations)}"
 
     # Verify final content
-    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A" in message_contents
     assert "B" in message_contents
     assert "F" in message_contents
@@ -826,7 +813,7 @@ async def test_content_aware_diffing_multiple_edits_plus_keep_last(message_bundl
     assert current_message_d.content == "D", "D message content should remain unchanged"
 
     # Verify final content
-    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A'" in message_contents
     assert "B'" in message_contents
     assert "C'" in message_contents
