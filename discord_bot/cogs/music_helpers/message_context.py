@@ -111,6 +111,21 @@ class MessageMutableBundle():
                 return True
         return False
 
+    def _match_existing_message_content(self, message_content: List[str]) -> dict:
+        '''
+        Find matching existing message context that matches the new message content
+
+        Return a map of existing message context and what index it matches in message content
+        '''
+        # Assume we go front to back so match first item that matches
+        mapping = {}
+        for (new_index, message) in enumerate(message_content):
+            for (existing_index, context) in enumerate(self.message_contexts):
+                if context.message_content == message:
+                    mapping[new_index] = existing_index
+                    break
+        return mapping
+
     def get_message_dispatch(self, message_content: List[str], clear_existing: bool = False, delete_after: int = None) -> List[Callable]:
         '''
         Return list of functions to handle message updates
@@ -149,13 +164,28 @@ class MessageMutableBundle():
 
         # Handle deletion of extra messages
         if existing_count > new_count:
-            for i in range(new_count, existing_count):
-                context = self.message_contexts[i]
-                if context.message:
-                    delete_func = partial(context.delete_message, "")
-                    dispatch_functions.append(delete_func)
-            # Remove the extra contexts
-            self.message_contexts = self.message_contexts[:new_count]
+            expected_delete_count = existing_count - new_count
+            print('Expected delete count', expected_delete_count)
+            existing_mapping = self._match_existing_message_content(message_content)
+            print('Existing mapping', existing_mapping)
+            # If we have some existing messages
+            if existing_mapping:
+                for (count, content) in enumerate(message_content):
+                    print('Count', count, content)
+                    new_index = existing_mapping.get(count, None)
+                    if new_index == count:
+                        continue
+
+            
+            # Else delete latter messages
+            else:
+                for i in range(new_count, existing_count):
+                    context = self.message_contexts[i]
+                    if context.message:
+                        delete_func = partial(context.delete_message, "")
+                        dispatch_functions.append(delete_func)
+                # Remove the extra contexts
+                self.message_contexts = self.message_contexts[:new_count]
 
         # Handle updating existing messages
         for i in range(min(existing_count, new_count)):
