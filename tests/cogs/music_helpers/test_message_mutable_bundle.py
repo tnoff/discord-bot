@@ -764,3 +764,71 @@ async def test_content_aware_diffing_multiple_removals(message_bundle, fake_cont
     assert "C" not in message_contents
     assert "D" not in message_contents
     assert "E" not in message_contents
+
+
+@pytest.mark.asyncio
+async def test_content_aware_diffing_multiple_edits_plus_keep_last(message_bundle, fake_context):  #pylint: disable=redefined-outer-name
+    """
+    Test optimization scenario: existing [A, B, C, D] → new [A', B', C', D]
+    (Edit multiple messages but keep the last one untouched)
+
+    Current behavior (suboptimal):
+    - Edits A to A'
+    - Edits B to B'
+    - Edits C to C'
+    - Keeps D (this part is optimal already)
+
+    Desired behavior (optimal):
+    - Edits A to A'
+    - Edits B to B'
+    - Edits C to C'
+    - Leaves D completely untouched (no operations on it)
+
+    This test verifies that when content already matches, no operations are generated
+    for that message, even when other messages are being edited.
+    """
+    # Setup initial messages: [A, B, C, D]
+    initial_content = ["A", "B", "C", "D"]
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+
+    results = []
+    for func in dispatch_functions:
+        result = await func()
+        results.append(result)
+    update_message_references(message_bundle, results)
+
+    # Store original D message for tracking
+    original_message_d = fake_context['channel'].messages[3]
+
+    # Update to: [A', B', C', D] (edit first three, keep D)
+    new_content = ["A'", "B'", "C'", "D"]
+    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+
+    # Categorize operations
+    delete_operations = []
+    edit_operations = []
+
+    for func in dispatch_functions:
+        if hasattr(func, 'func') and func.func.__name__ == 'delete_message':
+            delete_operations.append(func)
+        elif hasattr(func, 'func') and func.func.__name__ == 'edit_message':
+            edit_operations.append(func)
+        await func()
+
+    # DESIRED BEHAVIOR (should already work with current implementation)
+    # Optimal: 0 deletes, 3 edits (A→A', B→B', C→C'), D untouched
+    assert len(delete_operations) == 0, f"Expected 0 delete operations, got {len(delete_operations)}"
+    assert len(edit_operations) == 3, f"Expected 3 edit operations, got {len(edit_operations)}"
+
+    # Verify D message was not modified (same object reference)
+    current_message_d = fake_context['channel'].messages[3]
+    assert current_message_d.id == original_message_d.id, "D message should not have been recreated"
+    assert current_message_d.content == "D", "D message content should remain unchanged"
+
+    # Verify final content
+    message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.is_deleted]
+    assert "A'" in message_contents
+    assert "B'" in message_contents
+    assert "C'" in message_contents
+    assert "D" in message_contents
+    assert message_bundle.get_message_count() == 4
