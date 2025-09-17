@@ -367,12 +367,12 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
 
     # The bundle should have finished with an error
     assert bundle.search_finished is True
-    assert bundle.search_error == 'foo'  # The main exception message, not user_message
+    assert bundle.search_error == 'woopsie'  # The user_message
 
     # Verify the bundle's print output contains the error message
     bundle_messages = bundle.print()
     assert len(bundle_messages) > 0
-    assert any('foo' in msg for msg in bundle_messages)
+    assert any('woopsie' in msg for msg in bundle_messages)
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name

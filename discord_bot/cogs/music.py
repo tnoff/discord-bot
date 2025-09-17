@@ -1293,7 +1293,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc))
+            bundle.finish_search_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
@@ -1897,7 +1897,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc))
+            bundle.finish_search_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
