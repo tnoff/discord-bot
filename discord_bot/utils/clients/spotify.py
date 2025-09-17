@@ -1,7 +1,9 @@
 from typing import List
 
 from opentelemetry.trace import SpanKind
+from opentelemetry.trace.status import StatusCode
 from spotipy import Spotify
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 
 from discord_bot.utils.otel import otel_span_wrapper, ThirdPartyNaming
@@ -45,11 +47,16 @@ class SpotifyClient():
         playlist_id : Playlist id from spotify
         pagination_limit : Limit of each API call
         '''
-        with otel_span_wrapper('spotify.playlist_get', attributes={ThirdPartyNaming.SPOTIFY_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT):
+        with otel_span_wrapper('spotify.playlist_get', attributes={ThirdPartyNaming.SPOTIFY_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT) as span:
             offset = 0
             items = []
             while True:
-                resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
+                try:
+                    resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
+                except SpotifyException as exc:
+                    if exc.http_status in [404]:
+                        span.set_status(StatusCode.OK)
+                    raise exc
                 items += self.__get_response_items(resp['items'])
                 try:
                     if not resp['next']:
@@ -66,11 +73,16 @@ class SpotifyClient():
         album_id : Album id from spotify
         pagination_limit : Limit of each API call
         '''
-        with otel_span_wrapper('spotify.album_get', attributes={ThirdPartyNaming.SPOTIFY_ALBUM.value: album_id}, kind=SpanKind.CLIENT):
+        with otel_span_wrapper('spotify.album_get', attributes={ThirdPartyNaming.SPOTIFY_ALBUM.value: album_id}, kind=SpanKind.CLIENT) as span:
             offset = 0
             items = []
             while True:
-                resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
+                try:
+                    resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
+                except SpotifyException as exc:
+                    if exc.http_status in [404]:
+                        span.set_status(StatusCode.OK)
+                    raise exc
                 items += self.__get_response_items(resp['items'])
                 if not resp['next']:
                     return items
