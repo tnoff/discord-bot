@@ -86,6 +86,37 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
 
 
 @pytest.mark.asyncio
+async def test_media_request_bundle_blanks_removed(fake_context): #pylint:disable=redefined-outer-name
+    multi_input_string = 'https://foo.example.com/playlist'
+    x = fake_source_dict(fake_context)
+    y = fake_source_dict(fake_context)
+    z = fake_source_dict(fake_context)
+    a = fake_source_dict(fake_context)
+    c = fake_source_dict(fake_context)
+
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'], items_per_message=2)
+    b.add_search_request(multi_input_string)
+    b.finish_search_request()
+    b.add_media_request(x)
+    b.add_media_request(y)
+    b.add_media_request(z)
+    b.add_media_request(a)
+    b.add_media_request(c)
+
+    initial_print = b.print()
+    assert len(initial_print) == 4
+
+    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
+    b.update_request_status(y, MediaRequestLifecycleStage.COMPLETED)
+    b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
+
+    # Top row changed, bottom row the same
+    new_print = b.print()
+    assert initial_print[0] != new_print[0]
+    assert initial_print[-1] == new_print[-1]
+    assert len(new_print) == 3
+
+@pytest.mark.asyncio
 async def test_media_request_bundle_multi_message(fake_context): #pylint:disable=redefined-outer-name
     multi_input_string = 'https://foo.example.com/playlist'
     x = fake_source_dict(fake_context)

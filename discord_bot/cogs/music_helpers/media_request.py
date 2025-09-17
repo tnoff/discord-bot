@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
+from dappertable import DapperTable
 from discord import TextChannel
 
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
@@ -164,14 +165,15 @@ class MultiMediaRequestBundle():
             if item['uuid'] != media_request.uuid:
                 continue
             item['status'] = stage
-            if stage == MediaRequestLifecycleStage.COMPLETED:
-                self.completed += 1
-            if stage == MediaRequestLifecycleStage.DISCARDED:
-                self.discarded += 1
-            if stage == MediaRequestLifecycleStage.FAILED:
-                self.failed += 1
-                if failure_reason:
-                    item['failed_reason'] = failure_reason
+            match stage:
+                case MediaRequestLifecycleStage.COMPLETED:
+                    self.completed += 1
+                case MediaRequestLifecycleStage.DISCARDED:
+                    self.discarded += 1
+                case MediaRequestLifecycleStage.FAILED:
+                    self.failed += 1
+                    if failure_reason:
+                        item['failed_reason'] = failure_reason
             if override_message:
                 item['override_message'] = override_message
             result = True
@@ -205,49 +207,45 @@ class MultiMediaRequestBundle():
         # If shutdown, exit completely
         if self.is_shutdown:
             return []
+        table = DapperTable(rows_per_message=self.items_per_message)
         # Check if we're in search mode
         if not self.search_finished and self.input_string:
-            return [f'Processing search "{discord_format_string_embed(self.input_string)}"']
+            table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
         if self.search_finished and self.search_error:
-            return [f'Error processing search "{discord_format_string_embed(self.input_string)}", {self.search_error}']
+            table.add_row(f'Error processing search "{discord_format_string_embed(self.input_string)}", {self.search_error}')
         # Else proceed as normal
-        messages = []
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
         if self.total > 1:
             if self.finished:
-                messages = [f'Completed download of "{multi_input}"']
+                table.add_row(f'Completed download of "{multi_input}"')
             else:
-                messages = [f'Downloading "{multi_input}"']
-            messages.append(f'{self.completed}/{self.total} items processed successfully, {self.failed} failed')
+                table.add_row(f'Downloading "{multi_input}"')
+            table.add_row(f'{self.completed}/{self.total} items processed successfully, {self.failed} failed')
         for item in self.media_requests:
+            # If override set, use this
             if item['override_message']:
-                messages.append(item['override_message'])
-            if item['status'] == MediaRequestLifecycleStage.COMPLETED:
+                table.add_row(item['override_message'])
                 continue
-            if item['status'] == MediaRequestLifecycleStage.FAILED:
-                if not item['override_message']:
+            # Else match on status
+            match item['status']:
+                case MediaRequestLifecycleStage.COMPLETED:
+                    table.add_row('')
+                case MediaRequestLifecycleStage.FAILED:
                     x = f'Media request failed download: "{item["search_string"]}"'
                     if item['failed_reason']:
                         x = f'{x}, {item["failed_reason"]}'
-                    messages.append(x)
-                continue
-            if item['status'] == MediaRequestLifecycleStage.QUEUED:
-                if not item['override_message']:
-                    messages.append(f'Media request queued for download: "{item["search_string"]}"')
-                continue
-            if item['status'] == MediaRequestLifecycleStage.IN_PROGRESS:
-                if not item['override_message']:
-                    messages.append(f'Downloading and processing media request: "{item["search_string"]}"')
-                continue
-            if item['status'] == MediaRequestLifecycleStage.BACKOFF:
-                if not item['override_message']:
-                    messages.append(f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
-                continue
-            if item['status'] == MediaRequestLifecycleStage.DISCARDED:
-                continue
-        all_items = chunk_list(messages, self.items_per_message)
-        # Convert into messages from list
-        messages = []
-        for item in all_items:
-            messages.append('\n'.join(i for i in item))
-        return messages
+                    table.add_row(x)
+                case MediaRequestLifecycleStage.QUEUED:
+                    table.add_row(f'Media request queued for download: "{item["search_string"]}"')
+                case MediaRequestLifecycleStage.IN_PROGRESS:
+                    table.add_row(f'Downloading and processing media request: "{item["search_string"]}"')
+                case MediaRequestLifecycleStage.BACKOFF:
+                    table.add_row(f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
+                case MediaRequestLifecycleStage.DISCARDED:
+                    table.add_row('')
+        result = table.print()
+        if not isinstance(result, list):
+            result = [result]
+        # Remove blanks from output
+        result = [i for i in result if i != '']
+        return result
