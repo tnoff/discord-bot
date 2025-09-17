@@ -4,6 +4,7 @@ from typing import Callable, List
 from uuid import uuid4
 
 from discord import Message, TextChannel
+from discord.errors import NotFound
 
 from discord_bot.utils.common import async_retry_discord_message_command
 
@@ -40,7 +41,10 @@ class MessageContext():
         if not self.message:
             return False
 
-        await self.message.delete()
+        try:
+            await self.message.delete()
+        except NotFound:
+            return True
         return True
 
     async def edit_message(self, content: str, delete_after: int = None):

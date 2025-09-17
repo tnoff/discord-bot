@@ -13,7 +13,7 @@ from typing import List
 
 from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader
 from discord.ext.commands import Bot, Context, group, command
-from discord.errors import DiscordServerError, NotFound
+from discord.errors import DiscordServerError
 from discord import VoiceChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -673,15 +673,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 funcs = await self.message_queue.update_mutable_bundle_content(item, message_content, delete_after=delete_after)
                 results = []
                 for func in funcs:
-                    try:
-                        result = await async_retry_discord_message_command(func)
-                    # Should this check for function deletes? Can probably assume
-                    except NotFound:
-                        result = None
-                    results.append(result)
-                # Update message references for new messages (only pass Message objects, not delete results)
-                message_results = [r for r in results if r and hasattr(r, 'id')]
-                await self.message_queue.update_mutable_bundle_references(item, message_results)
+                    result = await async_retry_discord_message_command(func)
+                    # Update message references for new messages (only pass Message objects, not delete results)
+                    if result and hasattr(result, 'id'):
+                        results.append(result)
+                await self.message_queue.update_mutable_bundle_references(item, results)
                 return True
             return False
 
@@ -1297,7 +1293,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc))
+            bundle.finish_search_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
@@ -1901,7 +1897,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc))
+            bundle.finish_search_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
