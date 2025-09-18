@@ -262,7 +262,7 @@ class VideoCacheClient():
             'extractor': video_cache.extractor,
             'webpage_url': video_cache.video_url,
         }
-        return MediaDownload(Path(str(video_cache.base_path)), ytdlp_data, media_request)
+        return MediaDownload(Path(str(video_cache.base_path)), ytdlp_data, media_request, cache_hit=True)
 
     def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
         '''
