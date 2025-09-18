@@ -164,16 +164,19 @@ class MultiMediaRequestBundle():
         for item in self.media_requests:
             if item['uuid'] != media_request.uuid:
                 continue
-            item['status'] = stage
             match stage:
                 case MediaRequestLifecycleStage.COMPLETED:
-                    self.completed += 1
+                    if item['status'] != stage:
+                        self.completed += 1
                 case MediaRequestLifecycleStage.DISCARDED:
-                    self.discarded += 1
+                    if item['status'] != stage:
+                        self.discarded += 1
                 case MediaRequestLifecycleStage.FAILED:
-                    self.failed += 1
-                    if failure_reason:
-                        item['failed_reason'] = failure_reason
+                    if item['status'] != stage:
+                        self.failed += 1
+                        if failure_reason:
+                            item['failed_reason'] = failure_reason
+            item['status'] = stage
             if override_message:
                 item['override_message'] = override_message
             result = True

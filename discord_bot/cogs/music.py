@@ -852,7 +852,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if not bundle:
                 return
             bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED,
-                                         failure_reason=f'Issue downloading video "{media_request.search_string}"')
+                                         failure_reason=f'Issue downloading video "{str(media_request.search_string)}"')
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 bundle.text_channel,
@@ -976,14 +976,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
                     media_download = None
-                    if bundle:
-                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED,
-                                                     failure_reason=str(e))
-                        self.message_queue.update_multiple_mutable(
-                            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                            bundle.text_channel,
-                            sticky_messages=False,
-                        )
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
 
