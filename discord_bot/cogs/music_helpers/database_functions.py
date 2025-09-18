@@ -9,9 +9,33 @@ from sqlalchemy.orm import Session
 
 from discord_bot.database import (
     VideoCache, VideoCacheGuild, Guild, VideoCacheBackup,
-    Playlist, PlaylistItem
+    Playlist, PlaylistItem, GuildVideoAnalytics
 )
 
+#
+# Guild Analytics Functions
+#
+
+def ensure_guild_video_analytics(db_session: Session, guild_id: str):
+    '''
+    Ensure guild video analytics table exists
+    '''
+    guild = ensure_guild(db_session, guild_id)
+    existing = db_session.query(GuildVideoAnalytics).filter(GuildVideoAnalytics.guild_id == guild.id).first()
+    if existing:
+        return existing
+    now_timestamp = datetime.now(timezone.utc)
+    new_row = GuildVideoAnalytics(
+        guild_id=guild.id,
+        total_plays=0,
+        cached_plays=0,
+        total_duration_seconds=0,
+        created_at=now_timestamp,
+        updated_at=now_timestamp,
+    )
+    db_session.add(new_row)
+    db_session.commit()
+    return new_row
 
 #
 # Guild Functions

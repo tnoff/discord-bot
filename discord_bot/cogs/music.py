@@ -230,9 +230,6 @@ class PlaylistMaxLength(Exception):
 
 OTEL_SPAN_PREFIX = 'music'
 
-VIDEOS_PLAYED_COUNTER = METER_PROVIDER.create_counter(MetricNaming.VIDEOS_PLAYED.value, unit='number', description='Number of videos played')
-
-
 #
 # YTDL Post Processor
 #
@@ -591,9 +588,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Update history playlists
         '''
-
-
-
         await sleep(.01)
         try:
             history_item = self.history_playlist_queue.get_nowait()
@@ -602,17 +596,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
             return
 
-        # Add all videos to metrics
-        VIDEOS_PLAYED_COUNTER.add(1, attributes={
-            DiscordContextNaming.GUILD.value: history_item.media_download.media_request.guild_id
-        })
-        # Skip if added from history
-        if history_item.media_download.media_request.added_from_history:
-            self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
-            return
-
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.CONSUMER):
             with self.with_db_session() as db_session:
+
+                # Update analytics table
+                guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, history_item.media_download.media_request.guild_id))
+                guild_analytics.total_plays += 1
+                if not guild_analytics.total_duration_seconds:
+                    guild_analytics.total_duration_seconds = history_item.media_download.duration
+                else:
+                    guild_analytics.total_duration_seconds += history_item.media_download.duration
+                if history_item.media_download.cache_hit:
+                    guild_analytics.cached_plays += 1
+                guild_analytics.updated_at = datetime.now(timezone.utc)
+                retry_database_commands(db_session, partial(run_commit, db_session))
+
+                # Skip if added from history
+                if history_item.media_download.media_request.added_from_history:
+                    self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
+                    return
                 self.logger.info(f'Attempting to add url "{history_item.media_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.media_download.media_request.guild_id}')
                 retry_database_commands(db_session, partial(database_functions.delete_playlist_item_by_url, db_session, history_item.media_download.webpage_url, history_item.playlist_id))
 
@@ -624,10 +626,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     retry_database_commands(db_session, partial(database_functions.delete_playlist_item_limit, db_session, history_item.playlist_id, delta))
                 self.logger.info(f'Adding new history item "{history_item.media_download.webpage_url}" to playlist {history_item.playlist_id}')
                 self.__playlist_insert_item(history_item.playlist_id, history_item.media_download.webpage_url, history_item.media_download.title, history_item.media_download.uploader)
-                # Update metrics
-                VIDEOS_PLAYED_COUNTER.add(1, attributes={
-                    DiscordContextNaming.GUILD.value: history_item.media_download.media_request.guild_id
-                })
 
     async def send_messages(self):
         '''
