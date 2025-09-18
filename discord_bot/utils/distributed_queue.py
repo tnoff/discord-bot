@@ -7,18 +7,16 @@ class DistributedQueue():
     '''
     Balance between queues in multiple servers/guilds
     '''
-    def __init__(self, max_size: int, number_shuffles: int = 5, default_priority = 100):
+    def __init__(self, max_size: int, default_priority = 100):
         '''
         Distribute Traffic between multiple queues for different servers
 
 
         max_size : Max size of each individual queue
-        number_shuffles : Number of shuffles for queues
         default_priority : Default priority of queues
         '''
         self.queues = {}
         self.max_size = max_size
-        self.number_shuffles = number_shuffles
         self.default_priority = default_priority
 
     def block(self, guild_id: int):
@@ -43,7 +41,7 @@ class DistributedQueue():
             self.queues[guild_id] = {
                 'created_at': datetime.now(timezone.utc),
                 'last_iterated_at': None,
-                'queue': Queue(maxsize=self.max_size, num_shuffles=self.number_shuffles),
+                'queue': Queue(maxsize=self.max_size),
                 'priority': priority or self.default_priority,
             }
         self.queues[guild_id]['queue'].put_nowait(entry)

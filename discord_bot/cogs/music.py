@@ -6,9 +6,10 @@ from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from random import shuffle as random_shuffle, randint
+import random
 from shutil import disk_usage
 from tempfile import TemporaryDirectory, NamedTemporaryFile
+from time import time
 from typing import List
 
 from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader
@@ -72,11 +73,6 @@ MUSIC_SECTION_SCHEMA = {
                 # Delete all messages after interval
                 'message_delete_after': {
                     'type': 'number',
-                },
-                # Number of shuffles by default
-                'number_shuffles': {
-                    'type': 'number',
-                    'minimum': 1,
                 },
             }
         },
@@ -288,11 +284,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.history_playlist_queue = Queue()
         # General options
         self.delete_after = self.settings.get('music', {}).get('general', {}).get('message_delete_after', 300) # seconds
-        self.number_shuffles = self.settings.get('music', {}).get('general', {}).get('number_shuffles', 5)
         # Player options
         self.queue_max_size = self.settings.get('music', {}).get('player', {}).get('queue_max_size', 128)
         self.disconnect_timeout = self.settings.get('music', {}).get('player', {}).get('disconnect_timeout', 60 * 15) # seconds
-        self.download_queue = DistributedQueue(self.queue_max_size, number_shuffles=self.number_shuffles)
+        self.download_queue = DistributedQueue(self.queue_max_size)
 
         # Playlist options
         self.server_playlist_max_size = self.settings.get('music', {}).get('playlist', {}).get('server_playlist_max_size', 64)
@@ -385,8 +380,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client,
-                                          youtube_music_client=self.youtube_music_client,
-                                          number_shuffles=self.number_shuffles)
+                                          youtube_music_client=self.youtube_music_client)
         self.download_client = DownloadClient(ytdl, self.download_dir)
 
         # Callback functions
@@ -760,7 +754,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
             # If file doesn't exist or no value, assume we dont need to wait
             return True
-        wait_until = int(last_updated_at) + minimum_wait_time + randint(0, max_variance)
+        # https://stackoverflow.com/a/51295230
+        random.seed(time())
+        wait_until = int(last_updated_at) + minimum_wait_time + random.randint(0, max_variance)
         self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
         while True:
             # If bot exited, return now
@@ -2235,8 +2231,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return
 
             if shuffle:
-                for _ in range(self.number_shuffles):
-                    random_shuffle(playlist_items)
+                # https://stackoverflow.com/a/51295230
+                random.seed(time())
+                random.shuffle(playlist_items)
 
             if max_num:
                 if max_num < 0:
