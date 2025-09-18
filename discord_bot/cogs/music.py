@@ -1376,7 +1376,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         headers = [
-            DapperTableHeader('Pos', 3),
+            DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Title /// Uploader', 80),
         ]
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
@@ -1996,7 +1996,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             headers = [
-                DapperTableHeader('Pos', 3),
+                DapperTableHeader('Pos', 3, zero_pad_index=True),
                 DapperTableHeader('Title /// Uploader', 64),
             ]
             table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
