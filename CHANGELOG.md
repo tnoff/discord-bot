@@ -1,12 +1,33 @@
 # Changelog
 
+## 2.4.4
+
+General:
+- Update dependabot to run daily checks instead of weekly
+- Add KNOWN-ISSUES.md documentation file
+- Add support for DEVELOPMENT.md documentation
+
+Music:
+- Complete overhaul from single mutable to multi-mutable message architecture
+- Remove configurable `number_shuffles`, implement single shuffle with proper random seeding
+- Update to v0.1.3 with zero-padding support for position display
+- Add message not found error handling and HTTP server disconnect retries
+- Optimize message dispatch logic to delete removed messages in middle rather than editing all subsequent messages
+- Rework media request lifecycle to use DapperTable, maintaining message order consistency
+- Improve search result handling and message queue integration
+- Expose history playlist in commands, fix various playlist-related issues
+- Enhanced cache cleanup and backup storage handling
+- Remove search cache client functionality (migrated database schema)
+- Fix voice client checks on stop operations
+- Improved iterative message deletion on errors
+
 ## 2.4.3
 
 General:
 - Fixups for OTLP setup, added heartbeat metrics to multiple cogs
 - Add alembic database migration support
 
-Music
+Music:
 - Add s3 backups to cached files
 
 ## 2.4.2
