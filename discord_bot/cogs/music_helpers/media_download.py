@@ -9,13 +9,15 @@ class MediaDownload():
     '''
     Source file of downloaded content
     '''
-    def __init__(self, file_path: Path, ytdl_data: dict, media_request: MediaRequest):
+    def __init__(self, file_path: Path, ytdl_data: dict, media_request: MediaRequest,
+                 cache_hit: bool = False):
         '''
         Init source file
 
         file_path                   :   Path to ytdl file
         ytdl_data                   :   Ytdl download dict
-        media_request                 :   Media request passed to yt-dlp
+        media_request               :   Media request passed to yt-dlp
+        cache_hit                   :   If mediadownload was created via a cache hit
         '''
         # Keep only keys we want, has alot of metadata we dont care about
         for key in YT_DLP_KEYS:
@@ -27,6 +29,7 @@ class MediaDownload():
         # Base path: Path of file that was copied over to guilds path
         self.file_path = file_path
         self.base_path = file_path
+        self.cache_hit = cache_hit
 
     def ready_file(self, guild_path: Path = None):
         '''

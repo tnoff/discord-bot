@@ -18,3 +18,7 @@ Bot stops all downloads, which includes purging the items from the playlist item
 ### Ideal Behavior
 
 Bot removes downloads intended for player, but continues on with playlist item adds.
+
+## Replace jsonschema with pydantic
+
+Will be easier to do type matching and probably a bit easier to read as well.
