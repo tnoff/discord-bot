@@ -4,7 +4,7 @@ beautifulsoup4==4.13.5
 boto3==1.40.33
 click==8.1.8
 discord.py==2.6.3
-dappertable @ git+https://github.com/tnoff/dappertable.git@v0.1.2
+dappertable @ git+https://github.com/tnoff/dappertable.git@v0.1.3
 google-api-python-client==2.182.0
 jsonschema==4.25.1
 moviepy==2.2.1

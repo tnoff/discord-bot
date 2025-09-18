@@ -153,7 +153,7 @@ class MusicPlayer:
         if not queue_items:
             return items
         headers = [
-            DapperTableHeader('Pos', 3),
+            DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Wait Time', 9),
             DapperTableHeader('Title /// Uploader', 80),
         ]

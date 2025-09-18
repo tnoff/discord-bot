@@ -284,16 +284,6 @@ music:
     enable_youtube_music_search: false
 ```
 
-### Shuffles
-
-By default all playlist/album downloads will be shuffled. The number of shuffles defaults to 5, but can be configured:
-
-```
-music:
-  general:
-    number_shuffles: 7
-```
-
 ### Backup Storage
 
 Add backup storage to the cache to backup files in object storage as well as local cache. If local files somehow deleted it will try to re-download on startup.

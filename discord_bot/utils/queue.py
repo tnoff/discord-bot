@@ -1,5 +1,6 @@
 from asyncio import Queue as asyncio_queue
-from random import shuffle as random_shuffle
+import random
+from time import time
 
 class PutsBlocked(Exception):
     '''
@@ -10,15 +11,13 @@ class Queue(asyncio_queue):
     '''
     Custom implementation of asyncio Queue
     '''
-    def __init__(self, maxsize: int = 0, num_shuffles: int = 5):
+    def __init__(self, maxsize: int = 0):
         '''
         Custom implementation of Queue
 
         maxsize : Max size of queue
-        num_shuffles : Number of shuffles to use
         '''
         self.shutdown = False
-        self.num_shuffles = num_shuffles
         super().__init__(maxsize=maxsize)
 
     def block(self):
@@ -47,8 +46,8 @@ class Queue(asyncio_queue):
         '''
         Shuffle queue
         '''
-        for _ in range(self.num_shuffles):
-            random_shuffle(self._queue)
+        random.seed(time())
+        random.shuffle(self._queue)
         return True
 
     def size(self):

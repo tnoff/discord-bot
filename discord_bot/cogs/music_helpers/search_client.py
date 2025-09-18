@@ -2,7 +2,8 @@ from asyncio import AbstractEventLoop
 from functools import partial
 from itertools import islice
 from re import match
-from random import shuffle
+import random
+from time import time
 from typing import List
 
 from googleapiclient.errors import HttpError
@@ -86,8 +87,7 @@ class SearchClient():
     '''
     Wraps search functions
     '''
-    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None,
-                 number_shuffles: int = 5):
+    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None):
         '''
         Init download client
 
@@ -95,12 +95,10 @@ class SearchClient():
         spotify_client : Spotify Client
         youtube_client : Youtube Client
         youtube_music_client : Youtube Music Client
-        number_shuffles : Number of shuffles post api calls
         '''
         self.spotify_client = spotify_client
         self.youtube_client = youtube_client
         self.youtube_music_client = youtube_music_client
-        self.number_shuffles = number_shuffles
 
     def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None):
         '''
@@ -179,8 +177,9 @@ class SearchClient():
                         message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
                     raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
                 if should_shuffle:
-                    for _ in range(self.number_shuffles):
-                        shuffle(search_strings)
+                    # https://stackoverflow.com/a/51295230
+                    random.seed(time())
+                    random.shuffle(search_strings)
                 spotify_search_original = search_string_message if spotify_track_matcher is None else None
                 results = []
                 for item in search_strings:
@@ -199,8 +198,9 @@ class SearchClient():
                 except HttpError as e:
                     raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
                 if should_shuffle:
-                    for _ in range(self.number_shuffles):
-                        shuffle(search_strings)
+                    # https://stackoverflow.com/a/51295230
+                    random.seed(time())
+                    random.shuffle(search_strings)
                 results = []
                 for item in search_strings:
                     results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item, search_string_message))
