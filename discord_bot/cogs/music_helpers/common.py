@@ -11,6 +11,9 @@ FXTWITTER_VIDEO_PREFIX = 'https://fxtwitter.com'
 YOUTUBE_SHORT_PREFIX = 'https://www.youtube.com/shorts/'
 YOUTUBE_VIDEO_PREFIX = 'https://www.youtube.com/watch?v='
 
+# Playlist defaults
+PLAYHISTORY_PREFIX = '__playhistory__'
+
 class SearchType(Enum):
     '''
     Search Types Supported
