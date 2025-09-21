@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
-from dappertable import DapperTable
+from dappertable import DapperTable, PaginationRows
 from discord import TextChannel
 
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
@@ -210,7 +210,7 @@ class MultiMediaRequestBundle():
         # If shutdown, exit completely
         if self.is_shutdown:
             return []
-        table = DapperTable(rows_per_message=self.items_per_message)
+        table = DapperTable(pagination_options=PaginationRows(self.items_per_message))
         # Check if we're in search mode
         if not self.search_finished and self.input_string:
             table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')

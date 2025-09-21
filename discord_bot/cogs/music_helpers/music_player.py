@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Callable, List
 
 from async_timeout import timeout
-from dappertable import DapperTable, DapperTableHeader, DapperTableHeaderOptions
+from dappertable import DapperTable, DapperTableHeader, DapperTableHeaderOptions, PaginationLength
 from discord import FFmpegPCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
 
-
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
@@ -157,7 +157,7 @@ class MusicPlayer:
             DapperTableHeader('Wait Time', 9),
             DapperTableHeader('Title /// Uploader', 80),
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         duration = 0
         if self.current_source:
             duration = self.current_source.duration

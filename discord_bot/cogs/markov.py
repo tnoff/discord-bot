@@ -7,7 +7,7 @@ from re import match, sub, MULTILINE
 from tempfile import NamedTemporaryFile
 from typing import Optional, List
 
-from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
+from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
@@ -16,6 +16,7 @@ from opentelemetry.metrics import Observation
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
 
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -351,7 +352,7 @@ class Markov(CogHelper):
                 DapperTableHeader('Channel', 64),
             ]
 
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.print():
