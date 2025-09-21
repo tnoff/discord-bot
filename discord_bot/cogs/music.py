@@ -1370,7 +1370,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         headers = [
             DapperTableHeader('Pos', 3, zero_pad_index=True),
-            DapperTableHeader('Title /// Uploader', 80),
+            DapperTableHeader('Title', 40),
+            DapperTableHeader('Uploader', 40)
         ]
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         table_items = player.get_history_items()
@@ -1378,7 +1379,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             uploader = item.uploader or ''
             table.add_row([
                 f'{count + 1}',
-                f'{item.title} /// {uploader}'
+                f'{item.title}',
+                f'{uploader}',
             ])
         messages = [f'```{t}```' for t in table.print()]
         message_contexts = []
@@ -1990,7 +1992,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with self.with_db_session() as db_session:
             headers = [
                 DapperTableHeader('Pos', 3, zero_pad_index=True),
-                DapperTableHeader('Title /// Uploader', 64),
+                DapperTableHeader('Title', 32),
+                DapperTableHeader('Uploader', 32),
             ]
             table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
             total = 0
@@ -1998,7 +2001,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 uploader = item.uploader or ''
                 table.add_row([
                     f'{count + 1}',
-                    f'{item.title} /// {uploader}',
+                    f'{item.title}',
+                    f'{uploader}',
                 ])
                 total += 1
             if not total:

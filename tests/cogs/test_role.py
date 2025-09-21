@@ -319,7 +319,7 @@ async def test_role_list_basic_return(fake_context):  #pylint:disable=redefined-
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, None)
     result = await cog.role_list(cog, fake_context['context']) #pylint:disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'```Role Name\n------------------------------\n@{fake_context["author"].roles[0].name}\n@{fake_role2.name}```']
+    assert fake_context['context'].messages_sent == [f'```Role Name\n---------\n@{fake_context["author"].roles[0].name}\n@{fake_role2.name}```']
     assert result is True
 
 @pytest.mark.asyncio
@@ -339,7 +339,7 @@ async def test_role_list_with_rejected_role(fake_context):  #pylint:disable=rede
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, None)
     result = await cog.role_list(cog, fake_context['context']) #pylint:disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'```Role Name\n------------------------------\n@{fake_context["author"].roles[0].name}```']
+    assert fake_context['context'].messages_sent == [f'```Role Name\n---------\n@{fake_context["author"].roles[0].name}```']
     assert result is True
 
 @pytest.mark.asyncio
@@ -446,7 +446,7 @@ async def test_role_list_users_with_users(fake_context):  #pylint:disable=redefi
     }
     cog = RoleAssignment(fake_context['bot'], config, None)
     result = await cog.role_list_users(cog, fake_context['context'], role_input=f'{fake_context["author"].roles[0].name}') #pylint:disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'```User Name\n------------------------------\n@{fake_context["author"].display_name}```']
+    assert fake_context['context'].messages_sent == [f'```User Name\n---------\n@{fake_context["author"].display_name}```']
     assert result is True
 
 def test_managed_roles_no_results(fake_context):  #pylint:disable=redefined-outer-name
@@ -687,7 +687,7 @@ async def test_list_managed_with_multiple_options(fake_context):  #pylint:disabl
 
     cog = RoleAssignment(fake_context['bot'], config, None)
     result = await cog.role_managed(cog, fake_context['context']) #pylint:disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'```Role Name                     || Control\n-------------------------------------------\n@{fake_role3.name}                 || Full\n@{fake_role2.name}                 || Self-Serve```']
+    assert fake_context['context'].messages_sent == [f'```Role Name                     || Control\n----------------------------------------\n@{fake_role3.name}                 || Full\n@{fake_role2.name}                 || Self-Serve```']
     assert result is True
 
 @pytest.mark.asyncio

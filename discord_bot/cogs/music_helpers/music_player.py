@@ -155,7 +155,8 @@ class MusicPlayer:
         headers = [
             DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Wait Time', 9),
-            DapperTableHeader('Title /// Uploader', 80),
+            DapperTableHeader('Title', 40),
+            DapperTableHeader('Uploader', 40)
         ]
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         duration = 0
@@ -168,7 +169,8 @@ class MusicPlayer:
             table.add_row([
                 f'{count + 1}',
                 f'{str(delta)}',
-                f'{item.title} /// {uploader}'
+                f'{item.title}',
+                f'{uploader}',
             ])
         for t in table.print():
             items.append(f'```{t}```')

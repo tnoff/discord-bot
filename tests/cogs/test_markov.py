@@ -305,5 +305,5 @@ async def test_list_channels_with_valid_output(fake_engine, fake_context):  #pyl
     # Clear messages sent before next bit
     fake_context['context'].messages_sent = []
     result = await cog.list_channels(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'Channel\n----------------------------------------------------------------\n<#{fake_context["channel"].id}>']
+    assert fake_context['context'].messages_sent == [f'Channel\n-------\n<#{fake_context["channel"].id}>']
     assert result is True
