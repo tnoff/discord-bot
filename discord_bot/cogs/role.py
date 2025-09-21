@@ -1,13 +1,14 @@
 from re import search
 from typing import List
 
-from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
+from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 
 from discord import Member, Role
 from discord.errors import NotFound
 from discord.ext.commands import Bot, Context, group
 from sqlalchemy.engine.base import Engine
 
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
@@ -230,7 +231,7 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('Role Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         for role in ctx.guild.roles:
             if role.id in self.get_rejected_roles_list(ctx):
                 continue
@@ -257,7 +258,7 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('User Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         for member in role_obj.members:
             table.add_row([f'@{member.display_name}'])
         if table.size == 0:
@@ -337,7 +338,7 @@ class RoleAssignment(CogHelper):
             DapperTableHeader('Role Name', 30),
             DapperTableHeader('Control', 10)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         rows = []
         # Print managed rows first, save self servic for later
         # Make sure we order them by name for ease

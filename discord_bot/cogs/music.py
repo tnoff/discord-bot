@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 from time import time
 from typing import List
 
-from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader
+from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord.errors import DiscordServerError
 from discord import VoiceChannel
@@ -26,6 +26,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
 from yt_dlp.utils import DownloadError
 
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.message_context import MessageContext
@@ -1371,7 +1372,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Title /// Uploader', 80),
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         table_items = player.get_history_items()
         for (count, item) in enumerate(table_items):
             uploader = item.uploader or ''
@@ -1741,7 +1742,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Playlist Name', 64),
                 DapperTableHeader('Last Queued', 20),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
             for (count, item) in enumerate(playlist_items):
                 last_queued = 'N/A'
                 if item.last_queued:
@@ -1991,7 +1992,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Pos', 3, zero_pad_index=True),
                 DapperTableHeader('Title /// Uploader', 64),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), rows_per_message=15)
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
             total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(get_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
