@@ -28,7 +28,7 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage
+from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
@@ -274,6 +274,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cache_cleanup_task = None
         self._message_task = None
         self._history_playlist_task = None
+        self._youtube_search_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown = False
@@ -288,7 +289,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Player options
         self.queue_max_size = self.settings.get('music', {}).get('player', {}).get('queue_max_size', 128)
         self.disconnect_timeout = self.settings.get('music', {}).get('player', {}).get('disconnect_timeout', 60 * 15) # seconds
+
+        # Queues for download and youtube music search
         self.download_queue = DistributedQueue(self.queue_max_size)
+        # Search queue can be larger since search requests are lightweight
+        search_queue_size = max(self.queue_max_size * 10, 100)
+        self.youtube_music_search_queue = DistributedQueue(search_queue_size)
 
         # Playlist options
         self.server_playlist_max_size = self.settings.get('music', {}).get('playlist', {}).get('server_playlist_max_size', 64)
@@ -315,9 +321,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if youtube_api_key:
             self.youtube_client = YoutubeClient(youtube_api_key)
 
-        enable_youtube_music_search = self.settings.get('music', {}).get('download', {}).get('enable_youtube_music_search', True)
+        self.enable_youtube_music_search = self.settings.get('music', {}).get('download', {}).get('enable_youtube_music_search', True)
         self.youtube_music_client = None
-        if enable_youtube_music_search:
+        if self.enable_youtube_music_search:
             self.youtube_music_client = YoutubeMusicClient()
 
         server_queue_priority_input = self.settings.get('music', {}).get('download', {}).get('server_queue_priority', [])
@@ -404,8 +410,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
         self.playlist_history_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__playlist_history_loop_active_callback, 'Playlist update loop heartbeat')
+        if self.youtube_music_client:
+            self.youtube_search_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
+            create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
 
     # Metric callback functons
+    def __youtube_search_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = int(self.youtube_search_checkfile.read_text())
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'youtube_music_search'
+            })
+        ]
+
     def __playlist_history_loop_active_callback(self, _options):
         '''
         Loop active callback check
@@ -507,6 +527,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger, self.cleanup_player_checkfile)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger, self.download_file_checkfile)())
         self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, self.send_message_checkfile, continue_exceptions=DiscordServerError)())
+        if self.enable_youtube_music_search:
+            self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger, self.youtube_search_checkfile)())
         if self.enable_cache:
             self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger, self.cache_cleanup_checkfile)())
         if self.db_engine:
@@ -539,6 +561,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._message_task.cancel()
             if self._history_playlist_task:
                 self._history_playlist_task.cancel()
+            if self._youtube_search_task:
+                self._youtube_search_task.cancel()
             self.last_download_lockfile.unlink(missing_ok=True)
 
             if self.download_dir.exists() and not self.enable_cache:
@@ -558,6 +582,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.download_file_checkfile.unlink()
             if self.playlist_history_checkfile.exists():
                 self.playlist_history_checkfile.unlink()
+            if self.youtube_search_checkfile.exists():
+                self.youtube_search_checkfile.unlink()
 
             self.multirequest_bundles.clear()
 
@@ -883,6 +909,61 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return self.video_cache.get_webpage_url_item(media_request)
 
+    async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
+        media_download = await self.__check_video_cache(media_request)
+        if media_download:
+            if media_request.add_to_playlist and not media_request.download_file:
+                await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
+                return True
+            if not player:
+                player = await self.get_player(media_request.guild_id, create_player=False)
+            if player:
+                self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
+                await self.add_source_to_player(media_download, player)
+            return True
+        return False
+
+    async def search_youtube_music(self):
+        '''
+        Runner for youtube music searches
+        '''
+        if self.bot_shutdown:
+            raise ExistingFileException('Bot shutdown called, exiting early')
+        await sleep(.01)
+        try:
+            media_request, channel = self.youtube_music_search_queue.get_nowait()
+        except QueueEmpty:
+            return True
+
+        self.logger.debug(f'Running youtube music search for input "{media_request.raw_search_string}"')
+        youtube_music_result = await self.search_client.search_youtube_music(media_request.raw_search_string, self.bot.loop)
+        if youtube_music_result:
+            # This returns the raw id, make sure we add the proper prefix for caching bits
+            media_request.search_string = f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}'
+
+        if await self._enqueue_media_download_from_cache(media_request):
+            return True
+
+        bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+        try:
+            self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
+            self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+            if bundle:
+                bundle.update_request_status(media_request, MediaRequestLifecycleStage.QUEUED)
+        except PutsBlocked:
+            self.logger.warning(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
+            return False
+        except QueueFull:
+            self.logger.warning(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
+            if bundle:
+                bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
+        if bundle:
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                channel,
+                sticky_messages=False,
+            )
+        return True
 
     async def download_files(self): #pylint:disable=too-many-statements
         '''
@@ -1052,6 +1133,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             # Block download queue for later
             self.download_queue.block(guild.id)
+            self.youtube_music_search_queue.block(guild.id)
+
             # Clear play queue if that didnt happen
             try:
                 player = self.players.pop(guild.id)
@@ -1078,6 +1161,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # At some point we should not remove items that dont download
             # If external shutdown wasn't called
             # These could be playlist item adds
+            for media_request in pending_items:
+                bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+                if not bundle:
+                    continue
+                bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
+
+            pending_items = self.youtube_music_search_queue.clear_queue(guild.id)
+            self.logger.debug(f'Found {len(pending_items)} existing search queue items')
             for media_request in pending_items:
                 bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                 if not bundle:
@@ -1212,25 +1303,33 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Returns true if all items added, false if some were not
         '''
         for media_request in entries:
-            try:
-                bundle.add_media_request(media_request)
-                # Check cache first
-                media_download = await self.__check_video_cache(media_request)
-                if media_download:
-                    if media_request.add_to_playlist and not media_request.download_file:
-                        await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
-                    else:
-                        self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
-                        await self.add_source_to_player(media_download, player)
-                    continue
-                self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
-                self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(ctx.guild.id, None))
-            except PutsBlocked:
-                self.logger.warning(f'Puts to queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                return False
-            except QueueFull:
-                self.logger.warning(f'Queue full in guild {ctx.guild.id}, cannot add more media requests')
-                return False
+            # Unless a direct or youtube url, pass into the search queue
+            # Also requires youtube music search is set
+            if self.enable_youtube_music_search and media_request.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
+                try:
+                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, (media_request, ctx.channel), priority=self.server_queue_priority.get(media_request.guild_id, None))
+                    bundle.add_media_request(media_request)
+                except PutsBlocked:
+                    self.logger.warning(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    return False
+                except QueueFull:
+                    self.logger.warning(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                    bundle.add_media_request(media_request, MediaRequestLifecycleStage.DISCARDED)
+                    break
+                continue
+            # Else directly add to download queue
+
+            if not await self._enqueue_media_download_from_cache(media_request, player=player):
+                try:
+                    self.download_queue.put_nowait(media_request.guild_id, media_request)
+                    bundle.add_media_request(media_request, MediaRequestLifecycleStage.QUEUED)
+                except PutsBlocked:
+                    self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    return False
+                except QueueFull:
+                    self.logger.warning(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                    bundle.add_media_request(media_request, MediaRequestLifecycleStage.DISCARDED)
+                    break
         if bundle:
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
@@ -1289,15 +1388,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 sticky_messages=False,
             )
             return
-
-        bundle.finish_search_request()
+        proper_name = None
+        if search_results:
+            proper_name = search_results[0].multi_search_input
+        bundle.finish_search_request(proper_name=proper_name)
 
         media_requests = []
         for item in search_results:
             media_requests.append(MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
                                                item.resolved_search_string, item.raw_search_string, item.search_type,
                                                multi_input_string=item.multi_search_input))
-
         await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
 
     @command(name='skip')
@@ -1831,8 +1931,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_public_view_id = await self.__get_playlist_public_view(playlist_id, media_download.media_request.guild_id)
         if playlist_item_id:
             if bundle:
-                bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.COMPLETED,
-                                             override_message=f'Successfully added item to playlist {playlist_public_view_id}')
+                bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.COMPLETED)
                 self.message_queue.update_multiple_mutable(
                     f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                     bundle.text_channel,
@@ -1895,8 +1994,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 sticky_messages=False,
             )
             return
-
-        bundle.finish_search_request()
+        proper_name = None
+        if search_results:
+            proper_name = search_results[0].multi_search_input
+        bundle.finish_search_request(proper_name=proper_name)
         self.message_queue.update_multiple_mutable(
             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
             ctx.channel,

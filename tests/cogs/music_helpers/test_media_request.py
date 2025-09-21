@@ -54,14 +54,14 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     # Check that the status header and URL formatting are correct with new format
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert 'Downloading ' in full_output
+    assert 'Processing ' in full_output
     assert '<https://foo.example.com/playlist>' in full_output
     assert '0/3 items processed successfully, 0 failed' in full_output
 
     b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert 'Downloading ' in full_output
+    assert 'Processing ' in full_output
     assert '0/3 items processed successfully, 0 failed' in full_output
     assert 'Downloading and processing media request:' in full_output
 
@@ -135,7 +135,7 @@ async def test_media_request_bundle_multi_message(fake_context): #pylint:disable
     b.add_media_request(z)
     assert b.finished is False
 
-    assert b.print()[0] == 'Downloading "<https://foo.example.com/playlist>"\n0/3 items processed successfully, 0 failed'
+    assert b.print()[0] == 'Processing "<https://foo.example.com/playlist>"\n0/3 items processed successfully, 0 failed'
     assert b.print()[1] == f'Media request queued for download: "{x.raw_search_string}"\nMedia request queued for download: "{y.raw_search_string}"'
     assert b.print()[2] == f'Media request queued for download: "{z.raw_search_string}"'
 
@@ -329,7 +329,7 @@ def test_media_request_bundle_print_multiple_items_with_status(media_request_bun
     result = media_request_bundle.print()
 
     # Should have top message
-    assert any('Downloading "playlist test"' in msg for msg in result)
+    assert any('Processing "playlist test"' in msg for msg in result)
     assert any('0/3 items processed successfully, 0 failed' in msg for msg in result)
 
 
@@ -659,7 +659,7 @@ def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:di
     messages = bundle.print()
     # Should include status header since total > 1
     full_message = "\n".join(messages)
-    assert "Downloading" in full_message
+    assert "Processing" in full_message
     assert "test-playlist" in full_message
     assert "1/3 items processed successfully, 1 failed" in full_message
 
@@ -757,7 +757,7 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
     # Test in-progress messaging
     messages = bundle.print()
     full_message = "\n".join(messages)
-    assert "Downloading" in full_message
+    assert "Processing" in full_message
     assert "test-playlist" in full_message
 
     # Complete all requests
@@ -767,7 +767,7 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
     # Test completion messaging
     messages = bundle.print()
     full_message = "\n".join(messages)
-    assert "Completed download of" in full_message
+    assert "Completed processing of" in full_message
     assert "test-playlist" in full_message
     assert "2/2 items processed successfully, 0 failed" in full_message
 

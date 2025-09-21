@@ -89,31 +89,31 @@ async def test_prepare_source_errors():
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
-    assert 'Video Aged restricted' in str(exc.value)
+    assert 'Video is age restricted, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
-    assert 'Video taken down' in str(exc.value)
+    assert 'Video is unvailable due to violating terms of service, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error('Video unavailable'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
-    assert 'Video is unavailable' in str(exc.value)
+    assert 'Video is unavailable, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error('Private video'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
-    assert 'Video is private' in str(exc.value)
+    assert 'Video is private, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error("Sign in to confirm you're not a bot"), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
-    assert 'Bot flagged download' in str(exc.value)
+    assert 'Download attempt flagged as bot download, skipping' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error('Requested format is not available'), None)
     y = fake_source_dict(fake_context, download_file=False)
@@ -146,7 +146,6 @@ def test_match_generator_video_too_long_improved_message():
 
     # Check for improved error message format in user_message
     error_msg = exc.value.user_message
-    assert 'https://example.com/long-video' in error_msg
     assert 'duration 7200 seconds' in error_msg
     assert 'exceeds max length of 3600 seconds' in error_msg
 

@@ -111,10 +111,11 @@ class SearchClient():
         assert playlist_id or album_id or track_id, 'Playlist or album id must be passed'
 
         data = []
+        name = None
         if playlist_id:
-            data = self.spotify_client.playlist_get(playlist_id)
+            data, name = self.spotify_client.playlist_get(playlist_id)
         if album_id:
-            data = self.spotify_client.album_get(album_id)
+            data, name = self.spotify_client.album_get(album_id)
         if track_id:
             data = self.spotify_client.track_get(track_id)
 
@@ -122,7 +123,7 @@ class SearchClient():
         for item in data:
             search_string = f'{item["track_name"]} {item["track_artists"]}'
             search_strings.append(search_string)
-        return search_strings
+        return search_strings, name
 
     def __check_youtube_source(self, playlist_id: str):
         '''
@@ -131,9 +132,10 @@ class SearchClient():
         playlist_id : ID of youtube playlist
         '''
         items = []
-        for item in self.youtube_client.playlist_get(playlist_id):
+        playlist_items, playlist_name = self.youtube_client.playlist_get(playlist_id)
+        for item in playlist_items:
             items.append(f'{YOUTUBE_VIDEO_PREFIX}{item}')
-        return items
+        return items, playlist_name
 
     async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> List[SearchResult]:
         '''
@@ -167,7 +169,7 @@ class SearchClient():
 
                 to_run = partial(self.__check_spotify_source, **spotify_args)
                 try:
-                    search_strings = await loop.run_in_executor(None, to_run)
+                    search_strings, name = await loop.run_in_executor(None, to_run)
                 except SpotifyOauthError as e:
                     message = 'Issue gathering info from spotify, credentials seem invalid'
                     raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
@@ -180,7 +182,7 @@ class SearchClient():
                     # https://stackoverflow.com/a/51295230
                     random.seed(time())
                     random.shuffle(search_strings)
-                spotify_search_original = search_string_message if spotify_track_matcher is None else None
+                spotify_search_original = search_string_message if name is None else name
                 results = []
                 for item in search_strings:
                     results.append(SearchResult(SearchType.SPOTIFY, item, spotify_search_original))
@@ -194,7 +196,7 @@ class SearchClient():
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
                 to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
                 try:
-                    search_strings = await loop.run_in_executor(None, to_run)
+                    search_strings, playlist_name = await loop.run_in_executor(None, to_run)
                 except HttpError as e:
                     raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
                 if should_shuffle:
@@ -203,7 +205,7 @@ class SearchClient():
                     random.shuffle(search_strings)
                 results = []
                 for item in search_strings:
-                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item, search_string_message))
+                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item, playlist_name))
                 return results
 
             if youtube_short_match:
@@ -230,7 +232,7 @@ class SearchClient():
         '''
         return self.youtube_music_client.search(search_string)
 
-    async def __check_youtube_music(self, search_type: SearchType, search_string: str, loop: AbstractEventLoop):
+    async def search_youtube_music(self, search_string: str, loop: AbstractEventLoop):
         '''
         Check result in youtube music
 
@@ -238,8 +240,6 @@ class SearchClient():
         search_string: New search string
         loop: Loop to run function in
         '''
-        if search_type in [SearchType.YOUTUBE, SearchType.DIRECT]:
-            return None
         to_run = partial(self.__search_youtube_music, search_string)
         return await loop.run_in_executor(None, to_run)
 
@@ -261,10 +261,4 @@ class SearchClient():
         if max_results is not None:
             search_results = list(islice(search_results, max_results))
 
-        for search_result in search_results:
-            if self.youtube_music_client:
-                youtube_result = await self.__check_youtube_music(search_result.search_type, search_result.raw_search_string, loop)
-                if youtube_result:
-                    search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_result}')
-                    continue
         return search_results

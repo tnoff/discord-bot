@@ -50,6 +50,14 @@ class SpotifyClient():
         with otel_span_wrapper('spotify.playlist_get', attributes={ThirdPartyNaming.SPOTIFY_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT) as span:
             offset = 0
             items = []
+            # Get playlist id info
+            try:
+                resp = self.client.playlist(playlist_id)
+            except SpotifyException as exc:
+                if exc.http_status in [404]:
+                    span.set_status(StatusCode.OK)
+                raise exc
+            playlist_name = resp['name']
             while True:
                 try:
                     resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
@@ -60,7 +68,7 @@ class SpotifyClient():
                 items += self.__get_response_items(resp['items'])
                 try:
                     if not resp['next']:
-                        return items
+                        return items, playlist_name
                 except KeyError:
                     return items
                 offset += pagination_limit
@@ -76,6 +84,13 @@ class SpotifyClient():
         with otel_span_wrapper('spotify.album_get', attributes={ThirdPartyNaming.SPOTIFY_ALBUM.value: album_id}, kind=SpanKind.CLIENT) as span:
             offset = 0
             items = []
+            try:
+                resp = self.client.album(album_id)
+            except SpotifyException as exc:
+                if exc.http_status in [404]:
+                    span.set_status(StatusCode.OK)
+                raise exc
+            album_name = f'{",".join(i["name"] for i in resp["artists"])} - {resp["name"]}'
             while True:
                 try:
                     resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
@@ -85,7 +100,7 @@ class SpotifyClient():
                     raise exc
                 items += self.__get_response_items(resp['items'])
                 if not resp['next']:
-                    return items
+                    return items, album_name
                 offset += pagination_limit
 
     def track_get(self, track_id: str) -> List[dict]:
