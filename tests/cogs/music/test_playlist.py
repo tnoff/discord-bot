@@ -90,7 +90,7 @@ async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disabl
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 
 @pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_list_playlist_with_history(fake_engine, mocker, fake_context):  #
 
     _result0 = cog.message_queue.get_single_immutable()
     result1 = cog.message_queue.get_single_immutable()
-    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n---------------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
+    assert result1[0].function.args[0] == '```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 @pytest.mark.asyncio()
 async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -169,7 +169,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     cog.message_queue.get_next_message()
     cog.message_queue.get_next_message()
     m2 = cog.message_queue.get_next_message()
-    assert m2[1][0].function.args[0] == '```Pos|| Title /// Uploader\n----------------------------------------------------------------------\n1  || foo /// foobar```'
+    assert m2[1][0].function.args[0] == '```Pos|| Title                           || Uploader\n-------------------------------------------------\n1  || foo                             || foobar```'
 
 @pytest.mark.asyncio()
 async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
