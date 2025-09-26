@@ -4,6 +4,10 @@ FROM python:3.13-slim-bookworm
 # Base packages
 RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg
 
+# Install Deno
+# https://github.com/yt-dlp/yt-dlp/issues/14404
+RUN curl -fsSL https://deno.land/install.sh | sh
+
 # Setup venv
 ENV APPDIR="/opt/packages/discord-bot"
 ENV WORKDIR="/opt/discord"
