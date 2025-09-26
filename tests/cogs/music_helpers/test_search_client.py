@@ -20,7 +20,7 @@ class MockSpotifyClient():
                 'track_name': 'foo track',
                 'track_artists': 'foo artists',
             }
-        ]
+        ], 'Mock Album Name'
 
     def playlist_get(self, _playlist_id):
         return [
@@ -28,7 +28,7 @@ class MockSpotifyClient():
                 'track_name': 'foo track',
                 'track_artists': 'foo artists',
             }
-        ]
+        ], 'Mock Playlist Name'
 
     def track_get(self, _track_id):
         return [
@@ -59,7 +59,7 @@ class MockYoutubeClient():
     def playlist_get(self, _playlist_id):
         return [
             'aaaaaaaaaaaaaa'
-        ]
+        ], 'Mock YouTube Playlist'
 
 class MockResponse():
     def __init__(self):
@@ -122,18 +122,18 @@ async def test_spotify_album_get():
     result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
+    assert result[0].multi_search_input == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_with_cache_miss_and_youtube_fallback():
-    # If no search cache is hit, make sure that youtube music returns the proper url
+    # YouTube music search is now handled separately in the music queue
     loop = asyncio.get_running_loop()
     x = SearchClient(spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic())
     result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
-    assert result[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert result[0].resolved_search_string == 'foo track foo artists'
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
+    assert result[0].multi_search_input == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_album_get_shuffle():
@@ -142,7 +142,7 @@ async def test_spotify_album_get_shuffle():
     result = await x.check_source('https://open.spotify.com/album/1111 shuffle', loop, 5)
     assert result[0].raw_search_string == 'foo track foo artists'
     assert result[0].search_type == SearchType.SPOTIFY
-    assert result[0].multi_search_input == 'https://open.spotify.com/album/1111'
+    assert result[0].multi_search_input == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get():
@@ -150,7 +150,7 @@ async def test_spotify_playlist_get():
     x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/playlist/1111', loop, 5)
     assert result[0].raw_search_string == 'foo track foo artists'
-    assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
+    assert result[0].multi_search_input == 'Mock Playlist Name'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_playlist_get_shuffle():
@@ -158,7 +158,7 @@ async def test_spotify_playlist_get_shuffle():
     x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/playlist/1111 shuffle', loop, 5)
     assert result[0].raw_search_string == 'foo track foo artists'
-    assert result[0].multi_search_input == 'https://open.spotify.com/playlist/1111'
+    assert result[0].multi_search_input == 'Mock Playlist Name'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_spotify_track_get():
@@ -166,7 +166,7 @@ async def test_spotify_track_get():
     x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/track/1111', loop, 5)
     assert result[0].raw_search_string == 'foo track foo artists'
-    assert result[0].multi_search_input is None
+    assert result[0].multi_search_input == 'https://open.spotify.com/track/1111'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_no_creds():
@@ -183,7 +183,7 @@ async def test_youtube_playlist():
     result = await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
-    assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
+    assert result[0].multi_search_input == 'Mock YouTube Playlist'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist_shuffle():
@@ -192,7 +192,7 @@ async def test_youtube_playlist_shuffle():
     result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', loop, 5)
     assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE_PLAYLIST
-    assert result[0].multi_search_input == 'https://www.youtube.com/playlist?list=11111'
+    assert result[0].multi_search_input == 'Mock YouTube Playlist'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_error():
@@ -241,10 +241,11 @@ async def test_basic_search():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music():
+    # YouTube music search is now handled separately in the music queue
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_music_client=MockYoutubeMusic())
     result = await x.check_source('foo bar', loop, 5)
-    assert result[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert result[0].resolved_search_string == 'foo bar'
     assert result[0].search_type == SearchType.SEARCH
     assert result[0].raw_search_string == 'foo bar'
     assert result[0].multi_search_input is None
@@ -333,7 +334,7 @@ async def test_search_workflow_direct_url():
 
 @pytest.mark.asyncio
 async def test_search_workflow_with_youtube_music():
-    """Test search workflow with YouTube Music integration"""
+    """Test search workflow - YouTube Music integration now handled separately in music queue"""
     loop = asyncio.get_running_loop()
     x = SearchClient(youtube_music_client=MockYoutubeMusic())
     results = await x.check_source('search term', loop, 5)
@@ -341,8 +342,8 @@ async def test_search_workflow_with_youtube_music():
     assert len(results) == 1
     assert results[0].search_type == SearchType.SEARCH
     assert results[0].raw_search_string == 'search term'
-    assert results[0].resolved_search_string == 'https://www.youtube.com/watch?v=vid-1234'
-    assert results[0].youtube_music_search_string == 'https://www.youtube.com/watch?v=vid-1234'
+    assert results[0].resolved_search_string == 'search term'
+    assert results[0].youtube_music_search_string is None
 
 
 @pytest.mark.asyncio

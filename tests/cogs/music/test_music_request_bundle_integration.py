@@ -77,7 +77,7 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
 
     # Test status progression
     initial_print = bundle.print()
-    assert 'Downloading "test-playlist"' in initial_print[0]
+    assert 'Processing "test-playlist"' in initial_print[0]
     assert '0/3 items processed successfully, 0 failed' in initial_print[0]
     assert 'Media request queued for download' in initial_print[0]
 
@@ -246,7 +246,7 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
     # For failed bundles, should have failure message
     assert len(print_output_1) > 0 and 'failed' in print_output_1[0]
     # For in-progress bundles, should have progress message
-    assert len(print_output_2) > 0 and 'queued' in print_output_2[0]
+    assert len(print_output_2) > 0 and 'Media request queued for download' in print_output_2[0]
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,7 @@ async def test_request_bundle_integration_items_per_message_limit(fake_context):
     # Verify header contains total info
     full_output = '\n'.join(print_output)
     assert '12' in full_output  # Total items
-    assert 'Downloading "large-playlist"' in full_output
+    assert 'Processing "large-playlist"' in full_output
 
 
 @pytest.mark.asyncio
@@ -314,7 +314,7 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     # Initially should have messages
     initial_print = bundle.print()
     assert len(initial_print) > 0
-    assert 'Downloading' in initial_print[0]
+    assert 'Processing' in initial_print[0]
 
     # After shutdown, should return empty
     bundle.shutdown()
@@ -828,8 +828,8 @@ def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=rede
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
 
-    # Initial state should be QUEUED
-    assert bundle.media_requests[0]['status'] == MediaRequestLifecycleStage.QUEUED
+    # Initial state should be SEARCHING
+    assert bundle.media_requests[0]['status'] == MediaRequestLifecycleStage.SEARCHING
 
     # Test valid transitions
     transitions = [

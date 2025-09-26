@@ -23,6 +23,14 @@ class YoutubeClient():
         with otel_span_wrapper('youtube.playlist_get', attributes={ThirdPartyNaming.YOUTUBE_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT):
             items = []
             page_token = None
+
+            playlist_request = self.client.playlists().list( #pylint:disable=no-member
+                part="snippet",
+                id=playlist_id
+            )
+            playlist_response = playlist_request.execute()
+            playlist_title = playlist_response["items"][0]["snippet"]["title"]
+
             while True:
                 data_inputs = {
                     'part': 'snippet',
@@ -35,7 +43,7 @@ class YoutubeClient():
                     items.append(item['snippet']['resourceId']['videoId'])
                 try:
                     if req['nextPageToken'] is None:
-                        return items
+                        return items, playlist_title
                     page_token = req['nextPageToken']
                 except KeyError:
-                    return items
+                    return items, playlist_title

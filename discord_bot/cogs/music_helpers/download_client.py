@@ -96,11 +96,11 @@ def match_generator(max_video_length: int, banned_videos_list: List[str], video_
         duration = info.get('duration')
         vid_url = info.get('webpage_url')
         if duration and max_video_length and duration > max_video_length:
-            raise VideoTooLong('Video Too Long', user_message=f'Video "<{vid_url}>" duration {duration} seconds exceeds max length of {max_video_length} seconds, skipping')
+            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} seconds exceeds max length of {max_video_length} seconds, skipping')
         if vid_url and banned_videos_list:
             for banned_url in banned_videos_list:
                 if vid_url == banned_url:
-                    raise VideoBanned('Video Banned', user_message=f'Video url "<{vid_url}>" is banned, skipping')
+                    raise VideoBanned('Video Banned', user_message='Video url is banned, skipping')
         # Check if video exists within cache, and raise
         extractor = info.get('extractor')
         vid_id = info.get('id')
@@ -141,27 +141,27 @@ class DownloadClient():
                 if 'Private video' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise PrivateVideoException('Video is private', user_message=f'Video from search "{str(media_request)}" is unvailable, cannot download') from error
+                    raise PrivateVideoException('Video is private', user_message='Video is private, cannot download') from error
                 if 'This video has been removed for violating' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoViolatedTermsException('Video taken down', user_message=f'Video from search "{str(media_request)}" is unvailable due to violating terms of service, cannot download') from error
+                    raise VideoViolatedTermsException('Video taken down', user_message='Video is unvailable due to violating terms of service, cannot download') from error
                 if 'Video unavailable' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoUnavailableException('Video is unavailable', user_message=f'Video from search "{str(media_request)}" is unavailable, cannot download') from error
+                    raise VideoUnavailableException('Video is unavailable', user_message='Video is unavailable, cannot download') from error
                 if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoAgeRestrictedException('Video Aged restricted', user_message=f'Video from search "{str(media_request)}" is age restricted, cannot download') from error
+                    raise VideoAgeRestrictedException('Video Aged restricted', user_message='Video is age restricted, cannot download') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
-                    raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(media_request)}" flagged as bot download, skipping') from error
+                    raise BotDownloadFlagged('Bot flagged download', user_message='Download attempt flagged as bot download, skipping') from error
                 if 'Requested format is not available' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise InvalidFormatException('Video format not available', user_message=f'Video from search "{str(media_request)}" is not available in requested format') from error
+                    raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
                 raise

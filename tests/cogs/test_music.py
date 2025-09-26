@@ -45,6 +45,10 @@ def yield_fake_search_client(media_request: MediaRequest = None):
                 return [search_result]
             return []
 
+        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
+            # Return a fake video ID for testing
+            return 'fake-video-id'
+
     return FakeSearchClient
 
 def yield_fake_download_client(media_download: MediaDownload):
@@ -95,6 +99,10 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
                 search_results.append(search_result)
             return search_results
 
+        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
+            # Return a fake video ID for testing
+            return 'fake-video-id'
+
     return FakeSearchClient
 
 def yield_search_client_check_source_raises():
@@ -104,6 +112,10 @@ def yield_search_client_check_source_raises():
 
         async def check_source(self, *_args, **_kwargs):
             raise SearchException('foo', user_message='woopsie')
+
+        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
+            # Return a fake video ID for testing
+            return 'fake-video-id'
 
     return FakeSearchClient
 
@@ -161,12 +173,16 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.play_(cog, fake_context['context'], search='foo bar')
+    # Process search queue if YouTube Music search is enabled
+    if cog.enable_youtube_music_search:
+        await cog.search_youtube_music()
+        await cog.search_youtube_music()
     item0 = cog.download_queue.get_nowait()
     item1 = cog.download_queue.get_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
-    assert item0.search_string == s.search_string
+    assert item0.raw_search_string == s.raw_search_string
     assert item0.search_type == s.search_type
-    assert item1.search_string == s1.search_string
+    assert item1.raw_search_string == s1.raw_search_string
     assert item1.search_type == s1.search_type
 
 @pytest.mark.asyncio()
@@ -183,6 +199,9 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             # Mock current playing
             cog.players[fake_context['guild'].id].current_source = sd
@@ -203,6 +222,9 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             await cog.clear(cog, fake_context['context'])
             assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -238,6 +260,9 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             await cog.shuffle_(cog, fake_context['context'])
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -256,6 +281,9 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             await cog.remove_item(cog, fake_context['context'], 1)
             assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -274,6 +302,9 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             await cog.bump_item(cog, fake_context['context'], 1)
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -309,6 +340,9 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
+            # Process search queue if YouTube Music search is enabled
+            if cog.enable_youtube_music_search:
+                await cog.search_youtube_music()
             await cog.download_files()
             await cog.move_messages_here(cog, fake_context2)
             assert cog.players[fake_context['guild'].id].text_channel.id == fake_channel2.id

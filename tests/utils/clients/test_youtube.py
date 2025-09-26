@@ -46,12 +46,29 @@ class MockYoutubePlaylistItems():
         return None
 
 
+class MockYoutubePlaylist():
+    def list(self, **_):
+        return MockYoutubePlaylistRequest()
+
+class MockYoutubePlaylistRequest():
+    def execute(self):
+        return {
+            'items': [{
+                'snippet': {
+                    'title': 'Example Playlist'
+                }
+            }]
+        }
+
 class MockYoutube():
     def __init__(self, with_page_token=False):
         self.with_page_token = with_page_token
 
     def playlistItems(self): #pylint: disable=invalid-name
         return MockYoutubePlaylistItems(with_next_page=self.with_page_token)
+
+    def playlists(self): #pylint: disable=invalid-name
+        return MockYoutubePlaylist()
 
 def google_api_build(_typer, _version, developerKey=None): #pylint:disable=invalid-name,unused-argument
     return MockYoutube()
@@ -62,13 +79,15 @@ def google_api_build_with_page(_typer, _version, developerKey=None): #pylint:dis
 def test_youtube_playlist_get(mocker):
     mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build)
     x = YoutubeClient('foo')
-    res = x.playlist_get('1234')
+    res, name = x.playlist_get('1234')
     assert len(res) == 2
     assert res[0] == '1234ABC'
+    assert name == 'Example Playlist'
 
 def test_youtube_playlist_get_with_page_token(mocker):
     mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build_with_page)
     x = YoutubeClient('foo')
-    res = x.playlist_get('1234')
+    res, name = x.playlist_get('1234')
     assert len(res) == 2
     assert res[0] == '1234ABC'
+    assert name == 'Example Playlist'

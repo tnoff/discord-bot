@@ -32,6 +32,7 @@ class MediaRequestLifecycleStage(Enum):
     '''
     Lifecycle of a media request through the system
     '''
+    SEARCHING = 'searching'
     QUEUED = 'queued'
     IN_PROGRESS = 'in_progress'
     FAILED = 'failed'

@@ -133,21 +133,24 @@ class MultiMediaRequestBundle():
         # Remove 'shuffle' from string
         self.input_string = input_string.replace(' shuffle', '')
 
-    def finish_search_request(self, error_message: str = None):
+    def finish_search_request(self, error_message: str = None, proper_name: str = None):
         '''
         Finish search request
         '''
+        # Check if first result has better name
+        if proper_name:
+            self.input_string = proper_name
         self.search_finished = True
         self.search_error = error_message
 
-    def add_media_request(self, media_request: MediaRequest):
+    def add_media_request(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING):
         '''
         Add new media request
         '''
         search_string = discord_format_string_embed(media_request.raw_search_string)
         self.media_requests.append({
             'search_string': search_string,
-            'status': MediaRequestLifecycleStage.QUEUED,
+            'status': stage,
             'uuid': media_request.uuid,
             'failed_reason': None,
             'override_message': None,
@@ -220,10 +223,10 @@ class MultiMediaRequestBundle():
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
         if self.total > 1:
             if self.finished:
-                table.add_row(f'Completed download of "{multi_input}"')
+                table.add_row(f'Completed processing of "{multi_input}"')
             else:
-                table.add_row(f'Downloading "{multi_input}"')
-            table.add_row(f'{self.completed}/{self.total} items processed successfully, {self.failed} failed')
+                table.add_row(f'Processing "{multi_input}"')
+            table.add_row(f'{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed')
         for item in self.media_requests:
             # If override set, use this
             if item['override_message']:
@@ -238,7 +241,7 @@ class MultiMediaRequestBundle():
                     if item['failed_reason']:
                         x = f'{x}, {item["failed_reason"]}'
                     table.add_row(x)
-                case MediaRequestLifecycleStage.QUEUED:
+                case MediaRequestLifecycleStage.QUEUED | MediaRequestLifecycleStage.SEARCHING:
                     table.add_row(f'Media request queued for download: "{item["search_string"]}"')
                 case MediaRequestLifecycleStage.IN_PROGRESS:
                     table.add_row(f'Downloading and processing media request: "{item["search_string"]}"')
