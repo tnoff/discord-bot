@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 import pytest
 from yt_dlp.utils import DownloadError
 
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, VideoTooLong, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, InvalidFormatException, VideoTooLong, match_generator
 
 from tests.helpers import fake_source_dict, generate_fake_context
 
@@ -114,6 +114,12 @@ async def test_prepare_source_errors():
     with pytest.raises(DownloadClientException) as exc:
         await x.create_source(y, loop)
     assert 'Bot flagged download' in str(exc.value)
+
+    x = DownloadClient(yield_dlp_error('Requested format is not available'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+    with pytest.raises(InvalidFormatException) as exc:
+        await x.create_source(y, loop)
+    assert 'Video format not available' in str(exc.value)
 
     x = DownloadClient(MockYTDLPNoData(), None)
     y = fake_source_dict(fake_context, download_file=False)

@@ -23,6 +23,11 @@ class DownloadClientException(Exception):
         super().__init__(self.message)
         self.user_message = user_message
 
+class InvalidFormatException(DownloadClientException):
+    '''
+    When requested format not available
+    '''
+
 class VideoNotFoundException(DownloadClientException):
     '''
     When no videos are found
@@ -153,6 +158,10 @@ class DownloadClient():
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
                     raise BotDownloadFlagged('Bot flagged download', user_message=f'Video from search "{str(media_request)}" flagged as bot download, skipping') from error
+                if 'Requested format is not available' in str(error):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    raise InvalidFormatException('Video format not available', user_message=f'Video from search "{str(media_request)}" is not available in requested format') from error
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
                 raise
