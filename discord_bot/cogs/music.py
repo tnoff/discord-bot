@@ -42,7 +42,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import Playlist, PlaylistItem, VideoCache, VideoCacheBackup
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.cogs.schema import SERVER_ID
-from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge
+from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -879,7 +879,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if not bundle:
                 return
             bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED,
-                                         failure_reason=f'Issue downloading video "{str(media_request.search_string)}"')
+                                         failure_reason=f'Issue downloading video "{discord_format_string_embed(str(media_request))}"')
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 bundle.text_channel,
@@ -1907,7 +1907,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if media_download is None:
             if bundle:
                 bundle.update_request_status(media_download.media_request, MediaRequestLifecycleStage.FAILED,
-                                             failure_reason=f'Issue generating video source "{media_download.media_request.search_string}"')
+                                             failure_reason=f'Issue generating video source "{discord_format_string_embed(str(media_download.media_request))}"')
                 self.message_queue.update_multiple_mutable(
                     f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                     bundle.text_channel,
