@@ -2,7 +2,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from discord_bot.database import Playlist, PlaylistItem
+from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
 from discord_bot.cogs.music import Music
 
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
@@ -28,6 +28,10 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
                 assert session.query(PlaylistItem).count() == 1
+                analytics = session.query(GuildVideoAnalytics).first()
+                assert analytics is not None
+                assert analytics.total_plays == 1
+                assert analytics.total_duration_seconds == sd.duration #pylint:disable=no-member
 
             # Run twice to exercise dupes aren't created
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
@@ -36,6 +40,11 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
                 assert session.query(PlaylistItem).count() == 1
+                analytics = session.query(GuildVideoAnalytics).first()
+                assert analytics is not None
+                assert analytics.total_plays == 2
+                assert analytics.total_duration_seconds == sd.duration * 2 #pylint:disable=no-member
+
 
 @pytest.mark.asyncio
 async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -56,10 +65,14 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
             await cog.playlist_history_update()
 
             s2 = fake_source_dict(fake_context)
-            sd2 = MediaDownload(sd.file_path, {'webpage_url': 'https://foo.example.dos'}, s2)
+            sd2 = MediaDownload(sd.file_path, {'webpage_url': 'https://foo.example.dos', 'duration': 90}, s2)
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd2))
             await cog.playlist_history_update()
 
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
                 assert session.query(PlaylistItem).count() == 1
+                analytics = session.query(GuildVideoAnalytics).first()
+                assert analytics is not None
+                assert analytics.total_plays == 2
+                assert analytics.total_duration_seconds == sd.duration + sd2.duration #pylint:disable=no-member

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, DateTime, Integer, String, Boolean
+from sqlalchemy import Column, DateTime, BigInteger, Integer, String, Boolean
 from sqlalchemy import ForeignKey, UniqueConstraint
 
 BASE = declarative_base()
@@ -112,16 +112,15 @@ class Guild(BASE):
     id = Column(Integer, primary_key=True)
     server_id = Column(String(128))
 
-
-class VideoCacheGuild(BASE):
+class GuildVideoAnalytics(BASE):
     '''
-    Map video cache to a guild
+    Analytic Data of played videos
     '''
-    __tablename__ = 'video_cache_guild'
-    __table_args__ = (
-        UniqueConstraint('video_cache_id', 'guild_id',
-                         name='_unique_cache_guild'),
-    )
+    __tablename__ = 'server_video_analytics'
     id = Column(Integer, primary_key=True)
     guild_id = Column(Integer, ForeignKey('guild.id'))
-    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
+    total_plays = Column(Integer, default=0)
+    cached_plays = Column(Integer, default=0)
+    total_duration_seconds = Column(BigInteger, default=0)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
