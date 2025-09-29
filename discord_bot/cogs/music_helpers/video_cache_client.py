@@ -170,7 +170,7 @@ class VideoCacheClient():
                     if backup_item:
                         delete_file(backup_item.bucket_name, backup_item.object_path)
                         retry_database_commands(db_session, partial(database_functions.delete_video_cache_backup, db_session, backup_item.id))
-                    retry_database_commands(db_session, partial(database_functions.delete_video_cache, db_session, video_cache))
+                    retry_database_commands(db_session, partial(database_functions.delete_video_cache, db_session, video_cache.id))
             return True
 
     def ready_remove(self):

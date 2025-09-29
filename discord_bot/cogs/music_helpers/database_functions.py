@@ -80,10 +80,14 @@ def get_video_cache_by_id(db_session: Session, video_cache_id: int):
     """Get video cache by id"""
     return db_session.get(VideoCache, video_cache_id)
 
-def delete_video_cache(db_session: Session, video_cache: VideoCache):
+def delete_video_cache(db_session: Session, video_cache_id: int):
     """Remove video cache with guild associations"""
-    db_session.delete(video_cache)
+    item = db_session.get(VideoCache, video_cache_id)
+    if not item:
+        return False
+    db_session.delete(item)
     db_session.commit()
+    return True
 
 
 def count_video_cache(db_session: Session):
