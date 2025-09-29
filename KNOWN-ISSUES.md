@@ -22,7 +22,3 @@ Bot removes downloads intended for player, but continues on with playlist item a
 ## Replace jsonschema with pydantic
 
 Will be easier to do type matching and probably a bit easier to read as well.
-
-## Remove VideoCacheGuild Table
-
-Was part of older feature, can be removed

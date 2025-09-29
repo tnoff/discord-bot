@@ -112,20 +112,6 @@ class Guild(BASE):
     id = Column(Integer, primary_key=True)
     server_id = Column(String(128))
 
-
-class VideoCacheGuild(BASE):
-    '''
-    Map video cache to a guild
-    '''
-    __tablename__ = 'video_cache_guild'
-    __table_args__ = (
-        UniqueConstraint('video_cache_id', 'guild_id',
-                         name='_unique_cache_guild'),
-    )
-    id = Column(Integer, primary_key=True)
-    guild_id = Column(Integer, ForeignKey('guild.id'))
-    video_cache_id = Column(Integer, ForeignKey('video_cache.id'))
-
 class GuildVideoAnalytics(BASE):
     '''
     Analytic Data of played videos

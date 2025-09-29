@@ -83,10 +83,6 @@ class VideoCacheClient():
                     video_cache.last_iterated_at = now
                     # Unmark deletion here just in case
                     video_cache.ready_for_deletion = False
-                    retry_database_commands(db_session, partial(database_functions.ensure_video_cache_guild,
-                                                                db_session,
-                                                                media_download.media_request.guild_id,
-                                                                video_cache))
                     retry_database_commands(db_session, partial(run_commit, db_session))
                     return True
                 cache_item = VideoCache(
@@ -104,10 +100,6 @@ class VideoCacheClient():
                 )
                 db_session.add(cache_item)
                 retry_database_commands(db_session, partial(run_commit, db_session))
-                retry_database_commands(db_session, partial(database_functions.ensure_video_cache_guild,
-                                                            db_session,
-                                                            media_download.media_request.guild_id,
-                                                            cache_item))
                 return True
 
     def __generate_source_download(self, video_cache: VideoCache, media_request: MediaRequest):

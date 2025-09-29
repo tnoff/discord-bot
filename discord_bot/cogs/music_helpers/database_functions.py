@@ -8,7 +8,7 @@ from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 from discord_bot.database import (
-    VideoCache, VideoCacheGuild, Guild, VideoCacheBackup,
+    VideoCache, Guild, VideoCacheBackup,
     Playlist, PlaylistItem, GuildVideoAnalytics
 )
 
@@ -53,26 +53,6 @@ def ensure_guild(db_session: Session, guild_id: str):
     db_session.commit()
     return new_guild
 
-
-#
-# VideoCacheGuild Functions
-#
-
-def ensure_video_cache_guild(db_session: Session, guild_id: str, video_cache: VideoCache):
-    '''
-    Find existing video cache or create new one
-    '''
-    guild = ensure_guild(db_session, guild_id)
-    video_cache_guild = db_session.query(VideoCacheGuild).\
-                            filter(VideoCacheGuild.guild_id == guild.id).\
-                            filter(VideoCacheGuild.video_cache_id == video_cache.id).first()
-    if video_cache_guild:
-        return video_cache_guild
-    video_cache_guild = VideoCacheGuild(video_cache_id=video_cache.id, guild_id=guild.id)
-    db_session.add(video_cache_guild)
-    db_session.commit()
-    return video_cache_guild
-
 #
 # VideoCache Functions
 #
@@ -102,8 +82,6 @@ def get_video_cache_by_id(db_session: Session, video_cache_id: int):
 
 def delete_video_cache(db_session: Session, video_cache: VideoCache):
     """Remove video cache with guild associations"""
-    db_session.query(VideoCacheGuild).filter(VideoCacheGuild.video_cache_id == video_cache.id).delete()
-    db_session.commit()
     db_session.delete(video_cache)
     db_session.commit()
 
