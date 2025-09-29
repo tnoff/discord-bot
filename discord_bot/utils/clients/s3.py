@@ -14,6 +14,7 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
     '''
     Upload a file to s3 using boto
     '''
+    file_path = Path(file_path) # Double check its a path
     s3_client = client('s3')
     object_name = object_name or str(file_path)
     if not file_path.exists() or not file_path.is_file():
@@ -37,6 +38,7 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
     '''
     Download client to path
     '''
+    file_path = Path(file_path) # Double check its a path
     s3_client = client('s3')
     try:
         # Download the object
