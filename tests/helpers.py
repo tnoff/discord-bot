@@ -251,7 +251,7 @@ class FakeChannel():
         await self.guild.voice_client.move_to(self)
         return True
 
-    async def send(self, message_content, **_kwargs):
+    async def send(self, message_content=None, **_kwargs):
         message = FakeMessage(content=message_content, channel=self)
         self.messages.append(message)
         return message

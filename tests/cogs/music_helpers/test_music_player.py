@@ -115,7 +115,7 @@ def test_music_get_player_messages(fake_context): #pylint:disable=redefined-oute
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
             result = player.get_queue_order_messages()
-            assert result == [f'```Pos|| Wait Time|| Title                                   || Uploader\n---------------------------------------------------------------------\n1  || 0:00:00  || {sd.title}                            || {sd.uploader}```'] #pylint:disable=no-member
+            assert result == [f'```Pos|| Wait Time|| Title                                           || Uploader\n-----------------------------------------------------------------------------\n1  || 00:00    || {sd.title}                                    || {sd.uploader}```'] #pylint:disable=no-member
 
 def test_music_get_player_paths(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()

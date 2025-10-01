@@ -1,7 +1,7 @@
 from functools import partial
 
 from bs4 import BeautifulSoup
-from dappertable import shorten_string_cjk
+from dappertable import shorten_string
 from discord.ext.commands import Bot, command, Context
 from sqlalchemy.engine.base import Engine
 from requests import get as requests_get
@@ -48,7 +48,7 @@ class UrbanDictionary(CogHelper):
                 definitions.append(mean.text)
         text = ''
         for (count, define) in enumerate(definitions[:2]):
-            definition = shorten_string_cjk(define, 400)
+            definition = shorten_string(define, 400)
             text = f'{text}{count+1}. {definition}\n'
         if not text:
             return await async_retry_discord_message_command(partial(ctx.send, f'No results found for "{word}"'))

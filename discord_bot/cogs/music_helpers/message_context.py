@@ -34,7 +34,7 @@ class MessageContext():
         self.message = message
         self.message_id = message.id if message else None
 
-    async def delete_message(self, _message_content: str, **_kwargs):
+    async def delete_message(self):
         '''
         Delete message if existing
         '''
@@ -47,7 +47,7 @@ class MessageContext():
             return True
         return True
 
-    async def edit_message(self, content: str, delete_after: int = None):
+    async def edit_message(self, **kwargs):
         '''
         Edit message contents
 
@@ -56,7 +56,7 @@ class MessageContext():
         '''
         if not self.message:
             return False
-        await self.message.edit(content=content, delete_after=delete_after)
+        await self.message.edit(**kwargs)
         return True
 
 
@@ -145,7 +145,7 @@ class MessageMutableBundle():
         if clear_existing and self.message_contexts:
             for context in self.message_contexts:
                 if context.message:
-                    delete_func = partial(context.delete_message, "")
+                    delete_func = partial(context.delete_message)
                     dispatch_functions.append(delete_func)
             # Clear contexts after deleting
             self.message_contexts = []
@@ -180,7 +180,7 @@ class MessageMutableBundle():
                     new_contexts.insert(0, item)
                     continue
                 if delete_count < expected_delete_count:
-                    delete_func = partial(item.delete_message, "")
+                    delete_func = partial(item.delete_message)
                     dispatch_functions.append(delete_func)
                     delete_count += 1
                     continue
@@ -229,7 +229,7 @@ class MessageMutableBundle():
         delete_functions = []
         for context in self.message_contexts:
             if context.message:
-                delete_func = partial(context.delete_message, "")
+                delete_func = partial(context.delete_message)
                 delete_functions.append(delete_func)
         self.message_contexts = []
         return delete_functions

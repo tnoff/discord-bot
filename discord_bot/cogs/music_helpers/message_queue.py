@@ -52,9 +52,9 @@ class MessageQueue():
             return await async_retry_discord_message_command(fetch_messages)
 
         # Create send_function that uses text_channel.send
-        async def send_function(content: str, delete_after: int = None):
+        async def send_function(**kwargs):
             return await async_retry_discord_message_command(
-                partial(text_channel.send, content, delete_after=delete_after)
+                partial(text_channel.send, **kwargs)
             )
 
         # Create and register bundle if it doesn't exist
