@@ -2,6 +2,7 @@ from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import timedelta
 from logging import RootLogger
 from pathlib import Path
+from re import sub
 from typing import Callable, List
 
 from async_timeout import timeout
@@ -155,8 +156,8 @@ class MusicPlayer:
         headers = [
             DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Wait Time', 9),
-            DapperTableHeader('Title', 40),
-            DapperTableHeader('Uploader', 40)
+            DapperTableHeader('Title', 48),
+            DapperTableHeader('Uploader', 48)
         ]
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         duration = 0
@@ -165,10 +166,11 @@ class MusicPlayer:
         for (count, item) in enumerate(queue_items):
             uploader = item.uploader or ''
             delta = timedelta(seconds=duration)
+            delta_string = sub(r'^0:(?=\d{2}:\d{2})', '', str(delta))
             duration += item.duration
             table.add_row([
                 f'{count + 1}',
-                f'{str(delta)}',
+                f'{delta_string}',
                 f'{item.title}',
                 f'{uploader}',
             ])

@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 from time import time
 from typing import List
 
-from dappertable import shorten_string_cjk, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
+from dappertable import shorten_string, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord.errors import DiscordServerError
 from discord import VoiceChannel
@@ -1378,11 +1378,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         current_title = player.current_source.title
         player.video_skipped = True
-        player.guild.voice_client.stop()
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, f'Skipping video "{current_title}"',
                                            delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
+        player.guild.voice_client.stop()
 
     @command(name='clear')
     @command_wrapper
@@ -1701,7 +1701,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
         # Check name doesn't conflict with history
-        playlist_name = shorten_string_cjk(name, 256)
+        playlist_name = shorten_string(name, 256)
         if PLAYHISTORY_PREFIX in playlist_name.lower():
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
             message_context.function = partial(ctx.send, f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')
@@ -2081,7 +2081,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not playlist_id:
             return None
 
-        playlist_name = shorten_string_cjk(playlist_name, 256)
+        playlist_name = shorten_string(playlist_name, 256)
         if PLAYHISTORY_PREFIX in playlist_name.lower():
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
             message_context.function = partial(ctx.send, f'Unable to create playlist "{playlist_name}", name cannot contain {PLAYHISTORY_PREFIX}')
