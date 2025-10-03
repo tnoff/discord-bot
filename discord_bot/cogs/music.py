@@ -1378,11 +1378,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         current_title = player.current_source.title
         player.video_skipped = True
-        player.guild.voice_client.stop()
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, f'Skipping video "{current_title}"',
                                            delete_after=self.delete_after)
         self.message_queue.send_single_immutable([message_context])
+        player.guild.voice_client.stop()
 
     @command(name='clear')
     @command_wrapper
