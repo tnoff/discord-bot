@@ -16,7 +16,7 @@ opentelemetry-instrumentation-logging
 opentelemetry-exporter-otlp
 pathlib==1.0.1
 PyNaCl==1.6.0
-python-json-logger==3.3.0
+python-json-logger==4.0.0
 pyaml-env==1.2.2
 pytz==2025.2
 requests==2.32.5
