@@ -447,7 +447,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.send_message_checkfile.read_text())
+        value = int(self.cache_cleanup_checkfile.read_text())
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
@@ -1688,7 +1688,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
         '''
-        Playlist functions.
+        Playlist functions. Use '!help playlist'
         '''
         if ctx.invoked_subcommand is None:
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2350,7 +2350,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @command_wrapper
     async def playlist_random_play(self, ctx: Context):
         '''
-        Deprecated, please use !playlist queue 0
+        Deprecated, please use '!playlist queue 0 shuffle'
         '''
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0 shuffle`', delete_after=self.delete_after)

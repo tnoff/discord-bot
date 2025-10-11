@@ -264,7 +264,7 @@ class Markov(CogHelper):
                                 corpus = clean_message(message.content, emojis)
                             if corpus:
                                 self.logger.info(f'Attempting to add corpus "{corpus}" '
-                                                f'to channel {markov_channel.channel_id}')
+                                                 f'to channel {markov_channel.channel_id}')
                                 self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
                             markov_channel.last_message_id = str(message.id)
                             self.retry_commit(db_session)
@@ -278,7 +278,7 @@ class Markov(CogHelper):
     @group(name='markov', invoke_without_command=False)
     async def markov(self, ctx: Context):
         '''
-        Markov functions
+        Markov functions. Use '!help markov'
         '''
         if ctx.invoked_subcommand is None:
             await ctx.send('Invalid sub command passed...')
