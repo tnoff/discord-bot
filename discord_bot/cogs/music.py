@@ -447,7 +447,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.send_message_checkfile.read_text())
+        value = int(self.cache_cleanup_checkfile.read_text())
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
