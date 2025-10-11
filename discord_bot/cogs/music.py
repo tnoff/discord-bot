@@ -1688,7 +1688,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
         '''
-        Playlist functions.
+        Playlist functions. Use '!help playlist'
         '''
         if ctx.invoked_subcommand is None:
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2350,7 +2350,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @command_wrapper
     async def playlist_random_play(self, ctx: Context):
         '''
-        Deprecated, please use !playlist queue 0
+        Deprecated, please use '!playlist queue 0 shuffle'
         '''
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0 shuffle`', delete_after=self.delete_after)
