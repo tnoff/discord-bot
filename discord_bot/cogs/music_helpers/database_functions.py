@@ -150,7 +150,7 @@ def list_playlist_non_history(db_session: Session, guild_id: str, offset: int):
     return db_session.query(Playlist).\
         filter(Playlist.server_id == str(guild_id)).\
         filter(Playlist.is_history == False).\
-        order_by(Playlist.created_at.asc()).\
+        order_by(Playlist.created_at.desc()).\
         offset(offset).all()
 
 def get_playlist(db_session: Session, playlist_id: int):

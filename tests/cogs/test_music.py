@@ -403,6 +403,9 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     assert bundle.search_finished is True
     assert bundle.search_error == 'woopsie'  # The user_message
 
+    # Call all_requests_added to build row_collections for print
+    bundle.all_requests_added()
+
     # Verify the bundle's print output contains the error message
     bundle_messages = bundle.print()
     assert len(bundle_messages) > 0
@@ -862,6 +865,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
 
     # Add request and set to BACKOFF status
     bundle.add_media_request(media_request)
+    bundle.all_requests_added()
     bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
 
     # Test that bundle print shows the BACKOFF message

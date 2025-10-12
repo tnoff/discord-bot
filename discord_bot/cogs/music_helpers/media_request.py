@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
-from dappertable import DapperTable, PaginationRows
+from dappertable import DapperTable, PaginationLength, shorten_string
 from discord import TextChannel
 
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
 from discord_bot.utils.common import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming
@@ -92,18 +93,21 @@ class MultiMediaRequestBundle():
     '''
     Bundle of multiple media requests
     '''
-    def __init__(self, guild_id: int, channel_id: int, text_channel: TextChannel, items_per_message: int = 5):
+    def __init__(self, guild_id: int, channel_id: int, text_channel: TextChannel, pagination_length: int = DISCORD_MAX_MESSAGE_LENGTH):
         self.guild_id = guild_id
         self.channel_id = channel_id
         self.text_channel = text_channel
         self.uuid = f'request.bundle.{uuid4()}'
+        self.pagination_length = pagination_length
 
-        self.items_per_message = max(1, min(items_per_message, 5))  # Enforce range of 1-5 items per message
+        self.table = DapperTable(pagination_options=PaginationLength(pagination_length))
+        self.row_collections = []
 
         # Search options
         self.input_string = None
         self.search_finished = False
         self.search_error = None
+        self.has_search_banner = False  # Track if search banner exists
 
         # General attributes
         self.media_requests = []
@@ -111,6 +115,9 @@ class MultiMediaRequestBundle():
         self.completed = 0
         self.failed = 0
         self.discarded = 0
+
+        # Check if all expected requests have been added
+        self.all_requests_enqueued = False
 
         # Set later to make sure we return nothing
         # Used in shutdowns
@@ -120,43 +127,133 @@ class MultiMediaRequestBundle():
         self.created_at = datetime.now(timezone.utc)
         self.finished_at = None
 
+    def all_requests_added(self):
+        '''
+        Mark all requests as added
+        '''
+        self.all_requests_enqueued = True
+        self.row_collections = self.table.get_paginated_rows()
+
+        # Build mapping from table_index to (collection_idx, row_idx)
+        # DapperTable.get_paginated_rows() returns a list of lists of DapperRow objects
+        # We need to map each table_index to its position in the paginated structure
+
+        # First, build a flat list of all row indices across all collections
+        table_index_to_position = {}
+        current_table_index = 0
+
+        for collection_idx, row_collection in enumerate(self.row_collections):
+            for row_idx in range(len(row_collection)):
+                table_index_to_position[current_table_index] = (collection_idx, row_idx)
+                current_table_index += 1
+
+        # Now map each media request's table_index to its position
+        for item in self.media_requests:
+            if item['table_index'] is None:
+                continue  # Discarded items have no table_index
+
+            if item['table_index'] in table_index_to_position:
+                collection_idx, row_idx = table_index_to_position[item['table_index']]
+                item['row_collection_index'] = collection_idx
+                item['row_index_in_collection'] = row_idx
+
+        # If we have multiple items and a search string, add status header
+        if self.total > 1 and self.input_string:
+            multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
+            top_line = f'Processing "{multi_input}"\n{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed'
+            self._edit_search_banner(top_line)
+
     def shutdown(self):
         '''
         Remove messages so we know to clear them
         '''
         self.is_shutdown = True
 
-    def add_search_request(self, input_string: str):
+    def set_initial_search(self, input_string: str):
         '''
         Add search request to show
         '''
         # Remove 'shuffle' from string
-        self.input_string = input_string.replace(' shuffle', '')
+        # Shorten string down to 256 at most to be safe
+        self.input_string = shorten_string(input_string.replace(' shuffle', ''), 256)
+        # Set first row of table
+        # This doesn't get used directly but is there for functions to edit later
+        self.table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
 
-    def finish_search_request(self, error_message: str = None, proper_name: str = None):
+    def set_multi_input_request(self, error_message: str = None, proper_name: str = None):
         '''
-        Finish search request
+        Mark request as having multiple media requests
         '''
         # Check if first result has better name
-        if proper_name:
-            self.input_string = proper_name
         self.search_finished = True
-        self.search_error = error_message
+        if error_message:
+            self.search_error = error_message
+            # Edit row 0 directly (created by set_initial_search) with error message
+            if self.input_string:
+                self.table.edit_row(0, f'Error processing search "{discord_format_string_embed(self.input_string)}", {error_message}')
+                self.has_search_banner = True
+            return
+        if proper_name:
+            # Shorten string down to 256 at most to be safe
+            self.input_string = shorten_string(proper_name, 256)
+        self.has_search_banner = True
+        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
+        self._edit_search_banner(f'Processing "{multi_input}"')
 
     def add_media_request(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING):
         '''
         Add new media request
         '''
         search_string = discord_format_string_embed(media_request.raw_search_string)
+        # Generally upon add only discard, searching, and queued are used
+        # Ignore discarded requests in terms of showing to user
+        # But keep track of numbers for later calculations
+        table_index = None
+        if stage == MediaRequestLifecycleStage.DISCARDED:
+            self.discarded +=1
+        else:
+            table_index = self.table.add_row(f'Media request queued for download: "{search_string}"')
         self.media_requests.append({
             'search_string': search_string,
             'status': stage,
             'uuid': media_request.uuid,
-            'failed_reason': None,
-            'override_message': None,
+            'table_index': table_index,
+            'row_collection_index': None,
+            'row_index_in_collection': None,
         })
         self.total += 1
         media_request.bundle_uuid = self.uuid
+
+    def _edit_row_data(self, item: dict, message: str):
+        '''
+        Edit the row data based on indexes
+        '''
+        # Always edit the table to keep it as source of truth
+        if item['table_index'] is not None:
+            self.table.edit_row(item['table_index'], message)
+
+        # Also edit row_collections if they've been populated
+        if (self.row_collections and
+            item['row_collection_index'] is not None and
+            item['row_index_in_collection'] is not None):
+            self.row_collections[item['row_collection_index']][item['row_index_in_collection']].edit(message)
+
+        return item['table_index'] is not None
+
+    def _edit_search_banner(self, message: str):
+        '''
+        Edit row 0 (search banner/status line) in both table and row_collections
+        Only edits if a search banner actually exists
+        '''
+        if not self.has_search_banner:
+            return
+
+        self.table.edit_row(0, message)
+
+        # Also update in row_collections if built (row 0 is always in collection 0, index 0)
+        if self.row_collections and len(self.row_collections) > 0:
+            # Assuming row_collections[0] is indexable and has row 0
+            self.row_collections[0][0].edit(message)
 
     def update_request_status(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage, failure_reason: str = None,
                               override_message: str = None):
@@ -168,24 +265,51 @@ class MultiMediaRequestBundle():
             if item['uuid'] != media_request.uuid:
                 continue
             match stage:
+                case MediaRequestLifecycleStage.QUEUED:
+                    # Keep the existing "queued for download" message, don't update
+                    pass
+                case MediaRequestLifecycleStage.IN_PROGRESS:
+                    if item['status'] != stage:
+                        if item['table_index'] is not None:
+                            self._edit_row_data(item, f'Downloading and processing media request: "{item["search_string"]}"')
+                case MediaRequestLifecycleStage.BACKOFF:
+                    if item['status'] != stage:
+                        if item['table_index'] is not None:
+                            self._edit_row_data(item, f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
                 case MediaRequestLifecycleStage.COMPLETED:
                     if item['status'] != stage:
+                        if item['table_index'] is not None:
+                            self._edit_row_data(item, '')
                         self.completed += 1
                 case MediaRequestLifecycleStage.DISCARDED:
                     if item['status'] != stage:
+                        if item['table_index'] is not None:
+                            self._edit_row_data(item, '')
                         self.discarded += 1
                 case MediaRequestLifecycleStage.FAILED:
                     if item['status'] != stage:
                         self.failed += 1
+                        x = f'Media request failed download: "{item["search_string"]}"'
                         if failure_reason:
-                            item['failed_reason'] = failure_reason
+                            x = f'{x}, {failure_reason}'
+                        if item['table_index'] is not None:
+                            self._edit_row_data(item, x)
             item['status'] = stage
             if override_message:
-                item['override_message'] = override_message
+                if item['table_index'] is not None:
+                    self._edit_row_data(item, override_message)
             result = True
             break
         if self.finished:
             self.finished_at = datetime.now(timezone.utc)
+        # Update top of message
+        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
+        if self.total > 1:
+            top_line = f'Processing "{multi_input}"'
+            if self.finished:
+                top_line = f'Completed processing of "{multi_input}"'
+            top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed'
+            self._edit_search_banner(top_line)
         return result
 
     @property
@@ -213,45 +337,16 @@ class MultiMediaRequestBundle():
         # If shutdown, exit completely
         if self.is_shutdown:
             return []
-        table = DapperTable(pagination_options=PaginationRows(self.items_per_message))
-        # Check if we're in search mode
-        if not self.search_finished and self.input_string:
-            table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
-        if self.search_finished and self.search_error:
-            table.add_row(f'Error processing search "{discord_format_string_embed(self.input_string)}", {self.search_error}')
-        # Else proceed as normal
-        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
-        if self.total > 1:
-            if self.finished:
-                table.add_row(f'Completed processing of "{multi_input}"')
-            else:
-                table.add_row(f'Processing "{multi_input}"')
-            table.add_row(f'{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed')
-        for item in self.media_requests:
-            # If override set, use this
-            if item['override_message']:
-                table.add_row(item['override_message'])
-                continue
-            # Else match on status
-            match item['status']:
-                case MediaRequestLifecycleStage.COMPLETED:
-                    table.add_row('')
-                case MediaRequestLifecycleStage.FAILED:
-                    x = f'Media request failed download: "{item["search_string"]}"'
-                    if item['failed_reason']:
-                        x = f'{x}, {item["failed_reason"]}'
-                    table.add_row(x)
-                case MediaRequestLifecycleStage.QUEUED | MediaRequestLifecycleStage.SEARCHING:
-                    table.add_row(f'Media request queued for download: "{item["search_string"]}"')
-                case MediaRequestLifecycleStage.IN_PROGRESS:
-                    table.add_row(f'Downloading and processing media request: "{item["search_string"]}"')
-                case MediaRequestLifecycleStage.BACKOFF:
-                    table.add_row(f'Waiting for youtube backoff time before processing media request: "{item["search_string"]}"')
-                case MediaRequestLifecycleStage.DISCARDED:
-                    table.add_row('')
-        result = table.print()
-        if not isinstance(result, list):
-            result = [result]
+
+        # If row_collections hasn't been built yet, we're still in search phase
+        if not self.row_collections:
+            # If we have an input string (from add_search_request), show processing message
+            if self.input_string:
+                return [f'Processing search "{discord_format_string_embed(self.input_string)}"']
+            return []
+
+        # Use cached row_collections for stable pagination
+        result_strings = [self.table.print_rows(rc) for rc in self.row_collections]
         # Remove blanks from output
-        result = [i for i in result if i != '']
-        return result
+        result_strings = [i for i in result_strings if i != '']
+        return result_strings
