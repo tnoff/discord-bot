@@ -162,12 +162,12 @@ class MusicPlayer:
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         duration = 0
         if self.current_source:
-            duration = self.current_source.duration
+            duration = int(self.current_source.duration) if self.current_source.duration else 0
         for (count, item) in enumerate(queue_items):
             uploader = item.uploader or ''
             delta = timedelta(seconds=duration)
             delta_string = sub(r'^0:(?=\d{2}:\d{2})', '', str(delta))
-            duration += item.duration
+            duration += int(item.duration) if item.duration else 0
             table.add_row([
                 f'{count + 1}',
                 f'{delta_string}',
