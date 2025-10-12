@@ -879,9 +879,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
         return self.video_cache.get_webpage_url_item(media_request)
 
-    async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
+    async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, bundle: MultiMediaRequestBundle, player: MusicPlayer = None):
         media_download = await self.__check_video_cache(media_request)
         if media_download:
+            bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
             if media_request.add_to_playlist and not media_request.download_file:
                 await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
                 return True
@@ -911,10 +912,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # This returns the raw id, make sure we add the proper prefix for caching bits
             media_request.search_string = f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}'
 
-        if await self._enqueue_media_download_from_cache(media_request):
-            return True
 
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+        if await self._enqueue_media_download_from_cache(media_request, bundle):
+            return True
+
+
         try:
             self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
@@ -1280,8 +1283,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     break
                 continue
             # Else directly add to download queue
-
-            if not await self._enqueue_media_download_from_cache(media_request, player=player):
+            if not await self._enqueue_media_download_from_cache(media_request, bundle, player=player):
                 try:
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     bundle.add_media_request(media_request, MediaRequestLifecycleStage.QUEUED)
@@ -1292,18 +1294,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.warning(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
                     bundle.add_media_request(media_request, MediaRequestLifecycleStage.DISCARDED)
                     break
+
+        # Make sure we note that all requests were added to bundle
+        bundle.all_requests_added()
+
         if bundle:
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
                 sticky_messages=False,
             )
-        if player:
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.PLAY_ORDER.value}-{ctx.guild.id}',
-                ctx.channel,
-            )
-
         return True
 
     @command(name='play')
@@ -1330,36 +1330,41 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
 
+        # Setup bundle, show search has started for raw input
         bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
         self.multirequest_bundles[bundle.uuid] = bundle
-        bundle.add_search_request(search)
+        bundle.set_initial_search(search)
         self.message_queue.update_multiple_mutable(
             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
             ctx.channel,
             sticky_messages=False,
         )
+
         try:
             search_results = await self.search_client.check_source(search, self.bot.loop,
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc.user_message))
+            # For errors, always show the search request header
+            bundle.set_multi_input_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
                 sticky_messages=False,
             )
             return
-        proper_name = None
-        if search_results:
-            proper_name = search_results[0].multi_search_input
-        bundle.finish_search_request(proper_name=proper_name)
+
+        # Only add search request header if we have multiple results
+        if len(search_results) > 1:
+            proper_name = None
+            if search_results:
+                proper_name = search_results[0].multi_search_input
+            bundle.set_multi_input_request(proper_name=proper_name)
 
         media_requests = []
         for item in search_results:
             media_requests.append(MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
-                                               item.resolved_search_string, item.raw_search_string, item.search_type,
-                                               multi_input_string=item.multi_search_input))
+                                               item.resolved_search_string, item.raw_search_string, item.search_type))
         await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
 
     @command(name='skip')
@@ -1892,7 +1897,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
         self.multirequest_bundles[bundle.uuid] = bundle
-        bundle.add_search_request(search)
+        bundle.set_initial_search(search)
         self.message_queue.update_multiple_mutable(
             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
             ctx.channel,
@@ -1904,7 +1909,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                    self.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.finish_search_request(error_message=str(exc.user_message))
+            bundle.set_multi_input_request(error_message=str(exc.user_message))
             self.message_queue.update_multiple_mutable(
                 f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                 ctx.channel,
@@ -1914,17 +1919,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         proper_name = None
         if search_results:
             proper_name = search_results[0].multi_search_input
-        bundle.finish_search_request(proper_name=proper_name)
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-            ctx.channel,
-            sticky_messages=False,
-        )
+        bundle.set_multi_input_request(proper_name=proper_name)
+
         media_requests = []
         for search_result in search_results:
             media_requests.append(MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
                                   search_result.resolved_search_string, search_result.raw_search_string, search_result.search_type,
-                                  multi_input_string=search_result.multi_search_input,
                                   download_file=False,
                                   add_to_playlist=playlist_id))
         await self.enqueue_media_requests(ctx, media_requests, bundle)
@@ -2200,7 +2200,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                              SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
                                              added_from_history=is_history,
                                              history_playlist_item_id=item.id,
-                                             multi_input_string=playlist_name)
+                                             display_name_override=item.title)
                 playlist_items.append(media_request)
 
             # Check if playlist is empty and provide user feedback
@@ -2232,13 +2232,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
             self.multirequest_bundles[bundle.uuid] = bundle
             # Start/finish bundle to get input_string
-            bundle.add_search_request(playlist_name)
-            bundle.finish_search_request()
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
+            bundle.set_initial_search(playlist_name)
+            bundle.set_multi_input_request()
             finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle, player=player)
 
 
