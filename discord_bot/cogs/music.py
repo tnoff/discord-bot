@@ -1802,10 +1802,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if existing_item:
                 return None
 
+            # Truncate strings to fit database varchar(256) constraints
+            # Use shorten_string to handle wide characters properly
+            max_db_string_length = 256
             playlist_item = PlaylistItem(
-                title=video_title,
-                video_url=video_url,
-                uploader=video_uploader,
+                title=shorten_string(video_title, max_db_string_length) if video_title else None,
+                video_url=shorten_string(video_url, max_db_string_length) if video_url else None,
+                uploader=shorten_string(video_uploader, max_db_string_length) if video_uploader else None,
                 playlist_id=playlist_id,
             )
             db_session.add(playlist_item)
