@@ -275,7 +275,7 @@ class MultiMediaRequestBundle():
             top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed'
             self._edit_search_banner(top_line)
         return True
-    
+
     def update_request_status(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage, failure_reason: str = None,
                               override_message: str = None):
         '''
