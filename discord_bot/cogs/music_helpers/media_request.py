@@ -132,6 +132,11 @@ class MultiMediaRequestBundle():
         Mark all requests as added
         '''
         self.all_requests_enqueued = True
+        # Remove double search if multiple requests not queued
+        if self.total == 1:
+            self.table.remove_row(0)
+            self.media_requests[0]['table_index'] = 0
+
         self.row_collections = self.table.get_paginated_rows()
 
         # Build mapping from table_index to (collection_idx, row_idx)
@@ -176,8 +181,6 @@ class MultiMediaRequestBundle():
         # Remove 'shuffle' from string
         # Shorten string down to 256 at most to be safe
         self.input_string = shorten_string(input_string.replace(' shuffle', ''), 256)
-        # Set first row of table
-        # This doesn't get used directly but is there for functions to edit later
         self.table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
 
     def set_multi_input_request(self, error_message: str = None, proper_name: str = None):
@@ -340,10 +343,7 @@ class MultiMediaRequestBundle():
 
         # If row_collections hasn't been built yet, we're still in search phase
         if not self.row_collections:
-            # If we have an input string (from add_search_request), show processing message
-            if self.input_string:
-                return [f'Processing search "{discord_format_string_embed(self.input_string)}"']
-            return []
+            return self.table.print()
 
         # Use cached row_collections for stable pagination
         result_strings = [self.table.print_rows(rc) for rc in self.row_collections]
