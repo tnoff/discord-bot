@@ -21,7 +21,7 @@ class MediaRequest():
                  download_file: bool = True,
                  add_to_playlist: int = None,
                  history_playlist_item_id: int = None,
-                 multi_input_string: str = None):
+                 display_name_override: str = None):
         '''
         Generate new media request options
 
@@ -31,12 +31,12 @@ class MediaRequest():
         requester_id : User id of original requester
         search_string : Search string, after processing
         raw_search_string : Original search string
-        multi_input_string : Input for playlist type searches
         search_type : Type of search it was
         added_from_history : Whether or not this was added from history
         download_file : Download file eventually
         add_to_playlist : Set to add to playlist after download
         history_playlist_item_id : Delete item from history playlist, pass in database id
+        display_name_override : Only used in media request bundles, overrides search strings
         '''
         self.guild_id = guild_id
         self.channel_id = channel_id
@@ -53,7 +53,7 @@ class MediaRequest():
         self.download_file = download_file
         self.history_playlist_item_id = history_playlist_item_id
         self.add_to_playlist = add_to_playlist
-        self.multi_input_string = multi_input_string
+        self.display_name_override = display_name_override
         # Message Contextr
         self.uuid = f'request.{uuid4()}'
         self.bundle_uuid = None
@@ -132,6 +132,9 @@ class MultiMediaRequestBundle():
         Mark all requests as added
         '''
         self.all_requests_enqueued = True
+        # Is probably rare but sometimes everything hits the cache
+        # and update was never called but 'add' was
+        self._check_finished()
         # Remove double search if multiple requests not queued
         if self.total == 1:
             self.table.remove_row(0)
@@ -214,10 +217,12 @@ class MultiMediaRequestBundle():
         table_index = None
         if stage == MediaRequestLifecycleStage.DISCARDED:
             self.discarded +=1
-        else:
+        elif stage in [MediaRequestLifecycleStage.QUEUED, MediaRequestLifecycleStage.SEARCHING]:
             table_index = self.table.add_row(f'Media request queued for download: "{search_string}"')
+        elif stage in [MediaRequestLifecycleStage.COMPLETED]:
+            self.completed += 1
         self.media_requests.append({
-            'search_string': search_string,
+            'search_string': media_request.display_name_override or search_string,
             'status': stage,
             'uuid': media_request.uuid,
             'table_index': table_index,
@@ -258,6 +263,19 @@ class MultiMediaRequestBundle():
             # Assuming row_collections[0] is indexable and has row 0
             self.row_collections[0][0].edit(message)
 
+    def _check_finished(self):
+        '''
+        Check if all requests finished
+        '''
+        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
+        if self.total > 1:
+            top_line = f'Processing "{multi_input}"'
+            if self.finished:
+                top_line = f'Completed processing of "{multi_input}"'
+            top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed'
+            self._edit_search_banner(top_line)
+        return True
+    
     def update_request_status(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage, failure_reason: str = None,
                               override_message: str = None):
         '''
@@ -303,16 +321,12 @@ class MultiMediaRequestBundle():
                     self._edit_row_data(item, override_message)
             result = True
             break
+        # If not already in media requests, lets go ahead and add
+        if not result:
+            self.add_media_request(media_request, stage=stage)
         if self.finished:
             self.finished_at = datetime.now(timezone.utc)
-        # Update top of message
-        multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
-        if self.total > 1:
-            top_line = f'Processing "{multi_input}"'
-            if self.finished:
-                top_line = f'Completed processing of "{multi_input}"'
-            top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} items processed successfully, {self.failed} failed'
-            self._edit_search_banner(top_line)
+        self._check_finished()
         return result
 
     @property

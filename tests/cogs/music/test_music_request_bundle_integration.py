@@ -990,6 +990,10 @@ def test_bundle_print_after_shutdown(fake_context):  #pylint:disable=redefined-o
     """Test bundle print() method after shutdown returns empty list"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
 
+    # Add search request to create proper bundle structure
+    bundle.set_initial_search('test-playlist')
+    bundle.set_multi_input_request()
+
     # Add request to generate content
     req = fake_source_dict(fake_context)
     req.multi_input_string = 'test-playlist'
