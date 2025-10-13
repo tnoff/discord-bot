@@ -210,7 +210,7 @@ class MultiMediaRequestBundle():
         '''
         Add new media request
         '''
-        search_string = discord_format_string_embed(media_request.raw_search_string)
+        search_string = discord_format_string_embed(media_request.display_name_override or media_request.raw_search_string)
         # Generally upon add only discard, searching, and queued are used
         # Ignore discarded requests in terms of showing to user
         # But keep track of numbers for later calculations
@@ -222,7 +222,7 @@ class MultiMediaRequestBundle():
         elif stage in [MediaRequestLifecycleStage.COMPLETED]:
             self.completed += 1
         self.media_requests.append({
-            'search_string': media_request.display_name_override or search_string,
+            'search_string': search_string,
             'status': stage,
             'uuid': media_request.uuid,
             'table_index': table_index,

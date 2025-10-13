@@ -1283,7 +1283,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     break
                 continue
             # Else directly add to download queue
-
             if not await self._enqueue_media_download_from_cache(media_request, bundle, player=player):
                 try:
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
