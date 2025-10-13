@@ -977,7 +977,7 @@ def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine
 
 
 def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that playlists are ordered by creation_at timestamp (ASC)"""
+    """Test that playlists are ordered by creation_at timestamp (DESC - newest first)"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     with cog.with_db_session() as db_session:  #pylint:disable=no-member
@@ -1010,14 +1010,14 @@ def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_co
         db_session.add(playlist_middle)  #pylint:disable=no-member
         db_session.commit()  #pylint:disable=no-member
 
-        # Test that ordering is by creation_at ASC, not insert order
+        # Test that ordering is by creation_at DESC (newest first), not insert order
         oldest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_oldest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
         middle_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_middle.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
         newest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_newest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
 
-        assert oldest_result == 1  # Oldest created = index 1
-        assert middle_result == 2   # Second created = index 2
-        assert newest_result == 3   # Newest created = index 3
+        assert newest_result == 1   # Newest created = index 1
+        assert middle_result == 2   # Second newest = index 2
+        assert oldest_result == 3   # Oldest created = index 3
 
 
 def test_get_playlist_public_view_handles_empty_server(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -1056,8 +1056,11 @@ def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine,
             results.append(result)
 
         # History playlists should return 0
-        # Regular playlists should be ordered 1, 2, 3 based on creation time
-        expected = [1, 0, 2, 0, 3]  # Regular 1=1, History 1=0, Regular 2=2, History 2=0, Regular 3=3
+        # Regular playlists should be ordered by creation time DESC (newest first)
+        # Regular 1 (oldest): created at base_time -> index 3
+        # Regular 2 (middle): created at base_time+20min -> index 2
+        # Regular 3 (newest): created at base_time+40min -> index 1
+        expected = [3, 0, 2, 0, 1]  # Regular 1=3, History 1=0, Regular 2=2, History 2=0, Regular 3=1
 
         assert results == expected
 
