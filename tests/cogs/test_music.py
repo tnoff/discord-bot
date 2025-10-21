@@ -39,8 +39,7 @@ def yield_fake_search_client(media_request: MediaRequest = None):
                 # Convert MediaRequest to SearchResult
                 search_result = SearchResult(
                     media_request.search_type,
-                    media_request.search_string,
-                    media_request.multi_input_string
+                    media_request.search_string
                 )
                 return [search_result]
             return []
@@ -93,8 +92,7 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
             for media_request in source_dict_list:
                 search_result = SearchResult(
                     media_request.search_type,
-                    media_request.search_string,
-                    media_request.multi_input_string
+                    media_request.search_string
                 )
                 search_results.append(search_result)
             return search_results
@@ -402,6 +400,9 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     # The bundle should have finished with an error
     assert bundle.search_finished is True
     assert bundle.search_error == 'woopsie'  # The user_message
+
+    # Call all_requests_added to build row_collections for print
+    bundle.all_requests_added()
 
     # Verify the bundle's print output contains the error message
     bundle_messages = bundle.print()
@@ -860,8 +861,13 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
         search_type=SearchType.SEARCH
     )
 
+    # Set up search banner (required for single-item bundles)
+    bundle.set_initial_search(media_request.raw_search_string)
+    bundle.set_multi_input_request()
+
     # Add request and set to BACKOFF status
     bundle.add_media_request(media_request)
+    bundle.all_requests_added()
     bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
 
     # Test that bundle print shows the BACKOFF message

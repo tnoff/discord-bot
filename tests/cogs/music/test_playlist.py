@@ -8,13 +8,10 @@ import pytest
 from discord_bot.database import Playlist, PlaylistItem
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
+from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue
-from discord_bot.cogs.music_helpers.search_client import SearchClient
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_client, yield_fake_search_client, yield_download_client_download_exception
 from tests.helpers import mock_session, fake_source_dict, fake_media_download
@@ -977,7 +974,7 @@ def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine
 
 
 def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that playlists are ordered by creation_at timestamp (ASC)"""
+    """Test that playlists are ordered by creation_at timestamp (DESC - newest first)"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     with cog.with_db_session() as db_session:  #pylint:disable=no-member
@@ -1010,14 +1007,14 @@ def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_co
         db_session.add(playlist_middle)  #pylint:disable=no-member
         db_session.commit()  #pylint:disable=no-member
 
-        # Test that ordering is by creation_at ASC, not insert order
+        # Test that ordering is by creation_at DESC (newest first), not insert order
         oldest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_oldest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
         middle_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_middle.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
         newest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_newest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
 
-        assert oldest_result == 1  # Oldest created = index 1
-        assert middle_result == 2   # Second created = index 2
-        assert newest_result == 3   # Newest created = index 3
+        assert newest_result == 1   # Newest created = index 1
+        assert middle_result == 2   # Second newest = index 2
+        assert oldest_result == 3   # Oldest created = index 3
 
 
 def test_get_playlist_public_view_handles_empty_server(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -1056,14 +1053,17 @@ def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine,
             results.append(result)
 
         # History playlists should return 0
-        # Regular playlists should be ordered 1, 2, 3 based on creation time
-        expected = [1, 0, 2, 0, 3]  # Regular 1=1, History 1=0, Regular 2=2, History 2=0, Regular 3=3
+        # Regular playlists should be ordered by creation time DESC (newest first)
+        # Regular 1 (oldest): created at base_time -> index 3
+        # Regular 2 (middle): created at base_time+20min -> index 2
+        # Regular 3 (newest): created at base_time+40min -> index 1
+        expected = [3, 0, 2, 0, 1]  # Regular 1=3, History 1=0, Regular 2=2, History 2=0, Regular 3=1
 
         assert results == expected
 
 @pytest.mark.asyncio
-async def test_playlist_queue_adds_multi_input_string(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that playlist queue operations add multi_input_string to media requests"""
+async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist queue operations add history_playlist_item_id to media requests"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Mock database operations
@@ -1072,9 +1072,9 @@ async def test_playlist_queue_adds_multi_input_string(fake_engine, fake_context)
         playlist_name = "Test Playlist"
         mock_playlist_items = [
             MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456),
+                     requester_name="user1", requester_id=456, title="Video 1"),
             MagicMock(id=2, video_url="https://youtube.com/watch?v=456",
-                     requester_name="user2", requester_id=789),
+                     requester_name="user2", requester_id=789, title="Video 2"),
         ]
 
         # Mock database calls in order they appear in playlist_queue method
@@ -1096,11 +1096,10 @@ async def test_playlist_queue_adds_multi_input_string(fake_engine, fake_context)
                 # pylint: disable=protected-access
                 await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
 
-                # Verify media requests were created with multi_input_string
+                # Verify media requests were created with history_playlist_item_id
                 assert len(captured_requests) == 2
 
                 for req in captured_requests:
-                    assert req.multi_input_string == playlist_name
                     assert req.history_playlist_item_id in [1, 2]
 
 
@@ -1114,7 +1113,7 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
         playlist_name = "Test Playlist"
         mock_playlist_items = [
             MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456),
+                     requester_name="user1", requester_id=456, title="Video 1"),
         ]
 
         mock_db.side_effect = [
@@ -1184,7 +1183,7 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
     with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
         mock_playlist_items = [
             MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456),
+                     requester_name="user1", requester_id=456, title="Video 1"),
         ]
 
         mock_db.side_effect = [
@@ -1208,50 +1207,3 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
 
                     # Message should mention "Channel History" not the database playlist name
                     # This is set by the special is_history logic
-
-
-def test_media_request_multi_input_string_parameter_consistency(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that MediaRequest properly handles multi_input_string parameter"""
-    # Create MediaRequest with multi_input_string (new parameter name)
-    req = MediaRequest(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        requester_name="test_user",
-        requester_id=123,
-        search_string="test song",
-        raw_search_string="test song",
-        search_type=SearchType.YOUTUBE,
-        multi_input_string="Test Playlist"
-    )
-
-    # Verify parameter is stored correctly
-    assert req.multi_input_string == "Test Playlist"
-    assert hasattr(req, 'multi_input_string')
-
-    # Verify it doesn't have the old parameter name
-    assert not hasattr(req, 'multi_input_search_string')
-
-
-def test_search_client_multi_input_string_usage():
-    """Test that SearchClient uses multi_input_string consistently"""
-    # This test verifies the SearchClient change on line 275 of search_client.py
-    # where multi_input_search_string was renamed to multi_input_string
-
-    SearchClient(MessageQueue())
-
-    # Create a test context for creating MediaRequest
-    guild_id = 123
-    channel_id = 456
-    requester_name = "test_user"
-    requester_id = 789
-    search_string = "test song"
-    search_type = SearchType.YOUTUBE
-    search_string_message = "Test Playlist"
-
-    # Create MediaRequest similar to how SearchClient does it (line 274-275)
-    entry = MediaRequest(guild_id, channel_id, requester_name, requester_id, search_string, search_string, search_type,
-                        multi_input_string=search_string_message)
-
-    # Verify the parameter is set correctly
-    assert entry.multi_input_string == search_string_message
-    assert not hasattr(entry, 'multi_input_search_string')

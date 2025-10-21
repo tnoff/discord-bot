@@ -24,7 +24,6 @@ async def test_request_bundle_integration_creation_and_registration(fake_context
     media_requests = []
     for _ in range(3):
         req = fake_source_dict(fake_context)
-        req.multi_input_string = 'https://test.playlist.com/123'
         media_requests.append(req)
 
     # Create bundle (simulating Music.add_multiple_media_requests logic)
@@ -32,8 +31,8 @@ async def test_request_bundle_integration_creation_and_registration(fake_context
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up the search lifecycle (required for input_string to be set)
-    bundle.add_search_request('https://test.playlist.com/123')
-    bundle.finish_search_request()
+    bundle.set_initial_search('https://test.playlist.com/123')
+    bundle.set_multi_input_request()
 
     # Add requests to bundle
     for req in media_requests:
@@ -65,44 +64,45 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add search request and finish it to get to download phase
-    bundle.add_search_request('test-playlist')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test-playlist')
+    bundle.set_multi_input_request()
 
     media_requests = []
     for _ in range(3):
         req = fake_source_dict(fake_context)
-        req.multi_input_string = 'test-playlist'
         bundle.add_media_request(req)
         media_requests.append(req)
+
+    bundle.all_requests_added()
 
     # Test status progression
     initial_print = bundle.print()
     assert 'Processing "test-playlist"' in initial_print[0]
-    assert '0/3 items processed successfully, 0 failed' in initial_print[0]
+    assert '0/3 media_requests processed successfully, 0 failed' in initial_print[0]
     assert 'Media request queued for download' in initial_print[0]
 
     # Update first request to in progress
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.IN_PROGRESS)
     progress_print = bundle.print()
-    assert '0/3 items processed successfully, 0 failed' in progress_print[0]
+    assert '0/3 media_requests processed successfully, 0 failed' in progress_print[0]
     assert 'Downloading and processing media request' in progress_print[0]
 
     # Complete first request
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.COMPLETED)
     complete_print = bundle.print()
-    assert '1/3 items processed successfully, 0 failed' in complete_print[0]
+    assert '1/3 media_requests processed successfully, 0 failed' in complete_print[0]
 
     # Fail second request
     bundle.update_request_status(media_requests[1], MediaRequestLifecycleStage.FAILED, 'Test failure')
     failed_print = bundle.print()
-    assert '1/3 items processed successfully, 1 failed' in failed_print[0]
+    assert '1/3 media_requests processed successfully, 1 failed' in failed_print[0]
     assert 'Media request failed download' in failed_print[0]
     assert 'Test failure' in failed_print[0]
 
     # Complete third request
     bundle.update_request_status(media_requests[2], MediaRequestLifecycleStage.COMPLETED)
     final_print = bundle.print()
-    assert '2/3 items processed successfully, 1 failed' in final_print[0]
+    assert '2/3 media_requests processed successfully, 1 failed' in final_print[0]
 
     # Verify finished status
     assert bundle.finished is True
@@ -119,13 +119,13 @@ async def test_request_bundle_integration_message_processing(mocker, fake_contex
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Setup search state
-    bundle.add_search_request('test-playlist-url')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test-playlist-url')
+    bundle.set_multi_input_request()
 
     # Add test request
     req = fake_source_dict(fake_context)
-    req.multi_input_string = 'test-playlist-url'
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
 
     # Register bundle for processing
@@ -211,13 +211,13 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
         cog.multirequest_bundles[bundle.uuid] = bundle
 
         # Setup search state
-        bundle.add_search_request(f'test-playlist-{i}')
-        bundle.finish_search_request()
+        bundle.set_initial_search(f'test-playlist-{i}')
+        bundle.set_multi_input_request()
 
         # Add test request to each bundle
         req = fake_source_dict(fake_context)
-        req.multi_input_string = f'test-playlist-{i}'
         bundle.add_media_request(req)
+        bundle.all_requests_added()
         bundles.append((bundle, req))
 
     # Register all bundles
@@ -250,41 +250,39 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
 
 
 @pytest.mark.asyncio
-async def test_request_bundle_integration_items_per_message_limit(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that request bundles respect items_per_message=5 limit"""
+async def test_request_bundle_integration_pagination_length(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that request bundles respect pagination_length parameter"""
     Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Try to create bundle with items_per_message > 5
+    # Create bundle with short pagination_length
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
         fake_context['channel'],
-        items_per_message=10  # Should be capped at 5
+        pagination_length=200  # Short to trigger pagination
     )
 
-    # Verify limit is enforced
-    assert bundle.items_per_message == 5
-
     # Setup search state
-    bundle.add_search_request('large-playlist')
-    bundle.finish_search_request()
+    bundle.set_initial_search('large-playlist')
+    bundle.set_multi_input_request()
 
     # Create many requests to test chunking
     requests = []
-    for _ in range(12):  # More than 5 items
+    for _ in range(12):
         req = fake_source_dict(fake_context)
-        req.multi_input_string = 'large-playlist'
         bundle.add_media_request(req)
         requests.append(req)
+
+    bundle.all_requests_added()
 
     # Verify total is correct
     assert bundle.total == 12
 
-    # Get print output - should be chunked into messages
+    # Get print output - should be chunked into messages based on character count
     print_output = bundle.print()
 
-    # Should have header message + chunked content
-    assert len(print_output) >= 2  # At least header + some content
+    # Should have multiple pages due to short pagination length
+    assert len(print_output) >= 2  # At least 2 pages
 
     # Verify header contains total info
     full_output = '\n'.join(print_output)
@@ -302,13 +300,12 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Setup search state
-    bundle.add_search_request('test-playlist-0')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test-playlist-0')
+    bundle.set_multi_input_request()
 
     # Add test requests
-    for i in range(3):
+    for _ in range(3):
         req = fake_source_dict(fake_context)
-        req.multi_input_string = f'test-playlist-{i}'
         bundle.add_media_request(req)
 
     # Initially should have messages
@@ -343,7 +340,6 @@ async def test_request_bundle_integration_non_sticky_message_behavior(mocker, fa
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     req = fake_source_dict(fake_context)
-    req.multi_input_string = 'test-non-sticky'
     bundle.add_media_request(req)
 
     # Register bundle for processing (this should call update_multiple_mutable with sticky_messages=False)
@@ -419,8 +415,8 @@ async def test_race_condition_fix_bundle_cleanup(fake_context):  #pylint:disable
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
-    bundle.add_search_request('test search')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -533,8 +529,8 @@ def test_bundle_cleanup_thread_safety_with_fix(fake_context):  #pylint:disable=r
         cog.multirequest_bundles[bundle.uuid] = bundle
 
         # Set up search lifecycle so bundle can be finished
-        bundle.add_search_request(f'test search {i}')
-        bundle.finish_search_request()
+        bundle.set_initial_search(f'test search {i}')
+        bundle.set_multi_input_request()
 
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
@@ -579,8 +575,8 @@ def test_comprehensive_error_resilience_with_fixes(fake_context):  #pylint:disab
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
-    bundle.add_search_request('test search')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -620,8 +616,8 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
-    bundle.add_search_request('test search')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
 
     requests = []
     for _ in range(5):
@@ -759,8 +755,8 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
 
     # Test case 1: Finished bundle
     finished_bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    finished_bundle.add_search_request('test search')
-    finished_bundle.finish_search_request()
+    finished_bundle.set_initial_search('test search')
+    finished_bundle.set_multi_input_request()
     req1 = fake_source_dict(fake_context)
     finished_bundle.add_media_request(req1)
     finished_bundle.update_request_status(req1, MediaRequestLifecycleStage.COMPLETED)
@@ -858,8 +854,8 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
-    bundle.add_search_request('test search')
-    bundle.finish_search_request()
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -890,7 +886,7 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
     assert bundle.uuid not in cog.multirequest_bundles
 
 
-def test_bundle_invalid_parameters(fake_context):  #pylint:disable=redefined-outer-name
+def test_bundle_invalid_parameters(fake_context):  #pylint:disable=redefined-outer-name,unused-argument
     """Test MultiMediaRequestBundle with invalid parameters"""
 
     # Mock channel for testing
@@ -903,14 +899,6 @@ def test_bundle_invalid_parameters(fake_context):  #pylint:disable=redefined-out
 
     bundle2 = MultiMediaRequestBundle(123, -1, mock_channel)  # Accepts negative channel_id
     assert bundle2.channel_id == -1  # Vulnerability: negative ID accepted
-
-    # Test zero items_per_message (should be clamped to 1)
-    bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=0)
-    assert bundle.items_per_message == 1  # Should be clamped to minimum 1
-
-    # Test extreme items_per_message (should be clamped to 5)
-    bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=100)
-    assert bundle.items_per_message == 5  # Should be clamped to maximum 5
 
 
 def test_guild_cleanup_memory_leak(fake_context):  #pylint:disable=redefined-outer-name
@@ -952,9 +940,12 @@ async def test_concurrent_bundle_status_updates(fake_context):  #pylint:disable=
     """Test concurrent status updates don't corrupt bundle state"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
 
+    # Mark search as finished so bundle can report finished status
+    bundle.search_finished = True
+
     # Add multiple requests
     requests = []
-    bundle.finish_search_request()
+    # Don't need search banner for this test - just testing concurrent status updates
     for i in range(10):
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
@@ -992,10 +983,14 @@ def test_bundle_print_after_shutdown(fake_context):  #pylint:disable=redefined-o
     """Test bundle print() method after shutdown returns empty list"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
 
+    # Add search request to create proper bundle structure
+    bundle.set_initial_search('test-playlist')
+    bundle.set_multi_input_request()
+
     # Add request to generate content
     req = fake_source_dict(fake_context)
-    req.multi_input_string = 'test-playlist'
     bundle.add_media_request(req)
+    bundle.all_requests_added()
 
     # Should have content before shutdown
     initial_print = bundle.print()
@@ -1025,7 +1020,8 @@ def test_bundle_uuid_uniqueness(fake_context):  #pylint:disable=redefined-outer-
 def test_bundle_finished_property_edge_cases(fake_context):  #pylint:disable=redefined-outer-name
     """Test bundle finished property with edge cases"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.finish_search_request()
+    # Mark search as finished (no search banner needed for this test)
+    bundle.search_finished = True
     # Empty bundle is considered finished (0 processed out of 0 total)
     assert bundle.finished is True
 
@@ -1099,7 +1095,7 @@ def test_bundle_cleanup_thread_safety_simulation(fake_context):  #pylint:disable
 
     # Create a finished bundle
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.finish_search_request()
+    bundle.search_finished = True  # Mark as finished without search banner
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Simulate the thread-safe removal logic from music.py lines 658-662
@@ -1303,7 +1299,7 @@ async def test_bundle_constructor_integration_with_music_cog(fake_context):  #py
     # Create a bundle for the test
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
-    bundle.finish_search_request()
+    bundle.search_finished = True  # Mark search as finished without search banner
 
     # Test the method that actually creates bundles
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, mock_player)
@@ -1349,11 +1345,11 @@ async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #
 
     # Create multiple bundles for the same guild
     bundle1 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle1.finish_search_request()
+    bundle1.search_finished = True  # Mark search as finished without search banner
     bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle2.finish_search_request()
+    bundle2.search_finished = True  # Mark search as finished without search banner
     bundle3 = MultiMediaRequestBundle(999, 888, fake_context['channel'])  # Different guild
-    bundle3.finish_search_request()
+    bundle3.search_finished = True  # Mark search as finished without search banner
 
     cog.multirequest_bundles[bundle1.uuid] = bundle1
     cog.multirequest_bundles[bundle2.uuid] = bundle2

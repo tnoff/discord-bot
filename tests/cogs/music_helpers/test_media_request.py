@@ -4,6 +4,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, chunk_list
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 
 from tests.helpers import fake_source_dict
 from tests.helpers import fake_context #pylint:disable=unused-import
@@ -21,7 +22,10 @@ async def test_media_request_basics(fake_context): #pylint:disable=redefined-out
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
     x = fake_source_dict(fake_context)
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b.set_initial_search(x.raw_search_string)
+    b.set_multi_input_request()
     b.add_media_request(x)
+    b.all_requests_added()
     assert b.print()[0] == f'Media request queued for download: "{x.raw_search_string}"'
 
     b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
@@ -36,17 +40,14 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     x = fake_source_dict(fake_context)
     y = fake_source_dict(fake_context)
     z = fake_source_dict(fake_context)
-    x.multi_input_string = multi_input_string
-    y.multi_input_string = multi_input_string
-    z.multi_input_string = multi_input_string
-
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    b.add_search_request(multi_input_string)
-    b.finish_search_request()
+    b.set_initial_search(multi_input_string)
+    b.set_multi_input_request()
     b.add_media_request(x)
     b.add_media_request(y)
     b.add_media_request(z)
+    b.all_requests_added()
 
     assert x.bundle_uuid == b.uuid
     assert b.finished is False
@@ -56,101 +57,47 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     full_output = '\n'.join(print_output)
     assert 'Processing ' in full_output
     assert '<https://foo.example.com/playlist>' in full_output
-    assert '0/3 items processed successfully, 0 failed' in full_output
+    assert '0/3 media_requests processed successfully, 0 failed' in full_output
 
     b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Processing ' in full_output
-    assert '0/3 items processed successfully, 0 failed' in full_output
+    assert '0/3 media_requests processed successfully, 0 failed' in full_output
     assert 'Downloading and processing media request:' in full_output
 
     b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
     b.update_request_status(y, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '1/3 items processed successfully, 0 failed' in full_output
+    assert '1/3 media_requests processed successfully, 0 failed' in full_output
 
     b.update_request_status(y, MediaRequestLifecycleStage.FAILED, failure_reason='cats ate the chords')
     b.update_request_status(z, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '1/3 items processed successfully, 1 failed' in full_output
+    assert '1/3 media_requests processed successfully, 1 failed' in full_output
     assert 'cats ate the chords' in full_output
 
     b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '2/3 items processed successfully, 1 failed' in full_output
+    assert '2/3 media_requests processed successfully, 1 failed' in full_output
     assert b.finished is True
 
 
 @pytest.mark.asyncio
-async def test_media_request_bundle_blanks_removed(fake_context): #pylint:disable=redefined-outer-name
-    multi_input_string = 'https://foo.example.com/playlist'
-    x = fake_source_dict(fake_context)
-    y = fake_source_dict(fake_context)
-    z = fake_source_dict(fake_context)
-    a = fake_source_dict(fake_context)
-    c = fake_source_dict(fake_context)
-
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'], items_per_message=2)
-    b.add_search_request(multi_input_string)
-    b.finish_search_request()
-    b.add_media_request(x)
-    b.add_media_request(y)
-    b.add_media_request(z)
-    b.add_media_request(a)
-    b.add_media_request(c)
-
-    initial_print = b.print()
-    assert len(initial_print) == 4
-
-    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
-    b.update_request_status(y, MediaRequestLifecycleStage.COMPLETED)
-    b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
-
-    # Top row changed, bottom row the same
-    new_print = b.print()
-    assert initial_print[0] != new_print[0]
-    assert initial_print[-1] == new_print[-1]
-    assert len(new_print) == 3
-
-@pytest.mark.asyncio
-async def test_media_request_bundle_multi_message(fake_context): #pylint:disable=redefined-outer-name
-    multi_input_string = 'https://foo.example.com/playlist'
-    x = fake_source_dict(fake_context)
-    y = fake_source_dict(fake_context)
-    z = fake_source_dict(fake_context)
-    x.multi_input_string = multi_input_string
-    y.multi_input_string = multi_input_string
-    z.multi_input_string = multi_input_string
-
-
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'], items_per_message=2)
-    b.add_search_request(multi_input_string)
-    b.finish_search_request()
-    b.add_media_request(x)
-    b.add_media_request(y)
-    b.add_media_request(z)
-    assert b.finished is False
-
-    assert b.print()[0] == 'Processing "<https://foo.example.com/playlist>"\n0/3 items processed successfully, 0 failed'
-    assert b.print()[1] == f'Media request queued for download: "{x.raw_search_string}"\nMedia request queued for download: "{y.raw_search_string}"'
-    assert b.print()[2] == f'Media request queued for download: "{z.raw_search_string}"'
-
-@pytest.mark.asyncio
 async def test_media_request_bundle_shutdown(fake_context): #pylint:disable=redefined-outer-name
     """Test that bundle shutdown functionality clears messages"""
-    multi_input_string = 'https://foo.example.com/playlist'
     x = fake_source_dict(fake_context)
     y = fake_source_dict(fake_context)
-    x.multi_input_string = multi_input_string
-    y.multi_input_string = multi_input_string
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b.set_initial_search("test search")
+    b.set_multi_input_request()
     b.add_media_request(x)
     b.add_media_request(y)
+    b.all_requests_added()
 
     # Initially should have messages
     assert len(b.print()) > 0
@@ -171,7 +118,10 @@ async def test_media_request_bundle_shutdown_single_item(fake_context): #pylint:
     x = fake_source_dict(fake_context)
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b.set_initial_search(x.raw_search_string)
+    b.set_multi_input_request()
     b.add_media_request(x)
+    b.all_requests_added()
 
     # Initially should have message for single item
     assert len(b.print()) == 1
@@ -192,7 +142,10 @@ async def test_media_request_bundle_shutdown_initialization(fake_context): #pyli
 
     # Should work normally before shutdown
     x = fake_source_dict(fake_context)
+    b.set_initial_search(x.raw_search_string)
+    b.set_multi_input_request()
     b.add_media_request(x)
+    b.all_requests_added()
     assert len(b.print()) > 0
 
 @pytest.fixture
@@ -201,8 +154,7 @@ def media_request_bundle(fake_context):  #pylint:disable=redefined-outer-name
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
-        items_per_message=3
+        fake_context['channel']
     )
     # Set up search state for testing - bundles created in tests should be ready for use
     bundle.search_finished = True
@@ -301,7 +253,10 @@ def test_media_request_bundle_print_single_item(media_request_bundle, fake_conte
         'single test',
         SearchType.SEARCH
     )
+    media_request_bundle.set_initial_search('single test')
+    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
+    media_request_bundle.all_requests_added()
 
     result = media_request_bundle.print()
     assert len(result) == 1
@@ -310,8 +265,8 @@ def test_media_request_bundle_print_single_item(media_request_bundle, fake_conte
 
 def test_media_request_bundle_print_multiple_items_with_status(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test print method with multiple items showing top message and status"""
-    media_request_bundle.add_search_request('playlist test')
-    media_request_bundle.finish_search_request()
+    media_request_bundle.set_initial_search('playlist test')
+    media_request_bundle.set_multi_input_request()
 
     # Add multiple requests
     for i in range(3):
@@ -325,18 +280,17 @@ def test_media_request_bundle_print_multiple_items_with_status(media_request_bun
             SearchType.SEARCH
         )
         media_request_bundle.add_media_request(media_request)
+    media_request_bundle.all_requests_added()
 
     result = media_request_bundle.print()
 
     # Should have top message
     assert any('Processing "playlist test"' in msg for msg in result)
-    assert any('0/3 items processed successfully, 0 failed' in msg for msg in result)
+    assert any('0/3 media_requests processed successfully, 0 failed' in msg for msg in result)
 
 
 def test_media_request_bundle_print_with_different_statuses(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test print method with different request statuses"""
-    media_request_bundle.multi_input_string = 'mixed status test'
-
     # Add requests with different statuses
     statuses_to_test = [
         (MediaRequestLifecycleStage.QUEUED, 'queued'),
@@ -359,6 +313,8 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
         )
         media_request_bundle.add_media_request(media_request)
         media_requests.append(media_request)
+
+    media_request_bundle.all_requests_added()
 
     # Update statuses
     for media_request, (status, _) in zip(media_requests, statuses_to_test):
@@ -391,7 +347,10 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
         'failed request',
         SearchType.SEARCH
     )
+    media_request_bundle.set_initial_search('failed request')
+    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
+    media_request_bundle.all_requests_added()
 
     # Mark as failed with reason
     media_request_bundle.update_request_status(
@@ -407,35 +366,6 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
     assert 'Video too long' in result_text
 
 
-def test_media_request_bundle_print_items_per_message_chunking(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that print method respects items_per_message limit"""
-    # Bundle is configured for 3 items per message
-
-    # Add 7 requests (should result in 3 messages: 2+3+2 when including top messages)
-    for i in range(7):
-        media_request = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            f'request {i}',
-            f'request {i}',
-            SearchType.SEARCH
-        )
-        media_request_bundle.add_media_request(media_request)
-
-    result = media_request_bundle.print()
-
-    # Should have multiple messages due to chunking
-    assert len(result) > 1
-
-    # Each message should not exceed items_per_message when counting lines
-    for message in result:
-        lines = message.split('\n')
-        # Account for top message and status line taking up space
-        assert len(lines) <= media_request_bundle.items_per_message + 2
-
-
 def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test that URLs are properly formatted with angle brackets"""
     media_request = MediaRequest(
@@ -447,7 +377,10 @@ def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_co
         'https://example.com/video',
         SearchType.DIRECT
     )
+    media_request_bundle.set_initial_search('https://example.com/video')
+    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
+    media_request_bundle.all_requests_added()
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -467,7 +400,10 @@ def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fa
         'test search string',
         SearchType.SEARCH
     )
+    media_request_bundle.set_initial_search('test search string')
+    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
+    media_request_bundle.all_requests_added()
 
     # Set to BACKOFF status
     media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
@@ -502,7 +438,21 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
             SearchType.SEARCH
         )
         media_request_bundle.add_media_request(media_request)
-        media_request_bundle.update_request_status(media_request, stage)
+    media_request_bundle.all_requests_added()
+
+    for i, (media_request, stage) in enumerate(zip(media_request_bundle.media_requests, lifecycle_stages)):
+        # Reconstruct MediaRequest object with the stored UUID
+        mr = MediaRequest(
+            fake_context['guild'].id,
+            fake_context['channel'].id,
+            'test_user',
+            123456,
+            f'test search {i}',
+            f'test search {i}',
+            SearchType.SEARCH
+        )
+        mr.uuid = media_request['uuid']
+        media_request_bundle.update_request_status(mr, stage)
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -576,7 +526,10 @@ def test_bundle_override_message_functionality(fake_context):  #pylint:disable=r
 
     # Add request with override message
     req = fake_source_dict(fake_context)
+    bundle.set_initial_search(req.raw_search_string)
+    bundle.set_multi_input_request()
     bundle.add_media_request(req)
+    bundle.all_requests_added()
 
     # Update with override message
     bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED,
@@ -590,32 +543,16 @@ def test_bundle_override_message_functionality(fake_context):  #pylint:disable=r
     assert "Original failure" not in messages[0]  # Original failure reason should be ignored
 
 
-def test_bundle_items_per_message_edge_cases(fake_context):  #pylint:disable=redefined-outer-name
-    """Test bundle with various items_per_message edge cases"""
-    # Test zero gets clamped to 1
-    bundle_zero = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=0)
-    assert bundle_zero.items_per_message == 1
-
-    # Test negative gets clamped to 1
-    bundle_negative = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=-5)
-    assert bundle_negative.items_per_message == 1
-
-    # Test large number gets clamped to 5
-    bundle_large = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=100)
-    assert bundle_large.items_per_message == 5
-
-    # Test edge of valid range
-    bundle_valid = MultiMediaRequestBundle(123, 456, fake_context['channel'], items_per_message=3)
-    assert bundle_valid.items_per_message == 3
-
-
 def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-outer-name
     """Test bundle when all items are completed/discarded (empty message list)"""
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add request that will be completed (shouldn't appear in messages)
     req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
+    bundle.set_initial_search("search")
+    bundle.set_multi_input_request()
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
 
     # Print should return empty list when no messages to display
@@ -629,7 +566,10 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
 
     # Add single failed request
     req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
+    bundle.set_initial_search("search")
+    bundle.set_multi_input_request()
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason="Test failure")
 
     messages = bundle.print()
@@ -642,26 +582,27 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
 def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:disable=redefined-outer-name
     """Test that multi-item bundles include status header"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.add_search_request("test-playlist")
-    bundle.finish_search_request()
+    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request()
 
     # Add multiple requests
-    for i in range(3):
+    requests = []
+    for _ in range(3):
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
-        if i == 0:
-            bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
-        elif i == 1:
-            bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED)
-        else:
-            bundle.update_request_status(req, MediaRequestLifecycleStage.QUEUED)
+        requests.append(req)
+    bundle.all_requests_added()
+
+    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
+    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.FAILED)
+    bundle.update_request_status(requests[2], MediaRequestLifecycleStage.QUEUED)
 
     messages = bundle.print()
     # Should include status header since total > 1
     full_message = "\n".join(messages)
     assert "Processing" in full_message
     assert "test-playlist" in full_message
-    assert "1/3 items processed successfully, 1 failed" in full_message
+    assert "1/3 media_requests processed successfully, 1 failed" in full_message
 
 
 def test_message_queue_none_channel_validation(fake_context):  #pylint:disable=redefined-outer-name
@@ -745,14 +686,15 @@ def test_bundle_text_channel_parameter_storage(fake_context):  #pylint:disable=r
 def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefined-outer-name
     """Test new completion messaging in bundle print method"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.add_search_request("test-playlist")
-    bundle.finish_search_request()
+    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request()
 
     # Add multiple requests to trigger multi-item messaging
     req1 = fake_source_dict(fake_context)
     req2 = fake_source_dict(fake_context)
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
+    bundle.all_requests_added()
 
     # Test in-progress messaging
     messages = bundle.print()
@@ -769,7 +711,7 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
     full_message = "\n".join(messages)
     assert "Completed processing of" in full_message
     assert "test-playlist" in full_message
-    assert "2/2 items processed successfully, 0 failed" in full_message
+    assert "2/2 media_requests processed successfully, 0 failed" in full_message
 
 
 def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefined-outer-name
@@ -777,13 +719,14 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
 
     # Test URL gets wrapped in angle brackets
-    bundle.add_search_request("https://example.com/playlist")
-    bundle.finish_search_request()
+    bundle.set_initial_search("https://example.com/playlist")
+    bundle.set_multi_input_request()
 
     req1 = fake_source_dict(fake_context)
     req2 = fake_source_dict(fake_context)
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
+    bundle.all_requests_added()
 
     messages = bundle.print()
     full_message = "\n".join(messages)
@@ -791,15 +734,216 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
 
     # Test non-URL doesn't get wrapped
     bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle2.add_search_request("My Playlist")
-    bundle2.finish_search_request()
+    bundle2.set_initial_search("My Playlist")
+    bundle2.set_multi_input_request()
 
     req3 = fake_source_dict(fake_context)
     req4 = fake_source_dict(fake_context)
     bundle2.add_media_request(req3)
     bundle2.add_media_request(req4)
+    bundle2.all_requests_added()
 
     messages2 = bundle2.print()
     full_message2 = "\n".join(messages2)
     assert "\"My Playlist\"" in full_message2
     assert "<My Playlist>" not in full_message2
+
+
+def test_bundle_pagination_length_parameter(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that pagination_length parameter is properly stored and used"""
+    custom_length = 500
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel'],
+        pagination_length=custom_length
+    )
+
+    # Verify pagination_length is stored
+    assert bundle.pagination_length == custom_length
+
+    # Verify default value
+    default_bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+    assert default_bundle.pagination_length == DISCORD_MAX_MESSAGE_LENGTH
+
+
+def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that short pagination_length splits content into multiple pages"""
+    # Use very short pagination length to force multiple pages
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel'],
+        pagination_length=100  # Very short to trigger pagination
+    )
+    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request()
+
+    # Add multiple requests with medium-length strings
+    for i in range(5):
+        req = MediaRequest(
+            fake_context['guild'].id,
+            fake_context['channel'].id,
+            'test_user',
+            123456,
+            f'test search item with some length {i}',
+            f'test search item with some length {i}',
+            SearchType.SEARCH
+        )
+        bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    result = bundle.print()
+
+    # Should create multiple pages due to short pagination length
+    assert len(result) > 1, "Short pagination length should create multiple pages"
+
+    # Verify all content is present across pages
+    full_output = '\n'.join(result)
+    assert 'test-playlist' in full_output
+    for i in range(5):
+        assert f'test search item with some length {i}' in full_output
+
+
+def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that completed/discarded items are removed from row_collections output"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel'],
+        pagination_length=150  # Short enough to create pagination
+    )
+    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request()
+
+    # Add requests
+    requests = []
+    for i in range(4):
+        req = MediaRequest(
+            fake_context['guild'].id,
+            fake_context['channel'].id,
+            'test_user',
+            123456,
+            f'item{i}',
+            f'item{i}',
+            SearchType.SEARCH
+        )
+        bundle.add_media_request(req)
+        requests.append(req)
+    bundle.all_requests_added()
+
+    initial_result = bundle.print()
+    initial_output = '\n'.join(initial_result)
+
+    # All items should be in initial output
+    for i in range(4):
+        assert f'item{i}' in initial_output
+
+    # Complete first two items
+    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
+    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.COMPLETED)
+
+    new_result = bundle.print()
+    new_output = '\n'.join(new_result)
+
+    # Completed items should not appear
+    assert 'item0' not in new_output
+    assert 'item1' not in new_output
+
+    # Remaining items should still appear
+    assert 'item2' in new_output
+    assert 'item3' in new_output
+
+
+def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that completing items in middle doesn't affect later pages unnecessarily"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel'],
+        pagination_length=200  # Create multiple pages
+    )
+    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request()
+
+    # Add many requests to span multiple pages
+    requests = []
+    for i in range(8):
+        req = MediaRequest(
+            fake_context['guild'].id,
+            fake_context['channel'].id,
+            'test_user',
+            123456,
+            f'media_request_item_{i:02d}',
+            f'media_request_item_{i:02d}',
+            SearchType.SEARCH
+        )
+        bundle.add_media_request(req)
+        requests.append(req)
+    bundle.all_requests_added()
+
+    # Complete some items from the beginning
+    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
+    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.COMPLETED)
+
+    new_result = bundle.print()
+    new_output = '\n'.join(new_result)
+
+    # Later items should still be present
+    for i in range(2, 8):
+        assert f'media_request_item_{i:02d}' in new_output, f"Item {i} should still be in output"
+
+    # Completed items should not be present
+    assert 'media_request_item_00' not in new_output
+    assert 'media_request_item_01' not in new_output
+
+
+def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that bundle is ready_for_print during search phase before any media requests are added"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    # Initially, bundle has no search and no requests
+    # DapperTable.print() returns [''] for empty table, which is expected behavior
+    initial_print = bundle.print()
+    # Empty table returns a list with empty string
+    assert initial_print == [''] or not initial_print
+
+    # Add search request - bundle should now have something to print even without media requests
+    bundle.set_initial_search("spotify:album:123abc")
+
+    # During search phase (before set_multi_input_request), print should show processing message
+    result = bundle.print()
+    assert len(result) == 1
+    assert 'Processing search "spotify:album:123abc"' in result[0]
+
+    # Finish search - message changes from "Processing search" to just "Processing"
+    bundle.set_multi_input_request()
+    result = bundle.print()
+    assert len(result) == 1
+    # After set_multi_input_request, the message changes
+    assert 'Processing' in result[0]
+    assert 'spotify:album:123abc' in result[0]
+
+    # Add media requests
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+
+    # Still shows processing message even before all_requests_added
+    result = bundle.print()
+    assert len(result) == 1
+    assert 'Processing' in result[0]
+    assert 'spotify:album:123abc' in result[0]
+
+    # After all_requests_added, should print full bundle with table content
+    bundle.all_requests_added()
+    result = bundle.print()
+    assert len(result) == 1
+    assert 'Media request queued for download' in result[0]
