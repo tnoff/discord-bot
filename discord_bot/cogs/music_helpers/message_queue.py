@@ -21,7 +21,6 @@ class MessageQueue():
     Message queue to handle diff types of messages
     '''
     def __init__(self):
-        self.single_mutable_queue = {}
         self.mutable_bundles = {}
         self.single_immutable_queue = Queue()
 
