@@ -168,6 +168,8 @@ Note that with either Spotify playlists/albums or Youtube playlist input, you ca
 
 ## Under the Hood
 
+
+
 All videos are downloaded by the bot via [yt-dlp](https://github.com/yt-dlp/yt-dlp). The video audio is then left on disk and deleted after the video is played. You can specify what directory the videos are downloaded to in the config:
 
 ```
@@ -221,8 +223,6 @@ music:
 ```
 
 Here is a diagram of how the layers of caching interact with each other:
-
-![](./images/download-cache.png)
 
 
 ### Audio Processing
@@ -297,3 +297,12 @@ music:
 ```
 
 Note that only s3 storage is supported at present. The client assumes you have environment variables set in the bot to handle all of the authentication.
+
+### Additonal Reads
+
+For additonal reading:
+
+- [Terminology](./music/terminology.md)
+- [Background Tasks](./music/background.md)
+- [Video Download Flow](./music/flow.md)
+- [Discord Messaging](./music/messaging.md)
