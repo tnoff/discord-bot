@@ -197,22 +197,16 @@ async def test_return_loop_runner():
     def fake_func():
         raise ExitEarlyException('exiting')
     fake_bot = fake_bot_yielder()()
-    with NamedTemporaryFile() as tmpfile:
-        path = Path(tmpfile.name)
-        runner = return_loop_runner(fake_func, fake_bot, logging, path)
-        assert await runner() is False
-        assert path.read_text(encoding='utf-8') == '0'
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is False
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_standard_exception():
     def fake_func():
         raise Exception('exiting') #pylint:disable=broad-exception-raised
     fake_bot = fake_bot_yielder()()
-    with NamedTemporaryFile() as tmpfile:
-        path = Path(tmpfile.name)
-        runner = return_loop_runner(fake_func, fake_bot, logging, path)
-        assert await runner() is False
-        assert path.read_text(encoding='utf-8') == '0'
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is False
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_continue_exception():
@@ -227,13 +221,10 @@ async def test_return_loop_runner_continue_exception():
         if call_count == 1:
             raise FakeException('foo')  # First call raises continue exception
         fake_bot.bot_closed = True  # Second call closes bot to exit loop
-    with NamedTemporaryFile() as tmpfile:
-        path = Path(tmpfile.name)
-        runner = return_loop_runner(fake_func, fake_bot, logging, path, continue_exceptions=FakeException)
-        await runner()
-        assert fake_bot.is_closed()  # Bot should be closed after loop exits
-        assert call_count == 2  # Function should be called twice (continue exception, then close)
-        assert path.read_text(encoding='utf-8') == '0'  # Checkfile should show '0' after exit
+    runner = return_loop_runner(fake_func, fake_bot, logging, continue_exceptions=FakeException)
+    await runner()
+    assert fake_bot.is_closed()  # Bot should be closed after loop exits
+    assert call_count == 2  # Function should be called twice (continue exception, then close)
 
 def test_discord_format_string_embed_no_url():
     """Test discord_format_string_embed with string containing no URLs"""

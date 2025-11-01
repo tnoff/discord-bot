@@ -1,10 +1,8 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from pathlib import Path
 from random import choice
 from re import match, sub, MULTILINE
-from tempfile import NamedTemporaryFile
 from typing import Optional, List
 
 from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
@@ -126,14 +124,13 @@ class Markov(CogHelper):
         self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
 
         self._task = None
-        self.loop_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
 
     def __loop_active_callback(self, _options):
         '''
         Loop active callback check
         '''
-        value = int(self.loop_checkfile.read_text())
+        value = 1 if (self._task and not self._task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
@@ -141,13 +138,11 @@ class Markov(CogHelper):
         ]
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, self.loop_checkfile, continue_exceptions=(DiscordServerError, TimeoutError))())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, continue_exceptions=(DiscordServerError, TimeoutError))())
 
     async def cog_unload(self):
         if self._task:
             self._task.cancel()
-        if self.loop_checkfile.exists():
-            self.loop_checkfile.unlink()
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
     def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
