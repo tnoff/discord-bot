@@ -144,8 +144,9 @@ general:
     - guild_id_1234505018501
 ```
 
-## Cog Docs
+## Additional Docs
 
+- [CLI and Application Lifecycle](./docs/cli.md)
 - [Common Cog](./docs/common.md)
 - [Delete Messages Cog](./docs/delete_messages.md)
 - [Markov Cog](./docs/markov.md)

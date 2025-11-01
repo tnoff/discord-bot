@@ -1,8 +1,6 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
@@ -66,7 +64,6 @@ class DeleteMessages(CogHelper):
         self.loop_sleep_interval = self.settings.get('delete_messages', {}).get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
         self.discord_channels = self.settings.get('delete_messages', {}).get('discord_channels', [])
         self._task = None
-        self.loop_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
 
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Delete message loop heartbeat')
 
@@ -74,7 +71,7 @@ class DeleteMessages(CogHelper):
         '''
         Loop active callback check
         '''
-        value = int(self.loop_checkfile.read_text())
+        value = 1 if (self._task and not self._task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'delete_message_check'
@@ -82,13 +79,11 @@ class DeleteMessages(CogHelper):
         ]
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(return_loop_runner(self.delete_messages_loop, self.bot, self.logger, self.loop_checkfile, continue_exceptions=DiscordServerError)())
+        self._task = self.bot.loop.create_task(return_loop_runner(self.delete_messages_loop, self.bot, self.logger, continue_exceptions=DiscordServerError)())
 
     async def cog_unload(self):
         if self._task:
             self._task.cancel()
-        if self.loop_checkfile.exists():
-            self.loop_checkfile.unlink()
 
     async def delete_messages_loop(self):
         '''

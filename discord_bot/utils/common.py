@@ -237,7 +237,7 @@ def rm_tree(pth: Path) -> bool:
     pth.rmdir()
     return True
 
-def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfile: Path, continue_exceptions=None, exit_exceptions=ExitEarlyException):
+def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
     '''
     Return a basic standard bot loop
 
@@ -249,8 +249,6 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfi
     exit_exceptions : Exit on these exceptions
     '''
     continue_exceptions = continue_exceptions or ()
-    if checkfile:
-        checkfile.write_text('1')
     async def loop_runner(): #pylint:disable=duplicate-code
         await bot.wait_until_ready()
 
@@ -261,16 +259,10 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, checkfi
                 logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
                 continue
             except exit_exceptions:
-                if checkfile:
-                    checkfile.write_text('0')
                 return False
             except Exception as e:
                 logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
-                if checkfile:
-                    checkfile.write_text('0')
                 return False
-        if checkfile:
-            checkfile.write_text('0')
     return loop_runner
 
 def run_commit(db_session: Session):

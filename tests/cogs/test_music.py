@@ -558,31 +558,39 @@ def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-
         Music(fake_context['bot'], config, None)
 
 def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test metric callback methods read from checkfiles correctly"""
+    """Test metric callback methods check task status correctly"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Mock the Path.read_text method directly
-    mock_read_text = mocker.patch('pathlib.Path.read_text')
+    # Create mock tasks with done() methods
+    mock_task_running = mocker.MagicMock()
+    mock_task_running.done.return_value = False  # Task is running
 
-    # Set up side effect to return different values based on calls
-    mock_read_text.side_effect = ['1', '2', '3', '4']
+    mock_task_finished = mocker.MagicMock()
+    mock_task_finished.done.return_value = True  # Task is finished
 
-    # Test each callback method
+    # Test playlist_history callback with running task
+    cog._history_playlist_task = mock_task_running  # pylint: disable=protected-access
     result = cog._Music__playlist_history_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 1
 
+    # Test download_file callback with finished task
+    cog._download_task = mock_task_finished  # pylint: disable=protected-access
     result = cog._Music__download_file_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
-    assert result[0].value == 2
+    assert result[0].value == 0
 
+    # Test send_message callback with running task
+    cog._message_task = mock_task_running  # pylint: disable=protected-access
     result = cog._Music__send_message_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
-    assert result[0].value == 3
+    assert result[0].value == 1
 
+    # Test cleanup_player callback with no task (None)
+    cog._cleanup_task = None  # pylint: disable=protected-access
     result = cog._Music__cleanup_player_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
-    assert result[0].value == 4
+    assert result[0].value == 0
 
 def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with cache enabled"""

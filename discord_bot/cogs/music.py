@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 import random
 from shutil import disk_usage
-from tempfile import TemporaryDirectory, NamedTemporaryFile
+from tempfile import TemporaryDirectory
 from time import time
 from typing import List
 
@@ -395,19 +395,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
         # Timestamps for heartbeat gauges
-        #self.playlist_history_timestamp = None
-        self.send_message_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__send_message_loop_active_callback, 'Send message loop heartbeat')
-        self.cleanup_player_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
-        self.cache_cleanup_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cache_cleanup_loop_active_callback, 'Cache cleanup loop heartbeat')
-        self.download_file_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
-        self.playlist_history_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__playlist_history_loop_active_callback, 'Playlist update loop heartbeat')
         if self.youtube_music_client:
-            self.youtube_search_checkfile = Path(NamedTemporaryFile(delete=False).name) #pylint:disable=consider-using-with
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
 
     # Metric callback functons
@@ -415,7 +408,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.youtube_search_checkfile.read_text())
+        value = 1 if (self._youtube_search_task and not self._youtube_search_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'youtube_music_search'
@@ -426,7 +419,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.playlist_history_checkfile.read_text())
+        value = 1 if (self._history_playlist_task and not self._history_playlist_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'playlist_history'
@@ -436,7 +429,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.download_file_checkfile.read_text())
+        value = 1 if (self._download_task and not self._download_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files'
@@ -447,7 +440,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.cache_cleanup_checkfile.read_text())
+        value = 1 if (self._cache_cleanup_task and not self._cache_cleanup_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
@@ -457,7 +450,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.send_message_checkfile.read_text())
+        value = 1 if (self._message_task and not self._message_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'send_messages'
@@ -468,7 +461,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = int(self.cleanup_player_checkfile.read_text())
+        value = 1 if (self._cleanup_task and not self._cleanup_task.done()) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
@@ -518,15 +511,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger, self.cleanup_player_checkfile)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger, self.download_file_checkfile)())
-        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, self.send_message_checkfile, continue_exceptions=DiscordServerError)())
+        self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
+        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
+        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, continue_exceptions=DiscordServerError)())
         if self.enable_youtube_music_search:
-            self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger, self.youtube_search_checkfile)())
+            self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.enable_cache:
-            self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger, self.cache_cleanup_checkfile)())
+            self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger)())
         if self.db_engine:
-            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger, self.playlist_history_checkfile)())
+            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger)())
 
     async def cog_unload(self):
         '''
@@ -565,19 +558,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 rm_tree(self.temp_download_dir)
             if self.player_dir.exists():
                 rm_tree(self.player_dir)
-            # Delete loop checkfiles
-            if self.cleanup_player_checkfile.exists():
-                self.cleanup_player_checkfile.unlink()
-            if self.send_message_checkfile.exists():
-                self.send_message_checkfile.unlink()
-            if self.cache_cleanup_checkfile.exists():
-                self.cache_cleanup_checkfile.unlink()
-            if self.download_file_checkfile.exists():
-                self.download_file_checkfile.unlink()
-            if self.playlist_history_checkfile.exists():
-                self.playlist_history_checkfile.unlink()
-            if self.youtube_search_checkfile.exists():
-                self.youtube_search_checkfile.unlink()
 
             self.multirequest_bundles.clear()
 
