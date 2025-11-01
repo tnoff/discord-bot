@@ -1,7 +1,7 @@
 from asyncio import run, get_running_loop
-from enum import Enum
 import logging
 from logging import RootLogger
+import signal
 from sys import stderr
 from typing import List
 
@@ -27,7 +27,6 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
 from pyaml_env import parse_config
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.error import CommandErrorHandler
@@ -38,7 +37,7 @@ from discord_bot.cogs.markov import Markov
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
-from discord_bot.database import BASE, MarkovRelation, MarkovChannel
+from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 
@@ -68,25 +67,55 @@ async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: Roo
     Main loop for starting bot
     Includes logic to handle stops and cog removals
     '''
+    # Set up signal handlers for graceful shutdown
+    loop = get_running_loop()
+    shutdown_triggered = False
+
+    def signal_handler(signum, frame): #pylint:disable=unused-argument
+        '''Handle SIGTERM and SIGINT for graceful shutdown'''
+        nonlocal shutdown_triggered
+        if shutdown_triggered:
+            return
+        shutdown_triggered = True
+        sig_name = signal.Signals(signum).name
+        logger.info(f'Main :: Received {sig_name}, triggering graceful shutdown...')
+        # Schedule the bot to close
+        if not bot.is_closed():
+            loop.create_task(bot.close())
+
+    # Register signal handlers for both SIGTERM (Docker stop) and SIGINT (Ctrl+C)
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     try:
         async with bot:
             for cog in cog_list:
                 await bot.add_cog(cog)
             await bot.start(token)
+    except KeyboardInterrupt:
+        logger.info('Main :: Received keyboard interrupt, shutting down gracefully...')
+        shutdown_triggered = True
     except Exception as e:
-        logger.debug('Main :: Shuttdown down main loop', str(e))
+        logger.debug('Main :: Shutdown down main loop', str(e))
         return
-
-class CLIRunners(Enum):
-    '''
-    Enum for CLI Runner Commands
-    '''
-    CLEAR_MARKOV = 'clear-markov-relations'
+    finally:
+        if shutdown_triggered:
+            # Call cog_unload on all cogs to allow graceful shutdown
+            for cog in cog_list:
+                if hasattr(cog, 'cog_unload'):
+                    try:
+                        logger.debug(f'Main :: Calling cog_unload on {cog.__class__.__name__}')
+                        await cog.cog_unload()
+                    except Exception as e:
+                        logger.exception(f'Main :: Error during cog_unload for {cog.__class__.__name__}: {str(e)}')
+            # Ensure bot connection is closed
+            if not bot.is_closed():
+                await bot.close()
+            logger.info('Main :: Graceful shutdown complete')
 
 @click.command()
-@click.option('-e', '--execute', type=click.Choice([CLIRunners.CLEAR_MARKOV.value]))
 @click.argument('config_file', type=click.Path(dir_okay=False))
-def main(execute, config_file): #pylint:disable=too-many-statements
+def main(config_file): #pylint:disable=too-many-statements
     '''
     Main loop
     '''
@@ -146,35 +175,12 @@ def main(execute, config_file): #pylint:disable=too-many-statements
         discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
         discord_logger.setLevel(logging.DEBUG)
 
-        if execute == CLIRunners.CLEAR_MARKOV.value:
-            clear_markov_relations(db_engine)
-            return
-
-        # Default to run function
+        # Run main bot
         main_runner(settings, logger, db_engine)
     finally:
         # Ensure database engine is properly disposed
         if db_engine:
             db_engine.dispose()
-
-def clear_markov_relations(db_engine: Engine):
-    '''
-    Clear markov relations from db
-    '''
-    if not db_engine:
-        click.echo('Unable to run markov clear relations, no db given')
-        return False
-    db_session = sessionmaker(bind=db_engine)()
-    try:
-        click.echo('Running clear on all MarkovRelation rows')
-        db_session.query(MarkovRelation).delete()
-        db_session.commit()
-        for channel in db_session.query(MarkovChannel).all():
-            channel.last_message_id = None
-            db_session.commit()
-        return True
-    finally:
-        db_session.close()
 
 def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     '''
