@@ -5,7 +5,7 @@ boto3==1.40.67
 click==8.3.0
 discord.py==2.6.4
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.2.1
-google-api-python-client==2.186.0
+google-api-python-client==2.187.0
 jsonschema==4.25.1
 moviepy==2.2.1
 opentelemetry-sdk==1.38.0
