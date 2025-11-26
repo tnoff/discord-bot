@@ -19,7 +19,7 @@ PyNaCl==1.6.1
 pyaml-env==1.2.2
 pytz==2025.2
 requests==2.32.5
-spotipy==2.25.1
+spotipy==2.25.2
 SQLAlchemy==2.0.44
 yt-dlp==2025.11.12
 ytmusicapi==1.11.2
