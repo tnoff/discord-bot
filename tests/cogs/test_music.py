@@ -434,11 +434,24 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
 
 @pytest.mark.asyncio()
 async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Test that random-play command queues 32 shuffled items from history playlist'''
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    await cog.playlist_random_play(cog, fake_context['context'])
-    result = cog.message_queue.get_single_immutable()
-    assert result[0].function.args[0] == 'Function deprecated, please use `!playlist queue 0 shuffle`'
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock __playlist_queue to verify it's called with correct parameters
+    mock_playlist_queue = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+
+    await cog.playlist_random_play(cog, fake_context['context'])  #pylint:disable=too-many-function-args
+
+    # Verify __playlist_queue was called with shuffle=True, max_num=32, and history playlist
+    assert mock_playlist_queue.called
+    call_args = mock_playlist_queue.call_args
+    assert call_args.kwargs['shuffle'] is True
+    assert call_args.kwargs['max_num'] == 32
+    assert call_args.kwargs['is_history'] is True
 
 
 def test_music_init_with_spotify_credentials(fake_context):  #pylint:disable=redefined-outer-name

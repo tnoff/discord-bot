@@ -2328,9 +2328,24 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     @command_wrapper
     async def playlist_random_play(self, ctx: Context):
         '''
-        Deprecated, please use '!playlist queue 0 shuffle'
+        Play 32 random items from history playlist with shuffle enabled
+
+        Equivalent to: !playlist queue 0 shuffle 32
         '''
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, 'Function deprecated, please use `!playlist queue 0 shuffle`', delete_after=self.delete_after)
-        self.message_queue.send_single_immutable([message_context])
-        return
+        channel = await self.__check_author_voice_chat(ctx)
+        if not channel:
+            return
+        if not await self.__check_database_session(ctx):
+            return
+
+        player = await self.__ensure_player(ctx, channel)
+        if not player:
+            return
+
+        # Get history playlist (id 0)
+        playlist_id, is_history = await self.__get_playlist(0, ctx)
+        if not playlist_id:
+            return None
+
+        # Play 32 items with shuffle enabled
+        return await self.__playlist_queue(ctx, player, playlist_id, shuffle=True, max_num=32, is_history=is_history)
