@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
@@ -11,53 +12,44 @@ from discord_bot.utils.common import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming
 
 
+@dataclass
 class MediaRequest():
     '''
     Original source of play request
+
+    guild_id : Guild where video was requested
+    channel_id : Channel where video was requested
+    requester_name: Display name of original requester
+    requester_id : User id of original requester
+    search_string : Search string, after processing
+    raw_search_string : Original search string
+    search_type : Type of search it was
+    added_from_history : Whether or not this was added from history
+    download_file : Download file eventually
+    add_to_playlist : Set to add to playlist after download
+    history_playlist_item_id : Delete playlist item from history playlist, pass in database id
+    display_name_override : Only used in media request bundles, overrides search strings
     '''
-    def __init__(self, guild_id: int, channel_id: int, requester_name: str, requester_id: int, search_string: str,
-                 raw_search_string: str, search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER],
-                 added_from_history: bool = False,
-                 download_file: bool = True,
-                 add_to_playlist: int = None,
-                 history_playlist_item_id: int = None,
-                 display_name_override: str = None):
-        '''
-        Generate new media request options
-
-        guild_id : Guild where video was requested
-        channel_id : Channel where video was requested
-        requester_name: Display name of original requester
-        requester_id : User id of original requester
-        search_string : Search string, after processing
-        raw_search_string : Original search string
-        search_type : Type of search it was
-        added_from_history : Whether or not this was added from history
-        download_file : Download file eventually
-        add_to_playlist : Set to add to playlist after download
-        history_playlist_item_id : Delete playlist item from history playlist, pass in database id
-        display_name_override : Only used in media request bundles, overrides search strings
-        '''
-        self.guild_id = guild_id
-        self.channel_id = channel_id
-        self.requester_name =  requester_name
-        self.requester_id = requester_id
-        # Keep original search string for later
-        # In these cases, original search is what was passed into the search and search string is often youtube url
-        # For example raw_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
-        self.raw_search_string = raw_search_string
-        self.search_string = search_string
-        self.search_type = search_type
-        # Optional values
-        self.added_from_history = added_from_history
-        self.download_file = download_file
-        self.history_playlist_item_id = history_playlist_item_id
-        self.add_to_playlist = add_to_playlist
-        self.display_name_override = display_name_override
-        # Message Contextr
-        self.uuid = f'request.{uuid4()}'
-        self.bundle_uuid = None
-
+    # Required fields
+    guild_id: int
+    channel_id: int
+    requester_name: str
+    requester_id: int
+    search_string: str
+    # Keep original search string for later
+    # In these cases, original search is what was passed into the search and search string is often youtube url
+    # For example raw_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
+    raw_search_string: str
+    search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER]
+    # Optional values
+    added_from_history: bool = False
+    download_file: bool = True
+    add_to_playlist: int = None
+    history_playlist_item_id: int = None
+    display_name_override: str = None
+    # Generated fields
+    uuid: str = field(default_factory=lambda: f'request.{uuid4()}')
+    bundle_uuid: str = None
 
     def __str__(self):
         '''

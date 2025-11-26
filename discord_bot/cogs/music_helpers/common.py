@@ -1,8 +1,5 @@
 from enum import Enum
 
-# We only care about the following data in the yt-dlp dict
-YT_DLP_KEYS = ['id', 'title', 'webpage_url', 'uploader', 'duration', 'extractor']
-
 # RIP Twitter
 TWITTER_VIDEO_PREFIX = 'https://x.com'
 FXTWITTER_VIDEO_PREFIX = 'https://fxtwitter.com'

@@ -1,4 +1,5 @@
 from asyncio import AbstractEventLoop
+from dataclasses import dataclass
 from functools import partial
 from itertools import islice
 from re import match
@@ -55,18 +56,18 @@ def check_youtube_video(search: str) -> bool:
     youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
     return youtube_short_match or youtube_video_match
 
+@dataclass
 class SearchResult():
     '''
     SearchClient search results
     '''
-    def __init__(self, search_type: SearchType, search_string: str, multi_search_input: str = None):
-        self.search_type = search_type
-        # Search string before it is passed to youtube music
-        self.raw_search_string = search_string
-        # Search string after youtube music search, if given
-        self.youtube_music_search_string = None
-        # If generated from a playlist/album
-        self.multi_search_input = multi_search_input
+    search_type: SearchType
+    # Search string before it is passed to youtube music
+    raw_search_string: str
+    # If generated from a playlist/album
+    multi_search_input: str = None
+    # Search string after youtube music search, if given
+    youtube_music_search_string: str = None
 
     def add_youtube_music_result(self, youtube_music_result: str):
         '''
