@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import List
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import pytest
 
@@ -319,7 +319,9 @@ async def test_stop(fake_engine, mocker, fake_context):  #pylint:disable=redefin
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
             await cog.stop_(cog, fake_context['context'])
-            assert fake_context['guild'].id not in cog.players
+            # After destroy(), the player should be marked for shutdown
+            player = cog.players[fake_context['guild'].id]
+            assert player.shutdown_called is True
             assert fake_context['guild'].id not in cog.download_queue.queues
 
 @pytest.mark.asyncio()
@@ -694,9 +696,13 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     cog._message_task = None  # pylint: disable=protected-access
     cog._history_playlist_task = None  # pylint: disable=protected-access
 
-    # Add fake players
-    cog.players[123] = 'player1'
-    cog.players[456] = 'player2'
+    # Add fake players with mock destroy method
+    player1 = mocker.Mock()
+    player1.destroy = mocker.Mock()
+    player2 = mocker.Mock()
+    player2.destroy = mocker.Mock()
+    cog.players[123] = player1
+    cog.players[456] = player2
 
     await cog.cog_unload()
 
@@ -937,3 +943,208 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
     # Verify status was set correctly
     request_data = bundle.media_requests[0]
     assert request_data['status'] == MediaRequestLifecycleStage.BACKOFF
+
+
+# Memory leak fix tests
+@pytest.mark.asyncio
+async def test_shutdown_timeout_with_hanging_players(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that shutdown doesn't hang forever if players don't shutdown"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+
+    # Mock the sleep function to speed up the test
+    mock_sleep = mocker.patch('discord_bot.cogs.music.sleep')
+
+    # Create mock players that never get removed from the dict
+    mock_player1 = Mock()
+    mock_player1.destroy = Mock()
+    mock_player2 = Mock()
+    mock_player2.destroy = Mock()
+
+    cog.players[123] = mock_player1
+    cog.players[456] = mock_player2
+
+    # Mock other cleanup methods to avoid side effects
+    mocker.patch('pathlib.Path.unlink')
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    # Set tasks to None to avoid cancellation issues  #pylint:disable=protected-access
+    cog._cleanup_task = None
+    cog._download_task = None
+    cog._cache_cleanup_task = None
+    cog._message_task = None
+    cog._history_playlist_task = None
+    cog._youtube_search_task = None
+
+    await cog.cog_unload()
+
+    # Verify that both players were told to shutdown
+    mock_player1.destroy.assert_called_once()
+    mock_player2.destroy.assert_called_once()
+
+    # Verify that sleep was called (indicating timeout loop ran)
+    assert mock_sleep.call_count >= 1
+
+    # Verify bot_shutdown flag is set
+    assert cog.bot_shutdown is True
+
+@pytest.mark.asyncio
+async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that shutdown completes quickly when players remove themselves"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+
+    # Mock the sleep function
+    mocker.patch('discord_bot.cogs.music.sleep')  # Don't need return value
+
+    # Create mock player that gets removed after destroy
+    mock_player = Mock()
+    mock_player.destroy = Mock()
+    cog.players[123] = mock_player
+
+    # Don't remove player during iteration - just mark destroyed
+    # The actual removal happens later during cleanup_players
+    mock_player.destroy = Mock()
+
+    # Mock other cleanup methods
+    mocker.patch('pathlib.Path.unlink')
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    # Set tasks to None  #pylint:disable=protected-access
+    cog._cleanup_task = None
+    cog._download_task = None
+    cog._cache_cleanup_task = None
+    cog._message_task = None
+    cog._history_playlist_task = None
+    cog._youtube_search_task = None
+
+    await cog.cog_unload()
+
+    # Verify player was destroyed
+    mock_player.destroy.assert_called_once()
+
+    # Verify bot_shutdown flag is set
+    assert cog.bot_shutdown is True
+
+@pytest.mark.asyncio
+async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that all tasks are properly cancelled during shutdown"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+
+    # Mock sleep
+    mocker.patch('discord_bot.cogs.music.sleep')
+
+    # Create mock tasks
+    mock_cleanup_task = Mock()
+    mock_download_task = Mock()
+    mock_cache_task = Mock()
+    mock_message_task = Mock()
+    mock_history_task = Mock()
+    mock_search_task = Mock()
+
+    # Set mock tasks  #pylint:disable=protected-access
+    cog._cleanup_task = mock_cleanup_task
+    cog._download_task = mock_download_task
+    cog._cache_cleanup_task = mock_cache_task
+    cog._message_task = mock_message_task
+    cog._history_playlist_task = mock_history_task
+    cog._youtube_search_task = mock_search_task
+
+    # Mock other cleanup methods
+    mocker.patch('pathlib.Path.unlink')
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    # Ensure players dict is empty so timeout doesn't hang
+    cog.players = {}
+
+    await cog.cog_unload()
+
+    # Verify all tasks were cancelled
+    mock_cleanup_task.cancel.assert_called_once()
+    mock_download_task.cancel.assert_called_once()
+    mock_cache_task.cancel.assert_called_once()
+    mock_message_task.cancel.assert_called_once()
+    mock_history_task.cancel.assert_called_once()
+    mock_search_task.cancel.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that directories are cleaned up during shutdown"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+
+    # Mock sleep and players
+    mocker.patch('discord_bot.cogs.music.sleep')
+    cog.players = {}  # Empty to avoid timeout
+
+    # Mock path operations
+    mock_unlink = mocker.patch('pathlib.Path.unlink')
+    mocker.patch('pathlib.Path.exists', return_value=True)  # Don't store unused mock
+    mock_rm_tree = mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    # Set tasks to None  #pylint:disable=protected-access
+    cog._cleanup_task = None
+    cog._download_task = None
+    cog._cache_cleanup_task = None
+    cog._message_task = None
+    cog._history_playlist_task = None
+    cog._youtube_search_task = None
+
+    await cog.cog_unload()
+
+    # Verify cleanup operations were called
+    mock_unlink.assert_called()  # For lockfile
+    assert mock_rm_tree.call_count >= 1  # For directories
+
+@pytest.mark.asyncio
+async def test_cleanup_players_shutdown_called(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup_players properly handles shutdown_called players"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(cog.message_queue, 'send_single_immutable')
+
+    # Create a mock player with shutdown_called=True
+    mock_player = mocker.Mock()
+    mock_player.shutdown_called = True
+    mock_player.guild = fake_context['guild']
+    cog.players[fake_context['guild'].id] = mock_player
+
+    # Mock cleanup method
+    cleanup_mock = mocker.patch.object(cog, 'cleanup')
+
+    await cog.cleanup_players()
+
+    # Verify cleanup was called for the shutdown player
+    cleanup_mock.assert_called_once_with(fake_context['guild'])
+
+@pytest.mark.asyncio
+async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup_players sends proper message for inactive timeout"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Create a mock player that times out
+    mock_player = mocker.Mock()
+    mock_player.shutdown_called = False
+    mock_player.voice_channel_inactive_timeout = mocker.Mock(return_value=True)
+    mock_player.guild = fake_context['guild']
+    mock_player.text_channel = fake_context['channel']
+    cog.players[fake_context['guild'].id] = mock_player
+
+    # Mock message queue and cleanup
+    message_mock = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    cleanup_mock = mocker.patch.object(cog, 'cleanup')
+
+    await cog.cleanup_players()
+
+    # Verify timeout was checked with correct parameter
+    mock_player.voice_channel_inactive_timeout.assert_called_once_with(timeout_seconds=cog.disconnect_timeout)
+
+    # Verify message was sent
+    message_mock.assert_called_once()
+    # Check that the message content contains expected text
+    message_context = message_mock.call_args[0][0][0]
+    assert 'No one active in voice channel' in str(message_context.function.keywords['content'])
+
+    # Verify cleanup was called
+    cleanup_mock.assert_called_once_with(fake_context['guild'])

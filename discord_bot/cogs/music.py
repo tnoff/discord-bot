@@ -339,6 +339,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Tempdir used in downloads
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        self.temp_download_dir.mkdir(exist_ok=True)
 
         # Tempdir for players
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -529,15 +530,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Calling shutdown on Music')
 
             self.bot_shutdown = True
-
-            guilds = list(self.players.keys())
-            self.logger.debug(f'Calling shutdown on guild players {guilds}')
-            for guild_id in guilds:
+            for guild_id, player in self.players.items():
                 self.logger.info(f'Calling shutdown on player in guild {guild_id}')
-                guild = await self.bot.fetch_guild(guild_id)
-                await self.cleanup(guild, external_shutdown_called=True)
+                player.destroy()
 
-            self.logger.debug('Cancelling main tasks')
+            self.logger.info('Waiting for full shutdown on players before cancelling tasks')
+            timeout_counter = 0
+            max_timeout = 30  # 30 seconds max wait
+            while self.players and timeout_counter < max_timeout:  # 10 iterations per second
+                await sleep(1)
+                timeout_counter += 1
+
+            if self.players:
+                self.logger.warning(f'Timeout waiting for player shutdown, {len(self.players)} players still active')
+            else:
+                self.logger.info('All players shutdown successfully')
+
+            self.logger.info('Cancelling main tasks')
             if self._cleanup_task:
                 self._cleanup_task.cancel()
             if self._download_task:
@@ -552,6 +561,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._youtube_search_task.cancel()
             self.last_download_lockfile.unlink(missing_ok=True)
 
+            self.logger.info('Removing directories')
             if self.download_dir.exists() and not self.enable_cache:
                 rm_tree(self.download_dir)
             if self.temp_download_dir.exists():
@@ -560,7 +570,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 rm_tree(self.player_dir)
 
             self.multirequest_bundles.clear()
-
             return True
 
 
@@ -633,13 +642,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     bundle = self.multirequest_bundles.get(bundle_uuid)
                     if bundle:
                         # Set channel to default backup if necessary
+                        # Note if bundle is in shutdown this returns []
                         message_content = bundle.print()
                         # More thread-safe: atomic check-and-remove operation
-                        if bundle.finished or bundle.is_shutdown:
-                            removed_bundle = self.multirequest_bundles.pop(bundle_uuid, None)
-                            # Only should set the delete after when bundle is finished, not in shutdown
-                            if bundle.finished and removed_bundle:
-                                delete_after = self.delete_after
+                        if bundle.finished:
+                            self.multirequest_bundles.pop(bundle_uuid, None)
+                            delete_after = self.delete_after
                     else:
                         # Bundle already processed and removed, skip
                         message_content = []
@@ -670,13 +678,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.CONSUMER):
             guilds = []
             for _guild_id, player in self.players.items():
-                if not player.voice_channel_inactive():
+                if player.shutdown_called:
+                    self.logger.debug(f'Shutdown called on player {player.guild.id}')
+                    guilds.append(player.guild)
+                    continue
+                if player.voice_channel_inactive_timeout(timeout_seconds=self.disconnect_timeout):
                     message_context = MessageContext(player.guild.id, player.text_channel.id)
-                    message_context.function = partial(player.text_channel.send, content='No members in guild, removing myself',
+                    message_context.function = partial(player.text_channel.send, content='No one active in voice channel, shutting myself down',
                                                        delete_after=self.delete_after)
                     self.message_queue.send_single_immutable([message_context])
-                    player.shutdown_called = True
-                    self.logger.warning(f'No members connected to voice channel {player.guild.id}, stopping bot')
+                    self.logger.warning(f'No members connected to voice channel {player.guild.id} , stopping bot')
                     guilds.append(player.guild)
             # Run in separate loop since the cleanup function removes items form self.players
             # And you might hit issues where dict size changes during iteration
@@ -689,8 +700,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         After cache files marked for deletion, check if they are in use before deleting
         '''
-
-
         if self.bot_shutdown:
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
@@ -712,7 +721,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
                 # Check for pending backup files
                 for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_no_backup, db_session)):
-                    self.logger.info(f'Backing up video cache file {video_cache.id} to object storage')
                     self.video_cache.object_storage_backup(video_cache.id)
 
                 return True
@@ -732,6 +740,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # If file doesn't exist or no value, assume we dont need to wait
             return True
         # https://stackoverflow.com/a/51295230
+        # Use timestamp to set a bit more random variance
         random.seed(time())
         wait_until = int(last_updated_at) + minimum_wait_time + random.randint(0, max_variance)
         self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
@@ -1060,12 +1069,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Starting cleanup on guild {guild.id}')
             player = await self.get_player(guild.id, create_player=False)
             # Set external shutdown so this doesnt happen twice
-            player.shutdown_called = True
             if external_shutdown_called and player:
                 message_context = MessageContext(player.guild.id, player.text_channel.id)
                 message_context.function = partial(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
+
             try:
                 await guild.voice_client.disconnect()
             except AttributeError:
@@ -1096,29 +1105,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player.text_channel,
             )
 
-
-            self.logger.debug(f'Starting cleaning tasks on player for guild {guild.id}')
-            await player.cleanup()
-
-            self.logger.debug(f'Clearing download queue for guild {guild.id}')
             pending_items = self.download_queue.clear_queue(guild.id)
             self.logger.debug(f'Found {len(pending_items)} existing download items')
-            # At some point we should not remove items that dont download
-            # If external shutdown wasn't called
-            # These could be playlist item adds
-            for media_request in pending_items:
-                bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
-                if not bundle:
-                    continue
-                bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
 
             pending_items = self.youtube_music_search_queue.clear_queue(guild.id)
             self.logger.debug(f'Found {len(pending_items)} existing search queue items')
-            for media_request in pending_items:
-                bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
-                if not bundle:
-                    continue
-                bundle.update_request_status(media_request, MediaRequestLifecycleStage.DISCARDED)
 
             # Clear all bundles
             for _uuid, item in self.multirequest_bundles.items():
@@ -1167,7 +1158,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guild_path.mkdir(exist_ok=True, parents=True)
                 # Generate and start player
                 history_playlist_id = self.__get_history_playlist(ctx.guild.id)
-                player = MusicPlayer(self.logger, ctx, [partial(self.cleanup, ctx.guild)],
+                player = MusicPlayer(self.logger, ctx,
                                      self.queue_max_size, self.disconnect_timeout,
                                      guild_path, self.message_queue,
                                      history_playlist_id, self.history_playlist_queue)
@@ -1568,7 +1559,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
         self.logger.info(f'Calling stop for guild {ctx.guild.id}')
-        await self.cleanup(ctx.guild)
+        player.destroy()
 
     @command(name='move-messages')
     @command_wrapper

@@ -14,5 +14,11 @@ async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True, join_channel=fake_context['channel'])
     fake_context['channel'].members = [fake_context['bot'].user]
+
+    # Mock the timeout behavior to return True immediately
+    player = cog.players[fake_context['guild'].id]
+    mocker.patch.object(player, 'voice_channel_inactive_timeout', return_value=True)
+
     await cog.cleanup_players()
+    # Since cleanup_players calls cleanup() which removes from dict, player should be gone
     assert fake_context['guild'].id not in cog.players
