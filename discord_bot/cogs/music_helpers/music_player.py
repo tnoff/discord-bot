@@ -3,7 +3,8 @@ from datetime import timedelta
 from logging import RootLogger
 from pathlib import Path
 from re import sub
-from typing import Callable, List
+from time import time
+from typing import List
 
 from async_timeout import timeout
 from dappertable import DapperTable, DapperTableHeader, DapperTableHeaderOptions, PaginationLength
@@ -30,7 +31,7 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    def __init__(self, logger: RootLogger, ctx: Context, cog_cleanup: List[Callable],
+    def __init__(self, logger: RootLogger, ctx: Context,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  message_queue: MessageQueue,
                  history_playlist_id: int,
@@ -43,7 +44,6 @@ class MusicPlayer:
         self.text_channel = ctx.channel
         self.logger = logger
 
-        self.cog_cleanup = cog_cleanup
         self.disconnect_timeout = disconnect_timeout
         self.file_dir = file_dir
 
@@ -68,6 +68,8 @@ class MusicPlayer:
         self.volume = 0.5
         # Shutdown called externally
         self.shutdown_called = False
+        # Inactive timestamp for bot timeout
+        self.inactive_timestamp = None
 
     async def start_tasks(self):
         '''
@@ -88,7 +90,7 @@ class MusicPlayer:
                 source = await self._play_queue.get()
         except async_timeout as e:
             self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
-            await self.destroy()
+            self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_source = source
 
@@ -101,7 +103,7 @@ class MusicPlayer:
             self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
             if not self.shutdown_called:
-                await self.destroy()
+                self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.logger.info(f'Now playing "{source.webpage_url}" requested '
                             f'by "{source.media_request.requester_id}" in guild {self.guild.id}, url '
@@ -202,7 +204,23 @@ class MusicPlayer:
         await self.guild.voice_client.move_to(channel)
         return True
 
-    def voice_channel_inactive(self):
+    def voice_channel_inactive_timeout(self, timeout_seconds: int = 60) -> bool:
+        '''
+        If voice channel inactive for timeout length, return True
+        '''
+        result = self.voice_channel_active()
+        if result:
+            self.inactive_timestamp = None
+            return False
+        # If value exists already, check timeout and return
+        if self.inactive_timestamp:
+            if int(time()) - self.inactive_timestamp > timeout_seconds:
+                return True
+            return False
+        self.inactive_timestamp = int(time())
+        return False
+
+    def voice_channel_active(self):
         '''
         Check if voice channel has active users
         '''
@@ -313,10 +331,9 @@ class MusicPlayer:
             self._player_task = None
         return True
 
-    async def destroy(self):
+    def destroy(self):
         '''
         Disconnect and cleanup the player.
         '''
         self.logger.info(f'Removing music bot from guild id {self.guild.id}')
-        for func in self.cog_cleanup:
-            await func()
+        self.shutdown_called = True

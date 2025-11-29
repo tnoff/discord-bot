@@ -186,9 +186,14 @@ class DownloadClient():
                 # Move file to download dir after finished
                 new_path = self.download_dir / file_path.name
                 # Rename might not work if file on diff filesystem
-                copyfile(str(file_path), str(new_path))
-                file_path.unlink()
-                file_path = new_path
+                try:
+                    copyfile(str(file_path), str(new_path))
+                    file_path.unlink()
+                    file_path = new_path
+                except FileNotFoundError as e:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(e)
+                    return None
             span.set_status(StatusCode.OK)
             return MediaDownload(file_path, data, media_request)
 
