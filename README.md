@@ -67,15 +67,20 @@ For local dev, run the following to generate migrations after editing the `datab
 $ alembic revision --autogenerate -m "we changed some things, it was neat"
 ```
 
-### OTLP Setup
+### Monitoring and Observability
 
-OpenTelemetry Instrumentation is available to use and send to a collector. Just set the following in the config
+The bot includes comprehensive monitoring capabilities using OpenTelemetry (OTLP). Configure monitoring in your config file:
 
-```
+```yaml
 general:
-  otlp:
-    enabled: true
+  monitoring:
+    otlp:
+      enabled: true
+    memory_profiling:
+      enabled: false  # Optional: enable memory profiling
 ```
+
+See the [Monitoring Documentation](./docs/monitoring/) for complete setup instructions, available metrics, and configuration options.
 
 ### Log Setup
 
@@ -150,6 +155,7 @@ general:
 - [Common Cog](./docs/common.md)
 - [Delete Messages Cog](./docs/delete_messages.md)
 - [Markov Cog](./docs/markov.md)
+- [Monitoring and Observability](./docs/monitoring/)
 - [Music Cog](./docs/music.md)
 - [Role Cog](./docs/role.md)
 - [Urban Cog](./docs/urban.md)

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.5
+
+General:
+- Attempt to handle sigterm better for docker compatability
+- Add memory profiler log file to help diagnose issues
+- Remove need to for checkfile in loop heartbeat metrics
+- Attempt to combine common database functions into common file
+- Use PaginationLength instead of number of line pagination in outputs
+
+Docker:
+- Added deno to base install for yt-dlp compatability
+
+Music:
+- Moved youtube music search to separate queue to speed up time to first download
+- Add table to guild analytics, not used in commands yet
+- Database cleanup, remove unused tables
+- Optimize media request bundle print statements to optimize for discord API calls
+
 ## 2.4.4
 
 General:

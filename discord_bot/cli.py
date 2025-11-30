@@ -40,6 +40,7 @@ from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
+from discord_bot.utils.memory_profiler import MemoryProfiler
 
 POSSIBLE_COGS = [
     DeleteMessages,
@@ -138,7 +139,8 @@ def main(config_file): #pylint:disable=too-many-statements
 
     try:
         # Instrument otlp if enabled
-        otlp_settings = settings['general'].get('otlp', {})
+        monitoring_settings = settings['general'].get('monitoring', {})
+        otlp_settings = monitoring_settings.get('otlp', {})
 
         logger_provider = None
         if otlp_settings.get('enabled', False):
@@ -174,6 +176,17 @@ def main(config_file): #pylint:disable=too-many-statements
 
         discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
         discord_logger.setLevel(logging.DEBUG)
+
+        # Start memory profiling if enabled
+        memory_profiling_settings = monitoring_settings.get('memory_profiling', {})
+        if memory_profiling_settings.get('enabled', False):
+            logger.info('Main :: Starting memory profiler')
+            memory_profiler_logger = get_logger('memory_profiler', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+            memory_profiler_logger.setLevel(logging.INFO)
+            interval_seconds = memory_profiling_settings.get('interval_seconds', 60)
+            top_n_lines = memory_profiling_settings.get('top_n_lines', 25)
+            memory_profiler = MemoryProfiler(memory_profiler_logger, interval_seconds=interval_seconds, top_n_lines=top_n_lines)
+            memory_profiler.start()
 
         # Run main bot
         main_runner(settings, logger, db_engine)

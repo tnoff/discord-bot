@@ -29,16 +29,40 @@ GENERAL_SECTION_SCHEMA = {
         'sql_connection_statement': {
             'type': 'string',
         },
-        'otlp': {
+        'monitoring': {
             'type': 'object',
             'properties': {
-                'enabled': {
-                    'type': 'boolean',
+                'otlp': {
+                    'type': 'object',
+                    'properties': {
+                        'enabled': {
+                            'type': 'boolean',
+                        },
+                    },
+                    'required': [
+                        'enabled'
+                    ]
+                },
+                'memory_profiling': {
+                    'type': 'object',
+                    'properties': {
+                        'enabled': {
+                            'type': 'boolean',
+                            'default': False,
+                        },
+                        'interval_seconds': {
+                            'type': 'integer',
+                            'minimum': 1,
+                            'default': 60,
+                        },
+                        'top_n_lines': {
+                            'type': 'integer',
+                            'minimum': 1,
+                            'default': 25,
+                        },
+                    },
                 },
             },
-            'required': [
-                'enabled'
-            ]
         },
         'logging': {
             'type': 'object',
