@@ -160,7 +160,7 @@ class MultiMediaRequestBundle():
         # If we have multiple media_requests and a search string, add status header
         if self.total > 1 and self.input_string:
             multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
-            top_line = f'Processing "{multi_input}"\n{self.completed}/{self.total - self.discarded} media_requests processed successfully, {self.failed} failed'
+            top_line = f'Processing "{multi_input}"\n{self.completed}/{self.total - self.discarded} media requests processed successfully, {self.failed} failed'
             self._edit_search_banner(top_line)
 
     def shutdown(self):
@@ -264,7 +264,7 @@ class MultiMediaRequestBundle():
             top_line = f'Processing "{multi_input}"'
             if self.finished:
                 top_line = f'Completed processing of "{multi_input}"'
-            top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} media_requests processed successfully, {self.failed} failed'
+            top_line = f'{top_line}\n{self.completed}/{self.total - self.discarded} media requests processed successfully, {self.failed} failed'
             self._edit_search_banner(top_line)
         return True
 

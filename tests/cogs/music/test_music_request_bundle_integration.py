@@ -78,31 +78,31 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     # Test status progression
     initial_print = bundle.print()
     assert 'Processing "test-playlist"' in initial_print[0]
-    assert '0/3 media_requests processed successfully, 0 failed' in initial_print[0]
+    assert '0/3 media requests processed successfully, 0 failed' in initial_print[0]
     assert 'Media request queued for download' in initial_print[0]
 
     # Update first request to in progress
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.IN_PROGRESS)
     progress_print = bundle.print()
-    assert '0/3 media_requests processed successfully, 0 failed' in progress_print[0]
+    assert '0/3 media requests processed successfully, 0 failed' in progress_print[0]
     assert 'Downloading and processing media request' in progress_print[0]
 
     # Complete first request
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.COMPLETED)
     complete_print = bundle.print()
-    assert '1/3 media_requests processed successfully, 0 failed' in complete_print[0]
+    assert '1/3 media requests processed successfully, 0 failed' in complete_print[0]
 
     # Fail second request
     bundle.update_request_status(media_requests[1], MediaRequestLifecycleStage.FAILED, 'Test failure')
     failed_print = bundle.print()
-    assert '1/3 media_requests processed successfully, 1 failed' in failed_print[0]
+    assert '1/3 media requests processed successfully, 1 failed' in failed_print[0]
     assert 'Media request failed download' in failed_print[0]
     assert 'Test failure' in failed_print[0]
 
     # Complete third request
     bundle.update_request_status(media_requests[2], MediaRequestLifecycleStage.COMPLETED)
     final_print = bundle.print()
-    assert '2/3 media_requests processed successfully, 1 failed' in final_print[0]
+    assert '2/3 media requests processed successfully, 1 failed' in final_print[0]
 
     # Verify finished status
     assert bundle.finished is True
