@@ -679,7 +679,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             guilds = []
             for _guild_id, player in self.players.items():
                 if player.shutdown_called:
-                    self.logger.debug(f'Shutdown called on player {player.guild.id}')
+                    self.logger.debug(f'Identified guild where music player shutdown called {player.guild.id}, sending to cleanup')
                     guilds.append(player.guild)
                     continue
                 if player.voice_channel_inactive_timeout(timeout_seconds=self.disconnect_timeout):
@@ -687,7 +687,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     message_context.function = partial(player.text_channel.send, content='No one active in voice channel, shutting myself down',
                                                        delete_after=self.delete_after)
                     self.message_queue.send_single_immutable([message_context])
-                    self.logger.warning(f'No members connected to voice channel {player.guild.id} , stopping bot')
+                    self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
                     guilds.append(player.guild)
             # Run in separate loop since the cleanup function removes items form self.players
             # And you might hit issues where dict size changes during iteration
@@ -1075,6 +1075,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
 
+            self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
+
             try:
                 await guild.voice_client.disconnect()
             except AttributeError:
@@ -1112,9 +1114,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug(f'Found {len(pending_items)} existing search queue items')
 
             # Clear all bundles
-            for _uuid, item in self.multirequest_bundles.items():
+            for uuid, item in self.multirequest_bundles.items():
                 if int(item.guild_id) != int(guild.id):
                     continue
+                self.logger.debug(f'Calling shutdown on media request bundle {uuid}, was associated with guild {guild.id}')
                 item.shutdown()
                 self.message_queue.update_multiple_mutable(
                     f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}',
@@ -1558,7 +1561,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = await self.get_player(ctx.guild.id, ctx=ctx)
         if not player:
             return
-        self.logger.info(f'Calling stop for guild {ctx.guild.id}')
+        self.logger.info(f'Stop command called for guild {ctx.guild.id}')
         player.destroy()
 
     @command(name='move-messages')
