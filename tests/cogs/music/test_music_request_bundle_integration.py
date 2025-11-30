@@ -78,31 +78,31 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     # Test status progression
     initial_print = bundle.print()
     assert 'Processing "test-playlist"' in initial_print[0]
-    assert '0/3 media_requests processed successfully, 0 failed' in initial_print[0]
+    assert '0/3 media requests processed successfully, 0 failed' in initial_print[0]
     assert 'Media request queued for download' in initial_print[0]
 
     # Update first request to in progress
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.IN_PROGRESS)
     progress_print = bundle.print()
-    assert '0/3 media_requests processed successfully, 0 failed' in progress_print[0]
+    assert '0/3 media requests processed successfully, 0 failed' in progress_print[0]
     assert 'Downloading and processing media request' in progress_print[0]
 
     # Complete first request
     bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.COMPLETED)
     complete_print = bundle.print()
-    assert '1/3 media_requests processed successfully, 0 failed' in complete_print[0]
+    assert '1/3 media requests processed successfully, 0 failed' in complete_print[0]
 
     # Fail second request
     bundle.update_request_status(media_requests[1], MediaRequestLifecycleStage.FAILED, 'Test failure')
     failed_print = bundle.print()
-    assert '1/3 media_requests processed successfully, 1 failed' in failed_print[0]
+    assert '1/3 media requests processed successfully, 1 failed' in failed_print[0]
     assert 'Media request failed download' in failed_print[0]
     assert 'Test failure' in failed_print[0]
 
     # Complete third request
     bundle.update_request_status(media_requests[2], MediaRequestLifecycleStage.COMPLETED)
     final_print = bundle.print()
-    assert '2/3 media_requests processed successfully, 1 failed' in final_print[0]
+    assert '2/3 media requests processed successfully, 1 failed' in final_print[0]
 
     # Verify finished status
     assert bundle.finished is True
@@ -770,7 +770,7 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     req2 = fake_source_dict(fake_context)
     shutdown_bundle.add_media_request(req2)  # Add content so it's not automatically finished
     shutdown_bundle.shutdown()
-    assert shutdown_bundle.finished is False  # Not finished, just shutdown
+    assert shutdown_bundle.finished is True # Finished should also return true on shutdown
     assert shutdown_bundle.is_shutdown is True
 
     cog.multirequest_bundles[shutdown_bundle.uuid] = shutdown_bundle
@@ -781,24 +781,13 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
         (shutdown_bundle, "shutdown bundle")
     ]
 
-    for bundle, description in test_cases:
+    for bundle, _description in test_cases:
         bundle_uuid = bundle.uuid
         retrieved_bundle = cog.multirequest_bundles.get(bundle_uuid)
 
         # Test the condition from the commit
-        if (retrieved_bundle.finished or retrieved_bundle.is_shutdown) and bundle_uuid in cog.multirequest_bundles:
-            removed_bundle = cog.multirequest_bundles.pop(bundle_uuid, None)
-
-            # Test the problematic delete_after logic
-            delete_after = None
-            if retrieved_bundle.finished and removed_bundle:
-                delete_after = cog.delete_after
-
-            # Document the issue: shutdown bundles don't get delete_after set
-            if description == "finished bundle":
-                assert delete_after is not None, "Finished bundles should get delete_after"
-            elif description == "shutdown bundle":
-                assert delete_after is None, "BUG: Shutdown bundles don't get delete_after"
+        if retrieved_bundle.finished and bundle_uuid in cog.multirequest_bundles:
+            cog.multirequest_bundles.pop(bundle_uuid, None)
 
         # Verify bundle was removed
         assert bundle_uuid not in cog.multirequest_bundles

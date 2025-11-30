@@ -335,5 +335,5 @@ class MusicPlayer:
         '''
         Disconnect and cleanup the player.
         '''
-        self.logger.info(f'Removing music bot from guild id {self.guild.id}')
+        self.logger.info(f'Calling shutdown on music player for guild {self.guild.id}')
         self.shutdown_called = True

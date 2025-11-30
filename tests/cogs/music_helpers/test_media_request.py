@@ -57,32 +57,32 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     full_output = '\n'.join(print_output)
     assert 'Processing ' in full_output
     assert '<https://foo.example.com/playlist>' in full_output
-    assert '0/3 media_requests processed successfully, 0 failed' in full_output
+    assert '0/3 media requests processed successfully, 0 failed' in full_output
 
     b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Processing ' in full_output
-    assert '0/3 media_requests processed successfully, 0 failed' in full_output
+    assert '0/3 media requests processed successfully, 0 failed' in full_output
     assert 'Downloading and processing media request:' in full_output
 
     b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
     b.update_request_status(y, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '1/3 media_requests processed successfully, 0 failed' in full_output
+    assert '1/3 media requests processed successfully, 0 failed' in full_output
 
     b.update_request_status(y, MediaRequestLifecycleStage.FAILED, failure_reason='cats ate the chords')
     b.update_request_status(z, MediaRequestLifecycleStage.IN_PROGRESS)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '1/3 media_requests processed successfully, 1 failed' in full_output
+    assert '1/3 media requests processed successfully, 1 failed' in full_output
     assert 'cats ate the chords' in full_output
 
     b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
     print_output = b.print()
     full_output = '\n'.join(print_output)
-    assert '2/3 media_requests processed successfully, 1 failed' in full_output
+    assert '2/3 media requests processed successfully, 1 failed' in full_output
     assert b.finished is True
 
 
@@ -286,7 +286,7 @@ def test_media_request_bundle_print_multiple_items_with_status(media_request_bun
 
     # Should have top message
     assert any('Processing "playlist test"' in msg for msg in result)
-    assert any('0/3 media_requests processed successfully, 0 failed' in msg for msg in result)
+    assert any('0/3 media requests processed successfully, 0 failed' in msg for msg in result)
 
 
 def test_media_request_bundle_print_with_different_statuses(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
@@ -602,7 +602,7 @@ def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:di
     full_message = "\n".join(messages)
     assert "Processing" in full_message
     assert "test-playlist" in full_message
-    assert "1/3 media_requests processed successfully, 1 failed" in full_message
+    assert "1/3 media requests processed successfully, 1 failed" in full_message
 
 
 def test_message_queue_none_channel_validation(fake_context):  #pylint:disable=redefined-outer-name
@@ -711,7 +711,7 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
     full_message = "\n".join(messages)
     assert "Completed processing of" in full_message
     assert "test-playlist" in full_message
-    assert "2/2 media_requests processed successfully, 0 failed" in full_message
+    assert "2/2 media requests processed successfully, 0 failed" in full_message
 
 
 def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefined-outer-name
