@@ -77,4 +77,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:latest,${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:${{ steps.github-hash.outputs.github_hash }}
