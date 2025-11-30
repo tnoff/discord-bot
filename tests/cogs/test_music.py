@@ -704,6 +704,14 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     cog.players[123] = player1
     cog.players[456] = player2
 
+    # Mock sleep to make test fast (avoid 30 second wait)
+    mock_sleep = mocker.patch('discord_bot.cogs.music.sleep')
+
+    # Make sleep clear the players dict on first call to exit the wait loop immediately
+    async def sleep_and_clear(_duration):
+        cog.players.clear()
+    mock_sleep.side_effect = sleep_and_clear
+
     await cog.cog_unload()
 
     # Verify bot shutdown flag is set
