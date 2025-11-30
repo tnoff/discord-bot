@@ -644,7 +644,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         # Set channel to default backup if necessary
                         # Note if bundle is in shutdown this returns []
                         message_content = bundle.print()
-                        # More thread-safe: atomic check-and-remove operation
+                        # Make sure all finished/terminal bundles get removed
                         if bundle.finished:
                             self.multirequest_bundles.pop(bundle_uuid, None)
                             delete_after = self.delete_after

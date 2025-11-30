@@ -770,7 +770,7 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     req2 = fake_source_dict(fake_context)
     shutdown_bundle.add_media_request(req2)  # Add content so it's not automatically finished
     shutdown_bundle.shutdown()
-    assert shutdown_bundle.finished is False  # Not finished, just shutdown
+    assert shutdown_bundle.finished is True # Finished should also return true on shutdown
     assert shutdown_bundle.is_shutdown is True
 
     cog.multirequest_bundles[shutdown_bundle.uuid] = shutdown_bundle
@@ -781,24 +781,13 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
         (shutdown_bundle, "shutdown bundle")
     ]
 
-    for bundle, description in test_cases:
+    for bundle, _description in test_cases:
         bundle_uuid = bundle.uuid
         retrieved_bundle = cog.multirequest_bundles.get(bundle_uuid)
 
         # Test the condition from the commit
-        if (retrieved_bundle.finished or retrieved_bundle.is_shutdown) and bundle_uuid in cog.multirequest_bundles:
-            removed_bundle = cog.multirequest_bundles.pop(bundle_uuid, None)
-
-            # Test the problematic delete_after logic
-            delete_after = None
-            if retrieved_bundle.finished and removed_bundle:
-                delete_after = cog.delete_after
-
-            # Document the issue: shutdown bundles don't get delete_after set
-            if description == "finished bundle":
-                assert delete_after is not None, "Finished bundles should get delete_after"
-            elif description == "shutdown bundle":
-                assert delete_after is None, "BUG: Shutdown bundles don't get delete_after"
+        if retrieved_bundle.finished and bundle_uuid in cog.multirequest_bundles:
+            cog.multirequest_bundles.pop(bundle_uuid, None)
 
         # Verify bundle was removed
         assert bundle_uuid not in cog.multirequest_bundles

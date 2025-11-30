@@ -326,6 +326,8 @@ class MultiMediaRequestBundle():
         '''
         Check if we have finished processing
         '''
+        if self.is_shutdown:
+            return True
         if self.search_finished and self.search_error:
             return True
         if not self.search_finished:
