@@ -21,6 +21,20 @@ from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 
+def cleanup_source(media_download: MediaDownload, audio_source: FFmpegPCMAudio):
+    '''
+    Cleanup sources
+    '''
+    if audio_source:
+        try:
+            audio_source.cleanup()
+        except ValueError:
+            # Check if file is closed
+            pass
+    # Cleanup source files, if cache not enabled delete base/original as well
+    if media_download:
+        media_download.delete()
+
 class MusicPlayer:
     '''
     A class which is assigned to each guild using the bot for Music.
@@ -61,7 +75,8 @@ class MusicPlayer:
         self._player_task = None
 
         # Random things to store
-        self.current_source = None
+        self.current_media_download = None
+        self.current_audio_source = None
         self.np_message = ''
         self.video_skipped = False
         self.queue_messages = [] # Show current queue
@@ -87,14 +102,15 @@ class MusicPlayer:
         try:
             # Wait for the next video. If we timeout cancel the player and disconnect...
             async with timeout(self.disconnect_timeout):
-                source = await self._play_queue.get()
+                media_download = await self._play_queue.get()
         except async_timeout as e:
             self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
-        self.current_source = source
+        self.current_media_download = media_download
 
-        audio_source = FFmpegPCMAudio(str(source.file_path))
+        audio_source = FFmpegPCMAudio(str(media_download.file_path))
+        self.current_audio_source = audio_source
         self.video_skipped = False
         audio_source.volume = self.volume
         try:
@@ -102,13 +118,14 @@ class MusicPlayer:
         except (AttributeError, ClientException) as e:
             self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
+            cleanup_source(media_download, audio_source)
             if not self.shutdown_called:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
-        self.logger.info(f'Now playing "{source.webpage_url}" requested '
-                            f'by "{source.media_request.requester_id}" in guild {self.guild.id}, url '
-                            f'"{source.webpage_url}"')
-        self.np_message = f'Now playing {source.webpage_url} requested by {source.media_request.requester_name}'
+        self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
+                            f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
+                            f'"{media_download.webpage_url}"')
+        self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
         self.message_queue.update_multiple_mutable(
             f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}',
             self.text_channel
@@ -116,27 +133,20 @@ class MusicPlayer:
 
         await self.next.wait()
         self.np_message = ''
-        # Make sure the FFmpeg process is cleaned up.
-        try:
-            audio_source.cleanup()
-        except ValueError:
-            # Check if file is closed
-            pass
-        # Cleanup source files, if cache not enabled delete base/original as well
-        source.delete()
+        cleanup_source(media_download, audio_source)
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
         # Check on the other side if this was added from history
         if not self.video_skipped:
             if self.history_playlist_id:
-                self.history_playlist_queue.put_nowait(HistoryPlaylistItem(self.history_playlist_id, source))
+                self.history_playlist_queue.put_nowait(HistoryPlaylistItem(self.history_playlist_id, media_download))
 
             try:
-                self._history.put_nowait(source)
+                self._history.put_nowait(media_download)
             except QueueFull:
                 await self._history.get()
-                self._history.put_nowait(source)
+                self._history.put_nowait(media_download)
 
         # Make sure we delete queue messages if nothing left
         if self._play_queue.empty():
@@ -163,8 +173,8 @@ class MusicPlayer:
         ]
         table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
         duration = 0
-        if self.current_source:
-            duration = int(self.current_source.duration) if self.current_source.duration else 0
+        if self.current_media_download:
+            duration = int(self.current_media_download.duration) if self.current_media_download.duration else 0
         for (count, item) in enumerate(queue_items):
             uploader = item.uploader or ''
             delta = timedelta(seconds=duration)
@@ -297,8 +307,8 @@ class MusicPlayer:
         Get base paths of for player
         '''
         items = []
-        if self.current_source:
-            items.append(self.current_source.base_path)
+        if self.current_media_download:
+            items.append(self.current_media_download.base_path)
         for item in self._play_queue.items():
             items.append(item.base_path)
         return items
@@ -309,13 +319,14 @@ class MusicPlayer:
         '''
         self.logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
+        cleanup_source(self.current_media_download, self.current_audio_source)
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
             try:
-                source = self._play_queue.get_nowait()
-                self.logger.debug(f'Removing item {source} from play queue')
-                source.delete()
+                media_download = self._play_queue.get_nowait()
+                self.logger.debug(f'Removing item {media_download} from play queue')
+                media_download.delete()
             except QueueEmpty:
                 break
 
