@@ -1089,15 +1089,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
 
-            try:
-                await guild.voice_client.disconnect()
-            except AttributeError:
-                pass
+            # Store reference before disconnect() clears it
+            voice_client = guild.voice_client
 
-            try:
-                await guild.voice_client.cleanup()
-            except AttributeError:
-                pass
+            if voice_client:
+                try:
+                    # cleanup() must be called to free native memory and remove from state cache
+                    voice_client.cleanup()
+                    self.logger.debug(f'Called cleanup() on voice client for guild {guild.id}')
+                except Exception as e:
+                    self.logger.warning(f'Error calling cleanup() on voice client: {e}')
+
+                try:
+                    await voice_client.disconnect()
+                    self.logger.debug(f'Disconnected voice client for guild {guild.id}')
+                except Exception as e:
+                    self.logger.warning(f'Error disconnecting voice client: {e}')
 
             # Block download queue for later
             self.download_queue.block(guild.id)
