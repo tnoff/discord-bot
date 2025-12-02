@@ -17,6 +17,7 @@ opentelemetry-exporter-otlp
 pathlib==1.0.1
 PyNaCl==1.6.1
 pyaml-env==1.2.2
+psutil==7.1.0
 pytz==2025.2
 requests==2.32.5
 spotipy==2.25.2

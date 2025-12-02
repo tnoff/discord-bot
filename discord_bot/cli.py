@@ -41,6 +41,7 @@ from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
 from discord_bot.utils.memory_profiler import MemoryProfiler
+from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
 POSSIBLE_COGS = [
     DeleteMessages,
@@ -187,6 +188,16 @@ def main(config_file): #pylint:disable=too-many-statements
             top_n_lines = memory_profiling_settings.get('top_n_lines', 25)
             memory_profiler = MemoryProfiler(memory_profiler_logger, interval_seconds=interval_seconds, top_n_lines=top_n_lines)
             memory_profiler.start()
+
+        # Start process metrics profiling if enabled
+        process_metrics_settings = monitoring_settings.get('process_metrics', {})
+        if process_metrics_settings.get('enabled', False):
+            logger.info('Main :: Starting process metrics profiler')
+            process_metrics_logger = get_logger('process_metrics', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+            process_metrics_logger.setLevel(logging.INFO)
+            interval_seconds = process_metrics_settings.get('interval_seconds', 15)
+            process_metrics_profiler = ProcessMetricsProfiler(process_metrics_logger, interval_seconds=interval_seconds)
+            process_metrics_profiler.start()
 
         # Run main bot
         main_runner(settings, logger, db_engine)

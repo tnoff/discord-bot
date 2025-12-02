@@ -62,6 +62,20 @@ GENERAL_SECTION_SCHEMA = {
                         },
                     },
                 },
+                'process_metrics': {
+                    'type': 'object',
+                    'properties': {
+                        'enabled': {
+                            'type': 'boolean',
+                            'default': False,
+                        },
+                        'interval_seconds': {
+                            'type': 'integer',
+                            'minimum': 1,
+                            'default': 15,
+                        },
+                    },
+                },
             },
         },
         'logging': {

@@ -80,7 +80,7 @@ general:
       enabled: false  # Optional: enable memory profiling
 ```
 
-See the [Monitoring Documentation](./docs/monitoring/) for complete setup instructions, available metrics, and configuration options.
+See the [Monitoring Documentation](./docs/monitoring/index.md) for complete setup instructions, available metrics, and configuration options.
 
 ### Log Setup
 
