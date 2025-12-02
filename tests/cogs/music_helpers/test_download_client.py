@@ -147,7 +147,7 @@ def test_match_generator_video_too_long_improved_message():
     # Check for improved error message format in user_message
     error_msg = exc.value.user_message
     assert 'duration 7200 seconds' in error_msg
-    assert 'exceeds max length of 3600 seconds' in error_msg
+    assert 'exceeds max duration of 3600 seconds' in error_msg
 
 def test_match_generator_video_within_length_limit():
     """Test that videos within length limit pass through match_generator"""

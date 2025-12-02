@@ -96,11 +96,11 @@ def match_generator(max_video_length: int, banned_videos_list: List[str], video_
         duration = info.get('duration')
         vid_url = info.get('webpage_url')
         if duration and max_video_length and duration > max_video_length:
-            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} seconds exceeds max length of {max_video_length} seconds, skipping')
+            raise VideoTooLong('Video Too Long', user_message=f'Video duration {duration} seconds exceeds max duration of {max_video_length} seconds')
         if vid_url and banned_videos_list:
             for banned_url in banned_videos_list:
                 if vid_url == banned_url:
-                    raise VideoBanned('Video Banned', user_message='Video url is banned, skipping')
+                    raise VideoBanned('Video Banned', user_message='Video is banned by bot maintainer')
         # Check if video exists within cache, and raise
         extractor = info.get('extractor')
         vid_id = info.get('id')
