@@ -1109,6 +1109,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except KeyError:
                 return
 
+            self.logger.info(f'Calling cleanup on player {guild.id}')
+            await player.cleanup()
             # Clear downloaded items
             player.np_message = ''
             player.clear_queue()
