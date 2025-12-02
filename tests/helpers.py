@@ -343,6 +343,14 @@ class FakeVoiceClient():
         self.channel = channel
         return True
 
+    def cleanup(self):
+        """Mock cleanup method for VoiceClient"""
+        return True
+
+    async def disconnect(self):
+        """Mock disconnect method for VoiceClient"""
+        return True
+
 class FakeContext():
     def __init__(self, bot=None, guild=None, author=None, voice_client=None, channel=None):
         self.author = author or FakeAuthor()

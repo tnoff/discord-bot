@@ -1,7 +1,7 @@
 # Music bot setup
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
 
-from asyncio import sleep
+from asyncio import sleep, create_task
 from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import datetime, timezone
 from functools import partial
@@ -1091,6 +1091,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             # Store reference before disconnect() clears it
             voice_client = guild.voice_client
+            disconnect_task = None
 
             if voice_client:
                 try:
@@ -1100,39 +1101,36 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 except Exception as e:
                     self.logger.warning(f'Error calling cleanup() on voice client: {e}')
 
-                try:
-                    await voice_client.disconnect()
-                    self.logger.debug(f'Disconnected voice client for guild {guild.id}')
-                except Exception as e:
-                    self.logger.warning(f'Error disconnecting voice client: {e}')
+                # Start disconnect in background (don't block here)
+                disconnect_task = create_task(voice_client.disconnect())
+                self.logger.debug(f'Started disconnect task for guild {guild.id}')
 
             # Block download queue for later
             self.download_queue.block(guild.id)
             self.youtube_music_search_queue.block(guild.id)
 
+            player = None
             # Clear play queue if that didnt happen
             try:
                 player = self.players.pop(guild.id)
             except KeyError:
-                return
+                pass
 
-            self.logger.info(f'Calling cleanup on player {guild.id}')
-            await player.cleanup()
-            # Clear downloaded items
-            player.np_message = ''
-            player.clear_queue()
-            # Cleanup queue messages if they still exist
-            self.logger.info(f'Clearing queue message for guild {guild.id}')
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}',
-                player.text_channel,
-            )
+            if player:
+                self.logger.info(f'Calling cleanup on player {guild.id}')
+                await player.cleanup()
+                # Cleanup queue messages if they still exist
+                self.logger.info(f'Clearing queue message for guild {guild.id}')
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}',
+                    player.text_channel,
+                )
 
             pending_items = self.download_queue.clear_queue(guild.id)
-            self.logger.debug(f'Found {len(pending_items)} existing download items')
+            self.logger.debug(f'Cleanup found {len(pending_items)} existing download items')
 
             pending_items = self.youtube_music_search_queue.clear_queue(guild.id)
-            self.logger.debug(f'Found {len(pending_items)} existing search queue items')
+            self.logger.debug(f'Cleanup found {len(pending_items)} existing search queue items')
 
             # Clear all bundles
             for uuid, item in self.multirequest_bundles.items():
@@ -1142,7 +1140,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 item.shutdown()
                 self.message_queue.update_multiple_mutable(
                     f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}',
-                    player.text_channel,
+                    item.text_channel,
                     sticky_messages=False,
                 )
 
@@ -1150,6 +1148,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             guild_path = self.download_dir / f'{guild.id}'
             if guild_path.exists():
                 rm_tree(guild_path)
+
+            # Wait for voice disconnect to complete
+            # Do not wait on external shutdown as we should assume thats called from cog_cleanup
+            # And we dont really care as much about preserving resources on full pod/app shutdown
+            if disconnect_task and not external_shutdown_called:
+                try:
+                    await disconnect_task
+                    self.logger.debug(f'Disconnected voice client for guild {guild.id}')
+                except Exception as e:
+                    self.logger.warning(f'Error disconnecting voice client: {e}')
 
     async def get_player(self, guild_id: int,
                          join_channel = None,
