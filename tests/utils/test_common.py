@@ -98,7 +98,9 @@ def test_rejectlist_config():
 def test_otlp_config_bad():
     reject_input = {
         'discord_token': 'abctoken',
-        'otlp': {},
+        'monitoring': {
+            'otlp': {},
+        },
     }
     with pytest.raises(ValidationError) as e:
         validate_config(reject_input, GENERAL_SECTION_SCHEMA)
@@ -107,8 +109,10 @@ def test_otlp_config_bad():
 def test_otlp_config_minimal():
     reject_input = {
         'discord_token': 'abctoken',
-        'otlp': {
-            'enabled': True,
+        'monitoring': {
+            'otlp': {
+                'enabled': True,
+            },
         },
     }
     validate_config(reject_input, GENERAL_SECTION_SCHEMA)

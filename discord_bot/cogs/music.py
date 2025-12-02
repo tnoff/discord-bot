@@ -389,6 +389,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
+        create_observable_gauge(METER_PROVIDER, 'music.multirequest_bundles', self.__multirequest_bundles_callback, 'Active multirequest bundles')
         create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILE_COUNT.value, self.__cache_count_callback, 'Number of cache files in use')
         # Cache file count callback
         if self.download_dir and self.download_dir.is_mount():
@@ -477,6 +478,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for key in self.players:
             items.append(Observation(1, attributes={
                 DiscordContextNaming.GUILD.value: key,
+            }))
+        return items
+
+    def __multirequest_bundles_callback(self, _options):
+        '''
+        Get count of active multirequest bundles
+        '''
+        items = []
+        for bundle in self.multirequest_bundles.values():
+            items.append(Observation(1, attributes={
+                DiscordContextNaming.GUILD.value: str(bundle.guild_id),
             }))
         return items
 
