@@ -1156,3 +1156,109 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
 
     # Verify cleanup was called
     cleanup_mock.assert_called_once_with(fake_context['guild'])
+
+@pytest.mark.asyncio
+async def test_voice_client_cleanup_called_before_disconnect(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that voice_client.cleanup() is called before disconnect()"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep')
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a mock voice client
+    mock_voice_client = mocker.MagicMock()
+    mock_voice_client.cleanup = mocker.MagicMock()
+    mock_voice_client.disconnect = mocker.AsyncMock()
+
+    # Set the voice client on the guild
+    fake_context['guild'].voice_client = mock_voice_client
+
+    # Create player and add to cog
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'cleanup', return_value=None)
+
+    # Call cleanup
+    await cog.cleanup(fake_context['guild'])
+
+    # Verify cleanup was called before disconnect
+    mock_voice_client.cleanup.assert_called_once()
+    mock_voice_client.disconnect.assert_called_once()
+
+    # Verify order: cleanup should be called before disconnect
+    cleanup_call_order = mock_voice_client.cleanup.call_args_list
+    disconnect_call_order = mock_voice_client.disconnect.call_args_list
+    assert len(cleanup_call_order) == 1
+    assert len(disconnect_call_order) == 1
+
+@pytest.mark.asyncio
+async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup handles case when voice_client is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep')
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Set voice client to None
+    fake_context['guild'].voice_client = None
+
+    # Create player and add to cog
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'cleanup', return_value=None)
+
+    # Call cleanup - should not raise exception
+    await cog.cleanup(fake_context['guild'])
+
+    # Verify player was still cleaned up
+    assert fake_context['guild'].id not in cog.players
+
+@pytest.mark.asyncio
+async def test_voice_client_cleanup_handles_cleanup_exception(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup handles exceptions during voice_client.cleanup()"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep')
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a mock voice client that raises exception on cleanup
+    mock_voice_client = mocker.MagicMock()
+    mock_voice_client.cleanup = mocker.MagicMock(side_effect=Exception("Cleanup failed"))
+    mock_voice_client.disconnect = mocker.AsyncMock()
+
+    fake_context['guild'].voice_client = mock_voice_client
+
+    # Create player
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'cleanup', return_value=None)
+
+    # Call cleanup - should not raise exception
+    await cog.cleanup(fake_context['guild'])
+
+    # Verify disconnect was still called despite cleanup exception
+    mock_voice_client.disconnect.assert_called_once()
+
+    # Verify player was cleaned up
+    assert fake_context['guild'].id not in cog.players
+
+@pytest.mark.asyncio
+async def test_voice_client_cleanup_handles_disconnect_exception(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup handles exceptions during voice_client.disconnect()"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep')
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Create a mock voice client that raises exception on disconnect
+    mock_voice_client = mocker.MagicMock()
+    mock_voice_client.cleanup = mocker.MagicMock()
+    mock_voice_client.disconnect = mocker.AsyncMock(side_effect=Exception("Disconnect failed"))
+
+    fake_context['guild'].voice_client = mock_voice_client
+
+    # Create player
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'cleanup', return_value=None)
+
+    # Call cleanup - should not raise exception
+    await cog.cleanup(fake_context['guild'])
+
+    # Verify cleanup was still called despite disconnect exception
+    mock_voice_client.cleanup.assert_called_once()
+
+    # Verify player was cleaned up
+    assert fake_context['guild'].id not in cog.players
