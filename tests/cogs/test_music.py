@@ -203,7 +203,7 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
                 await cog.search_youtube_music()
             await cog.download_files()
             # Mock current playing
-            cog.players[fake_context['guild'].id].current_source = sd
+            cog.players[fake_context['guild'].id].current_media_download = sd
             await cog.skip_(cog, fake_context['context'])
             assert cog.players[fake_context['guild'].id].video_skipped
 

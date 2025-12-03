@@ -1384,7 +1384,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if not player.guild.voice_client.is_playing():
             return
-        current_title = player.current_source.title
+        current_title = player.current_media_download.title
         player.video_skipped = True
         message_context = MessageContext(ctx.guild.id, ctx.channel.id)
         message_context.function = partial(ctx.send, f'Skipping video "{current_title}"',
