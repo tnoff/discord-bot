@@ -2,7 +2,7 @@ FROM python:3.14-slim-bookworm
 
 
 # Base packages
-RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg curl unzip heaptrack
+RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg curl unzip heaptrack sqlite3
 
 # Install Deno
 # https://github.com/yt-dlp/yt-dlp/issues/14404
