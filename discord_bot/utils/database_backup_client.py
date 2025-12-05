@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime
 import json
+import tempfile
 from logging import RootLogger
 from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
@@ -26,13 +27,15 @@ class DatabaseBackupClient:
         Returns path to the created file
         '''
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        backup_file = Path(f'/tmp/db_backup_{timestamp}.json')
 
         # Get table names from SQLAlchemy metadata (only tables defined in models)
         table_names = list(BASE.metadata.tables.keys())
 
-        # Write JSON incrementally to avoid loading entire database into memory
-        with open(backup_file, 'w', encoding='utf-8') as f:
+        # Create temporary file for backup (delete=False so it persists after closing)
+        with tempfile.NamedTemporaryFile(mode='w', prefix=f'db_backup_{timestamp}_',
+                                          suffix='.json', delete=False, encoding='utf-8') as f:
+            backup_file = Path(f.name)
+            # Write JSON incrementally to avoid loading entire database into memory
             f.write('{\n')  # Start JSON object
 
             for table_idx, table_name in enumerate(table_names):
