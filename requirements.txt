@@ -1,7 +1,7 @@
 alembic==1.17.2
 async-timeout==5.0.1
 beautifulsoup4==4.14.3
-boto3==1.42.3
+boto3==1.42.4
 click==8.3.1
 croniter==6.0.0
 discord.py==2.6.4
