@@ -199,6 +199,13 @@ MUSIC_SECTION_SCHEMA = {
                             'type': 'number',
                             'minimum': 1,
                         },
+                        # Paths to ignore during cache cleanup (relative to download_dir)
+                        'ignore_cleanup_paths': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'string'
+                            },
+                        },
                     }
                 },
                 'storage': {
@@ -301,6 +308,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         download_dir_path = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('download_dir_path', None)
         self.enable_cache = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('enable_cache_files', False)
         max_cache_files = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('max_cache_files', 2048)
+        ignore_cleanup_paths = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('ignore_cleanup_paths', [])
         ytdlp_options = self.settings.get('music', {}).get('download', {}).get('extra_ytdlp_options', {})
         banned_videos_list = self.settings.get('music', {}).get('download', {}).get('banned_videos_list', [])
 
@@ -347,7 +355,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.video_cache = None
         if self.enable_cache and self.db_engine:
             self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session),
-                                                self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None))
+                                                self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None),
+                                                ignore_cleanup_paths)
             self.video_cache.verify_cache()
 
 
