@@ -15,12 +15,13 @@ ENV VENVDIR="/opt/discord-venv"
 ENV LOGFILE="/var/log/discord"
 
 # Setup installs
-RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}"
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/scripts"
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
 COPY requirements.txt "${APPDIR}/"
 COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
+COPY scripts/ "${WORKDIR}/scripts/"
 
 RUN pip install psycopg2 "${APPDIR}"
 

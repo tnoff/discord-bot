@@ -7,7 +7,7 @@ from opentelemetry.trace import SpanKind
 
 
 from discord_bot.database import VideoCache, VideoCacheBackup
-from discord_bot.utils.common import rm_tree, run_commit
+from discord_bot.utils.common import run_commit
 from discord_bot.utils.clients.s3 import upload_file, delete_file, get_file
 from discord_bot.cogs.music_helpers.common import StorageOptions
 from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
@@ -62,13 +62,14 @@ class VideoCacheClient():
                 # Re-download the files
                 self.object_storage_download(download_cache_items)
                 # Remove any extra files
-                for file_path in self.download_dir.glob('*'):
+                for file_path in self.download_dir.glob('**/*'):
+                    # Skip directories (we only care about files)
+                    if file_path.is_dir():
+                        continue
                     # Skip ignored paths
                     if self._should_ignore_path(file_path):
                         continue
-                    if file_path.is_dir():
-                        rm_tree(file_path)
-                        continue
+                    # Remove uncached files
                     if file_path not in existing_files:
                         file_path.unlink()
 
@@ -84,13 +85,8 @@ class VideoCacheClient():
         except ValueError:
             # Path is not relative to download_dir, don't ignore
             return False
-
-        # Check if path or any parent matches ignore list
-        for ignore_path in self.ignore_cleanup_paths:
-            # Check if the file/dir matches exactly or is inside an ignored directory
-            if relative_path == ignore_path or ignore_path in relative_path.parents:
-                return True
-        return False
+        # Exact match only
+        return relative_path in self.ignore_cleanup_paths
 
     def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
