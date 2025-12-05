@@ -15,6 +15,7 @@ from opentelemetry.trace.status import StatusCode
 from opentelemetry.sdk._logs import LoggingHandler
 from sqlalchemy.orm.session import Session
 
+from discord_bot.cogs.schema import STORAGE_BACKEND
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 
@@ -28,6 +29,28 @@ GENERAL_SECTION_SCHEMA = {
         },
         'sql_connection_statement': {
             'type': 'string',
+        },
+        'storage': {
+            'type': 'object',
+            'properties': {
+                'backend': STORAGE_BACKEND,
+            },
+            'required': ['backend']
+        },
+        'database_backup': {
+            'type': 'object',
+            'properties': {
+                'bucket_name': {
+                    'type': 'string'
+                },
+                'cron_schedule': {
+                    'type': 'string'
+                },
+                'object_prefix': {
+                    'type': 'string'
+                },
+            },
+            'required': ['bucket_name', 'cron_schedule']
         },
         'monitoring': {
             'type': 'object',
@@ -128,6 +151,10 @@ GENERAL_SECTION_SCHEMA = {
                     'default': False,
                 },
                 'delete_messages': {
+                    'type': 'boolean',
+                    'default': False,
+                },
+                'database_backup': {
                     'type': 'boolean',
                     'default': False,
                 }

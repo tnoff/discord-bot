@@ -31,6 +31,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.delete_messages import DeleteMessages
+from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.general import General
 from discord_bot.cogs.markov import Markov
@@ -45,6 +46,7 @@ from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
 POSSIBLE_COGS = [
     DeleteMessages,
+    DatabaseBackup,
     Markov,
     Music,
     RoleAssignment,
