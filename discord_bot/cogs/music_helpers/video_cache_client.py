@@ -24,20 +24,22 @@ class VideoCacheClient():
     Keep cache of local files
     '''
     def __init__(self, download_dir: Path, max_cache_files: int, session_generator: Callable,
-                 storage_option: StorageOptions, bucket_name: str):
+                 storage_option: StorageOptions, bucket_name: str, ignore_cleanup_paths: List[str] = None):
         '''
         Create new file cache
-        download_dir    :       Dir where files are downloaded
-        max_cache_files :       Maximum number of files to keep in cache
-        db_session      :       DB session for cache
-        storage_option  :       Storage option for backups
-        bucket_name     :       Bucket Name for backups
+        download_dir           :       Dir where files are downloaded
+        max_cache_files        :       Maximum number of files to keep in cache
+        db_session             :       DB session for cache
+        storage_option         :       Storage option for backups
+        bucket_name            :       Bucket Name for backups
+        ignore_cleanup_paths   :       List of paths to ignore during cleanup (relative to download_dir)
         '''
         self.download_dir = download_dir
         self.max_cache_files = max_cache_files
         self.session_generator = session_generator
         self.storage_option = storage_option
         self.bucket_name = bucket_name
+        self.ignore_cleanup_paths = [Path(p) for p in (ignore_cleanup_paths or [])]
 
     def verify_cache(self):
         '''
@@ -61,11 +63,34 @@ class VideoCacheClient():
                 self.object_storage_download(download_cache_items)
                 # Remove any extra files
                 for file_path in self.download_dir.glob('*'):
+                    # Skip ignored paths
+                    if self._should_ignore_path(file_path):
+                        continue
                     if file_path.is_dir():
                         rm_tree(file_path)
                         continue
                     if file_path not in existing_files:
                         file_path.unlink()
+
+    def _should_ignore_path(self, file_path: Path) -> bool:
+        '''
+        Check if a path should be ignored during cleanup
+
+        file_path: Path to check (can be relative or absolute)
+        '''
+        # Convert to relative path from download_dir for comparison
+        try:
+            relative_path = file_path.relative_to(self.download_dir)
+        except ValueError:
+            # Path is not relative to download_dir, don't ignore
+            return False
+
+        # Check if path or any parent matches ignore list
+        for ignore_path in self.ignore_cleanup_paths:
+            # Check if the file/dir matches exactly or is inside an ignored directory
+            if relative_path == ignore_path or ignore_path in relative_path.parents:
+                return True
+        return False
 
     def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
