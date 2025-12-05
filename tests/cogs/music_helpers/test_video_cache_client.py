@@ -24,7 +24,8 @@ def test_verify_cache_with_dir(fake_engine):  #pylint:disable=redefined-outer-na
                 x.verify_cache()
 
                 assert not Path(tmp_file.name).exists()
-                assert not Path(tmp_dir2).exists()
+                # Directories are skipped, not deleted
+                assert Path(tmp_dir2).exists()
 
 def test_verify_cache_with_files_that_no_longer_exist(fake_engine):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
@@ -183,49 +184,50 @@ def test_verify_cache_ignore_cleanup_paths_file(fake_engine):  #pylint:disable=r
         assert not deleted_file.exists()
 
 def test_verify_cache_ignore_cleanup_paths_directory(fake_engine):  #pylint:disable=redefined-outer-name
-    '''Test that directories in ignore_cleanup_paths are not deleted'''
+    '''Test that files with exact path matches in ignore_cleanup_paths are not deleted'''
     with TemporaryDirectory() as tmp_dir:
-        # Create directory that should be ignored
-        ignored_dir = Path(tmp_dir) / 'keep_dir'
-        ignored_dir.mkdir()
-        (ignored_dir / 'file1.txt').write_text('data1')
-        (ignored_dir / 'file2.txt').write_text('data2')
+        # Create files that should be ignored (exact path match)
+        kept_file1 = Path(tmp_dir) / 'keep_file1.txt'
+        kept_file1.write_text('data1')
+        kept_file2 = Path(tmp_dir) / 'keep_file2.txt'
+        kept_file2.write_text('data2')
 
-        # Create directory that should be deleted
-        deleted_dir = Path(tmp_dir) / 'delete_dir'
-        deleted_dir.mkdir()
-        (deleted_dir / 'file3.txt').write_text('data3')
+        # Create file that should be deleted
+        deleted_file = Path(tmp_dir) / 'delete_file.txt'
+        deleted_file.write_text('data3')
 
         x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None,
-                           ignore_cleanup_paths=['keep_dir'])
+                           ignore_cleanup_paths=['keep_file1.txt', 'keep_file2.txt'])
         x.verify_cache()
 
-        # Ignored directory and its contents should still exist
-        assert ignored_dir.exists()
-        assert (ignored_dir / 'file1.txt').exists()
-        assert (ignored_dir / 'file2.txt').exists()
+        # Ignored files should still exist
+        assert kept_file1.exists()
+        assert kept_file2.exists()
 
-        # Non-ignored directory should be deleted
-        assert not deleted_dir.exists()
+        # Non-ignored file should be deleted
+        assert not deleted_file.exists()
 
 def test_verify_cache_ignore_cleanup_paths_nested(fake_engine):  #pylint:disable=redefined-outer-name
-    '''Test that nested paths within ignored directories are not deleted'''
+    '''Test that files with exact nested paths in ignore_cleanup_paths are not deleted'''
     with TemporaryDirectory() as tmp_dir:
-        # Create nested structure in ignored directory
-        ignored_dir = Path(tmp_dir) / 'important'
-        ignored_dir.mkdir()
-        nested_dir = ignored_dir / 'nested' / 'deep'
+        # Create nested structure
+        nested_dir = Path(tmp_dir) / 'important' / 'nested' / 'deep'
         nested_dir.mkdir(parents=True)
-        (nested_dir / 'file.txt').write_text('nested data')
+        kept_file = nested_dir / 'file.txt'
+        kept_file.write_text('nested data')
 
+        deleted_file = Path(tmp_dir) / 'delete_me.txt'
+        deleted_file.write_text('delete this')
+
+        # Use exact path to protect the nested file
         x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None,
-                           ignore_cleanup_paths=['important'])
+                           ignore_cleanup_paths=['important/nested/deep/file.txt'])
         x.verify_cache()
 
-        # Entire ignored directory tree should still exist
-        assert ignored_dir.exists()
-        assert nested_dir.exists()
-        assert (nested_dir / 'file.txt').exists()
+        # Exact path match should be protected
+        assert kept_file.exists()
+        # Other file should be deleted
+        assert not deleted_file.exists()
 
 def test_verify_cache_ignore_cleanup_paths_multiple(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that multiple ignore paths work correctly'''
@@ -292,19 +294,43 @@ def test_should_ignore_path_file(fake_engine):  #pylint:disable=redefined-outer-
         assert x._should_ignore_path(Path(tmp_dir) / 'subdir' / 'file.txt') is True  #pylint:disable=protected-access
 
 def test_should_ignore_path_directory(fake_engine):  #pylint:disable=redefined-outer-name
-    '''Test _should_ignore_path method with directories'''
+    '''Test _should_ignore_path method with exact path matching'''
     with TemporaryDirectory() as tmp_dir:
         x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None,
-                           ignore_cleanup_paths=['important_dir'])
+                           ignore_cleanup_paths=['important_dir', 'keep_file.txt'])
 
-        # Test directory match
+        # Test exact directory match
         assert x._should_ignore_path(Path(tmp_dir) / 'important_dir') is True  #pylint:disable=protected-access
 
-        # Test file inside ignored directory
-        assert x._should_ignore_path(Path(tmp_dir) / 'important_dir' / 'file.txt') is True  #pylint:disable=protected-access
+        # Test exact file match
+        assert x._should_ignore_path(Path(tmp_dir) / 'keep_file.txt') is True  #pylint:disable=protected-access
 
-        # Test nested directory inside ignored directory
-        assert x._should_ignore_path(Path(tmp_dir) / 'important_dir' / 'subdir' / 'file.txt') is True  #pylint:disable=protected-access
-
-        # Test different directory
+        # Test non-matching paths (no parent directory matching)
+        assert x._should_ignore_path(Path(tmp_dir) / 'important_dir' / 'file.txt') is False  #pylint:disable=protected-access
         assert x._should_ignore_path(Path(tmp_dir) / 'other_dir') is False  #pylint:disable=protected-access
+
+
+def test_verify_cache_ignore_file_in_directory(fake_engine):  #pylint:disable=redefined-outer-name
+    '''Test that ignoring a file with exact path match works for nested files'''
+    with TemporaryDirectory() as tmp_dir:
+        # Create a directory with a file inside (like db/discord.sql)
+        db_dir = Path(tmp_dir) / 'db'
+        db_dir.mkdir()
+        db_file = db_dir / 'discord.sql'
+        db_file.write_text('database content')
+
+        # Create another file that should be deleted
+        extra_file = Path(tmp_dir) / 'extra.txt'
+        extra_file.write_text('should be deleted')
+
+        # Ignore the database file with exact path
+        x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None,
+                           ignore_cleanup_paths=['db/discord.sql'])
+        x.verify_cache()
+
+        # The ignored file should still exist (exact match)
+        assert db_file.exists(), 'db/discord.sql should not be deleted'
+        # Directory is skipped (not deleted)
+        assert db_dir.exists(), 'db directory is skipped'
+        # Extra file should be deleted
+        assert not extra_file.exists(), 'extra.txt should be deleted'

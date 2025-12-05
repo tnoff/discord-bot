@@ -10,7 +10,7 @@ Usage:
     python scripts/restore_database.py --config config.yaml --file /path/to/backup.json
 
     # Restore from S3
-    python scripts/restore_database.py --config config.yaml --bucket my-bucket --object backups/db/backup.json
+    python scripts/restore_database.py --config config.yaml --s3-bucket my-bucket --s3-object backups/db/backup.json
 
     # Clear existing data before restoring
     python scripts/restore_database.py --config config.yaml --file backup.json --clear
@@ -63,10 +63,17 @@ def parse_args():
         help='Path to local backup JSON file'
     )
     source_group.add_argument(
-        '--s3',
-        nargs=2,
-        metavar=('BUCKET', 'OBJECT'),
-        help='S3 bucket and object path (e.g., --s3 my-bucket backups/db/backup.json)'
+        '--s3-bucket',
+        type=str,
+        dest='s3_bucket',
+        help='S3 bucket name (requires --s3-object)'
+    )
+
+    parser.add_argument(
+        '--s3-object',
+        type=str,
+        dest='s3_object',
+        help='S3 object path (requires --s3-bucket)'
     )
 
     # Restore options
@@ -90,6 +97,14 @@ def main():
     '''Main restore script'''
     args = parse_args()
     logger = setup_logging(args.verbose)
+
+    # Validate S3 arguments
+    if args.s3_bucket and not args.s3_object:
+        logger.error('--s3-bucket requires --s3-object')
+        sys.exit(1)
+    if args.s3_object and not args.s3_bucket:
+        logger.error('--s3-object requires --s3-bucket')
+        sys.exit(1)
 
     # Load configuration
     logger.info(f'Loading configuration from {args.config}')
@@ -129,9 +144,10 @@ def main():
                 sys.exit(1)
             logger.info(f'Using local backup file: {backup_file}')
 
-        elif args.s3:
+        elif args.s3_bucket:
             # Download from S3
-            bucket_name, object_path = args.s3
+            bucket_name = args.s3_bucket
+            object_path = args.s3_object
             logger.info(f'Downloading backup from s3://{bucket_name}/{object_path}')
 
             # Create temporary file for download

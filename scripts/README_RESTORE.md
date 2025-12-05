@@ -19,7 +19,7 @@ python scripts/restore_database.py --config config.yaml --file /path/to/backup.j
 ### Restore from S3
 
 ```bash
-python scripts/restore_database.py --config config.yaml --s3 my-bucket backups/db/db_backup_2025-01-15_12-30-00.json
+python scripts/restore_database.py --config config.yaml --s3-bucket my-bucket --s3-object backups/db/db_backup_2025-01-15_12-30-00.json
 ```
 
 ### Clear Existing Data Before Restoring
@@ -42,7 +42,8 @@ python scripts/restore_database.py --config config.yaml --file backup.json --ver
 |--------|-------------|
 | `--config PATH` | **Required.** Path to your bot configuration YAML file |
 | `--file PATH` | Path to local backup JSON file |
-| `--s3 BUCKET OBJECT` | S3 bucket name and object path |
+| `--s3-bucket BUCKET` | S3 bucket name (requires `--s3-object`) |
+| `--s3-object OBJECT` | S3 object path (requires `--s3-bucket`) |
 | `--clear` | Clear all existing data before restoring (requires confirmation) |
 | `--verbose`, `-v` | Enable verbose debug logging |
 
