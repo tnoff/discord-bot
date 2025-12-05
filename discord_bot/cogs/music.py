@@ -40,7 +40,7 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.cogs.schema import SERVER_ID
+from discord_bot.cogs.schema import SERVER_ID, STORAGE_BACKEND
 from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed, run_commit
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
@@ -211,15 +211,12 @@ MUSIC_SECTION_SCHEMA = {
                 'storage': {
                     'type': 'object',
                     'properties': {
-                        'backend': {
-                            'type': 'string',
-                            "enum": ['s3'],
-                        },
+                        'backend': STORAGE_BACKEND,
                         'bucket_name': {
                             'type': 'string',
                         }
                     },
-                    'required': ['backend', 'bucket_name'],
+                    'required': ['bucket_name'],
                 },
             }
         },
@@ -335,7 +332,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for item in server_queue_priority_input:
             self.server_queue_priority[int(item['server_id'])] = item['priority']
 
-        self.backup_storage_options = self.settings.get('music', {}).get('download', {}).get('storage', {})
+        # Get storage config from music section and general section
+        music_storage_config = self.settings.get('music', {}).get('download', {}).get('storage', {})
+        general_storage_config = self.settings.get('general', {}).get('storage', {})
+
+        # Use music-specific backend if specified, otherwise use general
+        storage_backend = music_storage_config.get('backend', general_storage_config.get('backend', None))
+        storage_bucket_name = music_storage_config.get('bucket_name', None)
+
+        self.backup_storage_options = {
+            'backend': storage_backend,
+            'bucket_name': storage_bucket_name
+        }
 
         # Setup rest of client
         if download_dir_path is not None:
@@ -354,9 +362,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.video_cache = None
         if self.enable_cache and self.db_engine:
-            self.video_cache = VideoCacheClient(self.download_dir, max_cache_files, partial(self.with_db_session),
-                                                self.backup_storage_options.get('backend', None), self.backup_storage_options.get('bucket_name', None),
-                                                ignore_cleanup_paths)
+            self.video_cache = VideoCacheClient(
+                self.download_dir,
+                max_cache_files,
+                partial(self.with_db_session),
+                self.backup_storage_options.get('backend', None),
+                self.backup_storage_options.get('bucket_name', None),
+                ignore_cleanup_paths
+            )
             self.video_cache.verify_cache()
 
 

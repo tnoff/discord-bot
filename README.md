@@ -151,11 +151,17 @@ general:
 
 ## Additional Docs
 
-- [CLI and Application Lifecycle](./docs/cli.md)
+### Cogs
+
 - [Common Cog](./docs/common.md)
+- [Database Backup](./docs/database_backup.md)
 - [Delete Messages Cog](./docs/delete_messages.md)
 - [Markov Cog](./docs/markov.md)
-- [Monitoring and Observability](./docs/monitoring/)
 - [Music Cog](./docs/music.md)
 - [Role Cog](./docs/role.md)
 - [Urban Cog](./docs/urban.md)
+
+### Other Docs
+
+- [CLI and Application Lifecycle](./docs/cli.md)
+- [Monitoring and Observability](./docs/monitoring/)
