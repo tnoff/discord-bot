@@ -14,6 +14,7 @@ def test_database_backup_client_init(fake_engine, mocker):  #pylint:disable=rede
     assert client.db_engine == fake_engine
     assert client.logger == logger
     assert client.CHUNK_SIZE == 1000
+    assert client.BATCH_SIZE == 1000
 
 
 def test_create_backup_empty_database(fake_engine, mocker):  #pylint:disable=redefined-outer-name
@@ -32,16 +33,23 @@ def test_create_backup_empty_database(fake_engine, mocker):  #pylint:disable=red
     with open(backup_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Should have all tables from BASE.metadata
+    # Should have metadata
     assert isinstance(data, dict)
+    assert '_metadata' in data
+    assert 'backup_timestamp' in data['_metadata']
+    assert 'alembic_version' in data['_metadata']
+    assert 'table_count' in data['_metadata']
+
+    # Should have all tables from BASE.metadata
     assert 'markov_channel' in data
     assert 'markov_relation' in data
     assert 'playlist' in data
 
     # All tables should be empty arrays
-    for _, rows in data.items():
-        assert isinstance(rows, list)
-        assert len(rows) == 0
+    for key, rows in data.items():
+        if key != '_metadata':
+            assert isinstance(rows, list)
+            assert len(rows) == 0
 
     # Cleanup
     backup_file.unlink()
@@ -226,6 +234,35 @@ def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=redefine
     actual_size = backup_file.stat().st_size
     assert actual_size > 0
     assert str(actual_size) in log_message
+
+    # Cleanup
+    backup_file.unlink()
+
+
+def test_backup_metadata_includes_alembic_version(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''Test that backup includes alembic version metadata'''
+    logger = mocker.Mock()
+
+    # Mock alembic_version table
+    with fake_engine.connect() as connection:
+        try:
+            connection.execute(text('CREATE TABLE alembic_version (version_num VARCHAR(32))'))
+            connection.execute(text("INSERT INTO alembic_version VALUES ('abc123def456')"))
+            connection.commit()
+        except Exception:  # pylint: disable=broad-except
+            pass  # Table might already exist
+
+    client = DatabaseBackupClient(fake_engine, logger)
+    backup_file = client.create_backup()
+
+    with open(backup_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    # Check metadata
+    assert '_metadata' in data
+    assert data['_metadata']['alembic_version'] == 'abc123def456'
+    assert 'backup_timestamp' in data['_metadata']
+    assert isinstance(data['_metadata']['table_count'], int)
 
     # Cleanup
     backup_file.unlink()
