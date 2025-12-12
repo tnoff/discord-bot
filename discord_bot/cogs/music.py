@@ -804,6 +804,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.info(f'Iterating file on base path {str(media_download.base_path)}')
                     self.video_cache.iterate_file(media_download)
                 self.sources_in_transit[media_download.media_request.uuid] = str(media_download.base_path)
+                player.file_dir.mkdir(exist_ok=True)
                 media_download.ready_file(guild_path=player.file_dir)
                 self.sources_in_transit.pop(media_download.media_request.uuid)
                 player.add_to_play_queue(media_download)
