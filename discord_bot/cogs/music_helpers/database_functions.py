@@ -37,6 +37,22 @@ def ensure_guild_video_analytics(db_session: Session, guild_id: str):
     db_session.commit()
     return new_row
 
+def update_video_guild_analytics(db_session: Session, guild_id: str, duration: int, cache_hit: bool):
+    '''
+    Update video guild analytics from history item
+    '''
+    guild_analytics = ensure_guild_video_analytics(db_session, guild_id)
+    guild_analytics.total_plays += 1
+    new_duration = guild_analytics.total_duration_seconds + duration
+    new_days = new_duration // ( 60 * 60 * 24) # 1 day in seconds
+    new_duration = new_duration % ( 60 * 60 * 24)
+    guild_analytics.total_duration_days += new_days
+    guild_analytics.total_duration_seconds = new_duration
+    if cache_hit:
+        guild_analytics.cached_plays += 1
+    guild_analytics.updated_at = datetime.now(timezone.utc)
+    return True
+
 #
 # Guild Functions
 #
