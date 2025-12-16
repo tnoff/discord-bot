@@ -1525,11 +1525,12 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
     assert message_func is not None
 
     # Verify message content contains expected stats
+    # Total: 10,800 seconds = 0 days, 3 hours, 0 seconds
     message_content = message_func.args[0]
     assert 'Music Stats for Server' in message_content
     assert 'Total Plays: 2' in message_content
     assert 'Cached Plays: 1' in message_content
-    assert 'Total Time Played: 0 days, 10800 seconds' in message_content
+    assert 'Total Time Played: 0 days, 3 hours, and 0 seconds' in message_content
     assert 'Tracked Since:' in message_content
 
 
@@ -1562,7 +1563,41 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
     message_content = message_context.function.args[0]
 
     # Verify message shows days correctly
-    assert 'Total Time Played: 2 days, 18000 seconds' in message_content
+    # Total: 190,800 seconds = 2 days, 5 hours, 0 seconds
+    assert 'Total Time Played: 2 days, 5 hours, and 0 seconds' in message_content
+    assert 'Total Plays: 1' in message_content
+
+
+@pytest.mark.asyncio
+async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test music_stats command displays hours and seconds correctly"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Pre-populate analytics data: 1 day, 7 hours, 45 minutes, 30 seconds
+    # 1 day = 86400, 7 hours = 25200, 45 min = 2700, 30 sec = 30
+    # Total = 86400 + 25200 + 2700 + 30 = 114330 seconds
+    with mock_session(fake_engine) as session:
+        update_video_guild_analytics(session, fake_context['guild'].id, 114330, False)
+        session.commit()
+
+    # Mock message queue
+    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+
+    # Call music_stats
+    await cog.music_stats(cog, fake_context['context'])
+
+    # Get the message content
+    call_args = mock_send.call_args[0][0]
+    message_context = call_args[0]
+    message_content = message_context.function.args[0]
+
+    # Verify message shows all components correctly
+    # After migration: 1 day + 27930 seconds (7 hours 45 min 30 sec)
+    # Hours: 27930 // 3600 = 7
+    # Seconds: 27930 % 3600 = 2730 (45 min 30 sec)
+    assert 'Total Time Played: 1 days, 7 hours, and 2730 seconds' in message_content
     assert 'Total Plays: 1' in message_content
 
 
