@@ -11,6 +11,7 @@ from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
+from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
 
@@ -18,7 +19,6 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
@@ -33,26 +33,13 @@ LOOP_SLEEP_INTERVAL_DEFAULT = 300
 # Limit for how many messages we grab on each history check
 MESSAGE_CHECK_LIMIT = 16
 
-# Markov config schema
-MARKOV_SECTION_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'loop_sleep_interval': {
-            'type': 'number',
-        },
-        'message_check_limit': {
-            'type': 'number',
-        },
-        'history_retention_days': {
-            'type': 'number',
-
-        },
-        'server_reject_list': {
-            'type': 'array',
-            'items': SERVER_ID,
-        },
-    }
-}
+# Pydantic config model
+class MarkovConfig(BaseModel):
+    '''Markov chain configuration'''
+    loop_sleep_interval: float = 300.0
+    message_check_limit: int = 16
+    history_retention_days: int = 365
+    server_reject_list: list[str] = Field(default_factory=list)
 
 def clean_message(content: str, emojis: List[str]):
     '''
@@ -116,12 +103,13 @@ class Markov(CogHelper):
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, settings, db_engine, settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
+        super().__init__(bot, settings, db_engine, settings_prefix='markov', config_model=MarkovConfig)
 
-        self.loop_sleep_interval = self.settings.get('markov', {}).get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
-        self.message_check_limit = self.settings.get('markov', {}).get('message_check_limit', MESSAGE_CHECK_LIMIT)
-        self.history_retention_days = self.settings.get('markov', {}).get('history_retention_days', MARKOV_HISTORY_RETENTION_DAYS_DEFAULT)
-        self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
+        # Access config values through self.config (Pydantic model)
+        self.loop_sleep_interval = self.config.loop_sleep_interval
+        self.message_check_limit = self.config.message_check_limit
+        self.history_retention_days = self.config.history_retention_days
+        self.server_reject_list = self.config.server_reject_list
 
         self._task = None
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')

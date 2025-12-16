@@ -6,6 +6,7 @@ from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
 from discord import Member, Role
 from discord.errors import NotFound
 from discord.ext.commands import Bot, Context, group
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
@@ -13,52 +14,37 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
 
-# Role config schema
-ROLE_SECTION_SCHEMA = {
-    'type': 'object',
-    'minProperties': 1,
-    'additionalProperties': {
-        'type': 'object',
-        'properties': {
-            'rejected_roles_list': {
-                'type': 'array',
-                'items' : {
-                    'type': 'string',
-                },
-            },
-            'required_roles_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string',
-                },
-            },
-            'admin_override_role_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string'
-                }
-            },
-            'self_service_role_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string'
-                }
-            },
-            'additionalProperties': {
-                'type': 'object',
-                'properties': {
-                    'manages_roles': {
-                        'type': 'array',
-                        'minItems': 1,
-                        'items': {
-                            'type': 'string',
-                        },
-                    },
-                },
-            },
-        }
-    }
-}
+# Pydantic config models
+class RoleManagementConfig(BaseModel):
+    '''Role management configuration'''
+    manages_roles: list[str] = Field(min_length=1)
+
+class RoleServerConfig(BaseModel):
+    '''Per-server role configuration'''
+    rejected_roles_list: list[str] = Field(default_factory=list)
+    required_roles_list: list[str] = Field(default_factory=list)
+    admin_override_role_list: list[str] = Field(default_factory=list)
+    self_service_role_list: list[str] = Field(default_factory=list)
+
+class RoleConfig(BaseModel):
+    '''Top-level role cog configuration'''
+    # Allow any additional properties (server IDs as keys)
+    model_config = {"extra": "allow"}
+
+    @field_validator('*', mode='before')
+    @classmethod
+    def validate_server_configs(cls, v):
+        '''Validate server configuration dictionaries'''
+        if isinstance(v, dict):
+            return RoleServerConfig(**v)
+        return v
+
+    @model_validator(mode='after')
+    def check_min_properties(self):
+        '''Ensure at least one property is provided'''
+        if not self.model_dump():
+            raise ValueError('Role config must have at least one server configuration')
+        return self
 
 class RoleAssignment(CogHelper):
     '''
@@ -69,8 +55,9 @@ class RoleAssignment(CogHelper):
             raise CogMissingRequiredArg('Role not enabled')
         if not bot.intents.members:
             raise CogMissingRequiredArg('"members" intents required to run role commands')
-        super().__init__(bot, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
-        self.settings = settings['role']
+        super().__init__(bot, settings, None, settings_prefix='role', config_model=RoleConfig)
+        # Keep settings as model_dump for backwards compatibility with existing methods
+        self.settings = self.config.model_dump()
 
     def clean_input(self, stringy: str) -> str:
         '''

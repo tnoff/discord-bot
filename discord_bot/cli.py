@@ -6,9 +6,10 @@ from sys import stderr
 from typing import List
 
 import click
+from pyaml_env import parse_config
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
-from jsonschema import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry._logs import set_logger_provider
@@ -25,7 +26,6 @@ from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
-from pyaml_env import parse_config
 from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Engine
 
@@ -40,7 +40,7 @@ from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
-from discord_bot.utils.common import get_logger, validate_config, GENERAL_SECTION_SCHEMA
+from discord_bot.utils.common import get_logger, GeneralConfig
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
@@ -56,10 +56,12 @@ POSSIBLE_COGS = [
 
 def read_config(config_file: str) -> dict:
     '''
-    Get values from config file
+    Get values from config file with environment variable substitution
+    Uses pyaml-env for env var parsing and Pydantic for validation
     '''
     if config_file is None:
         return {}
+
     settings = parse_config(config_file) or {}
 
     if 'general' not in settings:
@@ -127,9 +129,11 @@ def main(config_file): #pylint:disable=too-many-statements
     # First generate settings
     settings = read_config(config_file)
     try:
-        validate_config(settings['general'], GENERAL_SECTION_SCHEMA)
-    except ValidationError as exc:
+        # Validate using Pydantic
+        GeneralConfig(**settings['general'])
+    except PydanticValidationError as exc:
         print(f'Invalid config, general section does not match schema: {str(exc)}', file=stderr)
+        raise DiscordBotException('Invalid general config') from exc
 
     # Grab db engine for possible dump or load commands
     try:
@@ -215,7 +219,7 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     try:
         token = settings['general']['discord_token']
     except KeyError as exc:
-        raise ValidationError('Unable to run bot without token') from exc
+        raise DiscordBotException('Unable to run bot without token') from exc
 
     logger.debug('Main :: Generating Intents')
     intents = Intents.default()

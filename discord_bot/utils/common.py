@@ -4,190 +4,78 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from re import sub
 from sys import stdout
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional, Literal
 
 from aiohttp.client_exceptions import ServerDisconnectedError
-from jsonschema import validate
 from discord.errors import DiscordServerError, RateLimited, NotFound
 from discord.ext.commands import Bot
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.sdk._logs import LoggingHandler
+from pydantic import BaseModel, Field
 from sqlalchemy.orm.session import Session
 
-from discord_bot.cogs.schema import STORAGE_BACKEND
+from discord_bot.cogs.schema import StorageConfig
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'utils'
 
-GENERAL_SECTION_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'discord_token': {
-            'type': 'string'
-        },
-        'sql_connection_statement': {
-            'type': 'string',
-        },
-        'storage': {
-            'type': 'object',
-            'properties': {
-                'backend': STORAGE_BACKEND,
-            },
-            'required': ['backend']
-        },
-        'database_backup': {
-            'type': 'object',
-            'properties': {
-                'bucket_name': {
-                    'type': 'string'
-                },
-                'cron_schedule': {
-                    'type': 'string'
-                },
-                'object_prefix': {
-                    'type': 'string'
-                },
-            },
-            'required': ['bucket_name', 'cron_schedule']
-        },
-        'monitoring': {
-            'type': 'object',
-            'properties': {
-                'otlp': {
-                    'type': 'object',
-                    'properties': {
-                        'enabled': {
-                            'type': 'boolean',
-                        },
-                    },
-                    'required': [
-                        'enabled'
-                    ]
-                },
-                'memory_profiling': {
-                    'type': 'object',
-                    'properties': {
-                        'enabled': {
-                            'type': 'boolean',
-                            'default': False,
-                        },
-                        'interval_seconds': {
-                            'type': 'integer',
-                            'minimum': 1,
-                            'default': 60,
-                        },
-                        'top_n_lines': {
-                            'type': 'integer',
-                            'minimum': 1,
-                            'default': 25,
-                        },
-                    },
-                },
-                'process_metrics': {
-                    'type': 'object',
-                    'properties': {
-                        'enabled': {
-                            'type': 'boolean',
-                            'default': False,
-                        },
-                        'interval_seconds': {
-                            'type': 'integer',
-                            'minimum': 1,
-                            'default': 15,
-                        },
-                    },
-                },
-            },
-        },
-        'logging': {
-            'type': 'object',
-            'properties': {
-                'log_dir': {
-                    'type': 'string',
-                },
-                'log_file_count': {
-                    'type': 'integer',
-                },
-                'log_file_max_bytes': {
-                    'type': 'integer',
-                },
-                'log_level': {
-                    'type': 'integer',
-                    'enum': [0, 10, 20, 30, 40, 50],
-                },
-                'logging_format': {
-                    'type': 'string',
-                },
-                'logging_date_format': {
-                    'type': 'string',
-                }
-            },
-            'required': [
-                'log_dir',
-                'log_level',
-                'log_file_count',
-                'log_file_max_bytes',
-            ]
-        },
-        'include': {
-            'type': 'object',
-            'properties': {
-                'default': {
-                    'type': 'boolean',
-                    'default': True,
-                },
-                'markov': {
-                    'type': 'boolean',
-                    'default': False,
-                },
-                'urban': {
-                    'type': 'boolean',
-                    'default': False,
-                },
-                'music': {
-                    'type': 'boolean',
-                    'default': False,
-                },
-                'delete_messages': {
-                    'type': 'boolean',
-                    'default': False,
-                },
-                'database_backup': {
-                    'type': 'boolean',
-                    'default': False,
-                }
-            },
-        },
-        'intents': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-            },
-        },
-        'rejectlist_guilds': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-            }
-        }
-    },
-    'required': [
-        'discord_token',
-    ]
-}
+# Pydantic models for config validation
+class MonitoringOtlpConfig(BaseModel):
+    '''OTLP monitoring configuration'''
+    enabled: bool
+
+class MonitoringMemoryProfilingConfig(BaseModel):
+    '''Memory profiling monitoring configuration'''
+    enabled: bool = False
+    interval_seconds: int = Field(default=60, ge=1)
+    top_n_lines: int = Field(default=25, ge=1)
+
+class MonitoringProcessMetricsConfig(BaseModel):
+    '''Process metrics monitoring configuration'''
+    enabled: bool = False
+    interval_seconds: int = Field(default=15, ge=1)
+
+class MonitoringConfig(BaseModel):
+    '''Monitoring configuration'''
+    otlp: MonitoringOtlpConfig
+    memory_profiling: Optional[MonitoringMemoryProfilingConfig] = None
+    process_metrics: Optional[MonitoringProcessMetricsConfig] = None
+
+class LoggingConfig(BaseModel):
+    '''Logging configuration'''
+    log_dir: str
+    log_level: Literal[0, 10, 20, 30, 40, 50]
+    log_file_count: int
+    log_file_max_bytes: int
+    logging_format: str = '%(asctime)s - %(levelname)s - %(message)s'
+    logging_date_format: str = '%Y-%m-%dT%H-%M-%S'
+
+class IncludeConfig(BaseModel):
+    '''Cog include configuration'''
+    default: bool = True
+    markov: bool = False
+    urban: bool = False
+    music: bool = False
+    delete_messages: bool = False
+    database_backup: bool = False
+
+class GeneralConfig(BaseModel):
+    '''General bot configuration'''
+    discord_token: str
+    sql_connection_statement: Optional[str] = None
+    storage: Optional[StorageConfig] = None
+    monitoring: Optional[MonitoringConfig] = None
+    logging: Optional[LoggingConfig] = None
+    include: IncludeConfig = Field(default_factory=IncludeConfig)
+    intents: list[str] = Field(default_factory=list)
+    rejectlist_guilds: list[str] = Field(default_factory=list)
 
 class SkipRetrySleep(Exception):
     '''
     Call this to skip generic retry logic
     '''
-
-def validate_config(config_section, schema):
-    '''
-    Validate config against a JSON schema
-    '''
-    return validate(instance=config_section, schema=schema)
 
 def get_logger(logger_name, logging_section, otlp_logger=None):
     '''

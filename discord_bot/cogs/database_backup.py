@@ -1,11 +1,13 @@
 from asyncio import sleep
 from datetime import datetime
+from typing import Optional
 
 from discord.ext.commands import Bot
 from sqlalchemy.engine.base import Engine
 from opentelemetry.metrics import Observation
 from opentelemetry.trace import SpanKind
 from croniter import croniter
+from pydantic import BaseModel
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -14,16 +16,12 @@ from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNam
 from discord_bot.utils.clients.s3 import upload_file
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 
-# Schema validation
-DATABASE_BACKUP_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'bucket_name': {'type': 'string'},
-        'cron_schedule': {'type': 'string'},
-        'object_prefix': {'type': 'string'},
-    },
-    'required': ['bucket_name', 'cron_schedule'],
-}
+# Pydantic config model
+class DatabaseBackupConfig(BaseModel):
+    '''Database backup configuration'''
+    bucket_name: str
+    cron_schedule: str
+    object_prefix: Optional[str] = None
 
 class DatabaseBackup(CogHelper):
     '''
@@ -41,13 +39,12 @@ class DatabaseBackup(CogHelper):
 
         super().__init__(bot, settings, db_engine,
                          settings_prefix='database_backup',
-                         section_schema=DATABASE_BACKUP_SCHEMA)
+                         config_model=DatabaseBackupConfig)
 
-        # Load config
-        backup_config = self.settings.get('database_backup', {})
-        self.bucket_name = backup_config['bucket_name']
-        self.cron_schedule = backup_config['cron_schedule']
-        self.object_prefix = backup_config.get('object_prefix', 'backups/db/')
+        # Load config from Pydantic model
+        self.bucket_name = self.config.bucket_name
+        self.cron_schedule = self.config.cron_schedule
+        self.object_prefix = self.config.object_prefix if self.config.object_prefix else 'backups/db/'
 
         # Initialize backup client
         self.backup_client = DatabaseBackupClient(
