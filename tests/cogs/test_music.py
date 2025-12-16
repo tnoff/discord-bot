@@ -1525,12 +1525,12 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
     assert message_func is not None
 
     # Verify message content contains expected stats
-    # Total: 10,800 seconds = 0 days, 3 hours, 0 seconds
+    # Total: 10,800 seconds = 0 days, 3 hours, 0 minutes, 0 seconds
     message_content = message_func.args[0]
     assert 'Music Stats for Server' in message_content
     assert 'Total Plays: 2' in message_content
     assert 'Cached Plays: 1' in message_content
-    assert 'Total Time Played: 0 days, 3 hours, and 0 seconds' in message_content
+    assert 'Total Time Played: 0 days, 3 hours, 0 minutes, and 0 seconds' in message_content
     assert 'Tracked Since:' in message_content
 
 
@@ -1563,8 +1563,8 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
     message_content = message_context.function.args[0]
 
     # Verify message shows days correctly
-    # Total: 190,800 seconds = 2 days, 5 hours, 0 seconds
-    assert 'Total Time Played: 2 days, 5 hours, and 0 seconds' in message_content
+    # Total: 190,800 seconds = 2 days, 5 hours, 0 minutes, 0 seconds
+    assert 'Total Time Played: 2 days, 5 hours, 0 minutes, and 0 seconds' in message_content
     assert 'Total Plays: 1' in message_content
 
 
@@ -1596,8 +1596,9 @@ async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, f
     # Verify message shows all components correctly
     # After migration: 1 day + 27930 seconds (7 hours 45 min 30 sec)
     # Hours: 27930 // 3600 = 7
-    # Seconds: 27930 % 3600 = 2730 (45 min 30 sec)
-    assert 'Total Time Played: 1 days, 7 hours, and 2730 seconds' in message_content
+    # Minutes: (27930 % 3600) // 60 = 2730 // 60 = 45
+    # Seconds: 27930 % 60 = 30
+    assert 'Total Time Played: 1 days, 7 hours, 45 minutes, and 30 seconds' in message_content
     assert 'Total Plays: 1' in message_content
 
 
