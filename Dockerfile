@@ -2,7 +2,7 @@ FROM python:3.14-slim-bookworm
 
 
 # Base packages
-RUN apt-get update && apt-get install -y gcc libpq-dev git ffmpeg curl unzip heaptrack sqlite3
+RUN apt-get update && apt-get install -y git ffmpeg curl unzip heaptrack sqlite3
 
 # Install Deno
 # https://github.com/yt-dlp/yt-dlp/issues/14404
@@ -23,10 +23,10 @@ COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
 COPY scripts/ "${WORKDIR}/scripts/"
 
-RUN pip install psycopg2 "${APPDIR}"
+RUN pip install "${APPDIR}"
 
 WORKDIR "/opt/discord"
 
-RUN apt-get remove -y gcc git && apt-get autoremove -y
+RUN apt-get remove -y git unzip && apt-get autoremove -y
 
 CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]
