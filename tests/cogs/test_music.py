@@ -17,9 +17,10 @@ from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMedi
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music import VideoEditing
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
+from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
 
 from tests.helpers import fake_source_dict, fake_media_download
-from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context, mock_session #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 
 BASE_MUSIC_CONFIG = {
@@ -1485,3 +1486,101 @@ async def test_voice_client_cleanup_player_removed_externally(fake_context, mock
 
     # Verify player.cleanup() was NOT called (since player was already removed)
     # We can't easily verify this since we patched it, but we verified no exception was raised
+
+
+@pytest.mark.asyncio
+async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test music_stats command displays analytics correctly"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Pre-populate analytics data
+    with mock_session(fake_engine) as session:
+        # Add some analytics data
+        update_video_guild_analytics(session, fake_context['guild'].id, 7200, False)  # 2 hours
+        update_video_guild_analytics(session, fake_context['guild'].id, 3600, True)  # 1 hour, cached
+        session.commit()
+
+    # Mock message queue
+    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+
+    # Call music_stats
+    await cog.music_stats(cog, fake_context['context'])
+
+    # Verify message was sent
+    mock_send.assert_called_once()
+
+    # Get the message context that was sent
+    call_args = mock_send.call_args[0][0]
+    assert len(call_args) == 1
+    message_context = call_args[0]
+
+    # Verify message context properties
+    assert message_context.guild_id == fake_context['guild'].id
+    assert message_context.channel_id == fake_context['channel'].id
+
+    # Execute the message function to get the actual message
+    message_func = message_context.function
+    assert message_func is not None
+
+    # Verify message content contains expected stats
+    message_content = message_func.args[0]
+    assert 'Music Stats for Server' in message_content
+    assert 'Total Plays: 2' in message_content
+    assert 'Cached Plays: 1' in message_content
+    assert 'Total Time Played: 0 days, 10800 seconds' in message_content
+    assert 'Tracked Since:' in message_content
+
+
+@pytest.mark.asyncio
+async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test music_stats command displays days correctly when duration exceeds 24 hours"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Pre-populate analytics data with more than one day
+    with mock_session(fake_engine) as session:
+        one_day = 60 * 60 * 24
+        # Add 2 days and 5 hours worth of content
+        update_video_guild_analytics(session, fake_context['guild'].id, one_day * 2 + 18000, False)
+        session.commit()
+
+    # Mock message queue
+    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+
+    # Call music_stats
+    await cog.music_stats(cog, fake_context['context'])
+
+    # Verify message was sent
+    mock_send.assert_called_once()
+
+    # Get the message content
+    call_args = mock_send.call_args[0][0]
+    message_context = call_args[0]
+    message_content = message_context.function.args[0]
+
+    # Verify message shows days correctly
+    assert 'Total Time Played: 2 days, 18000 seconds' in message_content
+    assert 'Total Plays: 1' in message_content
+
+
+@pytest.mark.asyncio
+async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test music_stats command when database is not available"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    # Mock the database check to return False
+    mocker.patch.object(cog, '_Music__check_database_session', return_value=False)
+
+    # Mock message queue
+    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+
+    # Call music_stats
+    await cog.music_stats(cog, fake_context['context'])
+
+    # Verify no message was sent (function returned early)
+    mock_send.assert_not_called()

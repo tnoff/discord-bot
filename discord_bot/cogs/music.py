@@ -623,16 +623,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             with self.with_db_session() as db_session:
 
                 # Update analytics table
-                guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, history_item.media_download.media_request.guild_id))
-                guild_analytics.total_plays += 1
-                if not guild_analytics.total_duration_seconds:
-                    guild_analytics.total_duration_seconds = history_item.media_download.duration
-                else:
-                    guild_analytics.total_duration_seconds += history_item.media_download.duration
-                if history_item.media_download.cache_hit:
-                    guild_analytics.cached_plays += 1
-                guild_analytics.updated_at = datetime.now(timezone.utc)
-                retry_database_commands(db_session, partial(run_commit, db_session))
+                retry_database_commands(db_session, partial(database_functions.update_video_guild_analytics,
+                                                            db_session,
+                                                            history_item.media_download.media_request.guild_id,
+                                                            history_item.media_download.duration,
+                                                            history_item.media_download.cache_hit))
 
                 # Skip if added from history
                 if history_item.media_download.media_request.added_from_history:
@@ -2395,3 +2390,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Play 32 items with shuffle enabled
         return await self.__playlist_queue(ctx, player, playlist_id, shuffle=True, max_num=32, is_history=is_history)
+
+    @command(name='music-stats')
+    @command_wrapper
+    async def music_stats(self, ctx: Context):
+        '''
+        Show music player stats
+        '''
+        if not await self.__check_database_session(ctx):
+            return
+
+        with self.with_db_session() as db_session:
+            guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, str(ctx.guild.id)))
+            message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
+                    f'Total Time Played: {guild_analytics.total_duration_days} days, {guild_analytics.total_duration_seconds} seconds\n' \
+                    f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
+            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+            message_context.function = partial(ctx.send, message, delete_after=self.delete_after)
+            self.message_queue.send_single_immutable([message_context])

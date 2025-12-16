@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, DateTime, BigInteger, Integer, String, Boolean
+from sqlalchemy import Column, DateTime, Integer, String, Boolean
 from sqlalchemy import ForeignKey, UniqueConstraint
 
 BASE = declarative_base()
@@ -121,6 +121,7 @@ class GuildVideoAnalytics(BASE):
     guild_id = Column(Integer, ForeignKey('guild.id'))
     total_plays = Column(Integer, default=0)
     cached_plays = Column(Integer, default=0)
-    total_duration_seconds = Column(BigInteger, default=0)
+    total_duration_days = Column(Integer, default=0)
+    total_duration_seconds = Column(Integer, default=0)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
