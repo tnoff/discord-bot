@@ -2402,8 +2402,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, str(ctx.guild.id)))
+            hours = guild_analytics.total_duration_seconds // (60 * 60)
+            seconds = guild_analytics.total_duration_seconds % (60 * 60)
             message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
-                    f'Total Time Played: {guild_analytics.total_duration_days} days, {guild_analytics.total_duration_seconds} seconds\n' \
+                    f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, and {seconds} seconds\n' \
                     f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
             message_context.function = partial(ctx.send, message, delete_after=self.delete_after)

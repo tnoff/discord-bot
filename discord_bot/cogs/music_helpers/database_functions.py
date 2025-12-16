@@ -51,6 +51,7 @@ def update_video_guild_analytics(db_session: Session, guild_id: str, duration: i
     if cache_hit:
         guild_analytics.cached_plays += 1
     guild_analytics.updated_at = datetime.now(timezone.utc)
+    db_session.commit()
     return True
 
 #
