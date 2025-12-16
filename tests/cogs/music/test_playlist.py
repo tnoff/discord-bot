@@ -377,7 +377,7 @@ def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disabl
     with mock_session(fake_engine) as session:
         # Create a playlist first
         playlist = Playlist(
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             name='test-playlist',
             created_at=datetime.now(),
             is_history=False
@@ -417,7 +417,7 @@ def test_get_history_playlist_method(fake_engine, fake_context):  #pylint:disabl
     with mock_session(fake_engine) as session:
         playlists = session.query(Playlist).all()
         assert len(playlists) == 1
-        assert playlists[0].server_id == str(fake_context['guild'].id)
+        assert playlists[0].server_id == fake_context['guild'].id
         assert playlists[0].name.startswith('__playhistory__')
         assert playlists[0].is_history is True
 
@@ -773,14 +773,14 @@ def test_get_playlist_public_view_history_playlist_returns_zero(fake_engine, fak
     with cog.with_db_session() as db_session:  #pylint:disable=no-member
         history_playlist = Playlist(
             name="Channel History",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=True
         )
         db_session.add(history_playlist)  #pylint:disable=no-member
         db_session.commit()  #pylint:disable=no-member
 
         # Test the function
-        result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert result == 0
 
@@ -794,14 +794,14 @@ def test_get_playlist_public_view_first_playlist_returns_one(fake_engine, fake_c
         # Create the first playlist (should be index 1)
         playlist1 = Playlist(
             name="First Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         db_session.add(playlist1)  #pylint:disable=no-member
         db_session.commit()  #pylint:disable=no-member
 
         # Test the function
-        result = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        result = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert result == 1
 
@@ -815,17 +815,17 @@ def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake_engin
         # Create playlists in order
         playlist1 = Playlist(
             name="First Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         playlist2 = Playlist(
             name="Second Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         playlist3 = Playlist(
             name="Third Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
 
@@ -835,9 +835,9 @@ def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake_engin
         db_session.commit()  #pylint:disable=no-member
 
         # Test each playlist returns correct index
-        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        result3 = asyncio.run(cog._Music__get_playlist_public_view(playlist3.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result3 = asyncio.run(cog._Music__get_playlist_public_view(playlist3.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert result1 == 1
         assert result2 == 2
@@ -852,19 +852,19 @@ def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fake_eng
         # Create a history playlist first
         history_playlist = Playlist(
             name="Channel History",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=True
         )
 
         # Create regular playlists
         playlist1 = Playlist(
             name="First Regular Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         playlist2 = Playlist(
             name="Second Regular Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
 
@@ -874,11 +874,11 @@ def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fake_eng
         db_session.commit()  #pylint:disable=no-member
 
         # History playlist should return 0
-        history_result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        history_result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         # Regular playlists should be ordered 1, 2 (ignoring history)
-        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert history_result == 0
         assert result1 == 1
@@ -890,25 +890,25 @@ def test_get_playlist_public_view_different_servers_isolated(fake_engine, fake_c
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create second fake guild for testing
-    other_guild_id = str(int(fake_context['guild'].id) + 1)
+    other_guild_id = fake_context['guild'].id + 1
 
     with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create playlists for first server
         server1_playlist1 = Playlist(
             name="Server 1 - Playlist 1",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         server1_playlist2 = Playlist(
             name="Server 1 - Playlist 2",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
 
         # Create playlists for second server
         server2_playlist1 = Playlist(
             name="Server 2 - Playlist 1",
-            server_id=str(other_guild_id),
+            server_id=other_guild_id,
             is_history=False
         )
 
@@ -918,11 +918,11 @@ def test_get_playlist_public_view_different_servers_isolated(fake_engine, fake_c
         db_session.commit()  #pylint:disable=no-member
 
         # Server 1 playlists should be ordered 1, 2
-        s1_result1 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist1.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        s1_result2 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist2.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        s1_result1 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        s1_result2 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         # Server 2 playlist should be index 1 (not affected by server 1)
-        s2_result1 = asyncio.run(cog._Music__get_playlist_public_view(server2_playlist1.id, str(other_guild_id)))  #pylint:disable=protected-access
+        s2_result1 = asyncio.run(cog._Music__get_playlist_public_view(server2_playlist1.id, other_guild_id))  #pylint:disable=protected-access
 
         assert s1_result1 == 1
         assert s1_result2 == 2
@@ -937,7 +937,7 @@ def test_get_playlist_public_view_nonexistent_playlist_returns_none(fake_engine,
     with cog.with_db_session() as db_session:  #pylint:disable=no-member
         playlist = Playlist(
             name="Test Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         db_session.add(playlist)  #pylint:disable=no-member
@@ -945,7 +945,7 @@ def test_get_playlist_public_view_nonexistent_playlist_returns_none(fake_engine,
 
         # Test with non-existent playlist ID
         nonexistent_id = 99999
-        result = asyncio.run(cog._Music__get_playlist_public_view(nonexistent_id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        result = asyncio.run(cog._Music__get_playlist_public_view(nonexistent_id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert result is None
 
@@ -961,7 +961,7 @@ def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine
         # Create playlist for first server
         playlist = Playlist(
             name="Server 1 Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False
         )
         db_session.add(playlist)  #pylint:disable=no-member
@@ -984,19 +984,19 @@ def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_co
         # Create in reverse chronological order to test ordering
         playlist_newest = Playlist(
             name="Newest Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False,
             created_at=base_time + timedelta(hours=2)
         )
         playlist_middle = Playlist(
             name="Middle Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False,
             created_at=base_time + timedelta(hours=1)
         )
         playlist_oldest = Playlist(
             name="Oldest Playlist",
-            server_id=str(fake_context['guild'].id),
+            server_id=fake_context['guild'].id,
             is_history=False,
             created_at=base_time
         )
@@ -1008,9 +1008,9 @@ def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_co
         db_session.commit()  #pylint:disable=no-member
 
         # Test that ordering is by creation_at DESC (newest first), not insert order
-        oldest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_oldest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        middle_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_middle.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
-        newest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_newest.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+        oldest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        middle_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_middle.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        newest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_newest.id, fake_context['guild'].id))  #pylint:disable=protected-access
 
         assert newest_result == 1   # Newest created = index 1
         assert middle_result == 2   # Second newest = index 2
@@ -1022,7 +1022,7 @@ def test_get_playlist_public_view_handles_empty_server(fake_engine, fake_context
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Try to get public view for non-existent playlist on server with no playlists
-    result = asyncio.run(cog._Music__get_playlist_public_view(1, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+    result = asyncio.run(cog._Music__get_playlist_public_view(1, fake_context['guild'].id))  #pylint:disable=protected-access
 
     assert result is None
 
@@ -1036,11 +1036,11 @@ def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine,
 
         # Create complex mix of playlists
         playlists = [
-            Playlist(name="Regular 1", server_id=str(fake_context['guild'].id), is_history=False, created_at=base_time),
-            Playlist(name="History 1", server_id=str(fake_context['guild'].id), is_history=True, created_at=base_time + timedelta(minutes=10)),
-            Playlist(name="Regular 2", server_id=str(fake_context['guild'].id), is_history=False, created_at=base_time + timedelta(minutes=20)),
-            Playlist(name="History 2", server_id=str(fake_context['guild'].id), is_history=True, created_at=base_time + timedelta(minutes=30)),
-            Playlist(name="Regular 3", server_id=str(fake_context['guild'].id), is_history=False, created_at=base_time + timedelta(minutes=40)),
+            Playlist(name="Regular 1", server_id=fake_context['guild'].id, is_history=False, created_at=base_time),
+            Playlist(name="History 1", server_id=fake_context['guild'].id, is_history=True, created_at=base_time + timedelta(minutes=10)),
+            Playlist(name="Regular 2", server_id=fake_context['guild'].id, is_history=False, created_at=base_time + timedelta(minutes=20)),
+            Playlist(name="History 2", server_id=fake_context['guild'].id, is_history=True, created_at=base_time + timedelta(minutes=30)),
+            Playlist(name="Regular 3", server_id=fake_context['guild'].id, is_history=False, created_at=base_time + timedelta(minutes=40)),
         ]
 
         for playlist in playlists:
@@ -1049,7 +1049,7 @@ def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine,
 
         results = []
         for playlist in playlists:
-            result = asyncio.run(cog._Music__get_playlist_public_view(playlist.id, str(fake_context['guild'].id)))  #pylint:disable=protected-access
+            result = asyncio.run(cog._Music__get_playlist_public_view(playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
             results.append(result)
 
         # History playlists should return 0

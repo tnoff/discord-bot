@@ -49,14 +49,14 @@ def test_restore_backup_with_data(backup_client, db_engine):  #pylint:disable=re
             'table_count': 2
         },
         'guild': [
-            {'id': 1, 'server_id': '123456789'},
-            {'id': 2, 'server_id': '987654321'}
+            {'id': 1, 'server_id': 123456789},
+            {'id': 2, 'server_id': 987654321}
         ],
         'playlist': [
             {
                 'id': 1,
                 'name': 'Test Playlist',
-                'server_id': '123456789',
+                'server_id': 123456789,
                 'last_queued': '2024-01-01 00:00:00',
                 'created_at': '2024-01-01 00:00:00',
                 'is_history': False
@@ -102,7 +102,7 @@ def test_restore_with_clear_existing(backup_client, db_engine):  #pylint:disable
     with db_engine.begin() as conn:
         conn.execute(
             text("INSERT INTO guild (id, server_id) VALUES (:id, :server_id)"),
-            [{'id': 99, 'server_id': '999999999'}]
+            [{'id': 99, 'server_id': 999999999}]
         )
 
     # Verify initial data exists
@@ -113,7 +113,7 @@ def test_restore_with_clear_existing(backup_client, db_engine):  #pylint:disable
     # Create backup with different data
     backup_data = {
         'guild': [
-            {'id': 1, 'server_id': '123456789'}
+            {'id': 1, 'server_id': 123456789}
         ]
     }
 
@@ -133,7 +133,7 @@ def test_restore_with_clear_existing(backup_client, db_engine):  #pylint:disable
 
             result = conn.execute(text('SELECT server_id FROM guild WHERE id = 1'))
             row = result.fetchone()
-            assert row[0] == '123456789'
+            assert row[0] == 123456789
 
     finally:
         backup_file.unlink()
@@ -145,13 +145,13 @@ def test_restore_without_clear_existing(backup_client, db_engine):  #pylint:disa
     with db_engine.begin() as conn:
         conn.execute(
             text("INSERT INTO guild (id, server_id) VALUES (:id, :server_id)"),
-            [{'id': 99, 'server_id': '999999999'}]
+            [{'id': 99, 'server_id': 999999999}]
         )
 
     # Create backup with additional data
     backup_data = {
         'guild': [
-            {'id': 1, 'server_id': '123456789'}
+            {'id': 1, 'server_id': 123456789}
         ]
     }
 
@@ -188,8 +188,8 @@ def test_backup_and_restore_roundtrip(backup_client, db_engine):  #pylint:disabl
         conn.execute(
             text("INSERT INTO guild (id, server_id) VALUES (:id, :server_id)"),
             [
-                {'id': 1, 'server_id': '111111111'},
-                {'id': 2, 'server_id': '222222222'}
+                {'id': 1, 'server_id': 111111111},
+                {'id': 2, 'server_id': 222222222}
             ]
         )
 
@@ -218,8 +218,8 @@ def test_backup_and_restore_roundtrip(backup_client, db_engine):  #pylint:disabl
 
             result = conn.execute(text('SELECT server_id FROM guild ORDER BY id'))
             rows = result.fetchall()
-            assert rows[0][0] == '111111111'
-            assert rows[1][0] == '222222222'
+            assert rows[0][0] == 111111111
+            assert rows[1][0] == 222222222
 
     finally:
         if backup_file.exists():

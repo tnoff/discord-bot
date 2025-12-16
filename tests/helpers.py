@@ -25,9 +25,9 @@ class HelperException(Exception):
 
 def random_id(length=12):
     '''
-    Generate a random id of the given length
+    Generate a random Discord ID (integer)
     '''
-    return ''.join(choice(digits) for _ in range(length))
+    return int(''.join(choice(digits) for _ in range(length)))
 
 def random_string(length=12):
     '''

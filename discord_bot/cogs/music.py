@@ -83,7 +83,7 @@ class SpotifyCredentialsConfig(BaseModel):
 
 class ServerQueuePriorityConfig(BaseModel):
     '''Server queue priority configuration'''
-    server_id: str
+    server_id: int
     priority: int
 
 class MusicCacheConfig(BaseModel):
@@ -409,7 +409,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         items = []
         for bundle in self.multirequest_bundles.values():
             items.append(Observation(1, attributes={
-                DiscordContextNaming.GUILD.value: str(bundle.guild_id),
+                DiscordContextNaming.GUILD.value: bundle.guild_id,
             }))
         return items
 
@@ -979,7 +979,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if history_playlist:
                 return history_playlist.id
             history_playlist = Playlist(
-                server_id=str(guild_id),
+                server_id=guild_id,
                 name=f'{PLAYHISTORY_PREFIX}{guild_id}_{datetime.now(timezone.utc).timestamp()}',
                 is_history=True,
             )
@@ -1541,17 +1541,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ctx.channel,
         )
 
-    async def __get_playlist_public_view(self, playlist_id: int, guild_id: str):
+    async def __get_playlist_public_view(self, playlist_id: int, guild_id: int):
         '''
         Get playlist by db id, and view which public index servers see it as
         '''
-
-
         with self.with_db_session() as db_session:
             playlist = retry_database_commands(db_session, partial(database_functions.get_playlist, db_session, playlist_id))
             if not playlist:
                 return None
-            if str(playlist.server_id) != str(guild_id):
+            if playlist.server_id != guild_id:
                 return None
             if playlist.is_history:
                 return 0
@@ -1579,7 +1577,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             if index > 0:
-                if not retry_database_commands(db_session, partial(database_functions.playlist_count, db_session, str(ctx.guild.id))):
+                if not retry_database_commands(db_session, partial(database_functions.playlist_count, db_session, ctx.guild.id)):
                     message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                     message_context.function = partial(ctx.send, 'No playlists in database',
                                                        delete_after=self.delete_after)
@@ -1588,10 +1586,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             is_history = False
             if index == 0:
-                playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, str(ctx.guild.id)))
+                playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, ctx.guild.id))
                 is_history = True
             else:
-                playlist = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, str(ctx.guild.id), (index - 1)))[0]
+                playlist = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, (index - 1)))[0]
             if not playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 message_context.function = partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)
@@ -1633,7 +1631,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.send_single_immutable([message_context])
             return None
         with self.with_db_session() as db_session:
-            existing_playlist = retry_database_commands(db_session, partial(database_functions.get_playlist_by_name_and_guild, db_session, playlist_name, str(ctx.guild.id)))
+            existing_playlist = retry_database_commands(db_session, partial(database_functions.get_playlist_by_name_and_guild, db_session, playlist_name, ctx.guild.id))
             if existing_playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 message_context.function = partial(ctx.send, f'Unable to create playlist "{name}", a playlist with that name already exists')
@@ -1642,7 +1640,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             playlist = Playlist(
                 name=name,
-                server_id=str(ctx.guild.id),
+                server_id=ctx.guild.id,
                 is_history=False,
             )
             db_session.add(playlist)
@@ -1677,8 +1675,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
         with self.with_db_session() as db_session:
-            history_playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, str(ctx.guild.id)))
-            playlist_items = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, str(ctx.guild.id), 0))
+            history_playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, ctx.guild.id))
+            playlist_items = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, 0))
 
             if not playlist_items and not history_playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2300,7 +2298,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         with self.with_db_session() as db_session:
-            guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, str(ctx.guild.id)))
+            guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, ctx.guild.id))
             hours = guild_analytics.total_duration_seconds // 3600
             minutes = (guild_analytics.total_duration_seconds % 3600) // 60
             seconds = guild_analytics.total_duration_seconds % 60

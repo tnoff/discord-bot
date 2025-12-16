@@ -18,9 +18,9 @@ class MarkovChannel(BASE):
                          name='_unique_markov_channel'),
     )
     id = Column(Integer, primary_key=True)
-    channel_id = Column(String(128))
-    server_id = Column(String(128))
-    last_message_id = Column(String(128))
+    channel_id = Column(Integer)
+    server_id = Column(Integer)
+    last_message_id = Column(Integer)
 
 class MarkovRelation(BASE):
     '''
@@ -48,7 +48,7 @@ class Playlist(BASE):
     )
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
-    server_id = Column(String(128))
+    server_id = Column(Integer)
     last_queued = Column(DateTime, nullable=True)
     created_at = Column(DateTime)
     is_history = Column(Boolean)
@@ -110,7 +110,7 @@ class Guild(BASE):
     '''
     __tablename__ = 'guild'
     id = Column(Integer, primary_key=True)
-    server_id = Column(String(128))
+    server_id = Column(Integer)
 
 class GuildVideoAnalytics(BASE):
     '''

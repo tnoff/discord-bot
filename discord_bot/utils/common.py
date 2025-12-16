@@ -70,7 +70,7 @@ class GeneralConfig(BaseModel):
     logging: Optional[LoggingConfig] = None
     include: IncludeConfig = Field(default_factory=IncludeConfig)
     intents: list[str] = Field(default_factory=list)
-    rejectlist_guilds: list[str] = Field(default_factory=list)
+    rejectlist_guilds: list[int] = Field(default_factory=list)
 
 class SkipRetrySleep(Exception):
     '''

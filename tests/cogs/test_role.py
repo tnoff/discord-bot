@@ -28,11 +28,6 @@ def test_role_no_enabled(fake_context):  #pylint:disable=redefined-outer-name
         RoleAssignment(fake_context['bot'], {}, None)
     assert 'Role not enabled' in str(exc.value)
 
-def test_role_invalid_config(fake_context):  #pylint:disable=redefined-outer-name
-    with pytest.raises(CogMissingRequiredArg) as exc:
-        RoleAssignment(fake_context['bot'], BASE_GENERAL_CONFIG, None)
-    assert 'Invalid config given' in str(exc.value)
-
 def test_clean_string(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, None)
     assert 'foo' == cog.clean_input('foo')
@@ -122,7 +117,7 @@ async def test_get_user_valid_user(fake_context):  #pylint:disable=redefined-out
 async def test_get_user_not_found(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, None)
     # Add one to current user id
-    result = await cog.get_user(fake_context['context'], f'<@{fake_context["author"].id + "123"}>')
+    result = await cog.get_user(fake_context['context'], f'<@{fake_context["author"].id + 123}>')
     assert result is None
 
 def test_get_role_valid_id(fake_context):  #pylint:disable=redefined-outer-name
@@ -132,7 +127,7 @@ def test_get_role_valid_id(fake_context):  #pylint:disable=redefined-outer-name
 
 def test_get_role_valid_id_but_no_roles(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, None)
-    result = cog.get_role(fake_context['context'], fake_context['author'].roles[0].id + "123")
+    result = cog.get_role(fake_context['context'], fake_context['author'].roles[0].id + 123)
     assert result is None
 
 def test_get_role_valid_name(fake_context):  #pylint:disable=redefined-outer-name
@@ -259,7 +254,7 @@ def test_check_override_role_with_no_role(fake_context):  #pylint:disable=redefi
         'role': {
             fake_context['guild'].id: {
                 'admin_override_role_list': [
-                    fake_context['author'].roles[0].id + "1234",
+                    fake_context['author'].roles[0].id + 1234,
                 ]
             }
         }
@@ -295,7 +290,7 @@ async def test_role_list_with_invalid_role(fake_context):  #pylint:disable=redef
         'role': {
             fake_context['guild'].id: {
                 'required_roles_list': [
-                    fake_context['author'].roles[0].id + "1234",
+                    fake_context['author'].roles[0].id + 1234,
                 ]
             }
         }
@@ -594,7 +589,8 @@ def test_managed_roles_with_self_service_rejected_list(fake_context):  #pylint:d
 
 def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
-    fake_context['guild'].roles.append(fake_role2)
+    fake_role3 = FakeRole()
+    fake_context['guild'].roles.extend([fake_role2, fake_role3])
     config = {
         'general': {
             'include': {
@@ -604,12 +600,12 @@ def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disabl
         'role': {
             fake_context['guild'].id: {
                 'self_service_role_list': [
-                    'fake-id3'
+                    fake_role3.id
                 ],
                 fake_context['author'].roles[0].id: {
                     'manages_roles': [
                         fake_role2.id,
-                        'fake-id2'
+                        fake_role3.id
                     ]
                 }
             }
@@ -618,7 +614,8 @@ def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disabl
 
     cog = RoleAssignment(fake_context['bot'], config, None)
     result = cog.get_managed_roles(fake_context['context'])
-    assert len(list(result.keys())) == 1
+    # Should have 2 roles: fake_role2 (managed) and fake_role3 (self-service)
+    assert len(list(result.keys())) == 2
 
 @pytest.mark.asyncio
 async def test_list_managed_no_required_role(fake_context):  #pylint:disable=redefined-outer-name

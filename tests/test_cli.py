@@ -117,7 +117,7 @@ async def test_run_config_with_db(mocker):
                     'discord_token': 'foo',
                     'sql_connection_statement': f'sqlite:///{temp_db.name}',
                     'rejectlist_guilds': [
-                        'fake-guild-1234',
+                        1234,
                     ],
                 }
             }

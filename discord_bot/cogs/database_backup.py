@@ -96,16 +96,16 @@ class DatabaseBackup(CogHelper):
         self.logger.info(f'Next database backup scheduled for {next_run} ({seconds_until:.0f}s)')
         await sleep(seconds_until)
 
-        # Run the backup with OpenTelemetry tracing
-        with otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
-            try:
+        try:
+            # Run the backup with OpenTelemetry tracing
+            with otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
                 # Create backup file
                 with otel_span_wrapper('database_backup.create_file'):
                     backup_file_path = self.backup_client.create_backup()
 
                 # Upload to S3
                 with otel_span_wrapper('database_backup.upload_to_s3',
-                                      attributes={'s3.bucket': self.bucket_name}):
+                                        attributes={'s3.bucket': self.bucket_name}):
                     object_name = f'{self.object_prefix}{backup_file_path.name}'
                     success = upload_file(self.bucket_name, backup_file_path, object_name)
 
@@ -116,6 +116,5 @@ class DatabaseBackup(CogHelper):
 
                 # Cleanup local file
                 backup_file_path.unlink()
-
-            except Exception as e:
-                self.logger.exception(f'Database backup failed: {str(e)}')
+        except Exception as e:  # pylint: disable=broad-except
+            self.logger.error(f'Database backup failed: {e}', exc_info=True)

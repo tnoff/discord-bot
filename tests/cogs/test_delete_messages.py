@@ -47,15 +47,15 @@ def test_delete_messages_start_config(fake_context):  #pylint:disable=redefined-
             'loop_sleep_interval': 5,
             'discord_channels': [
                 {
-                    'server_id': 'fake-guild-123',
-                    'channel_id': 'fake-channel-123'
+                    'server_id': 123456789012,
+                    'channel_id': 987654321098
                 },
             ]
         }
     } | BASE_CONFIG
     cog = DeleteMessages(fake_context['bot'], config, None)
     assert cog.loop_sleep_interval == 5
-    assert cog.discord_channels == [{'server_id': 'fake-guild-123', 'channel_id': 'fake-channel-123', 'delete_after': 7}]
+    assert cog.discord_channels == [{'server_id': 123456789012, 'channel_id': 987654321098, 'delete_after': 7}]
 
 @pytest.mark.asyncio
 @freeze_time('2025-12-01 12:00:00', tz_offset=0)

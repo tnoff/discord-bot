@@ -732,7 +732,7 @@ async def test_download_queue_with_server_priority(mocker, fake_context):  #pyli
         'music': {
             'download': {
                 'server_queue_priority': [
-                    {'server_id': str(fake_context['guild'].id), 'priority': 1}
+                    {'server_id': fake_context['guild'].id, 'priority': 1}
                 ]
             }
         }
@@ -1416,7 +1416,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
 
     # Create a mock bundle for this guild
     mock_bundle = mocker.MagicMock()
-    mock_bundle.guild_id = str(fake_context['guild'].id)
+    mock_bundle.guild_id = fake_context['guild'].id
     mock_bundle.uuid = 'test-bundle-uuid'
     mock_bundle.text_channel = fake_context['channel']
     mock_bundle.shutdown = mocker.MagicMock()

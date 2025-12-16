@@ -250,7 +250,7 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     # Make sure we cast to string here just to keep it consistent
     rejectlist_guilds = []
     for guild in settings['general'].get('rejectlist_guilds', []):
-        rejectlist_guilds.append(str(guild))
+        rejectlist_guilds.append(guild)
     logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
 
     @bot.event
@@ -258,7 +258,7 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
         logger.info(f'Main :: Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
         guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
         for guild in guilds:
-            if str(guild.id) in rejectlist_guilds:
+            if guild.id in rejectlist_guilds:
                 logger.info(f'Main :: Bot currently in guild {guild.id} thats within reject list, leaving server')
                 await guild.leave()
                 continue

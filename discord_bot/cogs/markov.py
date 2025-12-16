@@ -39,7 +39,7 @@ class MarkovConfig(BaseModel):
     loop_sleep_interval: float = 300.0
     message_check_limit: int = 16
     history_retention_days: int = 365
-    server_reject_list: list[str] = Field(default_factory=list)
+    server_reject_list: list[int] = Field(default_factory=list)
 
 def clean_message(content: str, emojis: List[str]):
     '''
@@ -83,15 +83,15 @@ def get_matching_markov_channel(db_session: Session, ctx: Context):
     Get channel that matches original context
     '''
     return db_session.query(MarkovChannel).\
-        filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
-        filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
+        filter(MarkovChannel.channel_id == ctx.channel.id).\
+        filter(MarkovChannel.server_id == ctx.guild.id).first()
 
 def list_guild_channels(db_session: Session, ctx: Context):
     '''
     List guild channels
     '''
     return db_session.query(MarkovChannel.channel_id).\
-        filter(MarkovChannel.server_id == str(ctx.guild.id))
+        filter(MarkovChannel.server_id == ctx.guild.id)
 
 class Markov(CogHelper):
     '''
@@ -249,7 +249,7 @@ class Markov(CogHelper):
                                 self.logger.info(f'Attempting to add corpus "{corpus}" '
                                                  f'to channel {markov_channel.channel_id}')
                                 self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
-                            markov_channel.last_message_id = str(message.id)
+                            markov_channel.last_message_id = message.id
                             self.retry_commit(db_session)
                         self.logger.debug(f'Done with channel {markov_channel.channel_id}')
 
@@ -290,9 +290,9 @@ class Markov(CogHelper):
             if channel.type not in [ChannelType.text, ChannelType.voice]:
                 return await async_retry_discord_message_command(partial(ctx.send, 'Not a valid markov channel, cannot turn on markov'))
 
-            new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
-                                    server_id=str(ctx.guild.id),
-                                    last_message_id=None)
+            new_markov = MarkovChannel(channel_id=ctx.channel.id,
+                                       server_id=ctx.guild.id,
+                                       last_message_id=None)
             retry_database_commands(db_session, partial(add_channel, db_session, new_markov))
             self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
             return await async_retry_discord_message_command(partial(ctx.send, 'Markov turned on for channel'))
@@ -362,7 +362,7 @@ class Markov(CogHelper):
         def get_possible_words(db_session: Session, ctx: Context, first_word: str = None):
             query = db_session.query(MarkovRelation.id).\
                         join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id).\
-                        filter(MarkovChannel.server_id == str(ctx.guild.id))
+                        filter(MarkovChannel.server_id == ctx.guild.id)
             if first_word:
                 query = query.filter(MarkovRelation.leader_word == first_word)
             return [word[0] for word in query]

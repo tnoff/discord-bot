@@ -45,7 +45,7 @@ class CogHelper(Cog):
         # Setup config validation
         if config_model:
             try:
-                self.config = config_model(**settings.get(settings_prefix, {}))
+                self.config = config_model.model_validate(settings.get(settings_prefix, {}))
             except PydanticValidationError as exc:
                 raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}', str(exc)) from exc
 

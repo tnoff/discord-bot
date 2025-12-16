@@ -24,8 +24,8 @@ LOOP_SLEEP_INTERVAL_DEFAULT = 300
 # Pydantic config models
 class DiscordChannelConfig(BaseModel):
     '''Discord channel configuration for message deletion'''
-    server_id: str
-    channel_id: str
+    server_id: int
+    channel_id: int
     delete_after: int = DELETE_AFTER_DEFAULT
 
 class DeleteMessagesConfig(BaseModel):

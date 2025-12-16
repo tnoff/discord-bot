@@ -100,11 +100,11 @@ def test_pydantic_rejectlist_config():
     reject_input = {
         'discord_token': 'abctoken',
         'rejectlist_guilds': [
-            '12345'
+            12345
         ]
     }
     config = GeneralConfig(**reject_input)
-    assert config.rejectlist_guilds == ['12345']
+    assert config.rejectlist_guilds == [12345]
 
 def test_pydantic_otlp_config_bad():
     reject_input = {
