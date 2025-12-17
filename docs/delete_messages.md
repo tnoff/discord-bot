@@ -16,12 +16,12 @@ intents:
 
 Then configure the channels
 
-```
+```yaml
 ---
 delete_messages:
   loop_sleep_interval: 30 # Optional, seconds to sleep between each check
   discord_channels:
-    - server_id: 1234 # Discord Server ID
-      channel_id: 2345 # Discord Channel ID
-      delete_after: 7 # Delete after X days.
+    - server_id: 123456789  # Discord Server ID (integer, unquoted)
+      channel_id: 987654321  # Discord Channel ID (integer, unquoted)
+      delete_after: 7  # Delete after X days
 ```
