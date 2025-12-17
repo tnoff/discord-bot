@@ -1114,7 +1114,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
-                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.get_queue_size(guild_id)):
+                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.size(guild_id)):
                     message_context = MessageContext(player.guild.id, player.text_channel.id)
                     message_context.function = partial(player.text_channel.send, 'I am not currently playing anything',
                                                        delete_after=self.delete_after)

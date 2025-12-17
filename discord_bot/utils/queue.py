@@ -20,17 +20,13 @@ class Queue(asyncio_queue):
         self.shutdown = False
         super().__init__(maxsize=maxsize)
 
+    # Python 3.13 adds shutdown
+    # https://docs.python.org/3/library/asyncio-queue.html#asyncio.Queue.shutdown
     def block(self):
         '''
         Block future puts, for when queue should be in shutdown
         '''
         self.shutdown = True
-
-    def unblock(self):
-        '''
-        Unblock queue
-        '''
-        self.shutdown = False
 
     def put_nowait(self, item):
         if self.shutdown:

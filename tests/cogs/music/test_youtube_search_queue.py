@@ -127,7 +127,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
     # Verify request was added to download queue
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) > 0
+    assert cog.download_queue.size(fake_context['guild'].id) > 0
     download_item = cog.download_queue.get_nowait()
     assert download_item == media_request
 
@@ -179,7 +179,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
             assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
             # Verify download queue is empty (cache hit, no download needed)
-            assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 0
+            assert cog.download_queue.size(fake_context['guild'].id) == 0
 
             # Verify add_source_to_player was called
             mock_add_source.assert_called_once_with(cached_download, mock_player)
@@ -216,7 +216,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     assert media_request.search_string == 'test search'
 
     # Verify download queue still has item
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 1
+    assert cog.download_queue.size(fake_context['guild'].id) == 1
 
 
 @pytest.mark.asyncio()
@@ -340,7 +340,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
             cog._Music__add_playlist_item_function.assert_called_once_with(123, cached_download) #pylint:disable=protected-access
 
             # Verify download queue is empty (playlist addition, no player queue needed)
-            assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 0
+            assert cog.download_queue.size(fake_context['guild'].id) == 0
 
 
 @pytest.mark.asyncio()
@@ -482,12 +482,12 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     assert result is True
 
     # Verify search request went to search queue
-    assert cog.youtube_music_search_queue.get_queue_size(fake_context['guild'].id) > 0
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) > 0
     search_queue_item = cog.youtube_music_search_queue.get_nowait()
     assert search_queue_item[0] == search_request  # (media_request, channel)
 
     # Verify direct request went to download queue
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) > 0
+    assert cog.download_queue.size(fake_context['guild'].id) > 0
     download_queue_item = cog.download_queue.get_nowait()
     assert download_queue_item == direct_request
 
@@ -626,8 +626,8 @@ async def test_search_queue_disabled_routing(mocker, fake_context):  #pylint:dis
     assert result is True
 
     # Verify both requests went directly to download queue (not search queue)
-    assert cog.youtube_music_search_queue.get_queue_size(fake_context['guild'].id) == 0
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 2
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 0
+    assert cog.download_queue.size(fake_context['guild'].id) == 2
 
     # Verify both items are in download queue
     download_item1 = cog.download_queue.get_nowait()
@@ -692,10 +692,10 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     assert result is True
 
     # Verify search and spotify requests went to search queue
-    assert cog.youtube_music_search_queue.get_queue_size(fake_context['guild'].id) == 2
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 2
 
     # Verify direct, youtube, and youtube playlist went to download queue
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 3
+    assert cog.download_queue.size(fake_context['guild'].id) == 3
 
     # Verify correct items in each queue
     search_queue_items = []
@@ -762,11 +762,11 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     assert result is True
 
     # Verify item went to search queue with correct priority
-    assert cog.youtube_music_search_queue.get_queue_size(fake_context['guild'].id) == 1
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 1
 
     # Check that the guild queue has the correct priority
     guild_queue_data = cog.youtube_music_search_queue.queues[fake_context['guild'].id]
-    assert guild_queue_data['priority'] == test_priority
+    assert guild_queue_data.priority == test_priority
 
 
 @pytest.mark.asyncio()
@@ -809,7 +809,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
 
     # Verify search still happened and item went to download queue
     assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 1
+    assert cog.download_queue.size(fake_context['guild'].id) == 1
 
 
 @pytest.mark.asyncio()
@@ -865,10 +865,10 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
     assert cog.youtube_music_search_queue.max_size == expected_search_queue_size
 
     # All 10 items should fit in search queue
-    assert cog.youtube_music_search_queue.get_queue_size(fake_context['guild'].id) == 10
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 10
 
     # Download queue should be empty initially
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 0
+    assert cog.download_queue.size(fake_context['guild'].id) == 0
 
 
 @pytest.mark.asyncio()
@@ -911,7 +911,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
         # Should not crash despite message queue failure
         # Verify core functionality still works
         assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
-        assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 1
+        assert cog.download_queue.size(fake_context['guild'].id) == 1
     except Exception as e: #pylint:disable=broad-exception-caught
         # If exception propagates, it should be handled gracefully in real implementation
         assert "Message queue error" in str(e)
@@ -967,7 +967,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     assert media_request2.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
     # Both should be in download queue
-    assert cog.download_queue.get_queue_size(fake_context['guild'].id) == 2
+    assert cog.download_queue.size(fake_context['guild'].id) == 2
 
     # Verify both bundles were updated
     assert len(bundle1.media_requests) == 1
