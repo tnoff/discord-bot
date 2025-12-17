@@ -952,7 +952,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
 
     # Verify status was set correctly
     request_data = bundle.media_requests[0]
-    assert request_data['status'] == MediaRequestLifecycleStage.BACKOFF
+    assert request_data.status == MediaRequestLifecycleStage.BACKOFF
 
 
 # Memory leak fix tests

@@ -133,7 +133,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
 
     # Verify bundle status was updated
     bundle_request = bundle.media_requests[0]
-    assert bundle_request['status'] == MediaRequestLifecycleStage.QUEUED
+    assert bundle_request.status == MediaRequestLifecycleStage.QUEUED
 
 
 @pytest.mark.asyncio()
@@ -258,7 +258,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
 
     # Verify bundle status was updated to DISCARDED
     bundle_request = bundle.media_requests[0]
-    assert bundle_request['status'] == MediaRequestLifecycleStage.DISCARDED
+    assert bundle_request.status == MediaRequestLifecycleStage.DISCARDED
 
 
 @pytest.mark.asyncio()
