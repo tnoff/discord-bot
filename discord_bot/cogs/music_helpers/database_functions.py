@@ -16,7 +16,7 @@ from discord_bot.database import (
 # Guild Analytics Functions
 #
 
-def ensure_guild_video_analytics(db_session: Session, guild_id: str):
+def ensure_guild_video_analytics(db_session: Session, guild_id: int):
     '''
     Ensure guild video analytics table exists
     '''
@@ -37,7 +37,7 @@ def ensure_guild_video_analytics(db_session: Session, guild_id: str):
     db_session.commit()
     return new_row
 
-def update_video_guild_analytics(db_session: Session, guild_id: str, duration: int, cache_hit: bool):
+def update_video_guild_analytics(db_session: Session, guild_id: int, duration: int, cache_hit: bool):
     '''
     Update video guild analytics from history item
     '''
@@ -58,11 +58,11 @@ def update_video_guild_analytics(db_session: Session, guild_id: str, duration: i
 # Guild Functions
 #
 
-def ensure_guild(db_session: Session, guild_id: str):
+def ensure_guild(db_session: Session, guild_id: int):
     '''
     Find existing guild or create new one
     '''
-    existing = db_session.query(Guild).filter(Guild.server_id == str(guild_id)).first()
+    existing = db_session.query(Guild).filter(Guild.server_id == guild_id).first()
     if existing:
         return existing
     new_guild = Guild(server_id=guild_id)
@@ -153,19 +153,19 @@ def delete_video_cache_backup(db_session: Session, backup_item_id: int):
 
 # History Functions
 
-def get_history_playlist(db_session: Session, guild_id: str):
+def get_history_playlist(db_session: Session, guild_id: int):
     """Find history playlist for guild"""
     return db_session.query(Playlist).\
-        filter(Playlist.server_id == str(guild_id)).\
+        filter(Playlist.server_id == guild_id).\
         filter(Playlist.is_history == True).first()
 
 
 # Regular Playlist Functions
 
-def list_playlist_non_history(db_session: Session, guild_id: str, offset: int):
+def list_playlist_non_history(db_session: Session, guild_id: int, offset: int):
     """List non-history playlists for guild with offset"""
     return db_session.query(Playlist).\
-        filter(Playlist.server_id == str(guild_id)).\
+        filter(Playlist.server_id == guild_id).\
         filter(Playlist.is_history == False).\
         order_by(Playlist.created_at.desc()).\
         offset(offset).all()
@@ -174,17 +174,17 @@ def get_playlist(db_session: Session, playlist_id: int):
     """Get playlist by id"""
     return db_session.get(Playlist, playlist_id)
 
-def playlist_count(db_session: Session, guild_id: str):
+def playlist_count(db_session: Session, guild_id: int):
     """Check playlist count for guild"""
     return db_session.query(Playlist).\
-        filter(Playlist.server_id == str(guild_id)).\
+        filter(Playlist.server_id == guild_id).\
         filter(Playlist.is_history == False).count()
 
-def get_playlist_by_name_and_guild(db_session: Session, name: str, guild_id: str):
+def get_playlist_by_name_and_guild(db_session: Session, name: str, guild_id: int):
     """Check if playlist exists with name in guild"""
     return db_session.query(Playlist).\
         filter(Playlist.name == name).\
-        filter(Playlist.server_id == str(guild_id)).first()
+        filter(Playlist.server_id == guild_id).first()
 
 def get_playlist_size(db_session: Session, playlist_id: int):
     """Get playlist size"""

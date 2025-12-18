@@ -6,6 +6,7 @@ from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader
 from discord import Member, Role
 from discord.errors import NotFound
 from discord.ext.commands import Bot, Context, group
+from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
@@ -13,52 +14,91 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
 
-# Role config schema
-ROLE_SECTION_SCHEMA = {
-    'type': 'object',
-    'minProperties': 1,
-    'additionalProperties': {
-        'type': 'object',
-        'properties': {
-            'rejected_roles_list': {
-                'type': 'array',
-                'items' : {
-                    'type': 'string',
-                },
-            },
-            'required_roles_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string',
-                },
-            },
-            'admin_override_role_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string'
-                }
-            },
-            'self_service_role_list': {
-                'type': 'array',
-                'items': {
-                    'type': 'string'
-                }
-            },
-            'additionalProperties': {
-                'type': 'object',
-                'properties': {
-                    'manages_roles': {
-                        'type': 'array',
-                        'minItems': 1,
-                        'items': {
-                            'type': 'string',
-                        },
-                    },
-                },
-            },
-        }
-    }
-}
+# Pydantic config models
+class RoleManagementConfig(BaseModel):
+    '''Role management configuration'''
+    manages_roles: list[int] = Field(min_length=1)
+
+class RoleServerConfig(BaseModel):
+    '''Per-server role configuration'''
+    rejected_roles_list: list[int] = Field(default_factory=list)
+    required_roles_list: list[int] = Field(default_factory=list)
+    admin_override_role_list: list[int] = Field(default_factory=list)
+    self_service_role_list: list[int] = Field(default_factory=list)
+
+class RoleConfig(BaseModel):
+    '''Top-level role cog configuration - validates server and role configs'''
+    model_config = {"extra": "allow"}
+
+    @classmethod
+    def model_validate(cls, obj):  # pylint: disable=arguments-differ
+        '''Validate config and convert keys to integers'''
+        if not isinstance(obj, dict):
+            return super().model_validate(obj)
+
+        # Step 1: Convert integer keys to strings for Pydantic validation
+        str_keyed = {}
+        for server_id, server_config in obj.items():
+            str_key = str(server_id)
+
+            if isinstance(server_config, dict):
+                # Validate nested structure using the appropriate model
+                validated_config = {}
+                for k, v in server_config.items():
+                    str_k = str(k)
+
+                    # If this is a dict with 'manages_roles', validate as RoleManagementConfig
+                    if isinstance(v, dict) and 'manages_roles' in v:
+                        validated_config[str_k] = RoleManagementConfig(**v).model_dump()
+                    # Otherwise validate as a field value
+                    elif str_k in ['rejected_roles_list', 'required_roles_list',
+                                   'admin_override_role_list', 'self_service_role_list']:
+                        validated_config[str_k] = v
+                    # If it's a nested dict (role ID -> management config)
+                    elif isinstance(v, dict):
+                        validated_config[str_k] = RoleManagementConfig(**v).model_dump()
+                    else:
+                        validated_config[str_k] = v
+
+                # Validate the full server config structure
+                try:
+                    RoleServerConfig(**{k: v for k, v in validated_config.items()
+                                       if k in ['rejected_roles_list', 'required_roles_list',
+                                               'admin_override_role_list', 'self_service_role_list']})
+                except Exception:
+                    pass  # Server config might have additional role management entries
+
+                str_keyed[str_key] = validated_config
+            else:
+                str_keyed[str_key] = server_config
+
+        # Step 2: Create instance with string keys (Pydantic requirement)
+        instance = super().model_validate(str_keyed)
+
+        # Step 3: Convert back to integer keys and store
+        int_keyed_config = {}
+        for k, v in instance.__pydantic_extra__.items():
+            # Convert server ID key to int
+            int_key = int(k) if k.isdigit() else k
+
+            # Convert nested role ID keys to int
+            if isinstance(v, dict):
+                int_v = {}
+                for vk, vv in v.items():
+                    int_vk = int(vk) if isinstance(vk, str) and vk.isdigit() else vk
+                    int_v[int_vk] = vv
+                int_keyed_config[int_key] = int_v
+            else:
+                int_keyed_config[int_key] = v
+
+        # Store in private attribute
+        object.__setattr__(instance, '_int_keyed_config', int_keyed_config)
+
+        return instance
+
+    def model_dump(self, **kwargs):  # pylint: disable=unused-argument
+        '''Return the integer-keyed config'''
+        return object.__getattribute__(self, '_int_keyed_config')
 
 class RoleAssignment(CogHelper):
     '''
@@ -69,8 +109,9 @@ class RoleAssignment(CogHelper):
             raise CogMissingRequiredArg('Role not enabled')
         if not bot.intents.members:
             raise CogMissingRequiredArg('"members" intents required to run role commands')
-        super().__init__(bot, settings, None, settings_prefix='role', section_schema=ROLE_SECTION_SCHEMA)
-        self.settings = settings['role']
+        super().__init__(bot, settings, None, settings_prefix='role', config_model=RoleConfig)
+        # Use validated config with integer keys
+        self.settings = self.config.model_dump()
 
     def clean_input(self, stringy: str) -> str:
         '''
@@ -121,8 +162,10 @@ class RoleAssignment(CogHelper):
         ctx : Original discord context
         user_input : User ID input, usually from an @mention
         '''
+        # Convert integer input to string for regex
+        user_input = str(user_input)
         try:
-            user_id = search(r'\d+', user_input).group()
+            user_id = int(search(r'\d+', user_input).group())
         except AttributeError:
             return None
         try:
@@ -138,8 +181,10 @@ class RoleAssignment(CogHelper):
         ctx: Original Discord Context
         role_input : Either role id or role name
         '''
+        # Convert integer input to string for regex
+        role_input = str(role_input)
         try:
-            role_id = search(r'\d+', role_input).group()
+            role_id = int(search(r'\d+', role_input).group())
         except AttributeError:
             role_id = None
         # Get role first from id if present
@@ -231,7 +276,8 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('Role Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         for role in ctx.guild.roles:
             if role.id in self.get_rejected_roles_list(ctx):
                 continue
@@ -239,7 +285,7 @@ class RoleAssignment(CogHelper):
         if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     @role.command(name='users')
@@ -258,13 +304,14 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('User Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         for member in role_obj.members:
             table.add_row([f'@{member.display_name}'])
         if table.size == 0:
             return await ctx.send(f'No users found for role "{role}"')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     def get_managed_roles(self, ctx: Context, exclude_self_service: bool = False) -> dict:
@@ -338,7 +385,8 @@ class RoleAssignment(CogHelper):
             DapperTableHeader('Role Name', 30),
             DapperTableHeader('Control', 10)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         rows = []
         # Print managed rows first, save self servic for later
         # Make sure we order them by name for ease
@@ -367,7 +415,7 @@ class RoleAssignment(CogHelper):
         if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     def check_only_self_service(self, ctx: Context, users: List[Member]) -> bool:

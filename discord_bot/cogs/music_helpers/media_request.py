@@ -61,6 +61,26 @@ class MediaRequest():
         return discord_format_string_embed(return_string)
 
 
+@dataclass
+class BundledMediaRequest:
+    '''
+    Represents a media request within a bundle with tracking information
+
+    search_string: Display string for the media request
+    status: Current lifecycle stage of the request
+    uuid: Unique identifier matching the MediaRequest
+    table_index: Index in the DapperTable, None if discarded
+    row_collection_index: Index of the collection in paginated rows
+    row_index_in_collection: Index within the row collection
+    '''
+    search_string: str
+    status: MediaRequestLifecycleStage
+    uuid: str
+    table_index: int | None = None
+    row_collection_index: int | None = None
+    row_index_in_collection: int | None = None
+
+
 def media_request_attributes(media_request: MediaRequest) -> dict:
     '''
     Return media request attributes for spans
@@ -102,7 +122,7 @@ class MultiMediaRequestBundle():
         self.has_search_banner = False  # Track if search banner exists
 
         # General attributes
-        self.media_requests = []
+        self.media_requests: list[BundledMediaRequest] = []
         self.total = 0
         self.completed = 0
         self.failed = 0
@@ -130,7 +150,7 @@ class MultiMediaRequestBundle():
         # Remove double search if multiple requests not queued
         if self.total == 1:
             self.table.remove_row(0)
-            self.media_requests[0]['table_index'] = 0
+            self.media_requests[0].table_index = 0
 
         self.row_collections = self.table.get_paginated_rows()
 
@@ -149,13 +169,13 @@ class MultiMediaRequestBundle():
 
         # Now map each media request's table_index to its position
         for media_request in self.media_requests:
-            if media_request['table_index'] is None:
+            if media_request.table_index is None:
                 continue  # Discarded media_requests have no table_index
 
-            if media_request['table_index'] in table_index_to_position:
-                collection_idx, row_idx = table_index_to_position[media_request['table_index']]
-                media_request['row_collection_index'] = collection_idx
-                media_request['row_index_in_collection'] = row_idx
+            if media_request.table_index in table_index_to_position:
+                collection_idx, row_idx = table_index_to_position[media_request.table_index]
+                media_request.row_collection_index = collection_idx
+                media_request.row_index_in_collection = row_idx
 
         # If we have multiple media_requests and a search string, add status header
         if self.total > 1 and self.input_string:
@@ -198,6 +218,17 @@ class MultiMediaRequestBundle():
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
         self._edit_search_banner(f'Processing "{multi_input}"')
 
+    def _increment_counter_for_stage(self, stage: MediaRequestLifecycleStage):
+        '''
+        Increment the appropriate counter for a lifecycle stage
+        '''
+        if stage == MediaRequestLifecycleStage.COMPLETED:
+            self.completed += 1
+        elif stage == MediaRequestLifecycleStage.DISCARDED:
+            self.discarded += 1
+        elif stage == MediaRequestLifecycleStage.FAILED:
+            self.failed += 1
+
     def add_media_request(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING):
         '''
         Add new media request
@@ -208,37 +239,35 @@ class MultiMediaRequestBundle():
         # But keep track of numbers for later calculations
         table_index = None
         if stage == MediaRequestLifecycleStage.DISCARDED:
-            self.discarded +=1
+            self._increment_counter_for_stage(stage)
         elif stage in [MediaRequestLifecycleStage.QUEUED, MediaRequestLifecycleStage.SEARCHING]:
             table_index = self.table.add_row(f'Media request queued for download: "{search_string}"')
-        elif stage in [MediaRequestLifecycleStage.COMPLETED]:
-            self.completed += 1
-        self.media_requests.append({
-            'search_string': search_string,
-            'status': stage,
-            'uuid': media_request.uuid,
-            'table_index': table_index,
-            'row_collection_index': None,
-            'row_index_in_collection': None,
-        })
+        elif stage == MediaRequestLifecycleStage.COMPLETED:
+            self._increment_counter_for_stage(stage)
+        self.media_requests.append(BundledMediaRequest(
+            search_string=search_string,
+            status=stage,
+            uuid=media_request.uuid,
+            table_index=table_index,
+        ))
         self.total += 1
         media_request.bundle_uuid = self.uuid
 
-    def _edit_row_data(self, media_request: dict, message: str):
+    def _edit_row_data(self, media_request: BundledMediaRequest, message: str):
         '''
         Edit the row data based on indexes
         '''
         # Always edit the table to keep it as source of truth
-        if media_request['table_index'] is not None:
-            self.table.edit_row(media_request['table_index'], message)
+        if media_request.table_index is not None:
+            self.table.edit_row(media_request.table_index, message)
 
         # Also edit row_collections if they've been populated
         if (self.row_collections and
-            media_request['row_collection_index'] is not None and
-            media_request['row_index_in_collection'] is not None):
-            self.row_collections[media_request['row_collection_index']][media_request['row_index_in_collection']].edit(message)
+            media_request.row_collection_index is not None and
+            media_request.row_index_in_collection is not None):
+            self.row_collections[media_request.row_collection_index][media_request.row_index_in_collection].edit(message)
 
-        return media_request['table_index'] is not None
+        return media_request.table_index is not None
 
     def _edit_search_banner(self, message: str):
         '''
@@ -274,43 +303,43 @@ class MultiMediaRequestBundle():
         Update the status of a media request in the bundle
         '''
         result = False
-        for media_request_dict in self.media_requests:
-            if media_request_dict['uuid'] != media_request.uuid:
+        for bundled_request in self.media_requests:
+            if bundled_request.uuid != media_request.uuid:
                 continue
             match stage:
                 case MediaRequestLifecycleStage.QUEUED:
                     # Keep the existing "queued for download" message, don't update
                     pass
                 case MediaRequestLifecycleStage.IN_PROGRESS:
-                    if media_request_dict['status'] != stage:
-                        if media_request_dict['table_index'] is not None:
-                            self._edit_row_data(media_request_dict, f'Downloading and processing media request: "{media_request_dict["search_string"]}"')
+                    if bundled_request.status != stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, f'Downloading and processing media request: "{bundled_request.search_string}"')
                 case MediaRequestLifecycleStage.BACKOFF:
-                    if media_request_dict['status'] != stage:
-                        if media_request_dict['table_index'] is not None:
-                            self._edit_row_data(media_request_dict, f'Waiting for youtube backoff time before processing media request: "{media_request_dict["search_string"]}"')
+                    if bundled_request.status != stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, f'Waiting for youtube backoff time before processing media request: "{bundled_request.search_string}"')
                 case MediaRequestLifecycleStage.COMPLETED:
-                    if media_request_dict['status'] != stage:
-                        if media_request_dict['table_index'] is not None:
-                            self._edit_row_data(media_request_dict, '')
-                        self.completed += 1
+                    if bundled_request.status != stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, '')
+                        self._increment_counter_for_stage(stage)
                 case MediaRequestLifecycleStage.DISCARDED:
-                    if media_request_dict['status'] != stage:
-                        if media_request_dict['table_index'] is not None:
-                            self._edit_row_data(media_request_dict, '')
-                        self.discarded += 1
+                    if bundled_request.status != stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, '')
+                        self._increment_counter_for_stage(stage)
                 case MediaRequestLifecycleStage.FAILED:
-                    if media_request_dict['status'] != stage:
-                        self.failed += 1
-                        x = f'Media request failed download: "{media_request_dict["search_string"]}"'
+                    if bundled_request.status != stage:
+                        self._increment_counter_for_stage(stage)
+                        x = f'Media request failed download: "{bundled_request.search_string}"'
                         if failure_reason:
                             x = f'{x}, {failure_reason}'
-                        if media_request_dict['table_index'] is not None:
-                            self._edit_row_data(media_request_dict, x)
-            media_request_dict['status'] = stage
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, x)
+            bundled_request.status = stage
             if override_message:
-                if media_request_dict['table_index'] is not None:
-                    self._edit_row_data(media_request_dict, override_message)
+                if bundled_request.table_index is not None:
+                    self._edit_row_data(bundled_request, override_message)
             result = True
             break
         # If not already in media requests, lets go ahead and add

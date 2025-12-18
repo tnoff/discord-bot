@@ -250,13 +250,7 @@ class SearchClient():
         Generate sources from input
 
         search : Search string
-        guild_id : Server/Guild id
-        channel_id: Channel Id
-        requester_name : Display name of requester
-        requester_id : ID of requester
-        loop : Bot run loop
         max_results : Max results of items
-        text_channel : Text channel to send messages to
         '''
         search_results = await self.__check_source_types(search, loop)
         if max_results is not None:

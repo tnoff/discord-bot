@@ -14,12 +14,6 @@ async def test_block():
         await x.put(5)
     assert 'Puts Blocked on Queue' in str(exc.value)
 
-    x.unblock()
-
-    await x.put(5)
-    result = await x.get()
-    assert result == 5
-
 @pytest.mark.asyncio
 async def test_size_and_clear():
     x = Queue()

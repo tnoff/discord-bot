@@ -215,7 +215,7 @@ def test_media_request_bundle_finished_property_mixed_status(media_request_bundl
         'test search 0',
         SearchType.SEARCH
     )
-    media_request_1.uuid = requests[0]['uuid']
+    media_request_1.uuid = requests[0].uuid
 
     media_request_2 = MediaRequest(
         fake_context['guild'].id,
@@ -226,7 +226,7 @@ def test_media_request_bundle_finished_property_mixed_status(media_request_bundl
         'test search 1',
         SearchType.SEARCH
     )
-    media_request_2.uuid = requests[1]['uuid']
+    media_request_2.uuid = requests[1].uuid
 
     media_request_bundle.update_request_status(media_request_1, MediaRequestLifecycleStage.COMPLETED)
     media_request_bundle.update_request_status(media_request_2, MediaRequestLifecycleStage.FAILED)
@@ -451,7 +451,7 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
             f'test search {i}',
             SearchType.SEARCH
         )
-        mr.uuid = media_request['uuid']
+        mr.uuid = media_request.uuid
         media_request_bundle.update_request_status(mr, stage)
 
     result = media_request_bundle.print()

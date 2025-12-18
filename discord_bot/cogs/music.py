@@ -10,7 +10,7 @@ import random
 from shutil import disk_usage
 from tempfile import TemporaryDirectory
 from time import time
-from typing import List
+from typing import List, Optional
 
 from dappertable import shorten_string, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
@@ -19,6 +19,7 @@ from discord import VoiceChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
+from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -40,7 +41,6 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.cogs.schema import SERVER_ID, STORAGE_BACKEND
 from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed, run_commit
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
@@ -62,166 +62,63 @@ NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
 # YTDLP OUTPUT TEMPLATE
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 
-# Music config schema
-MUSIC_SECTION_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'general': {
-            'type': 'object',
-            'properties': {
-                # Message delete after (seconds)
-                # Delete all messages after interval
-                'message_delete_after': {
-                    'type': 'number',
-                },
-            }
-        },
-        'player': {
-            'type': 'object',
-            'properties': {
-                # Max size of player queue
-                # Also applied to download queue
-                # Since items will be passed through
-                'queue_max_size': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-                # Disconnect timeout (seconds)
-                # How long player should wait in server with no data
-                # Before disconnecting
-                'disconnect_timeout': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-            }
-        },
-        'playlist': {
-            'type': 'object',
-            'properties': {
-                # Max size of server playlists
-                'server_playlist_max_size': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-            }
-        },
-        'download': {
-            'type': 'object',
-            'properties': {
-                # Max video length seconds
-                # YTDLP with not allow videos longer than this
-                'max_video_length': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-                # Enable audio processing on downloaded files
-                # Removes dead air and normalizes volume
-                'enable_audio_processing': {
-                    'type': 'boolean',
-                },
-                # Extra options to pass to ytdlp clients
-                'extra_ytdlp_options': {
-                    'type': 'object',
-                },
-                # List of banned video urls
-                'banned_videos_list': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'string',
-                    },
-                },
-                # Enable youtube music search before attempting download
-                'enable_youtube_music_search': {
-                    'type': 'boolean',
-                },
-                # Min wait time between ytdlp downloads
-                # In seconds
-                'youtube_wait_period_minimum': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-                # Max variance time to add between ytdlp downloads
-                # In seconds
-                'youtube_wait_period_max_variance': {
-                    'type': 'number',
-                    'minimum': 1,
-                },
-                # Spotify api credentials
-                # To allow for spotify urls
-                'spotify_credentials': {
-                    'type': 'object',
-                    'properties': {
-                        'client_id': {
-                            'type': 'string',
-                        },
-                        'client_secret': {
-                            'type': 'string',
-                        },
-                    },
-                    'required': [
-                        'client_id',
-                        'client_secret'
-                    ]
-                },
-                # Youtube api key to grab playlists with
-                'youtube_api_key': {
-                    'type': 'string',
-                },
-                # Priority servers should be placed in download queues
-                'server_queue_priority': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'object',
-                        'properties': {
-                            'server_id': SERVER_ID, #pylint:disable=duplicate-code
-                            'priority': {
-                                'type': 'number'
-                            },
-                        },
-                        'required': ['server_id', 'priority'],
-                        'additionalProperties': False,
-                    }
-                },
-                'cache': {
-                    'type': 'object',
-                    'properties': {
-                        # Download dir for local files
-                        'download_dir_path': {
-                            'type': 'string',
-                        },
-                        # Keep local files on disk and don't cleanup after stopping
-                        # Also enables search cache for spotify
-                        'enable_cache_files': {
-                            'type': 'boolean',
-                        },
-                        # Max cache files to keep on disk and in db
-                        'max_cache_files': {
-                            'type': 'number',
-                            'minimum': 1,
-                        },
-                        # Paths to ignore during cache cleanup (relative to download_dir)
-                        'ignore_cleanup_paths': {
-                            'type': 'array',
-                            'items': {
-                                'type': 'string'
-                            },
-                        },
-                    }
-                },
-                'storage': {
-                    'type': 'object',
-                    'properties': {
-                        'backend': STORAGE_BACKEND,
-                        'bucket_name': {
-                            'type': 'string',
-                        }
-                    },
-                    'required': ['bucket_name'],
-                },
-            }
-        },
-    }
-}
+# Pydantic config models
+class MusicGeneralConfig(BaseModel):
+    '''General music configuration'''
+    message_delete_after: Optional[float] = None
+
+class MusicPlayerConfig(BaseModel):
+    '''Music player configuration'''
+    queue_max_size: Optional[int] = Field(default=None, ge=1)
+    disconnect_timeout: Optional[int] = Field(default=None, ge=1)
+
+class MusicPlaylistConfig(BaseModel):
+    '''Music playlist configuration'''
+    server_playlist_max_size: Optional[int] = Field(default=None, ge=1)
+
+class SpotifyCredentialsConfig(BaseModel):
+    '''Spotify API credentials configuration'''
+    client_id: str
+    client_secret: str
+
+class ServerQueuePriorityConfig(BaseModel):
+    '''Server queue priority configuration'''
+    server_id: int
+    priority: int
+
+class MusicCacheConfig(BaseModel):
+    '''Music cache configuration'''
+    download_dir_path: Optional[str] = None
+    enable_cache_files: Optional[bool] = None
+    max_cache_files: Optional[int] = Field(default=None, ge=1)
+    ignore_cleanup_paths: list[str] = Field(default_factory=list)
+
+class MusicStorageConfig(BaseModel):
+    '''Music storage backend configuration'''
+    backend: str
+    bucket_name: str
+
+class MusicDownloadConfig(BaseModel):
+    '''Music download configuration'''
+    max_video_length: Optional[int] = Field(default=None, ge=1)
+    enable_audio_processing: Optional[bool] = None
+    extra_ytdlp_options: dict = Field(default_factory=dict)
+    banned_videos_list: list[str] = Field(default_factory=list)
+    enable_youtube_music_search: Optional[bool] = None
+    youtube_wait_period_minimum: Optional[int] = Field(default=None, ge=1)
+    youtube_wait_period_max_variance: Optional[int] = Field(default=None, ge=1)
+    spotify_credentials: Optional[SpotifyCredentialsConfig] = None
+    youtube_api_key: Optional[str] = None
+    server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
+    cache: Optional[MusicCacheConfig] = None
+    storage: Optional[MusicStorageConfig] = None
+
+class MusicConfig(BaseModel):
+    '''Top-level music cog configuration'''
+    general: Optional[MusicGeneralConfig] = None
+    player: Optional[MusicPlayerConfig] = None
+    playlist: Optional[MusicPlaylistConfig] = None
+    download: Optional[MusicDownloadConfig] = None
 
 #
 # Exceptions
@@ -264,7 +161,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
-        super().__init__(bot, settings, db_engine, settings_prefix='music', section_schema=MUSIC_SECTION_SCHEMA)
+        super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
 
@@ -284,11 +181,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.history_playlist_queue = None
         if self.db_engine:
             self.history_playlist_queue = Queue()
+
         # General options
-        self.delete_after = self.settings.get('music', {}).get('general', {}).get('message_delete_after', 300) # seconds
+        self.delete_after = self.config.general.message_delete_after if self.config.general else 300
+
         # Player options
-        self.queue_max_size = self.settings.get('music', {}).get('player', {}).get('queue_max_size', 128)
-        self.disconnect_timeout = self.settings.get('music', {}).get('player', {}).get('disconnect_timeout', 60 * 15) # seconds
+        self.queue_max_size = self.config.player.queue_max_size if self.config.player and self.config.player.queue_max_size else 128
+        self.disconnect_timeout = self.config.player.disconnect_timeout if self.config.player and self.config.player.disconnect_timeout else 60 * 15
 
         # Queues for download and youtube music search
         self.download_queue = DistributedQueue(self.queue_max_size)
@@ -297,48 +196,48 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.youtube_music_search_queue = DistributedQueue(search_queue_size)
 
         # Playlist options
-        self.server_playlist_max_size = self.settings.get('music', {}).get('playlist', {}).get('server_playlist_max_size', 64)
+        self.server_playlist_max_size = self.config.playlist.server_playlist_max_size if self.config.playlist and self.config.playlist.server_playlist_max_size else 64
 
         # Download options
-        max_video_length = self.settings.get('music', {}).get('download', {}).get('max_video_length', 60 * 15) # seconds
-        enable_audio_processing = self.settings.get('music', {}).get('download', {}).get('enable_audio_processing', False)
-        download_dir_path = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('download_dir_path', None)
-        self.enable_cache = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('enable_cache_files', False)
-        max_cache_files = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('max_cache_files', 2048)
-        ignore_cleanup_paths = self.settings.get('music', {}).get('download', {}).get('cache', {}).get('ignore_cleanup_paths', [])
-        ytdlp_options = self.settings.get('music', {}).get('download', {}).get('extra_ytdlp_options', {})
-        banned_videos_list = self.settings.get('music', {}).get('download', {}).get('banned_videos_list', [])
+        max_video_length = self.config.download.max_video_length if self.config.download and self.config.download.max_video_length else 60 * 15
+        enable_audio_processing = self.config.download.enable_audio_processing if self.config.download and self.config.download.enable_audio_processing else False
+        download_dir_path = self.config.download.cache.download_dir_path if self.config.download and self.config.download.cache else None
+        self.enable_cache = self.config.download.cache.enable_cache_files if self.config.download and self.config.download.cache else False
+        max_cache_files = self.config.download.cache.max_cache_files if self.config.download and self.config.download.cache and self.config.download.cache.max_cache_files else 2048
+        ignore_cleanup_paths = self.config.download.cache.ignore_cleanup_paths if self.config.download and self.config.download.cache else []
+        ytdlp_options = self.config.download.extra_ytdlp_options if self.config.download else {}
+        banned_videos_list = self.config.download.banned_videos_list if self.config.download else []
 
-        self.youtube_wait_period_min = self.settings.get('music', {}).get('download', {}).get('youtube_wait_period_minimum', 30) # seconds
-        self.youtube_wait_period_max_variance = self.settings.get('music', {}).get('download', {}).get('youtube_wait_period_max_variance', 10) # seconds
+        self.youtube_wait_period_min = self.config.download.youtube_wait_period_minimum if self.config.download and self.config.download.youtube_wait_period_minimum else 30
+        self.youtube_wait_period_max_variance = self.config.download.youtube_wait_period_max_variance if self.config.download and self.config.download.youtube_wait_period_max_variance else 10
 
         self.spotify_client = None
-        spotify_credentails = self.settings.get('music', {}).get('download', {}).get('spotify_credentials', {})
-        if spotify_credentails:
-            self.spotify_client = SpotifyClient(spotify_credentails.get('client_id'), spotify_credentails.get('client_secret'))
+        if self.config.download and self.config.download.spotify_credentials:
+            self.spotify_client = SpotifyClient(
+                self.config.download.spotify_credentials.client_id,
+                self.config.download.spotify_credentials.client_secret
+            )
 
         self.youtube_client = None
-        youtube_api_key = self.settings.get('music', {}).get('download', {}).get('youtube_api_key', None)
-        if youtube_api_key:
-            self.youtube_client = YoutubeClient(youtube_api_key)
+        if self.config.download and self.config.download.youtube_api_key:
+            self.youtube_client = YoutubeClient(self.config.download.youtube_api_key)
 
-        self.enable_youtube_music_search = self.settings.get('music', {}).get('download', {}).get('enable_youtube_music_search', True)
+        self.enable_youtube_music_search = self.config.download.enable_youtube_music_search if self.config.download and self.config.download.enable_youtube_music_search is not None else True
         self.youtube_music_client = None
         if self.enable_youtube_music_search:
             self.youtube_music_client = YoutubeMusicClient()
 
-        server_queue_priority_input = self.settings.get('music', {}).get('download', {}).get('server_queue_priority', [])
         self.server_queue_priority = {}
-        for item in server_queue_priority_input:
-            self.server_queue_priority[int(item['server_id'])] = item['priority']
+        if self.config.download and self.config.download.server_queue_priority:
+            for item in self.config.download.server_queue_priority:
+                self.server_queue_priority[int(item.server_id)] = item.priority
 
         # Get storage config from music section and general section
-        music_storage_config = self.settings.get('music', {}).get('download', {}).get('storage', {})
         general_storage_config = self.settings.get('general', {}).get('storage', {})
 
         # Use music-specific backend if specified, otherwise use general
-        storage_backend = music_storage_config.get('backend', general_storage_config.get('backend', None))
-        storage_bucket_name = music_storage_config.get('bucket_name', None)
+        storage_backend = self.config.download.storage.backend if self.config.download and self.config.download.storage else general_storage_config.get('backend', None)
+        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download and self.config.download.storage else None
 
         self.backup_storage_options = {
             'backend': storage_backend,
@@ -510,7 +409,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         items = []
         for bundle in self.multirequest_bundles.values():
             items.append(Observation(1, attributes={
-                DiscordContextNaming.GUILD.value: str(bundle.guild_id),
+                DiscordContextNaming.GUILD.value: bundle.guild_id,
             }))
         return items
 
@@ -1080,7 +979,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if history_playlist:
                 return history_playlist.id
             history_playlist = Playlist(
-                server_id=str(guild_id),
+                server_id=guild_id,
                 name=f'{PLAYHISTORY_PREFIX}{guild_id}_{datetime.now(timezone.utc).timestamp()}',
                 is_history=True,
             )
@@ -1215,7 +1114,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
-                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.get_queue_size(guild_id)):
+                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.size(guild_id)):
                     message_context = MessageContext(player.guild.id, player.text_channel.id)
                     message_context.function = partial(player.text_channel.send, 'I am not currently playing anything',
                                                        delete_after=self.delete_after)
@@ -1461,7 +1360,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             DapperTableHeader('Title', 40),
             DapperTableHeader('Uploader', 40)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```', prefix='History\n')
         table_items = player.get_history_items()
         for (count, item) in enumerate(table_items):
             uploader = item.uploader or ''
@@ -1470,7 +1370,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'{item.title}',
                 f'{uploader}',
             ])
-        messages = [f'```{t}```' for t in table.print()]
+        messages = table.print()
         message_contexts = []
         for mess in messages:
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -1642,17 +1542,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ctx.channel,
         )
 
-    async def __get_playlist_public_view(self, playlist_id: int, guild_id: str):
+    async def __get_playlist_public_view(self, playlist_id: int, guild_id: int):
         '''
         Get playlist by db id, and view which public index servers see it as
         '''
-
-
         with self.with_db_session() as db_session:
             playlist = retry_database_commands(db_session, partial(database_functions.get_playlist, db_session, playlist_id))
             if not playlist:
                 return None
-            if str(playlist.server_id) != str(guild_id):
+            if playlist.server_id != guild_id:
                 return None
             if playlist.is_history:
                 return 0
@@ -1680,7 +1578,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             if index > 0:
-                if not retry_database_commands(db_session, partial(database_functions.playlist_count, db_session, str(ctx.guild.id))):
+                if not retry_database_commands(db_session, partial(database_functions.playlist_count, db_session, ctx.guild.id)):
                     message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                     message_context.function = partial(ctx.send, 'No playlists in database',
                                                        delete_after=self.delete_after)
@@ -1689,10 +1587,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             is_history = False
             if index == 0:
-                playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, str(ctx.guild.id)))
+                playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, ctx.guild.id))
                 is_history = True
             else:
-                playlist = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, str(ctx.guild.id), (index - 1)))[0]
+                playlist = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, (index - 1)))[0]
             if not playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 message_context.function = partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.delete_after)
@@ -1734,7 +1632,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.send_single_immutable([message_context])
             return None
         with self.with_db_session() as db_session:
-            existing_playlist = retry_database_commands(db_session, partial(database_functions.get_playlist_by_name_and_guild, db_session, playlist_name, str(ctx.guild.id)))
+            existing_playlist = retry_database_commands(db_session, partial(database_functions.get_playlist_by_name_and_guild, db_session, playlist_name, ctx.guild.id))
             if existing_playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
                 message_context.function = partial(ctx.send, f'Unable to create playlist "{name}", a playlist with that name already exists')
@@ -1743,7 +1641,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             playlist = Playlist(
                 name=name,
-                server_id=str(ctx.guild.id),
+                server_id=ctx.guild.id,
                 is_history=False,
             )
             db_session.add(playlist)
@@ -1778,8 +1676,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
         with self.with_db_session() as db_session:
-            history_playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, str(ctx.guild.id)))
-            playlist_items = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, str(ctx.guild.id), 0))
+            history_playlist = retry_database_commands(db_session, partial(database_functions.get_history_playlist, db_session, ctx.guild.id))
+            playlist_items = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, 0))
 
             if not playlist_items and not history_playlist:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -1796,7 +1694,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Playlist Name', 64),
                 DapperTableHeader('Last Queued', 20),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                enclosure_start='```', enclosure_end='```', prefix='Playlist List\n')
             for (count, item) in enumerate(playlist_items):
                 last_queued = 'N/A'
                 if item.last_queued:
@@ -1809,7 +1708,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     name,
                     last_queued,
                 ])
-            messages = [f'```{t}```' for t in table.print()]
+            messages = table.print()
             message_contexts = []
             for mess in messages:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2021,7 +1920,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Title', 32),
                 DapperTableHeader('Uploader', 32),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                enclosure_start='```', enclosure_end='```', prefix=f'Playlist {playlist_index} Items\n')
             total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
@@ -2037,7 +1937,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
                 return
-            messages = [f'```{t}```' for t in table.print()]
+            messages = table.print()
             message_contexts = []
             for mess in messages:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -2401,7 +2301,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         with self.with_db_session() as db_session:
-            guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, str(ctx.guild.id)))
+            guild_analytics = retry_database_commands(db_session, partial(database_functions.ensure_guild_video_analytics, db_session, ctx.guild.id))
             hours = guild_analytics.total_duration_seconds // 3600
             minutes = (guild_analytics.total_duration_seconds % 3600) // 60
             seconds = guild_analytics.total_duration_seconds % 60

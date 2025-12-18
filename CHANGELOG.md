@@ -1,5 +1,71 @@
 # Changelog
 
+## 2.5.0
+
+**BREAKING CHANGES:**
+
+General:
+- **Migration to Pydantic v2**: Replaced jsonschema with Pydantic v2 for configuration validation
+  - All configuration validation now uses Pydantic models
+  - Better error messages when configuration is invalid
+  - Type-safe configuration throughout the codebase
+- **Discord IDs now integers**: Changed all Discord IDs (guild, channel, role, user, message) from strings to integers
+  - **Database migration required**: Run `alembic upgrade head` to migrate existing databases
+  - YAML configuration should use unquoted integers for IDs (e.g., `12345` not `"12345"`)
+  - See migration guide below for more details
+
+Music:
+- Refactored media request bundle to use dataclass instead of dictionaries for better type safety
+- Added `BundledMediaRequest` dataclass for cleaner request tracking
+
+Testing:
+- Added comprehensive type hints to test helper functions
+- Improved test coverage for configuration validation
+
+Code Quality:
+- Cleaned up distributed queue implementation
+- Extracted duplicate counter logic in media request bundle
+- Improved code organization and maintainability
+
+### Migration Guide for 2.5.0
+
+#### Database Migration
+**Required**: This release includes a database migration to convert Discord IDs from VARCHAR to Integer. Run the following command before starting the bot:
+
+```bash
+alembic upgrade head
+```
+
+The migration handles both SQLite and PostgreSQL databases automatically.
+
+#### Configuration Updates
+Update your YAML configuration to use integer IDs instead of string IDs:
+
+**Before (2.4.x):**
+```yaml
+role:
+  "123456789":  # String key (quoted)
+    "987654321":  # String key (quoted)
+      manages_roles:
+        - "111111111"  # String value (quoted)
+```
+
+**After (2.5.0):**
+```yaml
+role:
+  123456789:  # Integer key (unquoted)
+    987654321:  # Integer key (unquoted)
+      manages_roles:
+        - 111111111  # Integer value (unquoted)
+```
+
+The same applies to all Discord IDs in configuration including:
+- Guild/Server IDs
+- Channel IDs
+- Role IDs
+- User IDs
+- Message IDs
+
 ## 2.4.5
 
 General:

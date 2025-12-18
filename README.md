@@ -59,6 +59,8 @@ The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run th
 $ alembic upgrade head
 ```
 
+**Important**: If upgrading from version 2.4.x or earlier to 2.5.0+, a database migration is required to convert Discord IDs from strings to integers. Make sure to run the migration command above before starting the bot with the new version.
+
 Alembic assumes you have an environment variable with `DATABASE_URL` set that is an sqlalchemy driver connection string.
 
 For local dev, run the following to generate migrations after editing the `database.py` file:
@@ -143,10 +145,10 @@ intents:
 
 Use config values to remove bot from server if you cannot remove it yourself. This will take effect on the next restart of the bot.
 
-```
+```yaml
 general:
   rejectlist_guilds:
-    - guild_id_1234505018501
+    - 123450501850  # Guild ID as integer (unquoted)
 ```
 
 ## Additional Docs

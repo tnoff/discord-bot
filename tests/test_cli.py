@@ -39,7 +39,7 @@ def test_run_config_but_no_data():
             dump(config_data, writer)
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
-        assert 'Unable to run bot without token' in str(result.exception)
+        assert 'Invalid general config' in str(result.exception)
 
 @pytest.mark.asyncio
 async def test_run_config_only_token(mocker):
@@ -117,7 +117,7 @@ async def test_run_config_with_db(mocker):
                     'discord_token': 'foo',
                     'sql_connection_statement': f'sqlite:///{temp_db.name}',
                     'rejectlist_guilds': [
-                        'fake-guild-1234',
+                        1234,
                     ],
                 }
             }

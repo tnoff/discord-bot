@@ -61,16 +61,18 @@ You can use the following commands to list/modify user roles:
 
 Various config options with an example of what it allows
 
+**Note**: All Discord IDs (server, role, user) should be specified as integers (unquoted) in the YAML configuration. For example, use `123456789` not `"123456789"`.
+
 ### Role Manages Rules
 
 You can give one role permissions to add/remove users from another role:
 
-```
+```yaml
 role:
-  <discord-server-id>:
-    <manager-role-id>:
+  123456789:  # Your Discord server ID (integer, unquoted)
+    987654321:  # Manager role ID (integer, unquoted)
       manages_roles:
-        - <managed-role-id>
+        - 111111111  # Managed role ID (integer, unquoted)
 ```
 
 Take these example roles:
@@ -90,25 +92,25 @@ Say you want to give the `GroupA-Admin` permissions to add/remove users from the
 
 But if you were to give the Bot role the "Manage Roles" permissions, and then update the config to include
 
-```
+```yaml
 role:
-  <discord-server-id>:
-    GroupA-Admin.role.id:
+  123456789:  # Your Discord server ID
+    555555555:  # GroupA-Admin role ID
       manages_roles:
-        - GroupA.role.id
+        - 666666666  # GroupA role ID
 ```
 
 A user with the `GroupA-Admin` role could then add/remove users from the `GroupA` role via the `!role add` and `!role remove` commands, where the Bot would then run the action of modifying those users roles.
 
 You can also give users in a role permission to add/remove users from the same role. So for example you can give users with the `GroupA-Admin` role permission to add/remove users from the `GroupA-Admin` and `GroupA` rules if you wish.
 
-```
+```yaml
 role:
-  <discord-server-id>:
-    GroupA-Admin.role.id:
+  123456789:  # Your Discord server ID
+    555555555:  # GroupA-Admin role ID
       manages_roles:
-        - GroupA.role.id
-        - GroupA-Admin.role.id
+        - 666666666  # GroupA role ID
+        - 555555555  # GroupA-Admin role ID
 ```
 
 ## Required Roles
@@ -119,23 +121,23 @@ With this setting you can ensure that you don't allow anyone to add users to a g
 
 To setup a required role use the following config:
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     required_roles_list:
-      - <required-role-id>
+      - 222222222  # Required role ID
 ```
 
 Say you have a role named `Member` given to users after they onboard to your server. You can require that before anyone adds this user to another role, say `GroupA`, that they are required to first have this role.
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     required_roles_list:
-      - Member.role.id
-    GroupA-Admin.role.id:
+      - 222222222  # Member role ID
+    555555555:  # GroupA-Admin role ID
       manages_roles:
-        - GroupA.role.id
+        - 666666666  # GroupA role ID
 ```
 
 Note that the required role setting is checked on `!role add` commands but not on `!role remove` commands.
@@ -146,20 +148,20 @@ You can designate certain roles as admins so they can override the required role
 
 To setup an admin override role use this config:
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     admin_override_role_list:
-      - <admin-role-id>
+      - 333333333  # Admin role ID
 ```
 
 Say you have a role such as `Moderator` that you want to be able to add/remove users from any role (with a rank lower than the bot role). Add this role id to the config and you can bypass any checks with the required user role.
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     admin_override_role_list:
-      - Moderator.role.id
+      - 333333333  # Moderator role ID
 ```
 
 ## Self Service Roles
@@ -168,20 +170,20 @@ You may want users to be able to add themselves to a certain role. This is prett
 
 To setup self service roles use this config:
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     self_service_role_list:
-      - <self-service-role-id>
+      - 444444444  # Self-service role ID
 ```
 
 Say you have a role such as `Baseball-Fans` that you want users to be able to add themselves to. You can setup the following config
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     self_service_role_list:
-      - Baseball-Fans.role.id
+      - 444444444  # Baseball-Fans role ID
 ```
 
 Note that if Required Roles are setup, users will need to have those required roles before they can add themselves to a Self Service Role. Also users will not be able to add different users to the self service role unless given explicit permission to do so via a `manage_roles` setting.
@@ -192,11 +194,11 @@ You can setup Rejected Roles that where the Bot will not attempt to add, remove,
 
 To setup rejected roles use this config:
 
-```
+```yaml
 role:
-  <discord-server-id>:
+  123456789:  # Your Discord server ID
     rejected_roles_list:
-      - <rejected-role-id>
+      - 777777777  # Rejected role ID
 ```
 
 Note that if a user is desginated an admin via the Admin Override role list, then the admin override will overrule the reject roles setting on `!role add` and `!role remove` commands.

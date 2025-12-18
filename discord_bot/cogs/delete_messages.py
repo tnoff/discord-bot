@@ -6,11 +6,11 @@ from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
+from pydantic import BaseModel
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER
@@ -21,36 +21,17 @@ DELETE_AFTER_DEFAULT = 7
 # Default for how to wait between each loop
 LOOP_SLEEP_INTERVAL_DEFAULT = 300
 
-DELETE_MESSAGES_SCHEMA  = {
-    'type': 'object',
-    'properties': {
-        'loop_sleep_interval': {
-            'type': 'number',
-        },
-        'discord_channels': {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'server_id': SERVER_ID,
-                    'channel_id': {
-                        'type': 'string'
-                    },
-                    'delete_after': {
-                        'type': 'integer'
-                    },
-                },
-                'required': [
-                    'server_id',
-                    'channel_id',
-                ]
-            }
-        },
-    },
-    'required': [
-        'discord_channels',
-    ],
-}
+# Pydantic config models
+class DiscordChannelConfig(BaseModel):
+    '''Discord channel configuration for message deletion'''
+    server_id: int
+    channel_id: int
+    delete_after: int = DELETE_AFTER_DEFAULT
+
+class DeleteMessagesConfig(BaseModel):
+    '''Delete messages cog configuration'''
+    loop_sleep_interval: float = LOOP_SLEEP_INTERVAL_DEFAULT
+    discord_channels: list[DiscordChannelConfig]
 
 class DeleteMessages(CogHelper):
     '''
@@ -60,9 +41,9 @@ class DeleteMessages(CogHelper):
         if not settings.get('general', {}).get('include', {}).get('delete_messages', False):
             raise CogMissingRequiredArg('Delete messages not enabled')
 
-        super().__init__(bot, settings, None, settings_prefix='delete_messages', section_schema=DELETE_MESSAGES_SCHEMA)
-        self.loop_sleep_interval = self.settings.get('delete_messages', {}).get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
-        self.discord_channels = self.settings.get('delete_messages', {}).get('discord_channels', [])
+        super().__init__(bot, settings, None, settings_prefix='delete_messages', config_model=DeleteMessagesConfig)
+        self.loop_sleep_interval = self.config.loop_sleep_interval
+        self.discord_channels = [channel.model_dump() for channel in self.config.discord_channels]
         self._task = None
 
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Delete message loop heartbeat')

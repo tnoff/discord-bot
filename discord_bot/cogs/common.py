@@ -1,8 +1,9 @@
 from contextlib import contextmanager
 from functools import partial
+from typing import Optional
 
 from discord.ext.commands import Cog, Bot
-from jsonschema import ValidationError
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine.base import Engine
@@ -10,7 +11,7 @@ from sqlalchemy.orm.session import Session
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import validate_config, get_logger
+from discord_bot.utils.common import get_logger
 from discord_bot.utils.sql_retry import retry_database_commands
 
 class CogHelper(Cog):
@@ -19,7 +20,8 @@ class CogHelper(Cog):
     '''
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine,
-                 settings_prefix: str = None, section_schema: dict  = None):
+                 settings_prefix: str = None,
+                 config_model: Optional[type[BaseModel]] = None):
         '''
         Init a basic cog
         bot                 :   Discord bot object
@@ -27,23 +29,24 @@ class CogHelper(Cog):
         settings            :   Common settings config
         db_engine           :   (Optional) Sqlalchemy db engine
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
-        section_schema      :   (Optional) Json schema to use to validate config. settings_prefix must also be given
+        config_model        :   (Optional) Pydantic model to use to validate config. settings_prefix must also be given
         '''
-        # Check that prefix given if schema also given
-        if section_schema and not settings_prefix:
-            raise CogMissingRequiredArg('Section schema given but settings prefix not given')
+        # Check that prefix given if model also given
+        if config_model and not settings_prefix:
+            raise CogMissingRequiredArg('Config model given but settings prefix not given')
 
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
         self.logger = get_logger(self._cog_name, settings.get('general', {}).get('logging', {}))
         self.settings = settings
         self.db_engine = db_engine
+        self.config: Optional[BaseModel] = None
 
-        # Setup config
-        if section_schema:
+        # Setup config validation
+        if config_model:
             try:
-                validate_config(self.settings.get(settings_prefix, {}), section_schema)
-            except ValidationError as exc:
+                self.config = config_model.model_validate(settings.get(settings_prefix, {}))
+            except PydanticValidationError as exc:
                 raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}', str(exc)) from exc
 
     @contextmanager

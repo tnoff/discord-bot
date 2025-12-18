@@ -1,8 +1,8 @@
-FROM python:3.14-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 
 # Base packages
-RUN apt-get update && apt-get install -y git ffmpeg curl unzip heaptrack sqlite3
+RUN apt-get update && apt-get install -y gcc cmake git ffmpeg curl unzip heaptrack sqlite3
 
 # Install Deno
 # https://github.com/yt-dlp/yt-dlp/issues/14404
@@ -27,6 +27,7 @@ RUN pip install "${APPDIR}"
 
 WORKDIR "/opt/discord"
 
-RUN apt-get remove -y git unzip && apt-get autoremove -y
+# Uninstall
+RUN apt-get remove -y git unzip gcc cmake curl && apt-get autoremove -y
 
 CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]

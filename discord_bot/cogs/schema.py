@@ -1,11 +1,8 @@
 # Schema commons
+from typing import Literal
+from pydantic import BaseModel
 
-SERVER_ID = {
-    'type': 'string',
-}
-
-# Storage backend schema component
-STORAGE_BACKEND = {
-    'type': 'string',
-    'enum': ['s3']
-}
+# Pydantic models
+class StorageConfig(BaseModel):
+    '''Storage backend configuration'''
+    backend: Literal['s3']

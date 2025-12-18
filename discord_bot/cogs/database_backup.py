@@ -1,11 +1,13 @@
 from asyncio import sleep
 from datetime import datetime
+from typing import Optional
 
 from discord.ext.commands import Bot
 from sqlalchemy.engine.base import Engine
 from opentelemetry.metrics import Observation
 from opentelemetry.trace import SpanKind
 from croniter import croniter
+from pydantic import BaseModel
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -14,16 +16,12 @@ from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNam
 from discord_bot.utils.clients.s3 import upload_file
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 
-# Schema validation
-DATABASE_BACKUP_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'bucket_name': {'type': 'string'},
-        'cron_schedule': {'type': 'string'},
-        'object_prefix': {'type': 'string'},
-    },
-    'required': ['bucket_name', 'cron_schedule'],
-}
+# Pydantic config model
+class DatabaseBackupConfig(BaseModel):
+    '''Database backup configuration'''
+    bucket_name: str
+    cron_schedule: str
+    object_prefix: Optional[str] = None
 
 class DatabaseBackup(CogHelper):
     '''
@@ -41,13 +39,12 @@ class DatabaseBackup(CogHelper):
 
         super().__init__(bot, settings, db_engine,
                          settings_prefix='database_backup',
-                         section_schema=DATABASE_BACKUP_SCHEMA)
+                         config_model=DatabaseBackupConfig)
 
-        # Load config
-        backup_config = self.settings.get('database_backup', {})
-        self.bucket_name = backup_config['bucket_name']
-        self.cron_schedule = backup_config['cron_schedule']
-        self.object_prefix = backup_config.get('object_prefix', 'backups/db/')
+        # Load config from Pydantic model
+        self.bucket_name = self.config.bucket_name
+        self.cron_schedule = self.config.cron_schedule
+        self.object_prefix = self.config.object_prefix if self.config.object_prefix else 'backups/db/'
 
         # Initialize backup client
         self.backup_client = DatabaseBackupClient(
@@ -99,16 +96,16 @@ class DatabaseBackup(CogHelper):
         self.logger.info(f'Next database backup scheduled for {next_run} ({seconds_until:.0f}s)')
         await sleep(seconds_until)
 
-        # Run the backup with OpenTelemetry tracing
-        with otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
-            try:
+        try:
+            # Run the backup with OpenTelemetry tracing
+            with otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
                 # Create backup file
                 with otel_span_wrapper('database_backup.create_file'):
                     backup_file_path = self.backup_client.create_backup()
 
                 # Upload to S3
                 with otel_span_wrapper('database_backup.upload_to_s3',
-                                      attributes={'s3.bucket': self.bucket_name}):
+                                        attributes={'s3.bucket': self.bucket_name}):
                     object_name = f'{self.object_prefix}{backup_file_path.name}'
                     success = upload_file(self.bucket_name, backup_file_path, object_name)
 
@@ -119,6 +116,5 @@ class DatabaseBackup(CogHelper):
 
                 # Cleanup local file
                 backup_file_path.unlink()
-
-            except Exception as e:
-                self.logger.exception(f'Database backup failed: {str(e)}')
+        except Exception as e:  # pylint: disable=broad-except
+            self.logger.error(f'Database backup failed: {e}', exc_info=True)

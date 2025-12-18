@@ -11,6 +11,7 @@ from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
+from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.orm.session import Session
 
@@ -18,7 +19,6 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.cogs.schema import SERVER_ID
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
@@ -33,26 +33,13 @@ LOOP_SLEEP_INTERVAL_DEFAULT = 300
 # Limit for how many messages we grab on each history check
 MESSAGE_CHECK_LIMIT = 16
 
-# Markov config schema
-MARKOV_SECTION_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'loop_sleep_interval': {
-            'type': 'number',
-        },
-        'message_check_limit': {
-            'type': 'number',
-        },
-        'history_retention_days': {
-            'type': 'number',
-
-        },
-        'server_reject_list': {
-            'type': 'array',
-            'items': SERVER_ID,
-        },
-    }
-}
+# Pydantic config model
+class MarkovConfig(BaseModel):
+    '''Markov chain configuration'''
+    loop_sleep_interval: float = 300.0
+    message_check_limit: int = 16
+    history_retention_days: int = 365
+    server_reject_list: list[int] = Field(default_factory=list)
 
 def clean_message(content: str, emojis: List[str]):
     '''
@@ -96,15 +83,15 @@ def get_matching_markov_channel(db_session: Session, ctx: Context):
     Get channel that matches original context
     '''
     return db_session.query(MarkovChannel).\
-        filter(MarkovChannel.channel_id == str(ctx.channel.id)).\
-        filter(MarkovChannel.server_id == str(ctx.guild.id)).first()
+        filter(MarkovChannel.channel_id == ctx.channel.id).\
+        filter(MarkovChannel.server_id == ctx.guild.id).first()
 
 def list_guild_channels(db_session: Session, ctx: Context):
     '''
     List guild channels
     '''
     return db_session.query(MarkovChannel.channel_id).\
-        filter(MarkovChannel.server_id == str(ctx.guild.id))
+        filter(MarkovChannel.server_id == ctx.guild.id)
 
 class Markov(CogHelper):
     '''
@@ -116,12 +103,13 @@ class Markov(CogHelper):
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, settings, db_engine, settings_prefix='markov', section_schema=MARKOV_SECTION_SCHEMA)
+        super().__init__(bot, settings, db_engine, settings_prefix='markov', config_model=MarkovConfig)
 
-        self.loop_sleep_interval = self.settings.get('markov', {}).get('loop_sleep_interval', LOOP_SLEEP_INTERVAL_DEFAULT)
-        self.message_check_limit = self.settings.get('markov', {}).get('message_check_limit', MESSAGE_CHECK_LIMIT)
-        self.history_retention_days = self.settings.get('markov', {}).get('history_retention_days', MARKOV_HISTORY_RETENTION_DAYS_DEFAULT)
-        self.server_reject_list = self.settings.get('markov', {}).get('server_reject_list', [])
+        # Access config values through self.config (Pydantic model)
+        self.loop_sleep_interval = self.config.loop_sleep_interval
+        self.message_check_limit = self.config.message_check_limit
+        self.history_retention_days = self.config.history_retention_days
+        self.server_reject_list = self.config.server_reject_list
 
         self._task = None
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
@@ -261,7 +249,7 @@ class Markov(CogHelper):
                                 self.logger.info(f'Attempting to add corpus "{corpus}" '
                                                  f'to channel {markov_channel.channel_id}')
                                 self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
-                            markov_channel.last_message_id = str(message.id)
+                            markov_channel.last_message_id = message.id
                             self.retry_commit(db_session)
                         self.logger.debug(f'Done with channel {markov_channel.channel_id}')
 
@@ -302,9 +290,9 @@ class Markov(CogHelper):
             if channel.type not in [ChannelType.text, ChannelType.voice]:
                 return await async_retry_discord_message_command(partial(ctx.send, 'Not a valid markov channel, cannot turn on markov'))
 
-            new_markov = MarkovChannel(channel_id=str(ctx.channel.id),
-                                    server_id=str(ctx.guild.id),
-                                    last_message_id=None)
+            new_markov = MarkovChannel(channel_id=ctx.channel.id,
+                                       server_id=ctx.guild.id,
+                                       last_message_id=None)
             retry_database_commands(db_session, partial(add_channel, db_session, new_markov))
             self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
             return await async_retry_discord_message_command(partial(ctx.send, 'Markov turned on for channel'))
@@ -347,7 +335,8 @@ class Markov(CogHelper):
                 DapperTableHeader('Channel', 64),
             ]
 
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                prefix='Channel List \n')
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.print():
@@ -374,7 +363,7 @@ class Markov(CogHelper):
         def get_possible_words(db_session: Session, ctx: Context, first_word: str = None):
             query = db_session.query(MarkovRelation.id).\
                         join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id).\
-                        filter(MarkovChannel.server_id == str(ctx.guild.id))
+                        filter(MarkovChannel.server_id == ctx.guild.id)
             if first_word:
                 query = query.filter(MarkovRelation.leader_word == first_word)
             return [word[0] for word in query]

@@ -5,10 +5,11 @@ boto3==1.42.12
 click==8.3.1
 croniter==6.0.0
 discord.py==2.6.4
-dappertable @ git+https://github.com/tnoff/dappertable.git@v0.2.1
+dappertable @ git+https://github.com/tnoff/dappertable.git@v0.2.3
 google-api-python-client==2.187.0
-jsonschema==4.25.1
 moviepy==2.2.1
+pydantic==2.10.6
+pydantic-yaml==1.5.0
 opentelemetry-sdk==1.39.1
 # Dont pin these so dependabot updates are easier
 opentelemetry-instrumentation-requests

@@ -3,13 +3,12 @@ import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from jsonschema.exceptions import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 from discord.errors import DiscordServerError, RateLimited, NotFound
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.utils.common import GENERAL_SECTION_SCHEMA
-from discord_bot.utils.common import validate_config
+from discord_bot.utils.common import GeneralConfig
 from discord_bot.utils.common import get_logger
 from discord_bot.utils.common import async_retry_command
 from discord_bot.utils.common import async_retry_discord_message_command
@@ -22,28 +21,33 @@ from tests.helpers import fake_bot_yielder
 class CommonException(Exception):
     pass
 
-def test_validate_minimal_config():
+# Pydantic validation tests
+def test_pydantic_validate_minimal_config():
     minimal_input = {
         'discord_token': 'abctoken'
     }
-    validate_config(minimal_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**minimal_input)
+    assert config.discord_token == 'abctoken'
+    assert config.include.default is True  # Default value
 
-def test_sql_statement_config():
+def test_pydantic_sql_statement_config():
     sql_input = {
         'discord_token': 'abctoken',
         'sql_connection_statement': 'sqlite:///foo.sql'
     }
-    validate_config(sql_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**sql_input)
+    assert config.sql_connection_statement == 'sqlite:///foo.sql'
 
-def test_logging_config():
+def test_pydantic_logging_config_missing_required():
     logging_input = {
         'discord_token': 'abctoken',
         'logging': {},
     }
-    with pytest.raises(ValidationError) as exc:
-        validate_config(logging_input, GENERAL_SECTION_SCHEMA)
-    assert "'log_dir' is a required property" in str(exc.value)
+    with pytest.raises(PydanticValidationError) as exc:
+        GeneralConfig(**logging_input)
+    assert 'log_dir' in str(exc.value)
 
+def test_pydantic_logging_config_valid():
     logging_input = {
         'discord_token': 'abctoken',
         'logging': {
@@ -53,8 +57,10 @@ def test_logging_config():
             'log_level': 30,
         }
     }
-    validate_config(logging_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**logging_input)
+    assert config.logging.log_level == 30
 
+def test_pydantic_logging_config_invalid_log_level():
     logging_input = {
         'discord_token': 'abctoken',
         'logging': {
@@ -64,49 +70,54 @@ def test_logging_config():
             'log_level': 123,
         }
     }
-    with pytest.raises(ValidationError) as exc:
-        validate_config(logging_input, GENERAL_SECTION_SCHEMA)
-    assert '123 is not one of [0, 10, 20, 30, 40, 50]' in str(exc.value)
+    with pytest.raises(PydanticValidationError) as exc:
+        GeneralConfig(**logging_input)
+    assert 'log_level' in str(exc.value)
 
-def test_includes_config():
+def test_pydantic_includes_config():
     include_input = {
         'discord_token': 'abctoken',
         'include': {
             'default': False,
+            'markov': True,
         }
     }
-    validate_config(include_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**include_input)
+    assert config.include.default is False
+    assert config.include.markov is True  # pylint: disable=no-member
 
-def test_intents_config():
+def test_pydantic_intents_config():
     intents_input = {
         'discord_token': 'abctoken',
         'intents': [
             'message'
         ]
     }
-    validate_config(intents_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**intents_input)
+    assert config.intents == ['message']
 
-def test_rejectlist_config():
+def test_pydantic_rejectlist_config():
     reject_input = {
         'discord_token': 'abctoken',
         'rejectlist_guilds': [
-            '12345'
+            12345
         ]
     }
-    validate_config(reject_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**reject_input)
+    assert config.rejectlist_guilds == [12345]
 
-def test_otlp_config_bad():
+def test_pydantic_otlp_config_bad():
     reject_input = {
         'discord_token': 'abctoken',
         'monitoring': {
             'otlp': {},
         },
     }
-    with pytest.raises(ValidationError) as e:
-        validate_config(reject_input, GENERAL_SECTION_SCHEMA)
-    assert "'enabled' is a required property" in str(e.value)
+    with pytest.raises(PydanticValidationError) as exc:
+        GeneralConfig(**reject_input)
+    assert 'enabled' in str(exc.value)
 
-def test_otlp_config_minimal():
+def test_pydantic_otlp_config_minimal():
     reject_input = {
         'discord_token': 'abctoken',
         'monitoring': {
@@ -115,7 +126,8 @@ def test_otlp_config_minimal():
             },
         },
     }
-    validate_config(reject_input, GENERAL_SECTION_SCHEMA)
+    config = GeneralConfig(**reject_input)
+    assert config.monitoring.otlp.enabled is True
 
 def test_get_logger():
     # Test default options

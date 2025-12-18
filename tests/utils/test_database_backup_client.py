@@ -87,9 +87,9 @@ def test_create_backup_with_data(fake_engine, mocker):  #pylint:disable=redefine
 
     # Check markov_channel data
     assert len(data['markov_channel']) == 2
-    assert data['markov_channel'][0]['channel_id'] == '123'
-    assert data['markov_channel'][0]['server_id'] == '456'
-    assert data['markov_channel'][1]['channel_id'] == '111'
+    assert data['markov_channel'][0]['channel_id'] == 123
+    assert data['markov_channel'][0]['server_id'] == 456
+    assert data['markov_channel'][1]['channel_id'] == 111
 
     # Check markov_relation data
     assert len(data['markov_relation']) == 2

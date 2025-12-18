@@ -321,7 +321,7 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     # Even status updates shouldn't produce output after shutdown
     # Need to create a MediaRequest object for update_request_status
     test_req = fake_source_dict(fake_context)
-    test_req.uuid = bundle.media_requests[0]['uuid']  # Use the UUID from the first request in bundle
+    test_req.uuid = bundle.media_requests[0].uuid  # Use the UUID from the first request in bundle
     bundle.update_request_status(test_req, MediaRequestLifecycleStage.COMPLETED)
     post_update_print = bundle.print()
     assert not post_update_print
@@ -814,7 +814,7 @@ def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=rede
     bundle.add_media_request(req)
 
     # Initial state should be SEARCHING
-    assert bundle.media_requests[0]['status'] == MediaRequestLifecycleStage.SEARCHING
+    assert bundle.media_requests[0].status == MediaRequestLifecycleStage.SEARCHING
 
     # Test valid transitions
     transitions = [
@@ -826,12 +826,12 @@ def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=rede
 
     for from_stage, to_stage in transitions:
         # Reset to from_stage
-        bundle.media_requests[0]['status'] = from_stage
+        bundle.media_requests[0].status = from_stage
 
         # Transition to to_stage
         result = bundle.update_request_status(req, to_stage)
         assert result is True
-        assert bundle.media_requests[0]['status'] == to_stage
+        assert bundle.media_requests[0].status == to_stage
 
 @pytest.mark.asyncio
 async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=redefined-outer-name

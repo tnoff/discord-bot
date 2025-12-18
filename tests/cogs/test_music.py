@@ -244,7 +244,7 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog.players[fake_context['guild'].id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context['context'])
             m0 = cog.message_queue.get_next_message()
-            assert m0[1][0].function.args[0] == f'```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
+            assert m0[1][0].function.args[0] == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
 
 @pytest.mark.asyncio()
 async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -732,7 +732,7 @@ async def test_download_queue_with_server_priority(mocker, fake_context):  #pyli
         'music': {
             'download': {
                 'server_queue_priority': [
-                    {'server_id': str(fake_context['guild'].id), 'priority': 1}
+                    {'server_id': fake_context['guild'].id, 'priority': 1}
                 ]
             }
         }
@@ -952,7 +952,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
 
     # Verify status was set correctly
     request_data = bundle.media_requests[0]
-    assert request_data['status'] == MediaRequestLifecycleStage.BACKOFF
+    assert request_data.status == MediaRequestLifecycleStage.BACKOFF
 
 
 # Memory leak fix tests
@@ -1416,7 +1416,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
 
     # Create a mock bundle for this guild
     mock_bundle = mocker.MagicMock()
-    mock_bundle.guild_id = str(fake_context['guild'].id)
+    mock_bundle.guild_id = fake_context['guild'].id
     mock_bundle.uuid = 'test-bundle-uuid'
     mock_bundle.text_channel = fake_context['channel']
     mock_bundle.shutdown = mocker.MagicMock()
