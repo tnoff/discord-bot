@@ -276,7 +276,8 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('Role Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         for role in ctx.guild.roles:
             if role.id in self.get_rejected_roles_list(ctx):
                 continue
@@ -284,7 +285,7 @@ class RoleAssignment(CogHelper):
         if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     @role.command(name='users')
@@ -303,13 +304,14 @@ class RoleAssignment(CogHelper):
         headers = [
             DapperTableHeader('User Name', 30)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         for member in role_obj.members:
             table.add_row([f'@{member.display_name}'])
         if table.size == 0:
             return await ctx.send(f'No users found for role "{role}"')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     def get_managed_roles(self, ctx: Context, exclude_self_service: bool = False) -> dict:
@@ -383,7 +385,8 @@ class RoleAssignment(CogHelper):
             DapperTableHeader('Role Name', 30),
             DapperTableHeader('Control', 10)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         rows = []
         # Print managed rows first, save self servic for later
         # Make sure we order them by name for ease
@@ -412,7 +415,7 @@ class RoleAssignment(CogHelper):
         if table.size == 0:
             return await ctx.send('No roles found')
         for item in table.print():
-            await ctx.send(f'```{item}```')
+            await ctx.send(f'{item}')
         return True
 
     def check_only_self_service(self, ctx: Context, users: List[Member]) -> bool:

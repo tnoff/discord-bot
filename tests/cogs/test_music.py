@@ -244,7 +244,7 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog.players[fake_context['guild'].id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context['context'])
             m0 = cog.message_queue.get_next_message()
-            assert m0[1][0].function.args[0] == f'```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
+            assert m0[1][0].function.args[0] == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
 
 @pytest.mark.asyncio()
 async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-name

@@ -1360,7 +1360,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             DapperTableHeader('Title', 40),
             DapperTableHeader('Uploader', 40)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```', prefix='History\n')
         table_items = player.get_history_items()
         for (count, item) in enumerate(table_items):
             uploader = item.uploader or ''
@@ -1369,7 +1370,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'{item.title}',
                 f'{uploader}',
             ])
-        messages = [f'```{t}```' for t in table.print()]
+        messages = table.print()
         message_contexts = []
         for mess in messages:
             message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -1693,7 +1694,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Playlist Name', 64),
                 DapperTableHeader('Last Queued', 20),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                enclosure_start='```', enclosure_end='```', prefix='Playlist List\n')
             for (count, item) in enumerate(playlist_items):
                 last_queued = 'N/A'
                 if item.last_queued:
@@ -1706,7 +1708,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     name,
                     last_queued,
                 ])
-            messages = [f'```{t}```' for t in table.print()]
+            messages = table.print()
             message_contexts = []
             for mess in messages:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)
@@ -1918,7 +1920,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DapperTableHeader('Title', 32),
                 DapperTableHeader('Uploader', 32),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                enclosure_start='```', enclosure_end='```', prefix=f'Playlist {playlist_index} Items\n')
             total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
                 uploader = item.uploader or ''
@@ -1934,7 +1937,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                    delete_after=self.delete_after)
                 self.message_queue.send_single_immutable([message_context])
                 return
-            messages = [f'```{t}```' for t in table.print()]
+            messages = table.print()
             message_contexts = []
             for mess in messages:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)

@@ -335,7 +335,8 @@ class Markov(CogHelper):
                 DapperTableHeader('Channel', 64),
             ]
 
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                                prefix='Channel List \n')
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.print():

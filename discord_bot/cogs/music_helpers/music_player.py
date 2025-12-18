@@ -159,20 +159,21 @@ class MusicPlayer:
         '''
         Get full queue message
         '''
-        items = []
-        if self.np_message:
-            items.append(self.np_message)
         queue_items = self._play_queue.items()
         if not queue_items:
-            return items
+            return []
         headers = [
             DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Wait Time', 9),
             DapperTableHeader('Title', 48),
             DapperTableHeader('Uploader', 48)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH))
+        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```')
         duration = 0
+        # The now playing message should show as a distinct message since you want the embed of the video played right under that message
+        # and then before the rest of the queue is shown
+        items = [self.np_message] if self.np_message else []
         if self.current_media_download:
             duration = int(self.current_media_download.duration) if self.current_media_download.duration else 0
         for (count, item) in enumerate(queue_items):
@@ -186,9 +187,7 @@ class MusicPlayer:
                 f'{item.title}',
                 f'{uploader}',
             ])
-        for t in table.print():
-            items.append(f'```{t}```')
-        return items
+        return items + table.print()
 
     def set_next(self, *_args, **_kwargs):
         '''
