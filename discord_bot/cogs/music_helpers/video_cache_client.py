@@ -215,7 +215,7 @@ class VideoCacheClient():
         delete_without_backup: If file doesn't have backup, delete
         '''
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_download', kind=SpanKind.INTERNAL):
-            if self.storage_option not in [el.value for el in StorageOptions]:
+            if not self.bucket_name:
                 if delete_without_backup:
                     self.remove_video_cache(video_cache_ids)
                 return False
@@ -239,7 +239,7 @@ class VideoCacheClient():
         video_cache_id : ID of video cache file to upload
         '''
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_backup', kind=SpanKind.INTERNAL):
-            if self.storage_option not in [el.value for el in StorageOptions]:
+            if not self.bucket_name:
                 return False
             with self.session_generator() as db_session:
                 item_exists = retry_database_commands(db_session, partial(database_functions.get_video_cache_backup, db_session, video_cache_id))
