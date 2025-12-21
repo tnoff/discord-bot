@@ -9,7 +9,7 @@ from typing import Awaitable, Callable, Optional, Literal
 from aiohttp.client_exceptions import ServerDisconnectedError
 from discord.errors import DiscordServerError, RateLimited, NotFound
 from discord.ext.commands import Bot
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, get_current_span
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.sdk._logs import LoggingHandler
 from pydantic import BaseModel, Field
@@ -212,6 +212,9 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
                 logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
                 continue
             except exit_exceptions:
+                # Set status code because we know these ones are fine
+                span = get_current_span()
+                span.set_status(StatusCode.OK)
                 return False
             except Exception as e:
                 logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)

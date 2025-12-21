@@ -5,6 +5,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from pydantic import ValidationError as PydanticValidationError
 from discord.errors import DiscordServerError, RateLimited, NotFound
+from opentelemetry.trace.status import StatusCode
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
@@ -241,6 +242,46 @@ async def test_return_loop_runner_continue_exception():
     await runner()
     assert fake_bot.is_closed()  # Bot should be closed after loop exits
     assert call_count == 2  # Function should be called twice (continue exception, then close)
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_exit_exception_sets_span_ok(mocker):
+    """Test that exit exceptions set the OpenTelemetry span status to OK"""
+    def fake_func():
+        raise ExitEarlyException('exiting')
+
+    # Mock the span
+    mock_span = mocker.MagicMock()
+    mocker.patch('discord_bot.utils.common.get_current_span', return_value=mock_span)
+
+    fake_bot = fake_bot_yielder()()
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    result = await runner()
+
+    # Verify the function returns False
+    assert result is False
+
+    # Verify that set_status was called with StatusCode.OK
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker):
+    """Test that standard exceptions do NOT set the span status to OK"""
+    def fake_func():
+        raise Exception('unexpected error') #pylint:disable=broad-exception-raised
+
+    # Mock the span
+    mock_span = mocker.MagicMock()
+    mocker.patch('discord_bot.utils.common.get_current_span', return_value=mock_span)
+
+    fake_bot = fake_bot_yielder()()
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    result = await runner()
+
+    # Verify the function returns False
+    assert result is False
+
+    # Verify that set_status was NOT called (standard exceptions shouldn't set OK status)
+    mock_span.set_status.assert_not_called()
 
 def test_discord_format_string_embed_no_url():
     """Test discord_format_string_embed with string containing no URLs"""
