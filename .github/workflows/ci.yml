@@ -1,11 +1,11 @@
-name: Build Check
+name: CI
 
 on:
   - pull_request
 
 jobs:
   build:
-    name: Tox Build Checks
+    name: Tox
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -27,7 +27,7 @@ jobs:
     - name: Test with tox
       run: tox -v
   docker:
-    name: Docker build checks
+    name: Docker Build
     runs-on: ubuntu-24.04
     permissions:
       contents: read

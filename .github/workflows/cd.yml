@@ -1,4 +1,4 @@
-name: Tag and build docker image
+name: CD
 
 on:
   pull_request:
