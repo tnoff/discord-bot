@@ -1,0 +1,29 @@
+name: CD
+
+on:
+  pull_request:
+    types:
+    - closed
+
+jobs:
+  tag_build:
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      version_file: ./VERSION
+  check_labels:
+    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      required_labels: 'build-docker'
+      require_all_labels: true
+      require_merged: true
+  build:
+    needs: check_labels
+    if: needs.check_labels.outputs.conditions_met == 'true'
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      image_name: ${{ secrets.OCI_REPO_NAME }}
+      platforms: linux/amd64,linux/arm64
+    secrets:
+      oci_registry: ${{ secrets.OCI_REGISTRY }}
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_password: ${{ secrets.OCI_PASSWORD }}
