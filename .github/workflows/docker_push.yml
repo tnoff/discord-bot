@@ -6,77 +6,24 @@ on:
     - closed
 
 jobs:
-  check_merge_and_tag:
-    name: Check merge and tag
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    outputs:
-      status: ${{ steps.check.conclusion }}
-    steps:
-      - name: Get PR labels
-        id: pr-labels
-        uses: joerick/pr-labels-action@e61c643fe47e53d3495405cc9f441b5da06ab1e9
-      - name: Check merge and labels
-        id: check
-        if: ${{ github.event.pull_request.merged == true && (contains(steps.pr-labels.outputs.labels, 'build-docker')) }}
-        run: exit 0
   tag_build:
-    name: Tag Build if doesn't exist already
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v4
-      - name: Get version
-        id: version
-        run: echo "version=v$(cat VERSION)" >> $GITHUB_OUTPUT
-      - name: Check If Tag already exists
-        uses: mukunku/tag-exists-action@v1.6.0
-        id: check-tag
-        with: 
-          tag: ${{ steps.version.outputs.version }}
-      - run: echo "Tag exists!"
-        if: steps.check-tag.outputs.exists == 'true'
-      - name: Add tag
-        id: tag-version
-        if: steps.check-tag.outputs.exists != 'true'
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          custom_tag: ${{ steps.version.outputs.version }}
-          tag_prefix: ''
-  push_to_oci:
-    name: Push Docker Image to OCI
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    needs:
-      - check_merge_and_tag
-    if: needs.check_merge_and_tag.outputs.status == 'success'
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v4
-      - name: Get github hash
-        id: github-hash
-        run: echo "github_hash=$(echo $GITHUB_SHA | head -c7)" >> $GITHUB_OUTPUT
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to OCIR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.OCI_REGISTRY }}
-          username: ${{ secrets.OCI_USERNAME }}
-          password: ${{ secrets.OCI_TOKEN }}
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          platforms: linux/amd64,linux/arm64
-          push: true
-          context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: ${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:latest,${{ secrets.OCI_REGISTRY }}/${{ secrets.OCI_REPO_NAME }}:${{ steps.github-hash.outputs.github_hash }}
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      version_file: ./VERSION
+  check_labels:
+    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      required_labels: 'build-docker'
+      require_all_labels: true
+      require_merged: true
+  build:
+    needs: check_labels
+    if: needs.check_labels.outputs.conditions_met == 'true'
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    with:
+      image_name: ${{ secrets.OCI_REPO_NAME }}
+      platforms: linux/amd64,linux/arm64
+    secrets:
+      oci_registry: ${{ secrets.OCI_REGISTRY }}
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_password: ${{ secrets.OCI_PASSWORD }}
