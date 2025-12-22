@@ -4,7 +4,11 @@ updates:
     directory: "."
     schedule:
       interval: "daily"
+    labels:
+      - "build-docker"
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    labels:
+      - "build-docker"
