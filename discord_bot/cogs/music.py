@@ -572,6 +572,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         # Set channel to default backup if necessary
                         # Note if bundle is in shutdown this returns []
                         message_content = bundle.print()
+
+                        # Send error summary as a separate message if there are failures
+                        failure_summary = bundle.get_failure_summary()
+                        if failure_summary:
+                            # Queue error summary as a separate single immutable message
+                            contexts = []
+                            for item in failure_summary:
+                                error_mc = MessageContext(bundle.guild_id, bundle.channel_id)
+                                error_mc.function = partial(bundle.text_channel.send, content=item, delete_after=self.delete_after)
+                                contexts.append(error_mc)
+                            self.message_queue.send_single_immutable(contexts)
+
                         # Make sure all finished/terminal bundles get removed
                         if bundle.finished:
                             self.multirequest_bundles.pop(bundle_uuid, None)

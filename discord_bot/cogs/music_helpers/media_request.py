@@ -72,6 +72,8 @@ class BundledMediaRequest:
     table_index: Index in the DapperTable, None if discarded
     row_collection_index: Index of the collection in paginated rows
     row_index_in_collection: Index within the row collection
+    failure_reason: Error message if the request failed
+    failure_reason_sent: Whether the failure reason has been sent to the user
     '''
     search_string: str
     status: MediaRequestLifecycleStage
@@ -79,6 +81,8 @@ class BundledMediaRequest:
     table_index: int | None = None
     row_collection_index: int | None = None
     row_index_in_collection: int | None = None
+    failure_reason: str | None = None
+    failure_reason_sent: bool = False
 
 
 def media_request_attributes(media_request: MediaRequest) -> dict:
@@ -302,6 +306,9 @@ class MultiMediaRequestBundle():
         '''
         Update the status of a media request in the bundle
         '''
+        # Implementation note, 'Downloading and processing media request' should be the longest prefix
+        # Since we lock the row count and pagination when the bundle is created
+        # We dont want to allow longer messages than were originally present
         result = False
         for bundled_request in self.media_requests:
             if bundled_request.uuid != media_request.uuid:
@@ -317,7 +324,7 @@ class MultiMediaRequestBundle():
                 case MediaRequestLifecycleStage.BACKOFF:
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
-                            self._edit_row_data(bundled_request, f'Waiting for youtube backoff time before processing media request: "{bundled_request.search_string}"')
+                            self._edit_row_data(bundled_request, f'Waiting to process: "{bundled_request.search_string}"')
                 case MediaRequestLifecycleStage.COMPLETED:
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
@@ -331,9 +338,10 @@ class MultiMediaRequestBundle():
                 case MediaRequestLifecycleStage.FAILED:
                     if bundled_request.status != stage:
                         self._increment_counter_for_stage(stage)
+                        # Store failure reason separately, don't include in row to keep message short
+                        bundled_request.failure_reason = failure_reason
+                        # Keep the row message short (shorter than original "queued" message)
                         x = f'Media request failed download: "{bundled_request.search_string}"'
-                        if failure_reason:
-                            x = f'{x}, {failure_reason}'
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, x)
             bundled_request.status = stage
@@ -387,3 +395,30 @@ class MultiMediaRequestBundle():
         # Remove blanks from output
         result_strings = [i for i in result_strings if i != '']
         return result_strings
+
+    def get_failure_summary(self):
+        '''
+        Get a summary of all failed requests with their error messages that haven't been sent yet
+        Returns None if there are no new failures with reasons
+        Marks returned failures as sent to prevent duplicate messages
+        '''
+        # Only get failures that haven't been sent yet
+        failed_requests = [
+            req for req in self.media_requests
+            if req.status == MediaRequestLifecycleStage.FAILED
+            and req.failure_reason
+            and not req.failure_reason_sent
+        ]
+
+        if not failed_requests:
+            return None
+
+        # Build error summary
+        t = DapperTable(pagination_options=PaginationLength(self.pagination_length),
+                        prefix='Error Details for Failed Downloads')
+        for req in failed_requests:
+            t.add_row(f'• "{req.search_string}": {req.failure_reason}')
+            # Mark as sent so we don't send it again
+            req.failure_reason_sent = True
+
+        return t.print()

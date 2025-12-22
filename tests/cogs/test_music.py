@@ -912,7 +912,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
     result_text = ' '.join(result)
 
     # Should contain backoff message in the expected format used by music.py
-    expected_message = 'Waiting for youtube backoff time before processing media request: "test song"'
+    expected_message = 'Waiting to process: "test song"'
     assert expected_message in result_text
 
     # Test that MultipleMutableType can create the expected bundle key format

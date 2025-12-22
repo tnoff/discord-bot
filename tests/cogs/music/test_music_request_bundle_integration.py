@@ -97,7 +97,13 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     failed_print = bundle.print()
     assert '1/3 media requests processed successfully, 1 failed' in failed_print[0]
     assert 'Media request failed download' in failed_print[0]
-    assert 'Test failure' in failed_print[0]
+    # Failure reason should NOT be in print output (sent separately)
+    assert 'Test failure' not in failed_print[0]
+    # But should be available via get_failure_summary()
+    failure_summary = bundle.get_failure_summary()
+    assert failure_summary is not None
+    failure_text = '\n'.join(failure_summary)
+    assert 'Test failure' in failure_text
 
     # Complete third request
     bundle.update_request_status(media_requests[2], MediaRequestLifecycleStage.COMPLETED)
