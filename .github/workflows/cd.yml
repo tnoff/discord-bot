@@ -19,12 +19,12 @@ jobs:
   build:
     needs: check_labels
     if: needs.check_labels.outputs.conditions_met == 'true'
-    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@6f58aa80ca7261a15024f6406902a3a29ff60484
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@1bf1211460f76fcb2c9097a47dc09c1e8d941cc1
     with:
       image_name: ${{ vars.OCI_REPO_NAME }}
       platforms: linux/amd64,linux/arm64
     secrets:
       oci_registry: ${{ secrets.OCI_REGISTRY }}
       oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_password: ${{ secrets.OCI_PASSWORD }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
       oci_namespace: ${{ secrets.OCI_NAMESPACE }}
