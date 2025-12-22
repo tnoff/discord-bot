@@ -7,11 +7,11 @@ on:
 
 jobs:
   tag_build:
-    uses: tnoff/github-workflows/.github/workflows/tag.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@f1ccc6f7845e103773faa0c4f1a61b7feeeddc10
     with:
       version_file: ./VERSION
   check_labels:
-    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@349eaedd1703a169a996a3ec29b08fb5ffcd528d
+    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@f1ccc6f7845e103773faa0c4f1a61b7feeeddc10
     with:
       required_labels: 'build-docker'
       require_all_labels: true
@@ -19,7 +19,7 @@ jobs:
   build:
     needs: check_labels
     if: needs.check_labels.outputs.conditions_met == 'true'
-    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@1bf1211460f76fcb2c9097a47dc09c1e8d941cc1
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@f1ccc6f7845e103773faa0c4f1a61b7feeeddc10
     with:
       image_name: ${{ vars.OCI_REPO_NAME }}
       platforms: linux/amd64,linux/arm64
