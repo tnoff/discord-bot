@@ -77,7 +77,13 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '1/3 media requests processed successfully, 1 failed' in full_output
-    assert 'cats ate the chords' in full_output
+    # Failure reason should NOT be in print output (sent separately)
+    assert 'cats ate the chords' not in full_output
+    # But should be available via get_failure_summary()
+    summary = b.get_failure_summary()
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert 'cats ate the chords' in summary_text
 
     b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
     print_output = b.print()
@@ -337,7 +343,7 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
 
 
 def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
-    """Test print method shows failure reason for failed requests"""
+    """Test print method shows failure message but NOT the failure reason (kept separate)"""
     media_request = MediaRequest(
         fake_context['guild'].id,
         fake_context['channel'].id,
@@ -362,8 +368,16 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
     result = media_request_bundle.print()
     result_text = ' '.join(result)
 
+    # Should show failed message
     assert 'Media request failed download: "failed request"' in result_text
-    assert 'Video too long' in result_text
+    # But failure reason should NOT be in the table (to keep message short)
+    assert 'Video too long' not in result_text
+
+    # Failure reason should be available via get_failure_summary()
+    summary = media_request_bundle.get_failure_summary()
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert 'Video too long' in summary_text
 
 
 def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
@@ -412,7 +426,7 @@ def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fa
     result_text = ' '.join(result)
 
     # Should contain backoff message
-    assert 'Waiting for youtube backoff time before processing media request: "test search string"' in result_text
+    assert 'Waiting to process: "test search string"' in result_text
 
 
 def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
@@ -460,7 +474,7 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
     # Should contain expected messages for visible stages
     assert 'Media request queued for download: "test search 0"' in result_text
     assert 'Downloading and processing media request: "test search 1"' in result_text
-    assert 'Waiting for youtube backoff time before processing media request: "test search 2"' in result_text
+    assert 'Waiting to process: "test search 2"' in result_text
     # COMPLETED items are skipped from output, so should not appear
     assert 'test search 3' not in result_text
     assert 'Media request failed download: "test search 4"' in result_text
@@ -575,7 +589,13 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     messages = bundle.print()
     # Should not include top-level status since total == 1
     assert len(messages) == 1
-    assert "Test failure" in messages[0]
+    # Failure reason should NOT be in print output (sent separately)
+    assert "Test failure" not in messages[0]
+    # But should be available via get_failure_summary()
+    summary = bundle.get_failure_summary()
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert "Test failure" in summary_text
     assert "downloaded successfully" not in messages[0]  # No status header
 
 
@@ -947,3 +967,161 @@ def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disa
     result = bundle.print()
     assert len(result) == 1
     assert 'Media request queued for download' in result[0]
+
+
+def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that failure reasons are not included in the table row to keep messages short"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as failed with a reason
+    failure_reason = "Download attempt flagged as bot download, skipping"
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=failure_reason)
+
+    # Get the printed output
+    result = bundle.print()
+    result_text = ' '.join(result)
+
+    # Should show "failed download" message
+    assert 'Media request failed download' in result_text
+    # But should NOT include the failure reason in the row
+    assert failure_reason not in result_text
+
+    # Verify the failure reason is stored
+    bundled_req = bundle.media_requests[0]
+    assert bundled_req.failure_reason == failure_reason
+    assert bundled_req.failure_reason_sent is False
+
+
+def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary returns error details"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    # Add multiple requests
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+    req3 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.add_media_request(req3)
+    bundle.all_requests_added()
+
+    # Mark two as failed with reasons
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Bot download flagged")
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.COMPLETED)
+    bundle.update_request_status(req3, MediaRequestLifecycleStage.FAILED, failure_reason="Video unavailable")
+
+    # Get failure summary
+    summary = bundle.get_failure_summary()
+
+    # Should contain both failure reasons
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert 'Error Details for Failed Downloads' in summary_text
+    assert 'Bot download flagged' in summary_text
+    assert 'Video unavailable' in summary_text
+
+    # Should be marked as sent
+    assert bundle.media_requests[0].failure_reason_sent is True
+    assert bundle.media_requests[2].failure_reason_sent is True
+
+
+def test_media_request_bundle_get_failure_summary_no_duplicates(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary only returns each failure once"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as failed
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason="Test error")
+
+    # Get failure summary first time
+    summary1 = bundle.get_failure_summary()
+    assert summary1 is not None
+    summary1_text = '\n'.join(summary1)
+    assert 'Test error' in summary1_text
+
+    # Get failure summary second time - should return None since already sent
+    summary2 = bundle.get_failure_summary()
+    assert summary2 is None
+
+
+def test_media_request_bundle_get_failure_summary_none_when_no_failures(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary returns None when there are no failures"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as completed (not failed)
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+
+    # Should return None
+    summary = bundle.get_failure_summary()
+    assert summary is None
+
+
+def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary can be called multiple times as failures accumulate"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # First failure
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Error 1")
+    summary1 = bundle.get_failure_summary()
+    assert summary1 is not None
+    summary1_text = '\n'.join(summary1)
+    assert 'Error 1' in summary1_text
+    assert 'Error 2' not in summary1_text
+
+    # Second failure
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="Error 2")
+    summary2 = bundle.get_failure_summary()
+    assert summary2 is not None
+    summary2_text = '\n'.join(summary2)
+    # Should only contain the new error
+    assert 'Error 1' not in summary2_text
+    assert 'Error 2' in summary2_text
