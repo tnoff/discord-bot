@@ -254,8 +254,10 @@ class FakeChannel():
         await self.guild.voice_client.move_to(self)
         return True
 
-    async def send(self, message_content: Optional[str] = None, **_kwargs: Any) -> Any:
-        message = FakeMessage(content=message_content, channel=self)
+    async def send(self, content: Optional[str] = None, message_content: Optional[str] = None, **_kwargs: Any) -> Any:
+        # Support both 'content' (real Discord API) and 'message_content' (legacy) for backwards compatibility
+        msg_content = content if content is not None else message_content
+        message = FakeMessage(content=msg_content, channel=self)
         self.messages.append(message)
         return message
 

@@ -588,6 +588,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 funcs = await self.message_queue.update_mutable_bundle_content(item, message_content, delete_after=delete_after)
                 results = []
                 for func in funcs:
+                    # Safety check: validate and truncate content if it exceeds Discord's limit
+                    if hasattr(func, 'keywords') and 'content' in func.keywords:
+                        content = func.keywords['content']
+                        content_length = len(content)
+                        if content_length > 2000:
+                            self.logger.warning(
+                                f'Message content exceeds 2000 chars (length: {content_length}). '
+                                f'Bundle: {item}, Function: {func.func.__name__ if hasattr(func, "func") else "unknown"}.'
+                            )
+                            self.logger.warning(f'Full content message:\n{content}')
+                            # Truncate to 1900 to stay well under the limit
+                            truncated_content = content[:1900]
+                            # Create new partial with truncated content
+                            new_kwargs = func.keywords.copy()
+                            new_kwargs['content'] = truncated_content
+                            func = partial(func.func, *func.args, **new_kwargs)
                     result = await async_retry_discord_message_command(func)
                     # Update message references for new messages (only pass Message objects, not delete results)
                     if result and hasattr(result, 'id'):
