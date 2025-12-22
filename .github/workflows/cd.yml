@@ -11,7 +11,7 @@ jobs:
     with:
       version_file: ./VERSION
   check_labels:
-    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@f21247582b270f3d3259cf6b7233f4c7538c1a1b
+    uses: tnoff/github-workflows/.github/workflows/check-pr-labels.yml@349eaedd1703a169a996a3ec29b08fb5ffcd528d
     with:
       required_labels: 'build-docker'
       require_all_labels: true
