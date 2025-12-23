@@ -82,7 +82,7 @@ async def test_search_youtube_music_bot_shutdown(mocker, fake_context):  #pylint
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, None)
-    cog.bot_shutdown = True
+    cog.bot_shutdown_event.set()
 
     with pytest.raises(ExistingFileException) as exc:
         await cog.search_youtube_music()
