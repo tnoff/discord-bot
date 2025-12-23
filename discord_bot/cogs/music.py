@@ -1,6 +1,7 @@
 # Music bot setup
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
 
+import asyncio
 from asyncio import sleep, create_task
 from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import datetime, timezone
@@ -174,7 +175,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._youtube_search_task = None
 
         # Keep track of when bot is in shutdown mode
-        self.bot_shutdown = False
+        self.bot_shutdown_event = asyncio.Event()
         # Message queue bits
         self.message_queue = MessageQueue()
         # History Playlist Queue
@@ -462,7 +463,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cog_unload', kind=SpanKind.INTERNAL):
             self.logger.debug('Calling shutdown on Music')
 
-            self.bot_shutdown = True
+            self.bot_shutdown_event.set()
             for guild_id, player in self.players.items():
                 self.logger.info(f'Calling shutdown on player in guild {guild_id}')
                 player.destroy()
@@ -514,7 +515,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             history_item = self.history_playlist_queue.get_nowait()
         except QueueEmpty:
-            if self.bot_shutdown:
+            if self.bot_shutdown_event.is_set():
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
             return
 
@@ -553,7 +554,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         source_type, item = self.message_queue.get_next_message()
 
         if not source_type:
-            if self.bot_shutdown:
+            if self.bot_shutdown_event.is_set():
                 raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
             return True
 
@@ -628,7 +629,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Check for players with no members, cleanup bot in channels that do
         '''
-        if self.bot_shutdown:
+        if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.CONSUMER):
@@ -656,7 +657,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         After cache files marked for deletion, check if they are in use before deleting
         '''
-        if self.bot_shutdown:
+        if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
@@ -698,16 +699,33 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # https://stackoverflow.com/a/51295230
         # Use timestamp to set a bit more random variance
         random.seed(time())
-        wait_until = int(last_updated_at) + minimum_wait_time + random.randint(0, max_variance)
+        # Use millisecond variance to add some extra randomness
+        wait_until = int(last_updated_at) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
         self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
-        while True:
-            # If bot exited, return now
-            if self.bot_shutdown:
-                raise ExitEarlyException('Exiting bot wait loop')
-            now = int(datetime.now(timezone.utc).timestamp())
-            if now > wait_until:
-                return True
-            await sleep(1)
+
+        # Calculate how long to wait
+        now = datetime.now(timezone.utc).timestamp()
+        sleep_duration = max(0, wait_until - now)
+
+        # Check if bot is already shutting down before waiting
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Exiting bot wait loop')
+
+        # If backoff period already elapsed, return immediately
+        if sleep_duration == 0:
+            return True
+
+        # Wait for either bot shutdown event OR timeout
+        try:
+            await asyncio.wait_for(
+                self.bot_shutdown_event.wait(),
+                timeout=sleep_duration
+            )
+            # If we get here, the event was set (bot is shutting down)
+            raise ExitEarlyException('Exiting bot wait loop')
+        except asyncio.TimeoutError:
+            # Timeout expired normally - backoff period complete
+            return True
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
@@ -844,7 +862,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Runner for youtube music searches
         '''
-        if self.bot_shutdown:
+        if self.bot_shutdown_event.is_set():
             raise ExistingFileException('Bot shutdown called, exiting early')
         await sleep(.01)
         try:
@@ -888,7 +906,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Main runner
         '''
-        if self.bot_shutdown:
+        if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
 
         await sleep(.01)
