@@ -24,6 +24,8 @@ COPY setup.py "${APPDIR}/"
 COPY scripts/ "${WORKDIR}/scripts/"
 
 RUN pip install "${APPDIR}"
+# Install nightly build of yt-dlp
+RUN python -m pip install -U --pre "yt-dlp[default]"
 
 WORKDIR "/opt/discord"
 
