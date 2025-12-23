@@ -1,0 +1,3 @@
+# Pin requirement here for dependabot to update
+# But install nightly in docker build
+yt-dlp==2025.12.8
