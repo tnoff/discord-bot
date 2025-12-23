@@ -37,7 +37,7 @@ async def test_youtube_backoff_time_with_bot_shutdown(freezer, fake_context):  #
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     freezer.move_to('2025-01-01 12:00:00 UTC')
     cog.update_download_lockfile(sd)
-    cog.bot_shutdown = True
+    cog.bot_shutdown_event.set()
     freezer.move_to('2025-01-01 16:00:00 UTC')
     with pytest.raises(ExitEarlyException) as exc:
         await cog.youtube_backoff_time(cog.youtube_wait_period_min, cog.youtube_wait_period_max_variance)

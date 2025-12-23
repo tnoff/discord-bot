@@ -559,7 +559,7 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
     await cog.cog_unload()
 
     # Verify bot shutdown flag is set
-    assert cog.bot_shutdown is True
+    assert cog.bot_shutdown_event.is_set()
 
 def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization fails when music is not enabled"""
@@ -683,7 +683,7 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     """Test cog unload with active players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Simplify - just test that bot_shutdown flag gets set
+    # Simplify - just test that bot_shutdown event gets set
     # Mock everything else to avoid complex async mocking
     mocker.patch.object(cog, 'cleanup')
     mocker.patch.object(cog.bot, 'fetch_guild')
@@ -716,8 +716,8 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
 
     await cog.cog_unload()
 
-    # Verify bot shutdown flag is set
-    assert cog.bot_shutdown is True
+    # Verify bot shutdown event is set
+    assert cog.bot_shutdown_event.is_set()
 
 
 @pytest.mark.asyncio
@@ -995,8 +995,8 @@ async def test_shutdown_timeout_with_hanging_players(fake_context, mocker):  #py
     # Verify that sleep was called (indicating timeout loop ran)
     assert mock_sleep.call_count >= 1
 
-    # Verify bot_shutdown flag is set
-    assert cog.bot_shutdown is True
+    # Verify bot_shutdown event is set
+    assert cog.bot_shutdown_event.is_set()
 
 @pytest.mark.asyncio
 async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disable=redefined-outer-name
@@ -1033,8 +1033,8 @@ async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disab
     # Verify player was destroyed
     mock_player.destroy.assert_called_once()
 
-    # Verify bot_shutdown flag is set
-    assert cog.bot_shutdown is True
+    # Verify bot_shutdown event is set
+    assert cog.bot_shutdown_event.is_set()
 
 @pytest.mark.asyncio
 async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name

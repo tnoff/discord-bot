@@ -21,7 +21,7 @@ async def test_message_loop(mocker, fake_context):  #pylint:disable=redefined-ou
 @pytest.mark.asyncio
 async def test_message_loop_bot_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    cog.bot_shutdown = True
+    cog.bot_shutdown_event.set()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     with pytest.raises(ExitEarlyException) as exc:
         await cog.send_messages()
