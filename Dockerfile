@@ -30,4 +30,7 @@ WORKDIR "/opt/discord"
 # Uninstall
 RUN apt-get remove -y git unzip gcc cmake curl && apt-get autoremove -y
 
+# Make sure deno in path
+ENV PATH="$PATH:/root/.deno/bin"
+
 CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]
