@@ -698,7 +698,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # https://stackoverflow.com/a/51295230
         # Use timestamp to set a bit more random variance
         random.seed(time())
-        wait_until = int(last_updated_at) + minimum_wait_time + random.randint(0, max_variance)
+        # Use millisecond variance to add some extra randomness
+        wait_until = int(last_updated_at) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
         self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
         while True:
             # If bot exited, return now
@@ -707,7 +708,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             now = int(datetime.now(timezone.utc).timestamp())
             if now > wait_until:
                 return True
-            await sleep(1)
+            # Sleep for 1 millisecond due to variance setup
+            await sleep(.001)
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
