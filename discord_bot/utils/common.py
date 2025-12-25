@@ -51,6 +51,7 @@ class LoggingConfig(BaseModel):
     log_file_max_bytes: int
     logging_format: str = '%(asctime)s - %(levelname)s - %(message)s'
     logging_date_format: str = '%Y-%m-%dT%H-%M-%S'
+    third_party_log_level: Literal[0, 10, 20, 30, 40, 50] = 30  # Default to WARNING (30)
 
 class IncludeConfig(BaseModel):
     '''Cog include configuration'''

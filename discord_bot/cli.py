@@ -184,6 +184,14 @@ def main(config_file): #pylint:disable=too-many-statements
         discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
         discord_logger.setLevel(logging.DEBUG)
 
+        # Set root logger level to suppress verbose third-party library logs
+        # (discord.py, yt-dlp, etc.) while keeping our application loggers at configured levels
+        # Default to WARNING (30) if not configured
+        root_logger = logging.getLogger()
+        if root_logger.level == logging.NOTSET:
+            third_party_level = settings['general'].get('logging', {}).get('third_party_log_level', 30)
+            root_logger.setLevel(third_party_level)
+
         # Start memory profiling if enabled
         memory_profiling_settings = monitoring_settings.get('memory_profiling', {})
         if memory_profiling_settings.get('enabled', False):
