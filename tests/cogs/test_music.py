@@ -174,7 +174,7 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.play_(cog, fake_context['context'], search='foo bar')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
         await cog.search_youtube_music()
     item0 = cog.download_queue.get_nowait()
@@ -200,7 +200,7 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             # Mock current playing
@@ -223,7 +223,7 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             await cog.clear(cog, fake_context['context'])
@@ -261,7 +261,7 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             await cog.shuffle_(cog, fake_context['context'])
@@ -282,7 +282,7 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             await cog.remove_item(cog, fake_context['context'], 1)
@@ -303,7 +303,7 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             await cog.bump_item(cog, fake_context['context'], 1)
@@ -343,7 +343,7 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             await cog.move_messages_here(cog, fake_context2)
@@ -765,8 +765,8 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
     }
 
     cog = Music(fake_context['bot'], config, None)
-    assert cog.backup_storage_options['backend'] == 's3'
-    assert cog.backup_storage_options['bucket_name'] == 'test-bucket'
+    assert cog.config.download.storage.backend == 's3'
+    assert cog.config.download.storage.bucket_name == 'test-bucket'
 
 def test_video_editing_post_processor_success():
     """Test VideoEditing post-processor success path - covers lines 255-263"""
@@ -1148,7 +1148,7 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
     await cog.cleanup_players()
 
     # Verify timeout was checked with correct parameter
-    mock_player.voice_channel_inactive_timeout.assert_called_once_with(timeout_seconds=cog.disconnect_timeout)
+    mock_player.voice_channel_inactive_timeout.assert_called_once_with(timeout_seconds=cog.config.player.inactive_voice_channel_timeout)
 
     # Verify message was sent
     message_mock.assert_called_once()
