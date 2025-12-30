@@ -159,8 +159,11 @@ class MusicPlayer:
         Get full queue message
         '''
         queue_items = self._play_queue.items()
+        # Always include the now playing message if it exists, even when queue is empty
+        items = [self.np_message] if self.np_message else []
+
         if not queue_items:
-            return []
+            return items
         headers = [
             DapperTableHeader('Pos', 3, zero_pad_index=True),
             DapperTableHeader('Wait Time', 9),
@@ -172,7 +175,6 @@ class MusicPlayer:
         duration = 0
         # The now playing message should show as a distinct message since you want the embed of the video played right under that message
         # and then before the rest of the queue is shown
-        items = [self.np_message] if self.np_message else []
         if self.current_media_download:
             duration = int(self.current_media_download.duration) if self.current_media_download.duration else 0
         for (count, item) in enumerate(queue_items):
@@ -186,7 +188,11 @@ class MusicPlayer:
                 f'{item.title}',
                 f'{uploader}',
             ])
-        return items + table.print()
+        # Manually add code block formatting to table output
+        table_output = table.print()
+        if not isinstance(table_output, list):
+            table_output = [table_output]
+        return items + table_output
 
     def set_next(self, *_args, **_kwargs):
         '''
