@@ -1,13 +1,16 @@
 from asyncio import Queue as asyncio_queue
 import random
 from time import time
+from typing import Generic, TypeVar
+
+T = TypeVar('T')
 
 class PutsBlocked(Exception):
     '''
     Puts Blocked on Queue
     '''
 
-class Queue(asyncio_queue):
+class Queue(asyncio_queue[T], Generic[T]):
     '''
     Custom implementation of asyncio Queue
     '''
@@ -17,7 +20,7 @@ class Queue(asyncio_queue):
 
         maxsize : Max size of queue
         '''
-        self.shutdown = False
+        self.shutdown: bool = False
         super().__init__(maxsize=maxsize)
 
     # Python 3.13 adds shutdown
@@ -28,17 +31,25 @@ class Queue(asyncio_queue):
         '''
         self.shutdown = True
 
-    def put_nowait(self, item):
+    def put_nowait(self, item: T) -> None:
+        '''
+        Put an item into the queue without blocking.
+        Raises PutsBlocked if queue is shutdown.
+        '''
         if self.shutdown:
             raise PutsBlocked('Puts Blocked on Queue')
         super().put_nowait(item)
 
-    async def put(self, item):
+    async def put(self, item: T) -> None:
+        '''
+        Put an item into the queue, waiting if necessary.
+        Raises PutsBlocked if queue is shutdown.
+        '''
         if self.shutdown:
             raise PutsBlocked('Puts Blocked on Queue')
         await super().put(item)
 
-    def shuffle(self):
+    def shuffle(self) -> bool:
         '''
         Shuffle queue
         '''
@@ -46,22 +57,22 @@ class Queue(asyncio_queue):
         random.shuffle(self._queue)
         return True
 
-    def size(self):
+    def size(self) -> int:
         '''
         Get size of queue
         '''
         return self.qsize()
 
-    def clear(self):
+    def clear(self) -> list[T]:
         '''
         Remove all items from queue
         '''
-        items = []
+        items: list[T] = []
         while self.qsize():
             items.append(self._queue.popleft())
         return items
 
-    def remove_item(self, queue_index: int):
+    def remove_item(self, queue_index: int) -> T | None:
         '''
         Remove item from queue
 
@@ -77,7 +88,7 @@ class Queue(asyncio_queue):
             self._queue.rotate(1)
         return item
 
-    def bump_item(self, queue_index: int):
+    def bump_item(self, queue_index: int) -> T | None:
         '''
         Bump item to top of queue
 
@@ -88,11 +99,11 @@ class Queue(asyncio_queue):
             self._queue.appendleft(item)
         return item
 
-    def items(self):
+    def items(self) -> list[T]:
         '''
         Get a copy of all items in the queue
         '''
-        items = []
+        items: list[T] = []
         for item in self._queue:
             items.append(item)
         return items

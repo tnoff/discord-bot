@@ -34,12 +34,12 @@ class VideoCacheClient():
         bucket_name            :       Bucket Name for backups
         ignore_cleanup_paths   :       List of paths to ignore during cleanup (relative to download_dir)
         '''
-        self.download_dir = download_dir
-        self.max_cache_files = max_cache_files
-        self.session_generator = session_generator
-        self.storage_option = storage_option
-        self.bucket_name = bucket_name
-        self.ignore_cleanup_paths = [Path(p) for p in (ignore_cleanup_paths or [])]
+        self.download_dir: Path = download_dir
+        self.max_cache_files: int = max_cache_files
+        self.session_generator: Callable = session_generator
+        self.storage_option: StorageOptions = storage_option
+        self.bucket_name: str = bucket_name
+        self.ignore_cleanup_paths: list[Path] = [Path(p) for p in (ignore_cleanup_paths or [])]
 
     def verify_cache(self):
         '''

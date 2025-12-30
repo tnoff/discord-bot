@@ -110,38 +110,38 @@ class MultiMediaRequestBundle():
     Bundle of multiple media requests
     '''
     def __init__(self, guild_id: int, channel_id: int, text_channel: TextChannel, pagination_length: int = DISCORD_MAX_MESSAGE_LENGTH):
-        self.guild_id = guild_id
-        self.channel_id = channel_id
-        self.text_channel = text_channel
-        self.uuid = f'request.bundle.{uuid4()}'
-        self.pagination_length = pagination_length
+        self.guild_id: int = guild_id
+        self.channel_id: int = channel_id
+        self.text_channel: TextChannel = text_channel
+        self.uuid: str = f'request.bundle.{uuid4()}'
+        self.pagination_length: int = pagination_length
 
-        self.table = DapperTable(pagination_options=PaginationLength(pagination_length))
-        self.row_collections = []
+        self.table: DapperTable = DapperTable(pagination_options=PaginationLength(pagination_length))
+        self.row_collections: list = []
 
         # Search options
-        self.input_string = None
-        self.search_finished = False
-        self.search_error = None
-        self.has_search_banner = False  # Track if search banner exists
+        self.input_string: str | None = None
+        self.search_finished: bool = False
+        self.search_error: str | None = None
+        self.has_search_banner: bool = False  # Track if search banner exists
 
         # General attributes
         self.media_requests: list[BundledMediaRequest] = []
-        self.total = 0
-        self.completed = 0
-        self.failed = 0
-        self.discarded = 0
+        self.total: int = 0
+        self.completed: int = 0
+        self.failed: int = 0
+        self.discarded: int = 0
 
         # Check if all expected requests have been added
-        self.all_requests_enqueued = False
+        self.all_requests_enqueued: bool = False
 
         # Set later to make sure we return nothing
         # Used in shutdowns
-        self.is_shutdown = False
+        self.is_shutdown: bool = False
 
         # Timestamp info
-        self.created_at = datetime.now(timezone.utc)
-        self.finished_at = None
+        self.created_at: datetime = datetime.now(timezone.utc)
+        self.finished_at: datetime | None = None
 
     def all_requests_added(self):
         '''

@@ -97,9 +97,9 @@ class SearchClient():
         youtube_client : Youtube Client
         youtube_music_client : Youtube Music Client
         '''
-        self.spotify_client = spotify_client
-        self.youtube_client = youtube_client
-        self.youtube_music_client = youtube_music_client
+        self.spotify_client: SpotifyClient | None = spotify_client
+        self.youtube_client: YoutubeClient | None = youtube_client
+        self.youtube_music_client: YoutubeMusicClient | None = youtube_music_client
 
     def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None):
         '''

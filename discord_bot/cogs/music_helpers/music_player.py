@@ -1,4 +1,4 @@
-from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout
+from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
 from logging import RootLogger
 from pathlib import Path
@@ -58,33 +58,33 @@ class MusicPlayer:
         self.text_channel = ctx.channel
         self.logger = logger
 
-        self.disconnect_timeout = disconnect_timeout
-        self.file_dir = file_dir
+        self.disconnect_timeout: int = disconnect_timeout
+        self.file_dir: Path = file_dir
 
         # Queues
-        self._play_queue = Queue(maxsize=queue_max_size)
-        self._history = Queue(maxsize=queue_max_size)
-        self.next = Event()
-        self.message_queue = message_queue
+        self._play_queue: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
+        self._history: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
+        self.next: Event = Event()
+        self.message_queue: MessageQueue = message_queue
 
         # History playlist
-        self.history_playlist_id = history_playlist_id
-        self.history_playlist_queue = history_playlist_queue
+        self.history_playlist_id: int = history_playlist_id
+        self.history_playlist_queue: Queue[HistoryPlaylistItem] = history_playlist_queue
 
         # Tasks
-        self._player_task = None
+        self._player_task: Task | None = None
 
         # Random things to store
-        self.current_media_download = None
-        self.current_audio_source = None
-        self.np_message = ''
-        self.video_skipped = False
-        self.queue_messages = [] # Show current queue
-        self.volume = 0.5
+        self.current_media_download: MediaDownload | None = None
+        self.current_audio_source: FFmpegPCMAudio | None = None
+        self.np_message: str = ''
+        self.video_skipped: bool = False
+        self.queue_messages: list[str] = [] # Show current queue
+        self.volume: float = 0.5
         # Shutdown called externally
-        self.shutdown_called = False
+        self.shutdown_called: bool = False
         # Inactive timestamp for bot timeout
-        self.inactive_timestamp = None
+        self.inactive_timestamp: int | None = None
 
     async def start_tasks(self):
         '''

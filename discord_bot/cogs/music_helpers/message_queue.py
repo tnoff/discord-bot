@@ -21,8 +21,8 @@ class MessageQueue():
     Message queue to handle diff types of messages
     '''
     def __init__(self):
-        self.mutable_bundles = {}
-        self.single_immutable_queue = Queue()
+        self.mutable_bundles: dict[str, MessageMutableBundle] = {}
+        self.single_immutable_queue: Queue[List[Callable]] = Queue()
 
     def get_next_message(self):
         '''
