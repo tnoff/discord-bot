@@ -30,7 +30,7 @@ class MediaDownload():
     extractor: str | None = field(init=False, default=None)
 
     # Other fields
-    base_path: Path = field(init=False, default=None)
+    base_path: Path | None = field(init=False, default=None)
 
     def __post_init__(self, ytdl_data: dict):
         '''

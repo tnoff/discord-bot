@@ -16,7 +16,7 @@ from typing import List, Optional
 from dappertable import shorten_string, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord.errors import DiscordServerError
-from discord import VoiceChannel
+from discord import VoiceChannel, TextChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
@@ -37,6 +37,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
 from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
+from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers import database_functions
 
@@ -178,16 +179,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
         # Message queue bits
-        self.message_queue = MessageQueue()
+        self.message_queue: MessageQueue = MessageQueue()
         # History Playlist Queue
-        self.history_playlist_queue = None
+        self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
         if self.db_engine:
             self.history_playlist_queue = Queue()
 
         # Queues for download and youtube music search
-        self.download_queue = DistributedQueue(self.config.player.queue_max_size)
+        self.download_queue: DistributedQueue[MediaRequest] = DistributedQueue(self.config.player.queue_max_size)
         # Search queue can be larger since search requests are lightweight
-        self.youtube_music_search_queue = DistributedQueue(self.config.player.queue_max_size * 2)
+        self.youtube_music_search_queue: DistributedQueue[tuple[MediaRequest, TextChannel]] = DistributedQueue(self.config.player.queue_max_size * 2)
 
         self.spotify_client = None
         if self.config.download.spotify_credentials:

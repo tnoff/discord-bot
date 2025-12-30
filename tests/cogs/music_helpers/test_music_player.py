@@ -118,6 +118,16 @@ def test_music_get_player_messages(fake_context): #pylint:disable=redefined-oute
             result = player.get_queue_order_messages()
             assert result == [f'```Pos|| Wait Time|| Title                                           || Uploader\n-----------------------------------------------------------------------------\n1  || 00:00    || {sd.title}                                    || {sd.uploader}```'] #pylint:disable=no-member
 
+def test_music_get_player_messages_with_empty_queue_but_now_playing(fake_context): #pylint:disable=redefined-outer-name
+    """Test that now playing message is shown even when queue is empty"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_music_player(fake_context) as player:
+        # Set np_message without adding anything to queue (simulates first song playing with empty queue)
+        player.np_message = 'Now playing https://example.com/video requested by TestUser'
+        result = player.get_queue_order_messages()
+        assert result == ['Now playing https://example.com/video requested by TestUser']
+        assert len(result) == 1
+
 def test_music_get_player_paths(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:

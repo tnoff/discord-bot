@@ -1,11 +1,14 @@
 from asyncio import QueueEmpty
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Generic, TypeVar
 
 from discord_bot.utils.queue import Queue
 
+T = TypeVar('T')
+
 @dataclass
-class DistributedQueueItem():
+class DistributedQueueItem(Generic[T]):
     '''
     Distributed Queue Item for Server
     '''
@@ -14,11 +17,11 @@ class DistributedQueueItem():
     priority: int
 
     def __post_init__(self):
-        self.queue : Queue = Queue(maxsize=self.max_size)
-        self.iterated_at : datetime = None
+        self.queue: Queue[T] = Queue(maxsize=self.max_size)
+        self.iterated_at: datetime | None = None
 
 
-class DistributedQueue():
+class DistributedQueue(Generic[T]):
     '''
     Balance between queues in multiple servers/guilds
     '''
@@ -33,7 +36,7 @@ class DistributedQueue():
         max_size : Max size of each individual queue
         default_priority : Default priority of queues
         '''
-        self.queues = {}
+        self.queues: dict[int, DistributedQueueItem[T]] = {}
         self.max_size = max_size
         self.default_priority = default_priority
 
@@ -47,7 +50,7 @@ class DistributedQueue():
         except KeyError:
             return False
 
-    def put_nowait(self, guild_id: int, entry, priority: int = None):
+    def put_nowait(self, guild_id: int, entry: T, priority: int | None = None):
         '''
         Put into the download queue for proper download queue
 
@@ -71,7 +74,7 @@ class DistributedQueue():
         except KeyError:
             return 0
 
-    def get_nowait(self):
+    def get_nowait(self) -> T:
         '''
         Get download item from server thats been waiting longest
         '''
@@ -106,7 +109,7 @@ class DistributedQueue():
             self.queues.pop(check_guild_id, None)
         return result
 
-    def clear_queue(self, guild_id: int):
+    def clear_queue(self, guild_id: int) -> list[T]:
         '''
         Clear queue for guild
         '''
@@ -114,7 +117,7 @@ class DistributedQueue():
         guild_info = self.queues.pop(guild_id, None)
         if not guild_info:
             return []
-        items = []
+        items: list[T] = []
         while True:
             try:
                 items.append(guild_info.queue.get_nowait())

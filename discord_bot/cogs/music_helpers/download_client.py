@@ -122,8 +122,8 @@ class DownloadClient():
         ytdl : YoutubeDL Client
         download_dir : Directory to place after tempfile download
         '''
-        self.ytdl = ytdl
-        self.download_dir = download_dir
+        self.ytdl: YoutubeDL = ytdl
+        self.download_dir: Path = download_dir
 
     def __prepare_data_source(self, media_request: MediaRequest):
         '''
