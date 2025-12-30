@@ -417,7 +417,7 @@ class MultiMediaRequestBundle():
         t = DapperTable(pagination_options=PaginationLength(self.pagination_length),
                         prefix='Error Details for Failed Downloads')
         for req in failed_requests:
-            t.add_row(f'• "{req.search_string}": {req.failure_reason}')
+            t.add_row(f'Media Request "{req.search_string}", Failure: {req.failure_reason}')
             # Mark as sent so we don't send it again
             req.failure_reason_sent = True
 

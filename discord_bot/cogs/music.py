@@ -242,7 +242,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.video_cache.verify_cache()
 
 
-        self.last_download_lockfile = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        self.last_download_timestamp: int | None = None
 
         # Use this to track the files being copied over currently
         # So we dont delete them as they are in flight
@@ -462,7 +462,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._history_playlist_task.cancel()
             if self._youtube_search_task:
                 self._youtube_search_task.cancel()
-            self.last_download_lockfile.unlink(missing_ok=True)
 
             self.logger.info('Removing directories')
             if self.download_dir.exists() and not self.config.download.cache.enable_cache_files:
@@ -651,50 +650,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
                 return True
 
-    async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
-        '''
-        Wait for next youtube download time
-        Wait for minimum time plus a random interval, where max is set by max variance
 
-        minimum_wait_time : Wait at least this amount of time
-        max_variance : Max variance to add from random value
-        '''
-        try:
-            last_updated_at = self.last_download_lockfile.read_text()
-        except (FileNotFoundError, ValueError):
-            self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
-            # If file doesn't exist or no value, assume we dont need to wait
-            return True
-        # https://stackoverflow.com/a/51295230
-        # Use timestamp to set a bit more random variance
-        random.seed(time())
-        # Use millisecond variance to add some extra randomness
-        wait_until = int(last_updated_at) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
-        self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
-
-        # Calculate how long to wait
-        now = datetime.now(timezone.utc).timestamp()
-        sleep_duration = max(0, wait_until - now)
-
-        # Check if bot is already shutting down before waiting
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Exiting bot wait loop')
-
-        # If backoff period already elapsed, return immediately
-        if sleep_duration == 0:
-            return True
-
-        # Wait for either bot shutdown event OR timeout
-        try:
-            await asyncio.wait_for(
-                self.bot_shutdown_event.wait(),
-                timeout=sleep_duration
-            )
-            # If we get here, the event was set (bot is shutting down)
-            raise ExitEarlyException('Exiting bot wait loop')
-        except asyncio.TimeoutError:
-            # Timeout expired normally - backoff period complete
-            return True
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
@@ -756,23 +712,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 media_download.delete()
                 return False
-
-    def update_download_lockfile(self, media_download: MediaDownload,
-                                 add_additional_backoff: int=None) -> bool:
-        '''
-        Update the download lockfile
-
-        media_download : Media Download
-        add_additional_backoff : Add more backoff time to existing timestamp
-
-        '''
-        if media_download and media_download.extractor != 'youtube':
-            return False
-        new_timestamp = int(datetime.now(timezone.utc).timestamp())
-        if add_additional_backoff:
-            new_timestamp += add_additional_backoff
-        self.last_download_lockfile.write_text(str(new_timestamp))
-        return True
 
     # Take both source dict and media download
     # Since media download might be none
@@ -871,6 +810,64 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
         return True
 
+    async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
+        '''
+        Wait for next youtube download time
+        Wait for minimum time plus a random interval, where max is set by max variance
+
+        minimum_wait_time : Wait at least this amount of time
+        max_variance : Max variance to add from random value
+        '''
+        if self.last_download_timestamp is None:
+            self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
+            # If no timestamp exists, assume we dont need to wait
+            return True
+        # https://stackoverflow.com/a/51295230
+        # Use timestamp to set a bit more random variance
+        random.seed(time())
+        # Use millisecond variance to add some extra randomness
+        wait_until = int(self.last_download_timestamp) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
+        self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
+
+        # Calculate how long to wait
+        now = datetime.now(timezone.utc).timestamp()
+        sleep_duration = max(0, wait_until - now)
+
+        # Check if bot is already shutting down before waiting
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Exiting bot wait loop')
+
+        # If backoff period already elapsed, return immediately
+        if sleep_duration == 0:
+            return True
+
+        # Wait for either bot shutdown event OR timeout
+        try:
+            await asyncio.wait_for(
+                self.bot_shutdown_event.wait(),
+                timeout=sleep_duration
+            )
+            # If we get here, the event was set (bot is shutting down)
+            raise ExitEarlyException('Exiting bot wait loop')
+        except asyncio.TimeoutError:
+            # Timeout expired normally - backoff period complete
+            return True
+
+    def update_download_timestamp(self, media_download: MediaDownload,
+                                 add_additional_backoff: int=0) -> bool:
+        '''
+        Update the download lockfile
+
+        media_download : Media Download
+        add_additional_backoff : Add more backoff time to existing timestamp
+
+        '''
+        if media_download and media_download.extractor != 'youtube':
+            return False
+        new_timestamp = int(datetime.now(timezone.utc).timestamp()) + add_additional_backoff
+        self.last_download_timestamp = new_timestamp
+        return True
+
     async def download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
@@ -940,25 +937,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
-                    self.update_download_lockfile(media_download)
+                    self.update_download_timestamp(media_download)
                 except ExistingFileException as e:
                     # File exists on disk already, create again from cache
                     self.logger.debug(f'Existing file found for download {str(media_request)}, using existing file from url "{e.video_cache.video_url}"')
                     media_download = self.video_cache.generate_download_from_existing(media_request, e.video_cache)
-                    self.update_download_lockfile(media_download)
+                    self.update_download_timestamp(media_download)
                     span.set_status(StatusCode.OK)
                 except (BotDownloadFlagged) as e:
                     self.logger.warning(f'Bot flagged while downloading video "{str(media_request)}", {str(e)}')
                     await self.__return_bad_video(media_request, e, skip_callback_functions=True)
                     self.logger.warning(f'Adding additional time {self.config.download.youtube_wait_period_minimum} to usual youtube backoff since bot was flagged')
-                    self.update_download_lockfile(media_download, add_additional_backoff=self.config.download.youtube_wait_period_minimum)
+                    self.update_download_timestamp(media_download, add_additional_backoff=self.config.download.youtube_wait_period_minimum)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return
                 except (DownloadClientException) as e:
                     self.logger.warning(f'Known error while downloading video "{str(media_request)}", {str(e)}')
                     await self.__return_bad_video(media_request, e)
-                    self.update_download_lockfile(media_download)
+                    self.update_download_timestamp(media_download)
                     span.set_status(StatusCode.OK)
                     return
                 except DownloadError as e:

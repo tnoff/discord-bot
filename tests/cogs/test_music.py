@@ -1088,7 +1088,6 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
     cog.players = {}  # Empty to avoid timeout
 
     # Mock path operations
-    mock_unlink = mocker.patch('pathlib.Path.unlink')
     mocker.patch('pathlib.Path.exists', return_value=True)  # Don't store unused mock
     mock_rm_tree = mocker.patch('discord_bot.cogs.music.rm_tree')
 
@@ -1103,7 +1102,6 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
     await cog.cog_unload()
 
     # Verify cleanup operations were called
-    mock_unlink.assert_called()  # For lockfile
     assert mock_rm_tree.call_count >= 1  # For directories
 
 @pytest.mark.asyncio
