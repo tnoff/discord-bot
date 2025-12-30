@@ -1125,3 +1125,107 @@ def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylin
     # Should only contain the new error
     assert 'Error 1' not in summary2_text
     assert 'Error 2' in summary2_text
+
+
+def test_media_request_bundle_get_failure_summary_with_none_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary ignores failed requests with None failure_reason"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # Mark first as failed with reason, second as failed without reason
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Real error")
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason=None)
+
+    # Get failure summary - should only include req1
+    summary = bundle.get_failure_summary()
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert 'Real error' in summary_text
+    # Should only have one failure in the output
+    assert summary_text.count('Media Request') == 1
+
+
+def test_media_request_bundle_get_failure_summary_with_empty_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary ignores failed requests with empty string failure_reason"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # Mark first as failed with reason, second as failed with empty string
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Real error")
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="")
+
+    # Get failure summary - should only include req1
+    summary = bundle.get_failure_summary()
+    assert summary is not None
+    summary_text = '\n'.join(summary)
+    assert 'Real error' in summary_text
+    # Should only have one failure in the output
+    assert summary_text.count('Media Request') == 1
+
+
+def test_media_request_bundle_get_failure_summary_all_failures_without_reasons(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary returns None when all failures lack reasons"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # Mark both as failed without reasons
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason=None)
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="")
+
+    # Get failure summary - should return None since no failures have reasons
+    summary = bundle.get_failure_summary()
+    assert summary is None
+
+
+def test_media_request_bundle_get_failure_summary_empty_bundle(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_failure_summary returns None for an empty bundle"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    # Don't add any requests
+    bundle.all_requests_added()
+
+    # Get failure summary - should return None since there are no requests
+    summary = bundle.get_failure_summary()
+    assert summary is None
