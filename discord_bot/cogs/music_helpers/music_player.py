@@ -80,7 +80,6 @@ class MusicPlayer:
         self.np_message: str = ''
         self.video_skipped: bool = False
         self.queue_messages: list[str] = [] # Show current queue
-        self.volume: float = 0.5
         # Shutdown called externally
         self.shutdown_called: bool = False
         # Inactive timestamp for bot timeout
@@ -112,7 +111,7 @@ class MusicPlayer:
         audio_source = FFmpegPCMAudio(str(media_download.file_path))
         self.current_audio_source = audio_source
         self.video_skipped = False
-        audio_source.volume = self.volume
+        audio_source.volume = 1
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
