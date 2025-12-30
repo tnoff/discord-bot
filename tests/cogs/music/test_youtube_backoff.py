@@ -26,7 +26,7 @@ async def test_youtube_backoff_time(freezer, fake_context):  #pylint:disable=red
     freezer.move_to('2025-01-01 12:00:00 UTC')
     cog.update_download_lockfile(sd)
     freezer.move_to('2025-01-01 16:00:00 UTC')
-    await cog.youtube_backoff_time(cog.youtube_wait_period_min, cog.youtube_wait_period_max_variance)
+    await cog.youtube_backoff_time(cog.config.download.youtube_wait_period_minimum, cog.config.download.youtube_wait_period_max_variance)
 
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
@@ -40,7 +40,7 @@ async def test_youtube_backoff_time_with_bot_shutdown(freezer, fake_context):  #
     cog.bot_shutdown_event.set()
     freezer.move_to('2025-01-01 16:00:00 UTC')
     with pytest.raises(ExitEarlyException) as exc:
-        await cog.youtube_backoff_time(cog.youtube_wait_period_min, cog.youtube_wait_period_max_variance)
+        await cog.youtube_backoff_time(cog.config.download.youtube_wait_period_minimum, cog.config.download.youtube_wait_period_max_variance)
     assert 'Exiting bot wait loop' in str(exc.value)
 
 @pytest.mark.asyncio

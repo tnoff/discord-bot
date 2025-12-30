@@ -130,7 +130,7 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
     with mock_session(fake_engine) as db_session:
@@ -148,7 +148,7 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
     await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
@@ -167,7 +167,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
 
@@ -190,7 +190,7 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
 
@@ -285,7 +285,7 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
 
@@ -326,7 +326,7 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
             # Process search queue if YouTube Music search is enabled
-            if cog.enable_youtube_music_search:
+            if cog.config.download.enable_youtube_music_search:
                 await cog.search_youtube_music()
             await cog.download_files()
             with mock_session(fake_engine) as db_session:
@@ -346,7 +346,7 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
     await cog.playlist_create.callback(cog, fake_context['context'], name='delete-me')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 2, search='https://foo.example')
     # Process search queue if YouTube Music search is enabled
-    if cog.enable_youtube_music_search:
+    if cog.config.download.enable_youtube_music_search:
         await cog.search_youtube_music()
     await cog.download_files()
     await cog.playlist_merge.callback(cog, fake_context['context'], 1, 2)

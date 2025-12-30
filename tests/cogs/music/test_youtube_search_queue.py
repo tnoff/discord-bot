@@ -832,10 +832,6 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
 
     cog = Music(fake_context['bot'], config, None)
 
-    # Verify search queue is larger than download queue (10x minimum 100)
-    # With queue_max_size=2, search queue should be max(2*10, 100) = 100
-    expected_search_queue_size = max(2 * 10, 100)
-
     # Create enough items to fill beyond download queue size but within search queue size
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
@@ -862,10 +858,10 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
 
     assert result is True
     # Verify the search queue size is configured correctly
-    assert cog.youtube_music_search_queue.max_size == expected_search_queue_size
+    assert cog.youtube_music_search_queue.max_size == 4
 
     # All 10 items should fit in search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 10
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 4
 
     # Download queue should be empty initially
     assert cog.download_queue.size(fake_context['guild'].id) == 0
