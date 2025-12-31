@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 import pytest
 from yt_dlp.utils import DownloadError
 
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, InvalidFormatException, VideoTooLong, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException, InvalidFormatException, VideoTooLong, RetryableException, match_generator, RETRYABLE_YTDLP_ERRORS
 
 from tests.helpers import fake_source_dict, generate_fake_context
 
@@ -165,3 +165,69 @@ def test_match_generator_video_within_length_limit():
 
     # Should not raise any exception
     filter_func(video_info, incomplete=False)
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_exception_on_timeout():
+    """Test that RetryableException is raised for 'Read timed out.' errors"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    # Create a download client with a mock that raises a timeout error
+    x = DownloadClient(yield_dlp_error('Read timed out.'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # Should raise RetryableException
+    with pytest.raises(RetryableException) as exc:
+        await x.create_source(y, loop)
+
+    # Verify the exception contains the media request
+    assert exc.value.media_request == y
+    assert 'Can retry media download' in str(exc.value)
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_exception_increments_retry_count():
+    """Test that retry_count is incremented when RetryableException is raised"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    x = DownloadClient(yield_dlp_error('Read timed out.'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # Initial retry count should be 0
+    assert y.retry_count == 0
+
+    # Attempt download, should raise RetryableException and increment retry_count
+    with pytest.raises(RetryableException):
+        await x.create_source(y, loop)
+
+    # Retry count should be incremented
+    assert y.retry_count == 1
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retryable_errors_list():
+    """Test that all errors in RETRYABLE_YTDLP_ERRORS trigger RetryableException"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    for error_message in RETRYABLE_YTDLP_ERRORS:
+        x = DownloadClient(yield_dlp_error(error_message), None)
+        y = fake_source_dict(fake_context, download_file=False)
+
+        with pytest.raises(RetryableException) as exc:
+            await x.create_source(y, loop)
+
+        assert exc.value.media_request == y
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_non_retryable_error_not_raised_as_retryable():
+    """Test that non-retryable errors don't trigger RetryableException"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    # Use an error that's not in the retryable list
+    x = DownloadClient(yield_dlp_error('Some other random error'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # Should raise DownloadError (not RetryableException)
+    with pytest.raises(DownloadError):
+        await x.create_source(y, loop)

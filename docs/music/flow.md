@@ -440,19 +440,32 @@ Message: "Downloading and processing: Track 1"
     ↓
 download_client.download(search_string)
     ↓
-├─ yt-dlp downloads file
-├─ Audio processing (if enabled)
-├─ Move to guild directory
-└─ Add to cache database
-    ↓
-Create MediaDownload object
-    ↓
-ready_file() - Copy to guild-specific path with UUID name
-    ↓
-Add to player._play_queue
-    ↓
-bundle.update_request_status(COMPLETED)
-Message: "" (row cleared)
+├─ SUCCESS:
+│   ├─ yt-dlp downloads file
+│   ├─ Audio processing (if enabled)
+│   ├─ Move to guild directory
+│   └─ Add to cache database
+│       ↓
+│   Create MediaDownload object
+│       ↓
+│   ready_file() - Copy to guild-specific path with UUID name
+│       ↓
+│   Add to player._play_queue
+│       ↓
+│   bundle.update_request_status(COMPLETED)
+│   Message: "" (row cleared)
+│
+└─ RETRYABLE ERROR (timeout, TLS error):
+    ├─ Increment media_request.retry_count
+    ├─ Check if retry_count < max_download_retries
+    └─ If yes:
+        ├─ bundle.update_request_status(RETRY)
+        ├─ Message: "Failed, will retry: Track 1"
+        ├─ Re-queue to download_queue
+        └─ Process again later
+    └─ If no:
+        ├─ bundle.update_request_status(FAILED)
+        └─ Message: "Media request failed download: <reason>"
 ```
 
 ---
@@ -663,8 +676,35 @@ Bundle marked finished
 ```
 
 ### **Download Failed**
+
+**Retryable Errors** (network timeouts, TLS errors):
 ```
-download_client.download() raises exception
+download_client.download() raises RetryableException
+    ↓
+media_request.retry_count is incremented
+    ↓
+Check: retry_count < max_download_retries?
+    ↓
+YES: Re-queue the request
+    ↓
+    bundle.update_request_status(RETRY)
+    ↓
+    Message: "Failed, will retry: <track name>"
+    ↓
+    Add back to download_queue
+    ↓
+    Process again later
+
+NO: Treat as permanent failure
+    ↓
+    bundle.update_request_status(FAILED, failure_reason=...)
+    ↓
+    Message: "Media request failed download: <reason>"
+```
+
+**Non-Retryable Errors** (age restriction, private video, video unavailable):
+```
+download_client.download() raises DownloadClientException
     ↓
 bundle.update_request_status(FAILED, failure_reason=...)
     ↓

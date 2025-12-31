@@ -20,6 +20,7 @@ This document defines all key components, types, and concepts used throughout th
 - Immutable - created once and passed through the system
 - Has a unique UUID for tracking through the pipeline
 - Can be linked to a `MultiMediaRequestBundle` via `bundle_uuid`
+- Tracks retry attempts via `retry_count` field (initialized to 0)
 - Located in `discord_bot/cogs/music_helpers/media_request.py`
 
 ### **`MediaDownload`**
@@ -62,7 +63,9 @@ This document defines all key components, types, and concepts used throughout th
 
 ### **`DownloadClient`**
 - Wrapper around yt-dlp for downloading media
-- Handles download retries and error cases
+- Handles download errors and raises appropriate exceptions
+- Distinguishes between retryable errors (timeouts, TLS issues) and permanent failures
+- Raises `RetryableException` for transient network errors
 - Processes audio files (normalization, silence removal if enabled)
 - Creates `MediaDownload` objects from successful downloads
 - Located in `discord_bot/cogs/music_helpers/download_client.py`
@@ -154,15 +157,22 @@ Tracks progress of each `MediaRequest` through the system:
 - File is being downloaded and processed
 - Audio normalization may be running (if enabled)
 
+**`RETRY`**
+- Download encountered a retryable error
+- Request will be re-queued for another attempt
+- Retry count is incremented and checked against max_download_retries
+- Examples: network timeouts, TLS handshake failures
+
 **`COMPLETED`**
 - Successfully downloaded and added to player queue
 - File ready for playback
 - Row cleared from progress display
 
 **`FAILED`**
-- Download or processing failed
+- Download or processing failed permanently
 - Includes error reason in message
 - Does not block other tracks in bundle
+- Occurs when non-retryable errors happen or max retries exceeded
 
 **`DISCARDED`**
 - Skipped for operational reasons

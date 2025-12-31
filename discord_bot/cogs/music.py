@@ -31,7 +31,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, match_generator
+from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, RetryableException, match_generator
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -115,6 +115,7 @@ class MusicDownloadConfig(BaseModel):
     server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
     cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
     storage: Optional[MusicStorageConfig] = None
+    max_download_retries: int = Field(default=3, ge=1)
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -854,7 +855,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Timeout expired normally - backoff period complete
             return True
 
-    def update_download_timestamp(self, media_download: MediaDownload,
+    def update_download_timestamp(self, media_download: MediaDownload = None,
                                  add_additional_backoff: int=0) -> bool:
         '''
         Update the download lockfile
@@ -938,32 +939,53 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
-                    self.update_download_timestamp(media_download)
+                    self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
                     # File exists on disk already, create again from cache
                     self.logger.debug(f'Existing file found for download {str(media_request)}, using existing file from url "{e.video_cache.video_url}"')
                     media_download = self.video_cache.generate_download_from_existing(media_request, e.video_cache)
-                    self.update_download_timestamp(media_download)
+                    self.update_download_timestamp(media_download=media_download)
                     span.set_status(StatusCode.OK)
+                    # Dont return as we got the media download
+                except RetryableException as e:
+                    self.logger.debug(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
+                    self.update_download_timestamp()
+                    bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+                    # If we should, retry
+                    if media_request.retry_count < self.config.download.max_download_retries:
+                        self.download_queue.put_nowait(media_request.guild_id, media_request)
+                        if bundle:
+                            bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
+                        span.set_status(StatusCode.OK)
+                        span.record_exception(e)
+                        return
+                    # Else lets mark the error
+                    self.logger.warning(f'Retryable exception hit but max retries hit "{str(media_request)}", {str(e)}')
+                    await self.__return_bad_video(media_request, e)
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(e)
+                    return
                 except (BotDownloadFlagged) as e:
                     self.logger.warning(f'Bot flagged while downloading video "{str(media_request)}", {str(e)}')
+                    self.update_download_timestamp(add_additional_backoff=self.config.download.youtube_wait_period_minimum * 2)
                     await self.__return_bad_video(media_request, e, skip_callback_functions=True)
                     self.logger.warning(f'Adding additional time {self.config.download.youtube_wait_period_minimum} to usual youtube backoff since bot was flagged')
-                    self.update_download_timestamp(media_download, add_additional_backoff=self.config.download.youtube_wait_period_minimum)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return
                 except (DownloadClientException) as e:
                     self.logger.warning(f'Known error while downloading video "{str(media_request)}", {str(e)}')
+                    self.update_download_timestamp()
                     await self.__return_bad_video(media_request, e)
-                    self.update_download_timestamp(media_download)
                     span.set_status(StatusCode.OK)
                     return
                 except DownloadError as e:
                     self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
+                    self.update_download_timestamp()
                     media_download = None
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
+
 
             # Final none check in case we couldn't download video
             if not await self.__ensure_video_download_result(media_request, media_download):
