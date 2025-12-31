@@ -14,6 +14,21 @@ from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_req
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.utils.otel import otel_span_wrapper
 
+# These errors from yt-dlp can be retried
+RETRYABLE_YTDLP_ERRORS = [
+    'Read timed out.', # Seems to be random connection issue
+    'tlsv1 alert protocol version', # Another random connection issue
+]
+
+class RetryableException(Exception):
+    '''
+    Throw when we can retry download
+    '''
+    def __init__(self, message, media_request: MediaRequest):
+        self.message = message
+        super().__init__(self.message)
+        self.media_request = media_request
+
 class DownloadClientException(Exception):
     '''
     Generic class for download client errors
@@ -162,6 +177,11 @@ class DownloadClient():
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
+                if any(error_msg in str(error) for error_msg in RETRYABLE_YTDLP_ERRORS):
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(error)
+                    media_request.retry_count += 1
+                    raise RetryableException('Can retry media download', media_request=media_request) from error
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
                 raise

@@ -272,6 +272,31 @@ music:
     youtube_wait_period_max_variance: 15
 ```
 
+### Download Retry Logic
+
+The bot includes automatic retry logic for transient download failures. When certain temporary errors occur (such as network timeouts or TLS handshake failures), the bot will automatically retry the download up to a configurable number of times before marking it as failed.
+
+By default, the bot will retry failed downloads up to 3 times. You can configure this in the config:
+
+```
+music:
+  download:
+    max_download_retries: 3  # Default: 3
+```
+
+**Retryable Errors**:
+- Network timeouts (`Read timed out.`)
+- TLS protocol errors (`tlsv1 alert protocol version`)
+
+When a retryable error occurs:
+1. The retry count for the media request is incremented
+2. If retries remain (retry_count < max_download_retries), the request is re-queued
+3. The bundle status shows "Failed, will retry: <track name>"
+4. The request is processed again from the download queue
+5. If all retries are exhausted, the request is marked as permanently failed
+
+This feature helps handle temporary network issues without requiring manual intervention, improving the reliability of playlist and album downloads.
+
 ### Youtube Music Search
 
 By default the bot will search Youtube Music for generic string inputs, filtering by songs. This is to get the best quality of upload possible. This is done via the [ytmusicapi package](https://github.com/sigma67/ytmusicapi).

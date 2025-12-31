@@ -19,6 +19,24 @@ async def test_media_request_basics(fake_context): #pylint:disable=redefined-out
     assert str(x_direct) == f'<{x_direct.search_string}>'
 
 @pytest.mark.asyncio
+async def test_media_request_retry_count_initialization(fake_context): #pylint:disable=redefined-outer-name
+    """Test that retry_count is always initialized to 0"""
+    x = fake_source_dict(fake_context)
+    assert x.retry_count == 0
+
+@pytest.mark.asyncio
+async def test_media_request_retry_count_increments(fake_context): #pylint:disable=redefined-outer-name
+    """Test that retry_count can be incremented"""
+    x = fake_source_dict(fake_context)
+    assert x.retry_count == 0
+
+    x.retry_count += 1
+    assert x.retry_count == 1
+
+    x.retry_count += 1
+    assert x.retry_count == 2
+
+@pytest.mark.asyncio
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
     x = fake_source_dict(fake_context)
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
@@ -89,6 +107,54 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '2/3 media requests processed successfully, 1 failed' in full_output
+    assert b.finished is True
+
+@pytest.mark.asyncio
+async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disable=redefined-outer-name
+    """Test that RETRY lifecycle stage shows correct message"""
+    x = fake_source_dict(fake_context)
+    y = fake_source_dict(fake_context)
+    z = fake_source_dict(fake_context)
+
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b.set_initial_search('https://foo.example.com/playlist')
+    b.set_multi_input_request()
+    b.add_media_request(x)
+    b.add_media_request(y)
+    b.add_media_request(z)
+    b.all_requests_added()
+
+    # First request starts processing
+    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    print_output = b.print()
+    full_output = '\n'.join(print_output)
+    assert 'Downloading and processing media request:' in full_output
+
+    # First request fails and will retry
+    b.update_request_status(x, MediaRequestLifecycleStage.RETRY)
+    print_output = b.print()
+    full_output = '\n'.join(print_output)
+    assert 'Failed, will retry:' in full_output
+    assert x.search_string in full_output
+
+    # Second request completes successfully
+    b.update_request_status(y, MediaRequestLifecycleStage.IN_PROGRESS)
+    b.update_request_status(y, MediaRequestLifecycleStage.COMPLETED)
+    print_output = b.print()
+    full_output = '\n'.join(print_output)
+    assert '1/3 media requests processed successfully, 0 failed' in full_output
+
+    # First request (after retry) completes successfully
+    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
+
+    # Third request completes
+    b.update_request_status(z, MediaRequestLifecycleStage.IN_PROGRESS)
+    b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
+
+    print_output = b.print()
+    full_output = '\n'.join(print_output)
+    assert '3/3 media requests processed successfully, 0 failed' in full_output
     assert b.finished is True
 
 

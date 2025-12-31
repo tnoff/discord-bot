@@ -9,7 +9,7 @@ from discord import TextChannel
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
 from discord_bot.utils.common import discord_format_string_embed
-from discord_bot.utils.otel import MediaRequestNaming
+from discord_bot.utils.otel import MediaRequestNaming, AttributeNaming
 
 
 @dataclass
@@ -36,6 +36,7 @@ class MediaRequest():
     requester_name: str
     requester_id: int
     search_string: str
+    retry_count: int = field(init=False)
     # Keep original search string for later
     # In these cases, original search is what was passed into the search and search string is often youtube url
     # For example raw_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
@@ -50,6 +51,12 @@ class MediaRequest():
     # Generated fields
     uuid: str = field(default_factory=lambda: f'request.{uuid4()}')
     bundle_uuid: str = None
+
+    def __post_init__(self):
+        '''
+        Set retry count to 0 and dont allow override
+        '''
+        self.retry_count = 0
 
     def __str__(self):
         '''
@@ -95,6 +102,7 @@ def media_request_attributes(media_request: MediaRequest) -> dict:
         MediaRequestNaming.GUILD.value: media_request.guild_id,
         MediaRequestNaming.SEARCH_TYPE.value: media_request.search_type.value,
         MediaRequestNaming.UUID.value: str(media_request.uuid),
+        AttributeNaming.RETRY_COUNT.value: media_request.retry_count,
     }
 
 # https://stackoverflow.com/questions/312443/how-do-i-split-a-list-into-equally-sized-chunks
@@ -325,6 +333,10 @@ class MultiMediaRequestBundle():
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, f'Waiting to process: "{bundled_request.search_string}"')
+                case MediaRequestLifecycleStage.RETRY:
+                    if bundled_request.status != stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.search_string}"')
                 case MediaRequestLifecycleStage.COMPLETED:
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
