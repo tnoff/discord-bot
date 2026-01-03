@@ -297,6 +297,8 @@ When a retryable error occurs:
 
 This feature helps handle temporary network issues without requiring manual intervention, improving the reliability of playlist and album downloads.
 
+The bot also includes an **adaptive backoff system** that automatically increases wait times when failures occur frequently. See [Retry Backoff System](./music/retry_backoff.md) for detailed explanation of the exponential decay algorithm and configuration options.
+
 ### Youtube Music Search
 
 By default the bot will search Youtube Music for generic string inputs, filtering by songs. This is to get the best quality of upload possible. This is done via the [ytmusicapi package](https://github.com/sigma67/ytmusicapi).
@@ -331,3 +333,4 @@ For additonal reading:
 - [Background Tasks](./music/background.md)
 - [Video Download Flow](./music/flow.md)
 - [Discord Messaging](./music/messaging.md)
+- [Retry Backoff System](./music/retry_backoff.md)

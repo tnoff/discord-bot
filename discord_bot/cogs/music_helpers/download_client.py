@@ -1,4 +1,8 @@
+from asyncio import QueueFull
+from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from functools import partial
+from math import exp
 from pathlib import Path
 from shutil import copyfile
 from typing import Callable, List
@@ -13,21 +17,116 @@ from discord_bot.database import VideoCache
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.queue import Queue
 
-# These errors from yt-dlp can be retried
-RETRYABLE_YTDLP_ERRORS = [
-    'Read timed out.', # Seems to be random connection issue
-    'tlsv1 alert protocol version', # Another random connection issue
-]
 
-class RetryableException(Exception):
+@dataclass
+class DownloadFailureMode:
     '''
-    Throw when we can retry download
+    Download Failure Mode, each individual case
     '''
-    def __init__(self, message, media_request: MediaRequest):
-        self.message = message
-        super().__init__(self.message)
-        self.media_request = media_request
+    exception_type: str
+    exception_message: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DownloadFailureQueue:
+    '''
+    Download Failure Rate Tracking
+    '''
+    def __init__(self, max_size: int = 100, max_age_seconds: int = 300,
+                 base_wait_seconds: int = 300, decay_tau_seconds: int = 60,
+                 max_backoff_factor: float = 3.0, aggressiveness: float = 1.0):
+        '''
+        Download failure queue to track how often failures have been happening
+
+        max_size : Track the last X items
+        max_age_seconds : Maximum age of failures to keep (in seconds)
+        base_wait_seconds: Base backoff wait
+        # should usually be 1/3 to 1/5 of max_age_seconds window.
+        decay_tau_seconds: Exponential decay constant, simply "How quickly should old failures fade out"
+        max_backoff_factor: Cap on backoff multiplier
+        aggressiveness: Aggressiveness of factor curve, simply "Given a certain failure score, how fast should we approach the max backoff?"
+        '''
+        # Validate parameters
+        if decay_tau_seconds <= 0:
+            raise ValueError("decay_tau_seconds must be positive")
+        if max_age_seconds <= 0:
+            raise ValueError("max_age_seconds must be positive")
+        if max_backoff_factor < 1.0:
+            raise ValueError("max_backoff_factor must be >= 1.0")
+        if aggressiveness <= 0:
+            raise ValueError("aggressiveness must be positive")
+
+        self.queue: Queue[DownloadFailureMode] = Queue(maxsize=max_size)
+        self.max_age_seconds = max_age_seconds
+
+        self.base_wait = base_wait_seconds
+        self.decay_tau = decay_tau_seconds
+        self.max_factor = max_backoff_factor
+        self.k = aggressiveness
+
+    def add_item(self, new_item: DownloadFailureMode) -> bool:
+        '''
+        Add new item and clean old entries
+        '''
+        # Clean old items before adding new one
+        self._clean_old_items()
+
+        while True:
+            try:
+                self.queue.put_nowait(new_item)
+                return True
+            except QueueFull:
+                self.queue.get_nowait()
+
+    def _clean_old_items(self):
+        '''
+        Remove items older than max_age_seconds
+        '''
+        if self.max_age_seconds <= 0:
+            return
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=self.max_age_seconds)
+
+        # Get all items, filter out old ones, and rebuild queue
+        items = self.queue.clear()
+        fresh_items = [item for item in items if item.created_at > cutoff]
+
+        for item in fresh_items:
+            try:
+                self.queue.put_nowait(item)
+            except QueueFull:
+                break
+
+    @property
+    def size(self):
+        '''
+        Size of queue
+        '''
+        return self.queue.size()
+
+    def get_backoff_multiplier(self) -> float:
+        '''
+        Calculate backoff multiplier based on failure rate relative to wait period
+
+        Returns a multiplier
+        '''
+        now = datetime.now(timezone.utc)
+        score = 0.0
+
+        # Use items() method to safely iterate over queue contents
+        for failure in self.queue.items():
+            age = (now - failure.created_at).total_seconds()
+            score += exp(-age / self.decay_tau)
+
+        factor = 1.0 + (self.max_factor - 1.0) * (
+            1.0 - exp(-self.k * score)
+        )
+
+        return min(self.max_factor, factor)
+
 
 class DownloadClientException(Exception):
     '''
@@ -38,37 +137,54 @@ class DownloadClientException(Exception):
         super().__init__(self.message)
         self.user_message = user_message
 
-class InvalidFormatException(DownloadClientException):
+class DownloadTerminalException(DownloadClientException):
+    '''
+    Download Client Exception which should not be retried
+    '''
+    def __init__(self, message, user_message=None):
+        self.message = message
+        super().__init__(self.message, user_message=user_message)
+
+class RetryableException(DownloadClientException):
+    '''
+    Throw when we can retry download
+    '''
+    def __init__(self, message, media_request: MediaRequest, user_message=None):
+        self.message = message
+        super().__init__(self.message, user_message=user_message)
+        self.media_request = media_request
+
+class InvalidFormatException(DownloadTerminalException):
     '''
     When requested format not available
     '''
 
-class VideoNotFoundException(DownloadClientException):
+class VideoNotFoundException(DownloadTerminalException):
     '''
     When no videos are found
     '''
 
-class MetadataCheckFailedException(DownloadClientException):
+class MetadataCheckFailedException(DownloadTerminalException):
     '''
     Video failed metadata checked
     '''
 
-class VideoAgeRestrictedException(DownloadClientException):
+class VideoAgeRestrictedException(DownloadTerminalException):
     '''
     Video has age restrictions, cannot download
     '''
 
-class VideoUnavailableException(DownloadClientException):
+class VideoUnavailableException(DownloadTerminalException):
     '''
     Video Unavailable while downloading
     '''
 
-class VideoViolatedTermsException(DownloadClientException):
+class VideoViolatedTermsException(DownloadTerminalException):
     '''
     Video Removed for Violating Terms of Service
     '''
 
-class PrivateVideoException(DownloadClientException):
+class PrivateVideoException(DownloadTerminalException):
     '''
     Private Video while downloading
     '''
@@ -83,7 +199,7 @@ class VideoBanned(MetadataCheckFailedException):
     Video is on banned list
     '''
 
-class BotDownloadFlagged(DownloadClientException):
+class BotDownloadFlagged(RetryableException):
     '''
     Youtube flagged download as a bot
     '''
@@ -169,22 +285,19 @@ class DownloadClient():
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     raise VideoAgeRestrictedException('Video Aged restricted', user_message='Video is age restricted, cannot download') from error
-                if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(error)
-                    raise BotDownloadFlagged('Bot flagged download', user_message='Download attempt flagged as bot download, skipping') from error
                 if 'Requested format is not available' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
-                if any(error_msg in str(error) for error_msg in RETRYABLE_YTDLP_ERRORS):
-                    span.set_status(StatusCode.OK)
+                if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
+                    span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
                     media_request.retry_count += 1
-                    raise RetryableException('Can retry media download', media_request=media_request) from error
+                    raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
-                raise
+                media_request.retry_count += 1
+                raise RetryableException('Can retry media download', media_request=media_request) from error
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:

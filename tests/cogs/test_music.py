@@ -10,7 +10,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.search_client import SearchResult
 
-from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadError
+from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
@@ -69,7 +69,7 @@ def yield_download_client_download_exception():
             pass
 
         async def create_source(self, *_args, **_kwargs):
-            raise DownloadClientException('foo', user_message='whoopsie')
+            raise DownloadTerminalException('foo', user_message='whoopsie')
 
     return FakeDownloadClient
 
@@ -78,8 +78,8 @@ def yield_download_client_download_error():
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def create_source(self, *_args, **_kwargs):
-            raise DownloadError('foo')
+        async def create_source(self, media_request, *_args, **_kwargs):
+            raise RetryableException('foo', media_request=media_request)
 
     return FakeDownloadClient
 
