@@ -24,14 +24,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
-from yt_dlp.utils import DownloadError
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException, BotDownloadFlagged, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadFailureQueue, DownloadFailureMode
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -116,6 +116,14 @@ class MusicDownloadConfig(BaseModel):
     cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
     storage: Optional[MusicStorageConfig] = None
     max_download_retries: int = Field(default=3, ge=1)
+    # Mostly to keep a cap on the queue to avoid issues
+    failure_tracking_max_size: int = Field(default=100, ge=1)
+    # This should be roughly 'youtube_wait_period_minimum' x 10
+    failure_tracking_max_age_seconds: int = Field(default=300, ge=1)
+    # Should be 1/5 -> 1/3 the size of failure_tracking_max_age_seconds
+    failure_tracking_decay_tau_seconds: int = Field(default=75, ge=1)
+    failure_tracking_backoff_aggressiveness: float = Field(default=1.0, ge=0.1)
+    failure_rate_threshold: float = Field(default=3.0, ge=0.1)
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -279,6 +287,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                           youtube_music_client=self.youtube_music_client)
         self.download_client = DownloadClient(ytdl, self.download_dir)
+        self.download_failure_queue = DownloadFailureQueue(
+            max_size=self.config.download.failure_tracking_max_size,
+            max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+            base_wait_seconds=self.config.download.youtube_wait_period_minimum,
+            max_backoff_factor=self.config.download.failure_rate_threshold,
+            decay_tau_seconds=self.config.download.failure_tracking_decay_tau_seconds,
+            aggressiveness=self.config.download.failure_tracking_backoff_aggressiveness,
+        )
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -949,14 +965,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     # Dont return as we got the media download
                 except RetryableException as e:
                     self.logger.debug(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
-                    self.update_download_timestamp()
+                    self.download_failure_queue.add_item(DownloadFailureMode(type(e).__name__, str(e)))
+                    # Apply exponential backoff based on failure rate
+                    backoff_multiplier = self.download_failure_queue.get_backoff_multiplier()
+                    additional_backoff = int(self.config.download.youtube_wait_period_minimum * backoff_multiplier)
+                    self.update_download_timestamp(add_additional_backoff=additional_backoff)
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                     # If we should, retry
                     if media_request.retry_count < self.config.download.max_download_retries:
                         self.download_queue.put_nowait(media_request.guild_id, media_request)
                         if bundle:
                             bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
-                        span.set_status(StatusCode.OK)
+                        span.set_status(StatusCode.ERROR)
                         span.record_exception(e)
                         return
                     # Else lets mark the error
@@ -965,26 +985,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return
-                except (BotDownloadFlagged) as e:
-                    self.logger.warning(f'Bot flagged while downloading video "{str(media_request)}", {str(e)}')
-                    self.update_download_timestamp(add_additional_backoff=self.config.download.youtube_wait_period_minimum * 2)
-                    await self.__return_bad_video(media_request, e, skip_callback_functions=True)
-                    self.logger.warning(f'Adding additional time {self.config.download.youtube_wait_period_minimum} to usual youtube backoff since bot was flagged')
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
-                    return
-                except (DownloadClientException) as e:
-                    self.logger.warning(f'Known error while downloading video "{str(media_request)}", {str(e)}')
+                except DownloadTerminalException as e:
+                    # Terminal error - known permanent failure (age restricted, private, etc.)
+                    # Don't track in failure queue as these aren't transient issues
+                    self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {str(e)}')
                     self.update_download_timestamp()
                     await self.__return_bad_video(media_request, e)
                     span.set_status(StatusCode.OK)
                     return
-                except DownloadError as e:
-                    self.logger.error(f'Unknown error while downloading video "{str(media_request)}", {str(e)}')
-                    self.update_download_timestamp()
-                    media_download = None
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
 
 
             # Final none check in case we couldn't download video

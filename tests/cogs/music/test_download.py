@@ -116,8 +116,8 @@ def yield_download_client_bot_flagged():
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def create_source(self, *_args, **_kwargs):
-            raise BotDownloadFlagged('foo', user_message='woopsie')
+        async def create_source(self, media_request, *_args, **_kwargs):
+            raise BotDownloadFlagged('foo', media_request=media_request)
 
     return FakeDownloadClient
 
