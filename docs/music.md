@@ -297,7 +297,7 @@ When a retryable error occurs:
 
 This feature helps handle temporary network issues without requiring manual intervention, improving the reliability of playlist and album downloads.
 
-The bot also includes an **adaptive backoff system** that automatically increases wait times when failures occur frequently. See [Retry Backoff System](./music/retry_backoff.md) for detailed explanation of the exponential decay algorithm and configuration options.
+The bot also includes an **adaptive backoff system** that automatically increases wait times when failures occur frequently. See [Retry Backoff System](./music/retry_backoff.md) for detailed explanation of the simple counting-based algorithm and configuration options.
 
 ### Youtube Music Search
 

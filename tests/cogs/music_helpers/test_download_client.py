@@ -9,7 +9,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.cogs.music_helpers.download_client import (
     DownloadClient, InvalidFormatException, VideoTooLong,
     RetryableException, BotDownloadFlagged, DownloadTerminalException, VideoAgeRestrictedException,
-    DownloadFailureQueue, DownloadFailureMode, match_generator
+    DownloadFailureQueue, DownloadStatus, match_generator
 )
 
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -235,42 +235,17 @@ async def test_all_unknown_errors_are_retryable():
 
 # ========== DownloadFailureQueue Tests ==========
 
-def test_failure_queue_parameter_validation():
-    """Test that invalid parameters raise ValueError"""
-    # Test decay_tau_seconds <= 0
-    try:
-        DownloadFailureQueue(decay_tau_seconds=0)
-        assert False, "Should raise ValueError for decay_tau_seconds=0"
-    except ValueError as e:
-        assert "decay_tau_seconds must be positive" in str(e)
+def test_failure_queue_basic_creation():
+    """Test that queue can be created with valid parameters"""
+    # Test default parameters
+    queue1 = DownloadFailureQueue()
+    assert queue1.size == 0
+    assert queue1.max_age_seconds == 300
 
-    # Test negative decay_tau
-    try:
-        DownloadFailureQueue(decay_tau_seconds=-10)
-        assert False, "Should raise ValueError for negative decay_tau_seconds"
-    except ValueError as e:
-        assert "decay_tau_seconds must be positive" in str(e)
-
-    # Test negative max_age_seconds
-    try:
-        DownloadFailureQueue(max_age_seconds=-1)
-        assert False, "Should raise ValueError for negative max_age_seconds"
-    except ValueError as e:
-        assert "max_age_seconds must be positive" in str(e)
-
-    # Test max_backoff_factor < 1.0
-    try:
-        DownloadFailureQueue(max_backoff_factor=0.5)
-        assert False, "Should raise ValueError for max_backoff_factor < 1.0"
-    except ValueError as e:
-        assert "max_backoff_factor must be >= 1.0" in str(e)
-
-    # Test negative aggressiveness
-    try:
-        DownloadFailureQueue(aggressiveness=-1.0)
-        assert False, "Should raise ValueError for negative aggressiveness"
-    except ValueError as e:
-        assert "aggressiveness must be positive" in str(e)
+    # Test custom parameters
+    queue2 = DownloadFailureQueue(max_size=50, max_age_seconds=600)
+    assert queue2.size == 0
+    assert queue2.max_age_seconds == 600
 
 
 def test_failure_queue_old_item_cleanup():
@@ -278,20 +253,20 @@ def test_failure_queue_old_item_cleanup():
     queue = DownloadFailureQueue(max_size=10, max_age_seconds=60)
 
     # Add an old item directly to queue
-    old_item = DownloadFailureMode("OldException", "Old error")
+    old_item = DownloadStatus(success=False, exception_type="OldException", exception_message="Old error")
     old_item.created_at = datetime.now(timezone.utc) - timedelta(seconds=120)
     queue.queue.put_nowait(old_item)
 
     # Add recent items
     for i in range(3):
-        recent_item = DownloadFailureMode("RecentException", f"Recent error {i}")
+        recent_item = DownloadStatus(success=False, exception_type="RecentException", exception_message=f"Recent error {i}")
         recent_item.created_at = datetime.now(timezone.utc) - timedelta(seconds=i * 10)
         queue.queue.put_nowait(recent_item)
 
     assert queue.size == 4
 
     # Add new item which triggers cleanup
-    queue.add_item(DownloadFailureMode("NewException", "New error"))
+    queue.add_item(DownloadStatus(success=False, exception_type="NewException", exception_message="New error"))
 
     # Old item should be cleaned, recent ones kept
     assert queue.size == 4
@@ -329,84 +304,30 @@ def test_failure_queue_empty_handling():
 
     assert queue.size == 0
 
-    # Empty queue should return base multiplier (1.0)
-    multiplier = queue.get_backoff_multiplier()
-    assert multiplier == 1.0
 
+def test_failure_queue_size_tracking():
+    """Test that queue size correctly tracks failures and successes"""
+    queue = DownloadFailureQueue(max_size=10, max_age_seconds=300)
 
-def test_failure_queue_backoff_scenarios():
-    """Test exponential decay backoff multiplier scenarios"""
-    # Scenario 1: Single recent failure
-    queue1 = DownloadFailureQueue(
-        max_age_seconds=300,
-        decay_tau_seconds=75,
-        max_backoff_factor=3.0,
-        aggressiveness=1.0
-    )
-    queue1.add_item(DownloadFailureMode("TestException", "Error 1"))
-
-    multiplier1 = queue1.get_backoff_multiplier()
-    # Single recent failure should give moderate backoff
-    # With score=1.0, k=1.0, max=3.0: factor = 1 + 2*(1-exp(-1)) ≈ 2.26
-    assert 2.0 < multiplier1 < 2.5
-
-    # Scenario 2: Multiple rapid failures (high score)
-    queue2 = DownloadFailureQueue(
-        max_age_seconds=300,
-        decay_tau_seconds=75,
-        max_backoff_factor=3.0,
-        aggressiveness=1.0
-    )
-    for i in range(5):
-        queue2.add_item(DownloadFailureMode("TestException", f"Error {i}"))
-
-    multiplier2 = queue2.get_backoff_multiplier()
-    # Many rapid failures should approach max backoff
-    assert multiplier2 > 2.5
-    assert multiplier2 <= 3.0  # Should not exceed max_backoff_factor
-
-    # Scenario 3: Old failures (decayed score)
-    queue3 = DownloadFailureQueue(
-        max_age_seconds=300,
-        decay_tau_seconds=75,
-        max_backoff_factor=3.0,
-        aggressiveness=1.0
-    )
-    # Add failures that are 225 seconds old (3 decay constants)
-    for i in range(5):
-        item = DownloadFailureMode("TestException", f"Error {i}")
-        item.created_at = datetime.now(timezone.utc) - timedelta(seconds=225)
-        queue3.queue.put_nowait(item)
-
-    multiplier3 = queue3.get_backoff_multiplier()
-    # Old failures should have decayed significantly (exp(-3) ≈ 0.05)
-    # 5 failures * 0.05 = 0.25 score → minimal backoff
-    assert 1.0 <= multiplier3 < 1.5
-
-    # Scenario 4: Test aggressiveness parameter
-    queue4_low = DownloadFailureQueue(
-        max_age_seconds=300,
-        decay_tau_seconds=75,
-        max_backoff_factor=3.0,
-        aggressiveness=0.5  # Less aggressive
-    )
-    queue4_high = DownloadFailureQueue(
-        max_age_seconds=300,
-        decay_tau_seconds=75,
-        max_backoff_factor=3.0,
-        aggressiveness=2.0  # More aggressive
-    )
-
-    # Add same failures to both
+    # Add some failures
     for i in range(3):
-        queue4_low.add_item(DownloadFailureMode("TestException", f"Error {i}"))
-        queue4_high.add_item(DownloadFailureMode("TestException", f"Error {i}"))
+        queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message=f"Error {i}"))
 
-    mult_low = queue4_low.get_backoff_multiplier()
-    mult_high = queue4_high.get_backoff_multiplier()
+    assert queue.size == 3
 
-    # Higher aggressiveness should result in higher multiplier for same score
-    assert mult_high > mult_low
+    # Add a success - should remove one item from queue
+    queue.add_item(DownloadStatus(success=True))
+    assert queue.size == 2
+
+    # Add more failures
+    for i in range(2):
+        queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message=f"Error {i}"))
+
+    assert queue.size == 4
+
+    # Add another success
+    queue.add_item(DownloadStatus(success=True))
+    assert queue.size == 3
 
 
 def test_failure_queue_max_size():
@@ -415,7 +336,7 @@ def test_failure_queue_max_size():
 
     # Add more items than max
     for i in range(10):
-        queue.add_item(DownloadFailureMode("TestException", f"Error {i}"))
+        queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message=f"Error {i}"))
 
     assert queue.size == 5
 
