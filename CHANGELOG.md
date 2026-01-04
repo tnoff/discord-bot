@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.5.1
+
+General:
+- Added support for running as non-root user
+- Added log level configuration for 3rd party libraries
+- Fixed discord.py logger level configuration
+- Fixed third party logging config
+- Simplified init config options
+- Added better typing to music classes
+- Added logging to help diagnose extra character messages
+- Fixed handling of exit exceptions gracefully
+- Updated to Python 3.14
+
+Music:
+- Fleshed out retry logic in download client
+- Added retryable exceptions to download client
+- Simplified retry backoff implementation
+- Fixed ytdlp build path configuration
+- Fixed deno path in environment
+- Updated to use nightly build of yt-dlp
+- Updated to DapperTable v0.2.4
+
+Testing:
+- Added lockfile fixes and additional tests
+- Added text validation checks
+- Sleep and asyncio updates
+
+Dependencies:
+- Bumped pynacl from 1.6.1 to 1.6.2
+- Bumped boto3 from 1.42.12 to 1.42.20
+- Bumped psutil from 7.1.3 to 7.2.1
+- Bumped pydantic from 2.10.6 to 2.12.5
+- Bumped pydantic-yaml from 1.5.0 to 1.6.0
+- Bumped ytmusicapi from 1.11.3 to 1.11.4
+
 ## 2.5.0
 
 **BREAKING CHANGES:**
