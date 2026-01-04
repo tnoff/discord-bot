@@ -1,3 +1,4 @@
+from functools import partial
 from re import search
 from typing import List
 
@@ -13,6 +14,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
+from discord_bot.utils.common import async_retry_discord_message_command
 
 # Pydantic config models
 class RoleManagementConfig(BaseModel):
@@ -263,7 +265,7 @@ class RoleAssignment(CogHelper):
         Role functions.
         '''
         if ctx.invoked_subcommand is None:
-            await ctx.send('Invalid sub command passed...')
+            await async_retry_discord_message_command(partial(ctx.send, 'Invalid sub command passed...'))
 
     @role.command(name='list')
     @command_wrapper
@@ -272,7 +274,8 @@ class RoleAssignment(CogHelper):
         List all roles within the server
         '''
         if not self.check_required_roles(ctx):
-            return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'User "{ctx.author.display_name}" does not have required roles, skipping'))
         headers = [
             DapperTableHeader('Role Name', 30)
         ]
@@ -283,9 +286,9 @@ class RoleAssignment(CogHelper):
                 continue
             table.add_row([f'@{role.name}'])
         if table.size == 0:
-            return await ctx.send('No roles found')
+            return await async_retry_discord_message_command(partial(ctx.send, 'No roles found'))
         for item in table.print():
-            await ctx.send(f'{item}')
+            await async_retry_discord_message_command(partial(ctx.send, f'{item}'))
         return True
 
     @role.command(name='users')
@@ -295,11 +298,13 @@ class RoleAssignment(CogHelper):
         List all users with a specific role
         '''
         if not self.check_required_roles(ctx):
-            return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'User "{ctx.author.display_name}" does not have required roles, skipping'))
         role = self.clean_input(role_input)
         role_obj = self.get_role(ctx, role)
         if role_obj is None:
-            return await ctx.send(f'Unable to find role "{role}"')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'Unable to find role "{role}"'))
 
         headers = [
             DapperTableHeader('User Name', 30)
@@ -309,9 +314,10 @@ class RoleAssignment(CogHelper):
         for member in role_obj.members:
             table.add_row([f'@{member.display_name}'])
         if table.size == 0:
-            return await ctx.send(f'No users found for role "{role}"')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'No users found for role "{role}"'))
         for item in table.print():
-            await ctx.send(f'{item}')
+            await async_retry_discord_message_command(partial(ctx.send, f'{item}'))
         return True
 
     def get_managed_roles(self, ctx: Context, exclude_self_service: bool = False) -> dict:
@@ -380,7 +386,8 @@ class RoleAssignment(CogHelper):
         List all roles in the server that are available to your user to manage
         '''
         if not self.check_required_roles(ctx):
-            return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'User "{ctx.author.display_name}" does not have required roles, skipping'))
         headers = [
             DapperTableHeader('Role Name', 30),
             DapperTableHeader('Control', 10)
@@ -413,7 +420,7 @@ class RoleAssignment(CogHelper):
         for row in rows:
             table.add_row(row)
         if table.size == 0:
-            return await ctx.send('No roles found')
+            return await async_retry_discord_message_command(partial(ctx.send, 'No roles found'))
         for item in table.print():
             await ctx.send(f'{item}')
         return True
@@ -440,26 +447,32 @@ class RoleAssignment(CogHelper):
                 Role input must be last entered
         '''
         if not self.check_required_roles(ctx):
-            return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'User "{ctx.author.display_name}" does not have required roles, skipping'))
 
         inputs = self.clean_input(inputs)
         users, role_obj = await self.get_user_or_role(ctx, inputs)
         if not users or not role_obj:
-            return await ctx.send('Unable to find users or role from input')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     'Unable to find users or role from input'))
 
         if not self.check_override_role(ctx):
             if role_obj not in self.get_managed_roles(ctx, exclude_self_service=not self.check_only_self_service(ctx, users)):
-                return await ctx.send(f'Cannot add users to role "{role_obj.name}", you do not manage role. Use `!role available` to see a list of roles you manage')
+                return await async_retry_discord_message_command(partial(ctx.send,
+                                                                         f'Cannot add users to role "{role_obj.name}", you do not manage role. Use `!role available` to see a list of roles you manage'))
 
         for user_obj in users:
             if not self.check_required_roles(ctx, user=user_obj) and not self.check_override_role(ctx):
-                await ctx.send(f'User "{user_obj.display_name}" does not have required roles, skipping')
+                await async_retry_discord_message_command(partial(ctx.send,
+                                                                  f'User "{user_obj.display_name}" does not have required roles, skipping'))
                 continue
             if role_obj in user_obj.roles:
-                await ctx.send(f'User "{user_obj.display_name}" already has role "{role_obj.name}", skipping')
+                await async_retry_discord_message_command(partial(ctx.send,
+                                                                  f'User "{user_obj.display_name}" already has role "{role_obj.name}", skipping'))
                 continue
             await user_obj.add_roles(role_obj)
-            await ctx.send(f'Added user "{user_obj.display_name}" to role "{role_obj.name}"')
+            await async_retry_discord_message_command(partial(ctx.send,
+                                                              f'Added user "{user_obj.display_name}" to role "{role_obj.name}"'))
         return True
 
     @role.command(name='remove')
@@ -472,20 +485,25 @@ class RoleAssignment(CogHelper):
             Role input must be last entered
         '''
         if not self.check_required_roles(ctx):
-            return await ctx.send(f'User "{ctx.author.display_name}" does not have required roles, skipping')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     f'User "{ctx.author.display_name}" does not have required roles, skipping'))
 
         inputs = self.clean_input(inputs)
         users, role_obj = await self.get_user_or_role(ctx, inputs)
         if not users or not role_obj:
-            return await ctx.send('Unable to find users or role from input')
+            return await async_retry_discord_message_command(partial(ctx.send,
+                                                                     'Unable to find users or role from input'))
 
         if not self.check_override_role(ctx):
             if role_obj not in self.get_managed_roles(ctx, exclude_self_service=not self.check_only_self_service(ctx, users)):
-                return await ctx.send(f'Cannot remove users from role "{role_obj.name}", you do not manage role. Use `!role available` to see a list of roles you manage')
+                return await async_retry_discord_message_command(partial(ctx.send,
+                                                                         f'Cannot remove users from role "{role_obj.name}", you do not manage role. Use `!role available` to see a list of roles you manage'))
 
         for user_obj in users:
             if role_obj not in user_obj.roles:
-                await ctx.send(f'User "{user_obj.display_name}" does not have role "{role_obj.name}", skipping')
+                await async_retry_discord_message_command(partial(ctx.send,
+                                                                  f'User "{user_obj.display_name}" does not have role "{role_obj.name}", skipping'))
                 continue
             await user_obj.remove_roles(role_obj)
-            await ctx.send(f'Removed user "{user_obj.display_name}" from role "{role_obj.name}"')
+            await async_retry_discord_message_command(partial(ctx.send,
+                                                              f'Removed user "{user_obj.display_name}" from role "{role_obj.name}"'))
