@@ -1,8 +1,7 @@
-from asyncio import QueueFull
+from asyncio import QueueFull, QueueEmpty
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from functools import partial
-from math import exp
 from pathlib import Path
 from shutil import copyfile
 from typing import Callable, List
@@ -19,60 +18,44 @@ from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.utils.otel import otel_span_wrapper
 from discord_bot.utils.queue import Queue
 
-
 @dataclass
-class DownloadFailureMode:
+class DownloadStatus:
     '''
-    Download Failure Mode, each individual case
+    Download Status for tracking
     '''
-    exception_type: str
-    exception_message: str
+    success: bool = True
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
+    exception_type: str = None
+    exception_message: str = None
 
 class DownloadFailureQueue:
     '''
     Download Failure Rate Tracking
     '''
-    def __init__(self, max_size: int = 100, max_age_seconds: int = 300,
-                 base_wait_seconds: int = 300, decay_tau_seconds: int = 60,
-                 max_backoff_factor: float = 3.0, aggressiveness: float = 1.0):
+    def __init__(self, max_size: int = 100, max_age_seconds: int = 300):
         '''
         Download failure queue to track how often failures have been happening
 
         max_size : Track the last X items
         max_age_seconds : Maximum age of failures to keep (in seconds)
-        base_wait_seconds: Base backoff wait
-        # should usually be 1/3 to 1/5 of max_age_seconds window.
-        decay_tau_seconds: Exponential decay constant, simply "How quickly should old failures fade out"
-        max_backoff_factor: Cap on backoff multiplier
-        aggressiveness: Aggressiveness of factor curve, simply "Given a certain failure score, how fast should we approach the max backoff?"
         '''
-        # Validate parameters
-        if decay_tau_seconds <= 0:
-            raise ValueError("decay_tau_seconds must be positive")
-        if max_age_seconds <= 0:
-            raise ValueError("max_age_seconds must be positive")
-        if max_backoff_factor < 1.0:
-            raise ValueError("max_backoff_factor must be >= 1.0")
-        if aggressiveness <= 0:
-            raise ValueError("aggressiveness must be positive")
-
-        self.queue: Queue[DownloadFailureMode] = Queue(maxsize=max_size)
+        self.queue: Queue[DownloadStatus] = Queue(maxsize=max_size)
         self.max_age_seconds = max_age_seconds
 
-        self.base_wait = base_wait_seconds
-        self.decay_tau = decay_tau_seconds
-        self.max_factor = max_backoff_factor
-        self.k = aggressiveness
 
-    def add_item(self, new_item: DownloadFailureMode) -> bool:
+    def add_item(self, new_item: DownloadStatus) -> bool:
         '''
         Add new item and clean old entries
         '''
         # Clean old items before adding new one
         self._clean_old_items()
-
+        if new_item.success:
+            # If we hit a success, get the last queue item to reset some of the counters
+            try:
+                self.queue.get_nowait()
+            except QueueEmpty:
+                pass
+            return True
         while True:
             try:
                 self.queue.put_nowait(new_item)
@@ -106,26 +89,6 @@ class DownloadFailureQueue:
         Size of queue
         '''
         return self.queue.size()
-
-    def get_backoff_multiplier(self) -> float:
-        '''
-        Calculate backoff multiplier based on failure rate relative to wait period
-
-        Returns a multiplier
-        '''
-        now = datetime.now(timezone.utc)
-        score = 0.0
-
-        # Use items() method to safely iterate over queue contents
-        for failure in self.queue.items():
-            age = (now - failure.created_at).total_seconds()
-            score += exp(-age / self.decay_tau)
-
-        factor = 1.0 + (self.max_factor - 1.0) * (
-            1.0 - exp(-self.k * score)
-        )
-
-        return min(self.max_factor, factor)
 
 
 class DownloadClientException(Exception):

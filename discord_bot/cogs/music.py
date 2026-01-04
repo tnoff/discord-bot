@@ -31,7 +31,7 @@ from discord_bot.cogs.music_helpers.common import SearchType, MessageType, Multi
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryableException, match_generator
-from discord_bot.cogs.music_helpers.download_client import DownloadFailureQueue, DownloadFailureMode
+from discord_bot.cogs.music_helpers.download_client import DownloadStatus, DownloadFailureQueue
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -120,10 +120,6 @@ class MusicDownloadConfig(BaseModel):
     failure_tracking_max_size: int = Field(default=100, ge=1)
     # This should be roughly 'youtube_wait_period_minimum' x 10
     failure_tracking_max_age_seconds: int = Field(default=300, ge=1)
-    # Should be 1/5 -> 1/3 the size of failure_tracking_max_age_seconds
-    failure_tracking_decay_tau_seconds: int = Field(default=75, ge=1)
-    failure_tracking_backoff_aggressiveness: float = Field(default=1.0, ge=0.1)
-    failure_rate_threshold: float = Field(default=3.0, ge=0.1)
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -290,10 +286,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.download_failure_queue = DownloadFailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
-            base_wait_seconds=self.config.download.youtube_wait_period_minimum,
-            max_backoff_factor=self.config.download.failure_rate_threshold,
-            decay_tau_seconds=self.config.download.failure_tracking_decay_tau_seconds,
-            aggressiveness=self.config.download.failure_tracking_backoff_aggressiveness,
         )
 
         # Callback functions
@@ -955,6 +947,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
+                    self.download_failure_queue.add_item(DownloadStatus())
                     self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
                     # File exists on disk already, create again from cache
@@ -965,9 +958,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     # Dont return as we got the media download
                 except RetryableException as e:
                     self.logger.debug(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
-                    self.download_failure_queue.add_item(DownloadFailureMode(type(e).__name__, str(e)))
-                    # Apply exponential backoff based on failure rate
-                    backoff_multiplier = self.download_failure_queue.get_backoff_multiplier()
+                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
+                                                                        exception_message=str(e)))
+                    # Apply extra backoff for number of failures found
+                    backoff_multiplier = self.download_failure_queue.size
                     additional_backoff = int(self.config.download.youtube_wait_period_minimum * backoff_multiplier)
                     self.update_download_timestamp(add_additional_backoff=additional_backoff)
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
