@@ -57,5 +57,8 @@ WORKDIR "/opt/discord"
 # Switch to non-root user for runtime
 USER discord
 
+# Make sure cache dir exists
+RUN mkdir -p /opt/discord/.cache
+
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]
