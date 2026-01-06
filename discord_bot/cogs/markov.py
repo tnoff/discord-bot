@@ -22,7 +22,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -196,67 +196,68 @@ class Markov(CogHelper):
             return [m async for m in channel.history(after=after, limit=self.message_check_limit, oldest_first=True)]
 
         await sleep(self.loop_sleep_interval)
-        with otel_span_wrapper('markov.message_check', kind=SpanKind.CONSUMER):
-            retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
-            self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
+        retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
+        self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
 
-            with self.with_db_session() as db_session:
-                for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
-                    with otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL, attributes={'discord.channel': markov_channel.channel_id}):
-                        self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
-                        channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, markov_channel.channel_id))
-                        server = await async_retry_discord_message_command(partial(self.bot.fetch_guild, markov_channel.server_id))
-                        # Not sure why but this check in particular seems especially flakey
-                        emojis = await async_retry_discord_message_command(partial(server.fetch_emojis), max_retries=5)
-                        self.logger.info('Gathering markov messages for '
-                                        f'channel {markov_channel.channel_id}')
-                        # Start at the beginning of channel history,
-                        # slowly make your way make to current day
-                        if not markov_channel.last_message_id:
-                            messages = await async_retry_discord_message_command(partial(fetch_messages, channel, retention_cutoff))
-                        else:
-                            try:
-                                last_message = await async_retry_discord_message_command(partial(channel.fetch_message, markov_channel.last_message_id))
-                                messages = await async_retry_discord_message_command(partial(fetch_messages, channel, last_message))
-                            except NotFound:
-                                self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
-                                                    f' in channel {markov_channel.id}')
-                                # Last message on record not found
-                                # If this happens, wipe the channel clean and restart
-                                self.delete_channel_relations(db_session, markov_channel.id)
-                                markov_channel.last_message_id = None
-                                self.retry_commit(db_session)
-                                # Skip this channel for now
-                                continue
-
-                        if len(messages) == 0:
-                            self.logger.debug(f'No new messages for channel {markov_channel.channel_id}')
+        with self.with_db_session() as db_session:
+            for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
+                with otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL,
+                                       attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
+                                                   DiscordContextNaming.GUILD.value: markov_channel.server_id}):
+                    self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
+                    channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, markov_channel.channel_id))
+                    server = await async_retry_discord_message_command(partial(self.bot.fetch_guild, markov_channel.server_id))
+                    # Not sure why but this check in particular seems especially flakey
+                    emojis = await async_retry_discord_message_command(partial(server.fetch_emojis), max_retries=5)
+                    self.logger.info('Gathering markov messages for '
+                                    f'channel {markov_channel.channel_id}')
+                    # Start at the beginning of channel history,
+                    # slowly make your way make to current day
+                    if not markov_channel.last_message_id:
+                        messages = await async_retry_discord_message_command(partial(fetch_messages, channel, retention_cutoff))
+                    else:
+                        try:
+                            last_message = await async_retry_discord_message_command(partial(channel.fetch_message, markov_channel.last_message_id))
+                            messages = await async_retry_discord_message_command(partial(fetch_messages, channel, last_message))
+                        except NotFound:
+                            self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
+                                                f' in channel {markov_channel.id}')
+                            # Last message on record not found
+                            # If this happens, wipe the channel clean and restart
+                            self.delete_channel_relations(db_session, markov_channel.id)
+                            markov_channel.last_message_id = None
+                            self.retry_commit(db_session)
+                            # Skip this channel for now
                             continue
 
+                    if len(messages) == 0:
+                        self.logger.debug(f'No new messages for channel {markov_channel.channel_id}')
+                        continue
 
-                        for message in messages:
-                            self.logger.debug(f'Gathering message {message.id} '
-                                                f'for channel {markov_channel.channel_id}')
-                            add_message = True
-                            if not message.content or message.author.bot:
-                                add_message = False
-                            elif message.content[0] == '!':
-                                add_message = False
-                            corpus = None
-                            if add_message:
-                                corpus = clean_message(message.content, emojis)
-                            if corpus:
-                                self.logger.info(f'Attempting to add corpus "{corpus}" '
-                                                 f'to channel {markov_channel.channel_id}')
-                                self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
-                            markov_channel.last_message_id = message.id
-                            self.retry_commit(db_session)
-                        self.logger.debug(f'Done with channel {markov_channel.channel_id}')
 
-                # Clean up old messages
-                with otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
-                    retry_database_commands(db_session, partial(delete_old_records, db_session))
-                    self.logger.debug('Deleted expired/old markov relations')
+                    for message in messages:
+                        self.logger.debug(f'Gathering message {message.id} '
+                                            f'for channel {markov_channel.channel_id}')
+                        add_message = True
+                        if not message.content or message.author.bot:
+                            add_message = False
+                        elif message.content[0] == '!':
+                            add_message = False
+                        corpus = None
+                        if add_message:
+                            corpus = clean_message(message.content, emojis)
+                        if corpus:
+                            self.logger.info(f'Attempting to add corpus "{corpus}" '
+                                                f'to channel {markov_channel.channel_id}')
+                            self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
+                        markov_channel.last_message_id = message.id
+                        self.retry_commit(db_session)
+                    self.logger.debug(f'Done with channel {markov_channel.channel_id}')
+
+            # Clean up old messages
+            with otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
+                retry_database_commands(db_session, partial(delete_old_records, db_session))
+                self.logger.debug('Deleted expired/old markov relations')
 
     @group(name='markov', invoke_without_command=False)
     async def markov(self, ctx: Context):
