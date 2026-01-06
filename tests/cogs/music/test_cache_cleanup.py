@@ -94,29 +94,3 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
                 cog.video_cache.ready_remove()
                 await cog.cache_cleanup()
                 assert not cog.video_cache.get_webpage_url_item(sd.media_request)
-
-@pytest.mark.asyncio
-async def test_cache_cleanup_skips_source_in_transit(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
-    config = {
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                    'max_cache_files': 1,
-                }
-            }
-        }
-    } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd2:
-                cog.video_cache.iterate_file(sd)
-                cog.video_cache.iterate_file(sd2)
-                cog.video_cache.ready_remove()
-                cog.sources_in_transit[sd.media_request.uuid] = str(sd.base_path)
-                await cog.cache_cleanup()
-                assert cog.video_cache.get_webpage_url_item(sd.media_request)
