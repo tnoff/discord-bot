@@ -1047,7 +1047,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Create mock tasks
     mock_cleanup_task = Mock()
     mock_download_task = Mock()
-    mock_cache_task = Mock()
     mock_message_task = Mock()
     mock_history_task = Mock()
     mock_search_task = Mock()
@@ -1055,7 +1054,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
     cog._download_task = mock_download_task
-    cog._cache_cleanup_task = mock_cache_task
     cog._message_task = mock_message_task
     cog._history_playlist_task = mock_history_task
     cog._youtube_search_task = mock_search_task
@@ -1073,7 +1071,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Verify all tasks were cancelled
     mock_cleanup_task.cancel.assert_called_once()
     mock_download_task.cancel.assert_called_once()
-    mock_cache_task.cancel.assert_called_once()
     mock_message_task.cancel.assert_called_once()
     mock_history_task.cancel.assert_called_once()
     mock_search_task.cancel.assert_called_once()

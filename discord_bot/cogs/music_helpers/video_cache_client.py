@@ -41,6 +41,13 @@ class VideoCacheClient():
         self.bucket_name: str = bucket_name
         self.ignore_cleanup_paths: list[Path] = [Path(p) for p in (ignore_cleanup_paths or [])]
 
+    @property
+    def object_storage_enabled(self) -> bool:
+        '''
+        If object storage is enabled
+        '''
+        return self.bucket_name != None
+
     def verify_cache(self):
         '''
         Remove files in directory that are not cached
@@ -214,11 +221,11 @@ class VideoCacheClient():
         video_cache_ids: Files to re-download
         delete_without_backup: If file doesn't have backup, delete
         '''
+        if not self.object_storage_enabled:
+            if delete_without_backup:
+                self.remove_video_cache(video_cache_ids)
+            return False
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_download', kind=SpanKind.INTERNAL):
-            if not self.bucket_name:
-                if delete_without_backup:
-                    self.remove_video_cache(video_cache_ids)
-                return False
             with self.session_generator() as db_session:
                 remove_cache_videos = []
                 for video_cache_id in video_cache_ids:
@@ -238,13 +245,14 @@ class VideoCacheClient():
         bucket_name : Bucket name to upload to
         video_cache_id : ID of video cache file to upload
         '''
+        if not self.object_storage_enabled:
+            return False
+        with self.session_generator() as db_session:
+            item_exists = retry_database_commands(db_session, partial(database_functions.get_video_cache_backup, db_session, video_cache_id))
+            if item_exists:
+                return True
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.object_storage_backup', kind=SpanKind.INTERNAL):
-            if not self.bucket_name:
-                return False
             with self.session_generator() as db_session:
-                item_exists = retry_database_commands(db_session, partial(database_functions.get_video_cache_backup, db_session, video_cache_id))
-                if item_exists:
-                    return True
                 video_cache_item = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_id, db_session, video_cache_id))
                 if not video_cache_item.base_path:
                     return False

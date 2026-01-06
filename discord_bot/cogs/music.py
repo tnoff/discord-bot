@@ -176,7 +176,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.players = {}
         self._cleanup_task = None
         self._download_task = None
-        self._cache_cleanup_task = None
         self._message_task = None
         self._history_playlist_task = None
         self._youtube_search_task = None
@@ -250,10 +249,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.last_download_timestamp: int | None = None
 
-        # Use this to track the files being copied over currently
-        # So we dont delete them as they are in flight
-        self.sources_in_transit = {}
-
         # Multi Request bundles
         self.multirequest_bundles = {}
 
@@ -300,7 +295,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Timestamps for heartbeat gauges
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__send_message_loop_active_callback, 'Send message loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cache_cleanup_loop_active_callback, 'Cache cleanup loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__playlist_history_loop_active_callback, 'Playlist update loop heartbeat')
         if self.youtube_music_client:
@@ -339,16 +333,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             })
         ]
 
-    def __cache_cleanup_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._cache_cleanup_task and not self._cache_cleanup_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'cache_cleanup'
-            })
-        ]
     def __send_message_loop_active_callback(self, _options):
         '''
         Loop active callback check
@@ -430,8 +414,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, continue_exceptions=DiscordServerError)())
         if self.config.download.enable_youtube_music_search:
             self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
-        if self.config.download.cache.enable_cache_files:
-            self._cache_cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cache_cleanup, self.bot, self.logger)())
         if self.db_engine:
             self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger)())
 
@@ -464,8 +446,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._cleanup_task.cancel()
             if self._download_task:
                 self._download_task.cancel()
-            if self._cache_cleanup_task:
-                self._cache_cleanup_task.cancel()
             if self._message_task:
                 self._message_task.cancel()
             if self._history_playlist_task:
@@ -610,22 +590,26 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
+
+        if not self.players:
+            return
+
+        guilds = []
+        for _guild_id, player in self.players.items():
+            if player.shutdown_called:
+                self.logger.debug(f'Identified guild where music player shutdown called {player.guild.id}, sending to cleanup')
+                guilds.append(player.guild)
+                continue
+            if player.voice_channel_inactive_timeout(timeout_seconds=self.config.player.inactive_voice_channel_timeout):
+                message_context = MessageContext(player.guild.id, player.text_channel.id)
+                message_context.function = partial(player.text_channel.send, content='No one active in voice channel, shutting myself down',
+                                                    delete_after=self.config.general.message_delete_after)
+                self.message_queue.send_single_immutable([message_context])
+                self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
+                guilds.append(player.guild)
+        # Run in separate loop since the cleanup function removes items form self.players
+        # And you might hit issues where dict size changes during iteration
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.CONSUMER):
-            guilds = []
-            for _guild_id, player in self.players.items():
-                if player.shutdown_called:
-                    self.logger.debug(f'Identified guild where music player shutdown called {player.guild.id}, sending to cleanup')
-                    guilds.append(player.guild)
-                    continue
-                if player.voice_channel_inactive_timeout(timeout_seconds=self.config.player.inactive_voice_channel_timeout):
-                    message_context = MessageContext(player.guild.id, player.text_channel.id)
-                    message_context.function = partial(player.text_channel.send, content='No one active in voice channel, shutting myself down',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
-                    self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
-                    guilds.append(player.guild)
-            # Run in separate loop since the cleanup function removes items form self.players
-            # And you might hit issues where dict size changes during iteration
             for guild in guilds:
                 await self.cleanup(guild)
 
@@ -635,32 +619,31 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         After cache files marked for deletion, check if they are in use before deleting
         '''
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Bot in shutdown, exiting early')
-        await sleep(1)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
-            # Get metric data first
-            delete_videos = []
-            self.video_cache.ready_remove()
-            with self.with_db_session() as db_session:
-                # Then check for deleted videos
-                for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session)):
-                    # Check if video cache in use
-                    if str(video_cache.base_path) in self.sources_in_transit.values():
-                        continue
-                    delete_videos.append(video_cache.id)
+        # Check if video_cache is enabled
+        if not self.video_cache:
+            return False
 
+        # Get metric data first
+        delete_videos = []
+        self.video_cache.ready_remove()
+        with self.with_db_session() as db_session:
+            # Then check for deleted videos
+            for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session)):
+                delete_videos.append(video_cache.id)
+
+            with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
                 if delete_videos:
                     self.logger.debug(f'Identified cache videos ready for deletion {delete_videos}')
                     self.video_cache.remove_video_cache(delete_videos)
 
-                # Check for pending backup files
-                for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_no_backup, db_session)):
-                    self.video_cache.object_storage_backup(video_cache.id)
+                # Check for pending backup files, if object storage enabled
+                if self.video_cache.object_storage_enabled:
+                    for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_no_backup, db_session)):
+                        self.video_cache.object_storage_backup(video_cache.id)
+        if not delete_videos:
+            return False
 
-                return True
-
-
+        return True
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
@@ -678,10 +661,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if self.video_cache:
                     self.logger.info(f'Iterating file on base path {str(media_download.base_path)}')
                     self.video_cache.iterate_file(media_download)
-                self.sources_in_transit[media_download.media_request.uuid] = str(media_download.base_path)
                 player.file_dir.mkdir(exist_ok=True)
                 media_download.ready_file(guild_path=player.file_dir)
-                self.sources_in_transit.pop(media_download.media_request.uuid)
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
@@ -1000,8 +981,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             if media_request.download_file and player:
                 # Add sources to players
-                if not await self.add_source_to_player(media_download, player):
-                    return
+                await self.add_source_to_player(media_download, player)
+                # If downloaded file, pass onto player
+                await self.cache_cleanup()
+                return
+            return
 
     def __get_history_playlist(self, guild_id: int):
         '''
