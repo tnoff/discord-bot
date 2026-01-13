@@ -18,6 +18,7 @@ from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.metrics import set_meter_provider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import get_aggregated_resources, OTELResourceDetector
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -53,6 +54,20 @@ POSSIBLE_COGS = [
     UrbanDictionary,
     General,
 ]
+
+class FilterOKRetrySpans(SpanProcessor):
+    '''
+    Filter spammy spans for the retry clients
+    '''
+    def on_end(self, span: ReadableSpan):
+        '''
+        Overrides on_end, filter spans
+        '''
+        if span.name in ["sql_retry.retry_db_command", "utils.retry_command_async"]:
+            if span.status.is_ok():
+                return
+        # Normal processing
+        super().on_end(span)
 
 def read_config(config_file: str) -> dict:
     '''
@@ -130,27 +145,23 @@ def main(config_file): #pylint:disable=too-many-statements
     settings = read_config(config_file)
     try:
         # Validate using Pydantic
-        GeneralConfig(**settings['general'])
+        general_config = GeneralConfig(**settings['general'])
     except PydanticValidationError as exc:
         print(f'Invalid config, general section does not match schema: {str(exc)}', file=stderr)
         raise DiscordBotException('Invalid general config') from exc
 
     # Grab db engine for possible dump or load commands
-    try:
-        db_engine = create_engine(settings['general']['sql_connection_statement'], pool_pre_ping=True)
+    if general_config.sql_connection_statement:
+        db_engine = create_engine(general_config.sql_connection_statement, pool_pre_ping=True)
         BASE.metadata.create_all(db_engine)
         BASE.metadata.bind = db_engine
-    except KeyError:
+    else:
         print('Unable to find sql statement in settings, assuming no db', file=stderr)
         db_engine = None
 
     try:
-        # Instrument otlp if enabled
-        monitoring_settings = settings['general'].get('monitoring', {})
-        otlp_settings = monitoring_settings.get('otlp', {})
-
         logger_provider = None
-        if otlp_settings.get('enabled', False):
+        if general_config.monitoring and general_config.monitoring.otlp.enabled:
             tracer_provider = TracerProvider()
             trace.set_tracer_provider(tracer_provider)
             # Add some tracing instrumentation
@@ -159,7 +170,12 @@ def main(config_file): #pylint:disable=too-many-statements
             SQLAlchemyInstrumentor().instrument(tracer_provider=tracer_provider, enable_commenter=True, commenter_options={})
             # Set span exporters
             span_exporter = OTLPSpanExporter()
-            trace.get_tracer_provider().add_span_processor(
+            trace_provider = trace.get_tracer_provider()
+            if general_config.monitoring.otlp.filter_high_volume_spans:
+                trace_provider.add_span_processor(
+                    FilterOKRetrySpans()
+                )
+            trace_provider.add_span_processor(
                 BatchSpanProcessor(span_exporter)
             )
             # Set metrics
@@ -179,7 +195,7 @@ def main(config_file): #pylint:disable=too-many-statements
 
         # Grab logger
         print('Starting logging', file=stderr)
-        logger = get_logger('main', settings['general'].get('logging', {}))
+        logger = get_logger('main', general_config.logging)
 
 
 
@@ -187,60 +203,53 @@ def main(config_file): #pylint:disable=too-many-statements
         # (discord.py, yt-dlp, etc.) while keeping our application loggers at configured levels
         # Default to WARNING (30) if not configured
         root_logger = logging.getLogger()
-        third_party_level = settings['general'].get('logging', {}).get('third_party_log_level', 30)
+        third_party_level = general_config.logging.third_party_log_level if general_config.logging else 30
         root_logger.setLevel(third_party_level)
 
         # Add loggers for discord.py
-        discord_logger = get_logger('discord', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+        discord_logger = get_logger('discord', general_config.logging, otlp_logger=logger_provider)
         discord_logger.setLevel(third_party_level)
 
 
         # Start memory profiling if enabled
-        memory_profiling_settings = monitoring_settings.get('memory_profiling', {})
-        if memory_profiling_settings.get('enabled', False):
+        if general_config.monitoring and general_config.monitoring.memory_profiling and general_config.monitoring.memory_profiling.enabled:
             logger.info('Main :: Starting memory profiler')
-            memory_profiler_logger = get_logger('memory_profiler', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+            memory_profiler_logger = get_logger('memory_profiler', general_config.logging, otlp_logger=logger_provider)
             memory_profiler_logger.setLevel(logging.INFO)
-            interval_seconds = memory_profiling_settings.get('interval_seconds', 60)
-            top_n_lines = memory_profiling_settings.get('top_n_lines', 25)
+            interval_seconds = general_config.monitoring.memory_profiling.interval_seconds
+            top_n_lines = general_config.monitoring.memory_profiling.top_n_lines
             memory_profiler = MemoryProfiler(memory_profiler_logger, interval_seconds=interval_seconds, top_n_lines=top_n_lines)
             memory_profiler.start()
 
         # Start process metrics profiling if enabled
-        process_metrics_settings = monitoring_settings.get('process_metrics', {})
-        if process_metrics_settings.get('enabled', False):
+        if general_config.monitoring and general_config.monitoring.process_metrics and general_config.monitoring.process_metrics.enabled:
             logger.info('Main :: Starting process metrics profiler')
-            process_metrics_logger = get_logger('process_metrics', settings['general'].get('logging', {}), otlp_logger=logger_provider)
+            process_metrics_logger = get_logger('process_metrics', general_config.logging, otlp_logger=logger_provider)
             process_metrics_logger.setLevel(logging.INFO)
-            interval_seconds = process_metrics_settings.get('interval_seconds', 15)
+            interval_seconds = general_config.monitoring.process_metrics.interval_seconds
             process_metrics_profiler = ProcessMetricsProfiler(process_metrics_logger, interval_seconds=interval_seconds)
             process_metrics_profiler.start()
 
         # Run main bot
-        main_runner(settings, logger, db_engine)
+        main_runner(general_config, settings, logger, db_engine)
     finally:
         # Ensure database engine is properly disposed
         if db_engine:
             db_engine.dispose()
 
-def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
+def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogger, db_engine: Engine):
     '''
     Main runner logic
     '''
-    try:
-        token = settings['general']['discord_token']
-    except KeyError as exc:
-        raise DiscordBotException('Unable to run bot without token') from exc
+    token = general_config.discord_token
 
     logger.debug('Main :: Generating Intents')
     intents = Intents.default()
-    try:
-        intent_list = list(settings['general']['intents'])
+    intent_list = list(general_config.intents)
+    if intent_list:
         logger.debug(f'Main :: Adding extra intents: {intent_list}')
         for intent in intent_list:
             setattr(intents, intent, True)
-    except KeyError:
-        pass
 
     bot = Bot(
         command_prefix=when_mentioned_or("!"),
@@ -249,7 +258,7 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
     )
 
     cog_list = [
-        CommandErrorHandler(bot, settings),
+        CommandErrorHandler(bot, general_config),
     ]
     for cog in POSSIBLE_COGS:
         try:
@@ -259,9 +268,7 @@ def main_runner(settings: dict, logger: RootLogger, db_engine: Engine):
             logger.debug(f'Main :: Cannot add cog {str(cog)}, {str(e)}')
 
     # Make sure we cast to string here just to keep it consistent
-    rejectlist_guilds = []
-    for guild in settings['general'].get('rejectlist_guilds', []):
-        rejectlist_guilds.append(guild)
+    rejectlist_guilds = list(general_config.rejectlist_guilds)
     logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
 
     @bot.event
