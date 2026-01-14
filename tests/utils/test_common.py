@@ -9,7 +9,7 @@ from opentelemetry.trace.status import StatusCode
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.common import GeneralConfig, LoggingConfig
 from discord_bot.utils.common import get_logger
 from discord_bot.utils.common import async_retry_command
 from discord_bot.utils.common import async_retry_discord_message_command
@@ -132,20 +132,20 @@ def test_pydantic_otlp_config_minimal():
 
 def test_get_logger():
     # Test default options
-    logger = get_logger('foo', {})
+    logger = get_logger('foo', None)
     assert logger.getEffectiveLevel() == 10
     assert logger.hasHandlers() is True
 
 
     with TemporaryDirectory() as tmp_dir:
         # Test some more specific options
-        log_args =  {
-            'log_dir': tmp_dir,
-            'log_file_count': 1,
-            'log_file_max_bytes': 10 * 1024,
-            'log_level': 30,
-        }
-        logger = get_logger('foo', log_args)
+        logging_config = LoggingConfig(
+            log_dir=tmp_dir,
+            log_file_count=1,
+            log_file_max_bytes=10 * 1024,
+            log_level=30,
+        )
+        logger = get_logger('foo', logging_config)
         assert logger.getEffectiveLevel() == 30
         assert logger.hasHandlers() is True
 

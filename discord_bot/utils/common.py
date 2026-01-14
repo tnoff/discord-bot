@@ -25,6 +25,8 @@ OTEL_SPAN_PREFIX = 'utils'
 class MonitoringOtlpConfig(BaseModel):
     '''OTLP monitoring configuration'''
     enabled: bool
+    # Filter high volume spans, only filters those in OK state
+    filter_high_volume_spans: bool = True
 
 class MonitoringMemoryProfilingConfig(BaseModel):
     '''Memory profiling monitoring configuration'''
@@ -78,32 +80,32 @@ class SkipRetrySleep(Exception):
     Call this to skip generic retry logic
     '''
 
-def get_logger(logger_name, logging_section, otlp_logger=None):
+def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
     '''
     Generic logger
     '''
     logger = getLogger(logger_name)
-    logging_format = logging_section.get('logging_format', '%(asctime)s - %(levelname)s - %(message)s')
-    logging_date_format = logging_section.get('logging_date_format', '%Y-%m-%dT%H-%M-%S')
+    logging_format = logging_config.logging_format if logging_config else '%(asctime)s - %(levelname)s - %(message)s'
+    logging_date_format = logging_config.logging_date_format if logging_config else '%Y-%m-%dT%H-%M-%S'
     formatter = Formatter(logging_format, datefmt=logging_date_format)
     # If no logging section given, return generic logger
     # That logs to stdout
-    if not logging_section:
+    if not logging_config:
         ch = StreamHandler(stdout)
         ch.setFormatter(formatter)
         logger.addHandler(ch)
         logger.setLevel(10)
         return logger
     # Else set more proper rotated file logging
-    log_file = Path(logging_section['log_dir']) / f'{logger_name}.log'
+    log_file = Path(logging_config.log_dir) / f'{logger_name}.log'
     fh = RotatingFileHandler(str(log_file),
-                             backupCount=logging_section['log_file_count'],
-                             maxBytes=logging_section['log_file_max_bytes'])
+                             backupCount=logging_config.log_file_count,
+                             maxBytes=logging_config.log_file_max_bytes)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-    logger.setLevel(logging_section['log_level'])
+    logger.setLevel(logging_config.log_level)
     if otlp_logger:
-        handler = LoggingHandler(level=logging_section['log_level'], logger_provider=otlp_logger)
+        handler = LoggingHandler(level=logging_config.log_level, logger_provider=otlp_logger)
         logger.addHandler(handler)
 
     return logger

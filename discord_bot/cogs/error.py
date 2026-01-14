@@ -1,5 +1,5 @@
 from discord.ext import commands
-from discord_bot.utils.common import get_logger
+from discord_bot.utils.common import get_logger, GeneralConfig
 
 # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
 class CommandErrorHandler(commands.Cog):
@@ -7,9 +7,9 @@ class CommandErrorHandler(commands.Cog):
     Handle command errors
     '''
 
-    def __init__(self, bot: commands.Bot, settings: dict):
+    def __init__(self, bot: commands.Bot, config: GeneralConfig):
         self.bot = bot
-        self.logger = get_logger(type(self).__name__, settings['general'].get('logging', {}))
+        self.logger = get_logger(type(self).__name__, config.logging)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
