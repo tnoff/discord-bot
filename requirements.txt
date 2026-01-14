@@ -6,7 +6,7 @@ click==8.3.1
 croniter==6.0.0
 discord.py==2.6.4
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.2.4
-google-api-python-client==2.187.0
+google-api-python-client==2.188.0
 moviepy==2.2.1
 pydantic==2.12.5
 pydantic-yaml==1.6.0
