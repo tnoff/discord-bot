@@ -30,8 +30,6 @@ COPY scripts/ "${WORKDIR}/scripts/"
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN pip install "${APPDIR}"
-# Install nightly build of yt-dlp
-RUN python -m pip install -U --pre "yt-dlp[default]"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
