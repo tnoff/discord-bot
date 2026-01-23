@@ -517,6 +517,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
 
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
+            self.logger.info(f'Received new message type {source_type} with item {str(item)}')
             if source_type == MessageType.SINGLE_IMMUTABLE:
                 for message_context in item:
                     await async_retry_discord_message_command(message_context.function, allow_404=True)

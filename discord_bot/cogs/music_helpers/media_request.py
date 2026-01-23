@@ -151,6 +151,10 @@ class MultiMediaRequestBundle():
         self.created_at: datetime = datetime.now(timezone.utc)
         self.finished_at: datetime | None = None
 
+    def __str__(self):
+        '''Str call'''
+        return f'{self.uuid}'
+
     def all_requests_added(self):
         '''
         Mark all requests as added

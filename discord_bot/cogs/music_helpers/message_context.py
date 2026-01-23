@@ -59,6 +59,10 @@ class MessageContext():
         await self.message.edit(**kwargs)
         return True
 
+    def __str__(self):
+        '''Str call'''
+        return f'{self.uuid}'
+
 
 class MuableBundleInvalidMessageContent(Exception):
     '''
