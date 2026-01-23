@@ -64,7 +64,7 @@ class FilterOKRetrySpans(SpanProcessor):
         Overrides on_end, filter spans
         '''
         if span.name in ["sql_retry.retry_db_command", "utils.retry_command_async"]:
-            if span.status.is_ok():
+            if span.status.is_ok:
                 return
         # Normal processing
         super().on_end(span)
