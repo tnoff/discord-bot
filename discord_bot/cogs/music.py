@@ -818,7 +818,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         random.seed(time())
         # Use millisecond variance to add some extra randomness
         wait_until = int(self.last_download_timestamp) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
-        self.logger.debug(f'Waiting on backoff in youtube, waiting until {wait_until}')
+        self.logger.info(f'Waiting on backoff in youtube, waiting until {wait_until}')
 
         # Calculate how long to wait
         now = datetime.now(timezone.utc).timestamp()
@@ -901,7 +901,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                             sticky_messages=False,
                         )
                     return
-            self.logger.debug(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
+            self.logger.info(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
 
             # If cache enabled and search string with 'https://' given, try to grab this first
             media_download = await self.__check_video_cache(media_request)
@@ -928,6 +928,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
+                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}')
                     self.download_failure_queue.add_item(DownloadStatus())
                     self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
@@ -938,11 +939,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     span.set_status(StatusCode.OK)
                     # Dont return as we got the media download
                 except RetryableException as e:
-                    self.logger.debug(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
+                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
                     self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
                                                                         exception_message=str(e)))
                     # Apply extra backoff for number of failures found
-                    backoff_multiplier = self.download_failure_queue.size
+                    # Do some exponential backoff as well since this tends to be pretty agressive
+                    backoff_multiplier = 2 ** self.download_failure_queue.size
                     additional_backoff = int(self.config.download.youtube_wait_period_minimum * backoff_multiplier)
                     self.update_download_timestamp(add_additional_backoff=additional_backoff)
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
@@ -955,7 +957,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         span.record_exception(e)
                         return
                     # Else lets mark the error
-                    self.logger.warning(f'Retryable exception hit but max retries hit "{str(media_request)}", {str(e)}')
+                    self.logger.error(f'Retryable exception hit but max retries hit "{str(media_request)}", {str(e)}')
                     await self.__return_bad_video(media_request, e)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
