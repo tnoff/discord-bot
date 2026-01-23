@@ -259,7 +259,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'logtostderr': False,
-            'logger': get_logger('ytdlp', settings.get('general', {}).get('logging', {})),
+            'logger': get_logger('ytdlp', self.logging_config),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(self.temp_download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),

@@ -38,8 +38,8 @@ class CogHelper(Cog):
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
         logging_dict = settings.get('general', {}).get('logging', {})
-        logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
-        self.logger = get_logger(self._cog_name, logging_config)
+        self.logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
+        self.logger = get_logger(self._cog_name, self.logging_config)
         self.settings = settings
         self.db_engine = db_engine
         self.config: Optional[BaseModel] = None
