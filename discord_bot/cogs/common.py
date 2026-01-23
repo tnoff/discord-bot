@@ -11,7 +11,7 @@ from sqlalchemy.orm.session import Session
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import get_logger
+from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.sql_retry import retry_database_commands
 
 class CogHelper(Cog):
@@ -37,7 +37,9 @@ class CogHelper(Cog):
 
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
-        self.logger = get_logger(self._cog_name, settings.get('general', {}).get('logging', {}))
+        logging_dict = settings.get('general', {}).get('logging', {})
+        logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
+        self.logger = get_logger(self._cog_name, logging_config)
         self.settings = settings
         self.db_engine = db_engine
         self.config: Optional[BaseModel] = None
