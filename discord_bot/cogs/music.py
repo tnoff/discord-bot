@@ -118,8 +118,8 @@ class MusicDownloadConfig(BaseModel):
     max_download_retries: int = Field(default=3, ge=1)
     # Mostly to keep a cap on the queue to avoid issues
     failure_tracking_max_size: int = Field(default=100, ge=1)
-    # This should be roughly 'youtube_wait_period_minimum' x 10
-    failure_tracking_max_age_seconds: int = Field(default=300, ge=1)
+    # Recommended to be at least an hour
+    failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -246,8 +246,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
             self.video_cache.verify_cache()
 
-
-        self.last_download_timestamp: int | None = None
+        # Wait until this timestamp to download next video from youtube
+        self.youtube_download_wait_timestamp: int | None = None
 
         # Multi Request bundles
         self.multirequest_bundles = {}
@@ -802,7 +802,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
         return True
 
-    async def youtube_backoff_time(self, minimum_wait_time: int, max_variance: int):
+    async def youtube_backoff_time(self):
         '''
         Wait for next youtube download time
         Wait for minimum time plus a random interval, where max is set by max variance
@@ -810,20 +810,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         minimum_wait_time : Wait at least this amount of time
         max_variance : Max variance to add from random value
         '''
-        if self.last_download_timestamp is None:
+        if self.youtube_download_wait_timestamp is None:
             self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
             # If no timestamp exists, assume we dont need to wait
             return True
-        # https://stackoverflow.com/a/51295230
-        # Use timestamp to set a bit more random variance
-        random.seed(time())
-        # Use millisecond variance to add some extra randomness
-        wait_until = int(self.last_download_timestamp) + minimum_wait_time + (random.randint(1, max_variance * 1000) / 1000)
-        self.logger.info(f'Waiting on backoff in youtube, waiting until {wait_until}')
+
 
         # Calculate how long to wait
         now = datetime.now(timezone.utc).timestamp()
-        sleep_duration = max(0, wait_until - now)
+        sleep_duration = max(0, self.youtube_download_wait_timestamp - now)
 
         # Check if bot is already shutting down before waiting
         if self.bot_shutdown_event.is_set():
@@ -846,18 +841,26 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
 
     def update_download_timestamp(self, media_download: MediaDownload = None,
-                                 add_additional_backoff: int=0) -> bool:
+                                  backoff_multiplier: int = 1) -> bool:
         '''
         Update the download lockfile
 
         media_download : Media Download
-        add_additional_backoff : Add more backoff time to existing timestamp
+        backoff_multiplier: Multiply backoff time by factor
 
         '''
         if media_download and media_download.extractor != 'youtube':
+            self.logger.warning(f'Media Download does not exist of does not have youtube media, download: "{str(media_download)}"')
             return False
-        new_timestamp = int(datetime.now(timezone.utc).timestamp()) + add_additional_backoff
-        self.last_download_timestamp = new_timestamp
+        new_timestamp = int(datetime.now(timezone.utc).timestamp())
+        new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
+        # Use millisecond variance to add some extra randomness
+        # https://stackoverflow.com/a/51295230
+        # Use timestamp to set a bit more random variance
+        random.seed(time())
+        new_timestamp = new_timestamp + (random.randint(1, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
+        self.logger.info(f'Waiting on backoff in youtube, waiting until {new_timestamp}')
+        self.youtube_download_wait_timestamp = new_timestamp
         return True
 
     async def download_files(self): #pylint:disable=too-many-statements
@@ -918,7 +921,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 # Make sure we wait for next video download
                 # Dont spam the video client
-                await self.youtube_backoff_time(self.config.download.youtube_wait_period_minimum, self.config.download.youtube_wait_period_max_variance)
+                await self.youtube_backoff_time()
                 # Update bundle to show in progress
                 if bundle:
                     bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
@@ -929,7 +932,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
-                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}')
+                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}')
                     self.download_failure_queue.add_item(DownloadStatus())
                     self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
@@ -940,21 +943,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     span.set_status(StatusCode.OK)
                     # Dont return as we got the media download
                 except RetryableException as e:
-                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}, {str(e)}')
+                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
                     self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
                                                                         exception_message=str(e)))
                     # Apply extra backoff for number of failures found
                     # Do some exponential backoff as well since this tends to be pretty agressive
-                    backoff_multiplier = 2 ** self.download_failure_queue.size
-                    additional_backoff = int(self.config.download.youtube_wait_period_minimum * backoff_multiplier)
-                    self.update_download_timestamp(add_additional_backoff=additional_backoff)
+                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                     # If we should, retry
                     if media_request.retry_count < self.config.download.max_download_retries:
                         self.download_queue.put_nowait(media_request.guild_id, media_request)
                         if bundle:
                             bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
-                        span.set_status(StatusCode.ERROR)
+                        span.set_status(StatusCode.OK)
                         span.record_exception(e)
                         return
                     # Else lets mark the error
