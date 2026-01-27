@@ -932,7 +932,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     )
                 try:
                     media_download = await self.download_client.create_source(media_request, self.bot.loop)
-                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}')
+                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
                     self.download_failure_queue.add_item(DownloadStatus())
                     self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
