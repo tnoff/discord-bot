@@ -858,7 +858,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # https://stackoverflow.com/a/51295230
         # Use timestamp to set a bit more random variance
         random.seed(time())
-        new_timestamp = new_timestamp + (random.randint(1, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
+        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
         self.logger.info(f'Waiting on backoff in youtube, waiting until {new_timestamp}')
         self.youtube_download_wait_timestamp = new_timestamp
         return True
