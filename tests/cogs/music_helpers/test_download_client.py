@@ -188,7 +188,7 @@ async def test_retryable_exception_on_timeout():
 
     # Verify the exception contains the media request
     assert exc.value.media_request == y
-    assert 'Can retry media download' in str(exc.value)
+    assert 'Untracked error message' in str(exc.value)
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_exception_increments_retry_count():

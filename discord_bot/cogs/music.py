@@ -959,7 +959,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         span.record_exception(e)
                         return
                     # Else lets mark the error
-                    self.logger.error(f'Retryable exception hit but max retries hit "{str(media_request)}", {str(e)}')
+                    self.logger.error(f'Max retires hit with "{str(media_request)}", retryable exception {str(e)}')
                     await self.__return_bad_video(media_request, e)
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)

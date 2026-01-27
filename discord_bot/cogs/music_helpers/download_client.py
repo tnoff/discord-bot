@@ -260,7 +260,7 @@ class DownloadClient():
                 span.set_status(StatusCode.ERROR)
                 span.record_exception(error)
                 media_request.retry_count += 1
-                raise RetryableException('Can retry media download', media_request=media_request) from error
+                raise RetryableException('Untracked error message', media_request=media_request) from error
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:
