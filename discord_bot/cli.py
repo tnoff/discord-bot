@@ -57,17 +57,30 @@ POSSIBLE_COGS = [
 
 class FilterOKRetrySpans(SpanProcessor):
     '''
-    Filter spammy spans for the retry clients
+    Filter spammy spans for the retry clients.
+    Wraps another SpanProcessor and only forwards spans that should not be filtered.
     '''
+    def __init__(self, next_processor: SpanProcessor):
+        self._next = next_processor
+
+    def on_start(self, span, parent_context=None):
+        self._next.on_start(span, parent_context)
+
     def on_end(self, span: ReadableSpan):
         '''
-        Overrides on_end, filter spans
+        Overrides on_end, filter OK retry spans
         '''
         if span.name in ["sql_retry.retry_db_command", "utils.retry_command_async"]:
             if span.status.is_ok:
-                return
-        # Normal processing
-        super().on_end(span)
+                return  # Don't forward to next processor
+        # Forward to next processor
+        self._next.on_end(span)
+
+    def shutdown(self):
+        self._next.shutdown()
+
+    def force_flush(self, timeout_millis=30000):
+        return self._next.force_flush(timeout_millis)
 
 def read_config(config_file: str) -> dict:
     '''
@@ -171,13 +184,12 @@ def main(config_file): #pylint:disable=too-many-statements
             # Set span exporters
             span_exporter = OTLPSpanExporter()
             trace_provider = trace.get_tracer_provider()
+            batch_processor = BatchSpanProcessor(span_exporter)
             if general_config.monitoring.otlp.filter_high_volume_spans:
-                trace_provider.add_span_processor(
-                    FilterOKRetrySpans()
-                )
-            trace_provider.add_span_processor(
-                BatchSpanProcessor(span_exporter)
-            )
+                # Wrap batch processor to filter out OK retry spans before export
+                trace_provider.add_span_processor(FilterOKRetrySpans(batch_processor))
+            else:
+                trace_provider.add_span_processor(batch_processor)
             # Set metrics
             # Need to grab this directly for one reason or another with metrics
             resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
