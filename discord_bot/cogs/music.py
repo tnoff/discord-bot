@@ -610,9 +610,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guilds.append(player.guild)
         # Run in separate loop since the cleanup function removes items form self.players
         # And you might hit issues where dict size changes during iteration
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup_players', kind=SpanKind.CONSUMER):
-            for guild in guilds:
-                await self.cleanup(guild)
+        for guild in guilds:
+            await self.cleanup(guild)
 
     async def cache_cleanup(self):
         '''
