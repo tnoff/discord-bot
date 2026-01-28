@@ -7,9 +7,9 @@ import pytest
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.music_helpers.download_client import (
-    DownloadClient, InvalidFormatException, VideoTooLong,
+    DownloadClient, InvalidFormatException, VideoTooLong, DownloadClientException,
     RetryableException, BotDownloadFlagged, DownloadTerminalException, VideoAgeRestrictedException,
-    DownloadFailureQueue, DownloadStatus, match_generator
+    DownloadFailureQueue, DownloadStatus, match_generator, RetryLimitExceeded
 )
 
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -73,7 +73,7 @@ async def test_prepare_source():
             fake_context = generate_fake_context()
             x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir))
             y = fake_source_dict(fake_context)
-            result = await x.create_source(y, loop)
+            result = await x.create_source(y, 3, loop)
             assert result.webpage_url == 'https://example.foo.com'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -82,7 +82,7 @@ async def test_prepare_source_no_download():
     fake_context = generate_fake_context()
     x = DownloadClient(MockYTDLP(), None)
     y = fake_source_dict(fake_context, download_file=False)
-    result = await x.create_source(y, loop)
+    result = await x.create_source(y, 3, loop)
     assert result.webpage_url == 'https://example.foo.com'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -93,44 +93,44 @@ async def test_prepare_source_errors():
     x = DownloadClient(yield_dlp_error('Sign in to confirm your age. This video may be inappropriate for some users'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadTerminalException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'Video is age restricted, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadTerminalException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'Video is unvailable due to violating terms of service, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error('Video unavailable'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadTerminalException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'Video is unavailable, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error('Private video'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadTerminalException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'Video is private, cannot download' in str(exc.value.user_message)
 
     x = DownloadClient(yield_dlp_error("Sign in to confirm you're not a bot"), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(RetryableException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     # BotDownloadFlagged is now a RetryableException
     assert exc.value.media_request.retry_count == 1
 
     x = DownloadClient(yield_dlp_error('Requested format is not available'), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(InvalidFormatException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'Video format not available' in str(exc.value)
 
     x = DownloadClient(MockYTDLPNoData(), None)
     y = fake_source_dict(fake_context, download_file=False)
     with pytest.raises(DownloadTerminalException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
     assert 'No videos found' in str(exc.value)
 
 def test_match_generator_video_too_long_improved_message():
@@ -184,7 +184,7 @@ async def test_retryable_exception_on_timeout():
 
     # Should raise RetryableException
     with pytest.raises(RetryableException) as exc:
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
 
     # Verify the exception contains the media request
     assert exc.value.media_request == y
@@ -204,7 +204,7 @@ async def test_retryable_exception_increments_retry_count():
 
     # Attempt download, should raise RetryableException and increment retry_count
     with pytest.raises(RetryableException):
-        await x.create_source(y, loop)
+        await x.create_source(y, 3, loop)
 
     # Retry count should be incremented
     assert y.retry_count == 1
@@ -228,7 +228,7 @@ async def test_all_unknown_errors_are_retryable():
         y = fake_source_dict(fake_context, download_file=False)
 
         with pytest.raises(RetryableException) as exc:
-            await x.create_source(y, loop)
+            await x.create_source(y, 3, loop)
 
         assert exc.value.media_request == y
         assert y.retry_count >= 1  # Should have incremented retry count
@@ -345,3 +345,67 @@ def test_failure_queue_max_size():
     messages = [item.exception_message for item in items]
     assert "Error 9" in messages
     assert "Error 0" not in messages
+
+
+# ========== RetryLimitExceeded Tests ==========
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retry_limit_exceeded_on_bot_flagged():
+    """Test that RetryLimitExceeded is raised when retry count hits max on bot flagged error"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    x = DownloadClient(yield_dlp_error("Sign in to confirm you're not a bot"), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # Set retry count to max_retries - 1, so next attempt hits the limit
+    y.retry_count = 2
+
+    # With max_retries=3 and retry_count=2, 2+1 >= 3 is True, so RetryLimitExceeded should be raised
+    with pytest.raises(RetryLimitExceeded) as exc:
+        await x.create_source(y, 3, loop)
+
+    assert 'Retry limit exceeded' in str(exc.value)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retry_limit_exceeded_on_unknown_error():
+    """Test that RetryLimitExceeded is raised when retry count hits max on unknown error"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    x = DownloadClient(yield_dlp_error('Some random unknown error'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # Set retry count to max_retries - 1
+    y.retry_count = 2
+
+    # With max_retries=3 and retry_count=2, should raise RetryLimitExceeded
+    with pytest.raises(RetryLimitExceeded) as exc:
+        await x.create_source(y, 3, loop)
+
+    assert 'Retry limit exceeded' in str(exc.value)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retry_limit_exceeded_with_max_retries_one():
+    """Test that RetryLimitExceeded is raised immediately when max_retries=1"""
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+
+    x = DownloadClient(yield_dlp_error('Read timed out.'), None)
+    y = fake_source_dict(fake_context, download_file=False)
+
+    # With max_retries=1 and retry_count=0, 0+1 >= 1 is True
+    with pytest.raises(RetryLimitExceeded):
+        await x.create_source(y, 1, loop)
+
+
+def test_retry_limit_exceeded_exception_hierarchy():
+    """Test that RetryLimitExceeded is a DownloadClientException"""
+
+    exc = RetryLimitExceeded('Test message')
+    assert isinstance(exc, DownloadClientException)
+    assert isinstance(exc, Exception)
+    # RetryLimitExceeded should NOT be a RetryableException (it's the terminal state)
+    assert not isinstance(exc, RetryableException)

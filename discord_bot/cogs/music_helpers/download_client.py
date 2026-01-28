@@ -117,6 +117,9 @@ class RetryableException(DownloadClientException):
         super().__init__(self.message, user_message=user_message)
         self.media_request = media_request
 
+class RetryLimitExceeded(DownloadClientException):
+    '''When retry limit has been exceeded'''
+
 class InvalidFormatException(DownloadTerminalException):
     '''
     When requested format not available
@@ -219,9 +222,12 @@ class DownloadClient():
         self.ytdl: YoutubeDL = ytdl
         self.download_dir: Path = download_dir
 
-    def __prepare_data_source(self, media_request: MediaRequest):
+    def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
         '''
         Prepare source from youtube url
+
+        media_request: Media Request from inputs
+        max_retries: Max retries before throwing hands up
         '''
         span_attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
@@ -253,12 +259,19 @@ class DownloadClient():
                     span.record_exception(error)
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
-                    span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
+                    if media_request.retry_count + 1 >= max_retries:
+                        span.set_status(StatusCode.ERROR)
+                        raise RetryLimitExceeded('Retry limit exceeded') from error
+                    span.set_status(StatusCode.OK)
                     media_request.retry_count += 1
                     raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
-                span.set_status(StatusCode.ERROR)
+                # Fallback
                 span.record_exception(error)
+                if media_request.retry_count + 1 >= max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    raise RetryLimitExceeded('Retry limit exceeded') from error
+                span.set_status(StatusCode.OK)
                 media_request.retry_count += 1
                 raise RetryableException('Untracked error message', media_request=media_request) from error
             # Make sure we get the first media_request here
@@ -295,9 +308,9 @@ class DownloadClient():
             span.set_status(StatusCode.OK)
             return MediaDownload(file_path, data, media_request)
 
-    async def create_source(self, media_request: MediaRequest, loop):
+    async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''
         Download data from youtube search
         '''
-        to_run = partial(self.__prepare_data_source, media_request=media_request)
+        to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
         return await loop.run_in_executor(None, to_run)

@@ -30,7 +30,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.cogs.music_helpers.download_client import DownloadStatus, DownloadFailureQueue
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -931,7 +931,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         sticky_messages=False,
                     )
                 try:
-                    media_download = await self.download_client.create_source(media_request, self.bot.loop)
+                    media_download = await self.download_client.create_source(media_request,
+                                                                              self.config.download.max_download_retries,
+                                                                              self.bot.loop)
                     self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
                     self.download_failure_queue.add_item(DownloadStatus())
                     self.update_download_timestamp(media_download=media_download)
@@ -941,29 +943,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     media_download = self.video_cache.generate_download_from_existing(media_request, e.video_cache)
                     self.update_download_timestamp(media_download=media_download)
                     span.set_status(StatusCode.OK)
-                    # Dont return as we got the media download
-                except RetryableException as e:
-                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
-                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
-                                                                        exception_message=str(e)))
-                    # Apply extra backoff for number of failures found
-                    # Do some exponential backoff as well since this tends to be pretty agressive
-                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                    bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
-                    # If we should, retry
-                    if media_request.retry_count < self.config.download.max_download_retries:
-                        self.download_queue.put_nowait(media_request.guild_id, media_request)
-                        if bundle:
-                            bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
-                        span.set_status(StatusCode.OK)
-                        span.record_exception(e)
-                        return
-                    # Else lets mark the error
-                    self.logger.error(f'Max retires hit with "{str(media_request)}", retryable exception {str(e)}')
-                    await self.__return_bad_video(media_request, e)
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
-                    return
+                    # Dont return since we have media download here
                 except DownloadTerminalException as e:
                     # Terminal error - known permanent failure (age restricted, private, etc.)
                     # Don't track in failure queue as these aren't transient issues
@@ -972,7 +952,29 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     await self.__return_bad_video(media_request, e)
                     span.set_status(StatusCode.OK)
                     return
-
+                except RetryLimitExceeded as e:
+                    self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {str(e)}')
+                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
+                                                                        exception_message=str(e)))
+                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
+                    await self.__return_bad_video(media_request, e)
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(e)
+                    return
+                except RetryableException as e:
+                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
+                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
+                                                                        exception_message=str(e)))
+                    # Apply extra backoff for number of failures found
+                    # Do some exponential backoff as well since this tends to be pretty agressive
+                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
+                    bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+                    self.download_queue.put_nowait(media_request.guild_id, media_request)
+                    if bundle:
+                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
+                    span.set_status(StatusCode.OK)
+                    span.record_exception(e)
+                    return
 
             # Final none check in case we couldn't download video
             if not await self.__ensure_video_download_result(media_request, media_download):
