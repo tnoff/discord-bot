@@ -55,6 +55,14 @@ POSSIBLE_COGS = [
     General,
 ]
 
+# High volume spans to filter
+# unless they are in error state
+HIGH_VOLUME_SPANS = [
+    "sql_retry.retry_db_command",
+    "utils.retry_command_async",
+    "utils.message_send_async",
+]
+
 class FilterOKRetrySpans(SpanProcessor):
     '''
     Filter spammy spans for the retry clients.
@@ -70,7 +78,7 @@ class FilterOKRetrySpans(SpanProcessor):
         '''
         Overrides on_end, filter OK retry spans
         '''
-        if span.name in ["sql_retry.retry_db_command", "utils.retry_command_async"]:
+        if span.name in HIGH_VOLUME_SPANS:
             if span.status.is_ok:
                 return  # Don't forward to next processor
         # Forward to next processor
