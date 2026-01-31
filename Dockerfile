@@ -2,7 +2,11 @@ FROM python:3.14-slim-bookworm
 
 
 # Base packages
-RUN apt-get update && apt-get install -y gcc cmake git ffmpeg curl unzip heaptrack sqlite3
+# Update to latest for security fixes
+RUN apt-get update && \
+    apt-get install -y gcc cmake git ffmpeg curl unzip heaptrack sqlite3 && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Setup venv
 ENV APPDIR="/opt/packages/discord-bot"
