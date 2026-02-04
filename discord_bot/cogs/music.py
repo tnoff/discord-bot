@@ -986,9 +986,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
+                    # Use original exception message if available for more detail
+                    retry_reason = str(e.__cause__) if e.__cause__ is not None else str(e)
                     if bundle:
                         bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY,
-                                                     retry_reason=str(e), retry_count=media_request.retry_count,
+                                                     retry_reason=retry_reason, retry_count=media_request.retry_count,
                                                      retry_backoff_seconds=backoff_seconds)
                         self.message_queue.update_multiple_mutable(
                             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
