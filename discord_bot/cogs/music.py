@@ -544,6 +544,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                 contexts.append(error_mc)
                             self.message_queue.send_single_immutable(contexts)
 
+                        # Send retry notifications as separate messages
+                        retry_summary = bundle.get_retry_summary(self.config.download.max_download_retries)
+                        if retry_summary:
+                            contexts = []
+                            for msg in retry_summary:
+                                retry_mc = MessageContext(bundle.guild_id, bundle.channel_id)
+                                retry_mc.function = partial(bundle.text_channel.send, content=msg, delete_after=self.config.general.message_delete_after)
+                                contexts.append(retry_mc)
+                            self.message_queue.send_single_immutable(contexts)
+
                         # Make sure all finished/terminal bundles get removed
                         if bundle.finished:
                             self.multirequest_bundles.pop(bundle_uuid, None)
@@ -967,10 +977,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     # Apply extra backoff for number of failures found
                     # Do some exponential backoff as well since this tends to be pretty agressive
                     self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
+                    # Calculate approximate backoff duration for user notification
+                    backoff_seconds = None
+                    if self.youtube_download_wait_timestamp:
+                        backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
+                        backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
+                        self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     if bundle:
-                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
+                        bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY,
+                                                     retry_reason=str(e), retry_count=media_request.retry_count,
+                                                     retry_backoff_seconds=backoff_seconds)
                         self.message_queue.update_multiple_mutable(
                             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
                             bundle.text_channel,
