@@ -90,6 +90,25 @@ class DownloadFailureQueue:
         '''
         return self.queue.size()
 
+    def get_status_summary(self) -> str:
+        '''
+        Get a summary string of the queue status for logging
+        Returns format: "X failures in queue, oldest: <timestamp>"
+        '''
+        items = self.queue.items()
+        if not items:
+            return "0 failures in queue"
+
+        oldest = min(items, key=lambda x: x.created_at)
+        age_seconds = int((datetime.now(timezone.utc) - oldest.created_at).total_seconds())
+
+        if age_seconds >= 60:
+            age_str = f"{age_seconds // 60}m {age_seconds % 60}s ago"
+        else:
+            age_str = f"{age_seconds}s ago"
+
+        return f"{len(items)} failures in queue, oldest: {age_str}"
+
 
 class DownloadClientException(Exception):
     '''

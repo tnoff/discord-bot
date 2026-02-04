@@ -974,6 +974,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
                     self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
                                                                         exception_message=str(e)))
+                    self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
                     # Apply extra backoff for number of failures found
                     # Do some exponential backoff as well since this tends to be pretty agressive
                     self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)

@@ -409,3 +409,102 @@ def test_retry_limit_exceeded_exception_hierarchy():
     assert isinstance(exc, Exception)
     # RetryLimitExceeded should NOT be a RetryableException (it's the terminal state)
     assert not isinstance(exc, RetryableException)
+
+
+# ========== DownloadFailureQueue.get_status_summary Tests ==========
+
+def test_failure_queue_status_summary_empty():
+    """Test get_status_summary returns correct message for empty queue"""
+    queue = DownloadFailureQueue()
+
+    summary = queue.get_status_summary()
+    assert summary == "0 failures in queue"
+
+
+def test_failure_queue_status_summary_single_item():
+    """Test get_status_summary with a single item"""
+    queue = DownloadFailureQueue()
+
+    queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message="Test error"))
+
+    summary = queue.get_status_summary()
+    assert "1 failures in queue" in summary
+    assert "oldest:" in summary
+
+
+def test_failure_queue_status_summary_multiple_items():
+    """Test get_status_summary with multiple items"""
+    queue = DownloadFailureQueue()
+
+    for i in range(5):
+        queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message=f"Error {i}"))
+
+    summary = queue.get_status_summary()
+    assert "5 failures in queue" in summary
+    assert "oldest:" in summary
+
+
+def test_failure_queue_status_summary_shows_seconds():
+    """Test get_status_summary shows seconds for recent items"""
+    queue = DownloadFailureQueue()
+
+    # Add item with known age (30 seconds old)
+    item = DownloadStatus(success=False, exception_type="TestException", exception_message="Test error")
+    item.created_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+    queue.queue.put_nowait(item)
+
+    summary = queue.get_status_summary()
+    assert "1 failures in queue" in summary
+    # Should show seconds since < 60 seconds
+    assert "s ago" in summary
+    assert "m " not in summary  # Should not have minutes component
+
+
+def test_failure_queue_status_summary_shows_minutes():
+    """Test get_status_summary shows minutes for older items"""
+    queue = DownloadFailureQueue(max_age_seconds=600)  # Allow older items
+
+    # Add item with known age (2 minutes 30 seconds old)
+    item = DownloadStatus(success=False, exception_type="TestException", exception_message="Test error")
+    item.created_at = datetime.now(timezone.utc) - timedelta(seconds=150)
+    queue.queue.put_nowait(item)
+
+    summary = queue.get_status_summary()
+    assert "1 failures in queue" in summary
+    # Should show minutes and seconds
+    assert "2m 30s ago" in summary
+
+
+def test_failure_queue_status_summary_oldest_item():
+    """Test get_status_summary correctly identifies the oldest item"""
+    queue = DownloadFailureQueue(max_age_seconds=600)
+
+    # Add items with different ages
+    old_item = DownloadStatus(success=False, exception_type="OldException", exception_message="Old error")
+    old_item.created_at = datetime.now(timezone.utc) - timedelta(seconds=180)  # 3 minutes old
+    queue.queue.put_nowait(old_item)
+
+    recent_item = DownloadStatus(success=False, exception_type="RecentException", exception_message="Recent error")
+    recent_item.created_at = datetime.now(timezone.utc) - timedelta(seconds=30)  # 30 seconds old
+    queue.queue.put_nowait(recent_item)
+
+    summary = queue.get_status_summary()
+    assert "2 failures in queue" in summary
+    # Should show age of oldest item (3 minutes)
+    assert "3m" in summary
+
+
+def test_failure_queue_status_summary_after_success_clears_item():
+    """Test get_status_summary after a success removes an item"""
+    queue = DownloadFailureQueue()
+
+    # Add some failures
+    for i in range(3):
+        queue.add_item(DownloadStatus(success=False, exception_type="TestException", exception_message=f"Error {i}"))
+
+    assert "3 failures in queue" in queue.get_status_summary()
+
+    # Add a success (should remove one item)
+    queue.add_item(DownloadStatus(success=True))
+
+    assert "2 failures in queue" in queue.get_status_summary()
