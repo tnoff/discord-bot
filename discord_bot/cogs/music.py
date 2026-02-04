@@ -971,6 +971,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     if bundle:
                         bundle.update_request_status(media_request, MediaRequestLifecycleStage.RETRY)
+                        self.message_queue.update_multiple_mutable(
+                            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                            bundle.text_channel,
+                            sticky_messages=False,
+                        )
                     span.set_status(StatusCode.OK)
                     span.record_exception(e)
                     return
