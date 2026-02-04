@@ -22,11 +22,20 @@ from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 OTEL_SPAN_PREFIX = 'utils'
 
 # Pydantic models for config validation
+# Default patterns for high volume spans that are filtered when in OK state
+DEFAULT_HIGH_VOLUME_SPAN_PATTERNS = [
+    r'^sql_retry\.retry_db_command$',
+    r'^utils\.retry_command_async$',
+    r'^utils\.message_send_async$',
+]
+
 class MonitoringOtlpConfig(BaseModel):
     '''OTLP monitoring configuration'''
     enabled: bool
     # Filter high volume spans, only filters those in OK state
     filter_high_volume_spans: bool = True
+    # List of regex patterns to filter (when in OK state)
+    high_volume_span_patterns: list[str] = Field(default_factory=DEFAULT_HIGH_VOLUME_SPAN_PATTERNS.copy)
 
 class MonitoringMemoryProfilingConfig(BaseModel):
     '''Memory profiling monitoring configuration'''

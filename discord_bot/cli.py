@@ -1,6 +1,7 @@
 from asyncio import run, get_running_loop
 import logging
 from logging import RootLogger
+import re
 import signal
 from sys import stderr
 from typing import List
@@ -55,32 +56,27 @@ POSSIBLE_COGS = [
     General,
 ]
 
-# High volume spans to filter
-# unless they are in error state
-HIGH_VOLUME_SPANS = [
-    "sql_retry.retry_db_command",
-    "utils.retry_command_async",
-    "utils.message_send_async",
-]
-
 class FilterOKRetrySpans(SpanProcessor):
     '''
     Filter spammy spans for the retry clients.
     Wraps another SpanProcessor and only forwards spans that should not be filtered.
+    Accepts a list of regex patterns to match span names against.
     '''
-    def __init__(self, next_processor: SpanProcessor):
+    def __init__(self, next_processor: SpanProcessor, patterns: List[str]):
         self._next = next_processor
+        self._patterns = [re.compile(p) for p in patterns]
 
     def on_start(self, span, parent_context=None):
         self._next.on_start(span, parent_context)
 
     def on_end(self, span: ReadableSpan):
         '''
-        Overrides on_end, filter OK retry spans
+        Overrides on_end, filter OK spans matching configured patterns
         '''
-        if span.name in HIGH_VOLUME_SPANS:
-            if span.status.is_ok:
-                return  # Don't forward to next processor
+        if span.status.is_ok:
+            for pattern in self._patterns:
+                if pattern.match(span.name):
+                    return  # Don't forward to next processor
         # Forward to next processor
         self._next.on_end(span)
 
@@ -194,8 +190,9 @@ def main(config_file): #pylint:disable=too-many-statements
             trace_provider = trace.get_tracer_provider()
             batch_processor = BatchSpanProcessor(span_exporter)
             if general_config.monitoring.otlp.filter_high_volume_spans:
-                # Wrap batch processor to filter out OK retry spans before export
-                trace_provider.add_span_processor(FilterOKRetrySpans(batch_processor))
+                # Wrap batch processor to filter out OK spans matching configured patterns
+                patterns = general_config.monitoring.otlp.high_volume_span_patterns
+                trace_provider.add_span_processor(FilterOKRetrySpans(batch_processor, patterns))
             else:
                 trace_provider.add_span_processor(batch_processor)
             # Set metrics

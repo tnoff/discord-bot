@@ -6,7 +6,7 @@ from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_bot.cli import main, main_loop
+from discord_bot.cli import main, main_loop, FilterOKRetrySpans
 
 from tests.helpers import fake_bot_yielder, FakeGuild
 
@@ -303,3 +303,155 @@ async def test_sigterm_calls_cog_unload(mocker):
 
     # Verify bot.close() was called
     assert bot.close_called is True
+
+
+# FilterOKRetrySpans tests
+class TestFilterOKRetrySpans:
+    '''Tests for the FilterOKRetrySpans span processor'''
+
+    def test_ok_span_matching_pattern_is_filtered(self, mocker):
+        '''Test that OK spans matching a pattern are not forwarded'''
+        mock_processor = mocker.MagicMock()
+        patterns = [r'^utils\.retry_command_async$']
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        span = mocker.MagicMock()
+        span.name = 'utils.retry_command_async'
+        span.status.is_ok = True
+
+        filter_proc.on_end(span)
+
+        mock_processor.on_end.assert_not_called()
+
+    def test_error_span_matching_pattern_is_forwarded(self, mocker):
+        '''Test that error spans matching a pattern are still forwarded'''
+        mock_processor = mocker.MagicMock()
+        patterns = [r'^utils\.retry_command_async$']
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        span = mocker.MagicMock()
+        span.name = 'utils.retry_command_async'
+        span.status.is_ok = False
+
+        filter_proc.on_end(span)
+
+        mock_processor.on_end.assert_called_once_with(span)
+
+    def test_ok_span_not_matching_pattern_is_forwarded(self, mocker):
+        '''Test that OK spans not matching any pattern are forwarded'''
+        mock_processor = mocker.MagicMock()
+        patterns = [r'^utils\.retry_command_async$']
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        span = mocker.MagicMock()
+        span.name = 'some.other.span'
+        span.status.is_ok = True
+
+        filter_proc.on_end(span)
+
+        mock_processor.on_end.assert_called_once_with(span)
+
+    def test_regex_pattern_with_wildcard(self, mocker):
+        '''Test that regex patterns with wildcards work correctly'''
+        mock_processor = mocker.MagicMock()
+        patterns = [r'^utils\..*']  # Matches any span starting with 'utils.'
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        # Test various spans starting with 'utils.'
+        for span_name in ['utils.foo', 'utils.bar.baz', 'utils.']:
+            mock_processor.reset_mock()
+            span = mocker.MagicMock()
+            span.name = span_name
+            span.status.is_ok = True
+            filter_proc.on_end(span)
+            mock_processor.on_end.assert_not_called()
+
+        # Test span not starting with 'utils.'
+        mock_processor.reset_mock()
+        span = mocker.MagicMock()
+        span.name = 'other.utils.span'
+        span.status.is_ok = True
+        filter_proc.on_end(span)
+        mock_processor.on_end.assert_called_once()
+
+    def test_multiple_patterns(self, mocker):
+        '''Test that multiple patterns are checked'''
+        mock_processor = mocker.MagicMock()
+        patterns = [
+            r'^sql_retry\.retry_db_command$',
+            r'^utils\.message_send_async$',
+            r'.*heartbeat.*',
+        ]
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        # Each of these should be filtered
+        filtered_spans = [
+            'sql_retry.retry_db_command',
+            'utils.message_send_async',
+            'system.heartbeat.check',
+            'heartbeat',
+        ]
+
+        for span_name in filtered_spans:
+            mock_processor.reset_mock()
+            span = mocker.MagicMock()
+            span.name = span_name
+            span.status.is_ok = True
+            filter_proc.on_end(span)
+            assert not mock_processor.on_end.called, f'Span {span_name} should have been filtered'
+
+    def test_empty_patterns_forwards_all(self, mocker):
+        '''Test that empty patterns list forwards all spans'''
+        mock_processor = mocker.MagicMock()
+        patterns = []
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        span = mocker.MagicMock()
+        span.name = 'any.span.name'
+        span.status.is_ok = True
+
+        filter_proc.on_end(span)
+
+        mock_processor.on_end.assert_called_once_with(span)
+
+    def test_on_start_forwards_to_next_processor(self, mocker):
+        '''Test that on_start is forwarded to the next processor'''
+        mock_processor = mocker.MagicMock()
+        patterns = [r'^test$']
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+
+        span = mocker.MagicMock()
+        parent_context = mocker.MagicMock()
+
+        filter_proc.on_start(span, parent_context)
+
+        mock_processor.on_start.assert_called_once_with(span, parent_context)
+
+    def test_shutdown_forwards_to_next_processor(self, mocker):
+        '''Test that shutdown is forwarded to the next processor'''
+        mock_processor = mocker.MagicMock()
+        patterns = []
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+        filter_proc.shutdown()
+
+        mock_processor.shutdown.assert_called_once()
+
+    def test_force_flush_forwards_to_next_processor(self, mocker):
+        '''Test that force_flush is forwarded to the next processor'''
+        mock_processor = mocker.MagicMock()
+        mock_processor.force_flush.return_value = True
+        patterns = []
+
+        filter_proc = FilterOKRetrySpans(mock_processor, patterns)
+        result = filter_proc.force_flush(timeout_millis=5000)
+
+        mock_processor.force_flush.assert_called_once_with(5000)
+        assert result is True
