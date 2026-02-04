@@ -1295,3 +1295,334 @@ def test_media_request_bundle_get_failure_summary_empty_bundle(fake_context):  #
     # Get failure summary - should return None since there are no requests
     summary = bundle.get_failure_summary()
     assert summary is None
+
+
+# Tests for get_retry_summary
+
+def test_media_request_bundle_get_retry_summary_basic(fake_context):  #pylint:disable=redefined-outer-name
+    """Test basic get_retry_summary functionality"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as retry with reason
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason="Bot flagged download",
+        retry_count=1
+    )
+
+    # Get retry summary
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    assert len(summary) == 1
+    assert 'Retrying' in summary[0]
+    assert 'attempt 1/3' in summary[0]
+    assert 'Bot flagged download' in summary[0]
+    assert '```' in summary[0]  # Code block formatting
+
+
+def test_media_request_bundle_get_retry_summary_with_backoff(fake_context):  #pylint:disable=redefined-outer-name
+    """Test get_retry_summary includes backoff time"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as retry with backoff time (240 seconds = 4 minutes)
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason="Bot flagged download",
+        retry_count=1,
+        retry_backoff_seconds=240
+    )
+
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    assert 'retrying in ~4 minutes' in summary[0]
+
+
+def test_media_request_bundle_get_retry_summary_backoff_seconds(fake_context):  #pylint:disable=redefined-outer-name
+    """Test get_retry_summary shows seconds for short backoff"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as retry with short backoff (30 seconds)
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason="Bot flagged download",
+        retry_count=1,
+        retry_backoff_seconds=30
+    )
+
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    assert 'retrying in ~30 seconds' in summary[0]
+
+
+def test_media_request_bundle_get_retry_summary_backoff_singular_minute(fake_context):  #pylint:disable=redefined-outer-name
+    """Test get_retry_summary uses singular 'minute' for 1 minute"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as retry with 60 seconds = 1 minute
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason="Bot flagged download",
+        retry_count=1,
+        retry_backoff_seconds=60
+    )
+
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    assert 'retrying in ~1 minute' in summary[0]
+    assert 'minutes' not in summary[0]
+
+
+def test_media_request_bundle_get_retry_summary_no_duplicates(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary only returns each retry once"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as retry
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason="Test error",
+        retry_count=1
+    )
+
+    # Get retry summary first time
+    summary1 = bundle.get_retry_summary(max_retries=3)
+    assert summary1 is not None
+    assert 'Test error' in summary1[0]
+
+    # Get retry summary second time - should return None since already sent
+    summary2 = bundle.get_retry_summary(max_retries=3)
+    assert summary2 is None
+
+
+def test_media_request_bundle_get_retry_summary_none_when_no_retries(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary returns None when there are no retries"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Mark as completed (not retry)
+    bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+
+    # Should return None
+    summary = bundle.get_retry_summary(max_retries=3)
+    assert summary is None
+
+
+def test_media_request_bundle_get_retry_summary_multiple_retries(fake_context):  #pylint:disable=redefined-outer-name
+    """Test get_retry_summary with multiple retrying requests"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+    req3 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.add_media_request(req3)
+    bundle.all_requests_added()
+
+    # Mark two as retry with different reasons
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason="Error 1", retry_count=1)
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.COMPLETED)
+    bundle.update_request_status(req3, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason="Error 2", retry_count=2)
+
+    # Get retry summary
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    assert len(summary) == 2
+    # Check both errors are present in separate messages
+    all_text = '\n'.join(summary)
+    assert 'Error 1' in all_text
+    assert 'Error 2' in all_text
+
+
+def test_media_request_bundle_get_retry_summary_with_none_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary ignores retries with None retry_reason"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # Mark first as retry with reason, second as retry without reason
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason="Real error", retry_count=1)
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason=None, retry_count=1)
+
+    # Get retry summary - should only include req1
+    summary = bundle.get_retry_summary(max_retries=3)
+    assert summary is not None
+    assert len(summary) == 1
+    assert 'Real error' in summary[0]
+
+
+def test_media_request_bundle_get_retry_summary_empty_bundle(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary returns None for an empty bundle"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.all_requests_added()
+
+    # Get retry summary - should return None since there are no requests
+    summary = bundle.get_retry_summary(max_retries=3)
+    assert summary is None
+
+
+def test_media_request_bundle_get_retry_summary_truncates_long_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary truncates very long error messages"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    media_request = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    # Create a very long error message (longer than Discord's 2000 char limit)
+    long_error = "A" * 3000
+
+    bundle.update_request_status(
+        media_request,
+        MediaRequestLifecycleStage.RETRY,
+        retry_reason=long_error,
+        retry_count=1
+    )
+
+    summary = bundle.get_retry_summary(max_retries=3)
+
+    assert summary is not None
+    # Message should be truncated to fit within Discord's limit
+    assert len(summary[0]) <= DISCORD_MAX_MESSAGE_LENGTH
+    # Should still have the code block formatting
+    assert summary[0].startswith('Retrying')
+    assert summary[0].endswith('```')
+
+
+def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that get_retry_summary can be called multiple times as retries accumulate"""
+    bundle = MultiMediaRequestBundle(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        fake_context['channel']
+    )
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+
+    bundle.set_initial_search('test search')
+    bundle.set_multi_input_request()
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    # First retry
+    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason="Error 1", retry_count=1)
+    summary1 = bundle.get_retry_summary(max_retries=3)
+    assert summary1 is not None
+    assert len(summary1) == 1
+    assert 'Error 1' in summary1[0]
+
+    # Second retry (different request)
+    bundle.update_request_status(req2, MediaRequestLifecycleStage.RETRY,
+                                 retry_reason="Error 2", retry_count=1)
+    summary2 = bundle.get_retry_summary(max_retries=3)
+    assert summary2 is not None
+    assert len(summary2) == 1
+    # Should only contain the new retry
+    assert 'Error 1' not in summary2[0]
+    assert 'Error 2' in summary2[0]

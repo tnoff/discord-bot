@@ -90,6 +90,10 @@ class BundledMediaRequest:
     row_index_in_collection: int | None = None
     failure_reason: str | None = None
     failure_reason_sent: bool = False
+    retry_reason: str | None = None
+    retry_count: int | None = None
+    retry_backoff_seconds: int | None = None
+    retry_reason_sent: bool = False
 
 
 def media_request_attributes(media_request: MediaRequest) -> dict:
@@ -314,7 +318,8 @@ class MultiMediaRequestBundle():
         return True
 
     def update_request_status(self, media_request: MediaRequest, stage: MediaRequestLifecycleStage, failure_reason: str = None,
-                              override_message: str = None):
+                              override_message: str = None, retry_reason: str = None, retry_count: int = None,
+                              retry_backoff_seconds: int = None):
         '''
         Update the status of a media request in the bundle
         '''
@@ -341,6 +346,11 @@ class MultiMediaRequestBundle():
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.search_string}"')
+                        # Store retry info for summary notification
+                        bundled_request.retry_reason = retry_reason
+                        bundled_request.retry_count = retry_count
+                        bundled_request.retry_backoff_seconds = retry_backoff_seconds
+                        bundled_request.retry_reason_sent = False
                 case MediaRequestLifecycleStage.COMPLETED:
                     if bundled_request.status != stage:
                         if bundled_request.table_index is not None:
@@ -438,3 +448,45 @@ class MultiMediaRequestBundle():
             req.failure_reason_sent = True
 
         return t.print()
+
+    def get_retry_summary(self, max_retries: int):
+        '''
+        Get a list of retry notification messages that haven't been sent yet
+        Returns None if there are no new retries with reasons
+        Marks returned retries as sent to prevent duplicate messages
+
+        max_retries: Maximum retry count for display (e.g., "attempt 1/3")
+        '''
+        # Only get retries that haven't been sent yet
+        retry_requests = [
+            req for req in self.media_requests
+            if req.status == MediaRequestLifecycleStage.RETRY
+            and req.retry_reason
+            and not req.retry_reason_sent
+        ]
+
+        if not retry_requests:
+            return None
+
+        # Build individual messages per retry with code block for error
+        messages = []
+        for req in retry_requests:
+            # Format backoff time in human-readable format
+            backoff_str = ''
+            if req.retry_backoff_seconds:
+                if req.retry_backoff_seconds >= 60:
+                    minutes = req.retry_backoff_seconds // 60
+                    backoff_str = f', retrying in ~{minutes} minute{"s" if minutes != 1 else ""}'
+                else:
+                    backoff_str = f', retrying in ~{req.retry_backoff_seconds} seconds'
+
+            # Build prefix and suffix, then calculate available space for retry_reason
+            prefix = f'Retrying "{req.search_string}" (attempt {req.retry_count}/{max_retries}{backoff_str}):\n```\n'
+            suffix = '\n```'
+            available_length = DISCORD_MAX_MESSAGE_LENGTH - len(prefix) - len(suffix)
+            truncated_reason = shorten_string(req.retry_reason, available_length)
+            msg = f'{prefix}{truncated_reason}{suffix}'
+            messages.append(msg)
+            req.retry_reason_sent = True
+
+        return messages

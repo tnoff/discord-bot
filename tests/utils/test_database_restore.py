@@ -14,7 +14,8 @@ def db_engine():
     engine = create_engine('sqlite:///:memory:', pool_pre_ping=True)
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
-    return engine
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture
