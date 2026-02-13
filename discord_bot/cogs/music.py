@@ -1248,6 +1248,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     bundle.add_media_request(media_request)
                 except PutsBlocked:
                     self.logger.warning(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    # Call bundle shutdown just in case
+                    bundle.shutdown()
                     return False
                 except QueueFull:
                     self.logger.warning(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
@@ -1260,6 +1262,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     bundle.add_media_request(media_request, MediaRequestLifecycleStage.QUEUED)
                 except PutsBlocked:
+                    # Call bundle shutdown just in case
+                    bundle.shutdown()
                     self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                     return False
                 except QueueFull:
