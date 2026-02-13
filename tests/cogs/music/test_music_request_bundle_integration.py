@@ -32,7 +32,6 @@ async def test_request_bundle_integration_creation_and_registration(fake_context
 
     # Set up the search lifecycle (required for input_string to be set)
     bundle.set_initial_search('https://test.playlist.com/123')
-    bundle.set_multi_input_request()
 
     # Add requests to bundle
     for req in media_requests:
@@ -64,8 +63,7 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add search request and finish it to get to download phase
-    bundle.set_initial_search('test-playlist')
-    bundle.set_multi_input_request()
+    bundle.set_multi_input_request('test-playlist')
 
     media_requests = []
     for _ in range(3):
@@ -126,7 +124,6 @@ async def test_request_bundle_integration_message_processing(mocker, fake_contex
 
     # Setup search state
     bundle.set_initial_search('test-playlist-url')
-    bundle.set_multi_input_request()
 
     # Add test request
     req = fake_source_dict(fake_context)
@@ -218,7 +215,6 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
 
         # Setup search state
         bundle.set_initial_search(f'test-playlist-{i}')
-        bundle.set_multi_input_request()
 
         # Add test request to each bundle
         req = fake_source_dict(fake_context)
@@ -269,8 +265,7 @@ async def test_request_bundle_integration_pagination_length(fake_context):  #pyl
     )
 
     # Setup search state
-    bundle.set_initial_search('large-playlist')
-    bundle.set_multi_input_request()
+    bundle.set_multi_input_request('large-playlist')
 
     # Create many requests to test chunking
     requests = []
@@ -295,7 +290,6 @@ async def test_request_bundle_integration_pagination_length(fake_context):  #pyl
     assert '12' in full_output  # Total items
     assert 'Processing "large-playlist"' in full_output
 
-
 @pytest.mark.asyncio
 async def test_request_bundle_integration_shutdown_functionality(fake_context):  #pylint:disable=redefined-outer-name
     """Test that request bundle shutdown prevents message output"""
@@ -307,7 +301,6 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
 
     # Setup search state
     bundle.set_initial_search('test-playlist-0')
-    bundle.set_multi_input_request()
 
     # Add test requests
     for _ in range(3):
@@ -422,7 +415,6 @@ async def test_race_condition_fix_bundle_cleanup(fake_context):  #pylint:disable
 
     # Set up search lifecycle so bundle can be finished
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -536,7 +528,6 @@ def test_bundle_cleanup_thread_safety_with_fix(fake_context):  #pylint:disable=r
 
         # Set up search lifecycle so bundle can be finished
         bundle.set_initial_search(f'test search {i}')
-        bundle.set_multi_input_request()
 
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
@@ -582,7 +573,6 @@ def test_comprehensive_error_resilience_with_fixes(fake_context):  #pylint:disab
 
     # Set up search lifecycle so bundle can be finished
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -623,7 +613,6 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
 
     # Set up search lifecycle so bundle can be finished
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
 
     requests = []
     for _ in range(5):
@@ -762,7 +751,6 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     # Test case 1: Finished bundle
     finished_bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     finished_bundle.set_initial_search('test search')
-    finished_bundle.set_multi_input_request()
     req1 = fake_source_dict(fake_context)
     finished_bundle.add_media_request(req1)
     finished_bundle.update_request_status(req1, MediaRequestLifecycleStage.COMPLETED)
@@ -850,7 +838,6 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
 
     # Set up search lifecycle so bundle can be finished
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -980,7 +967,6 @@ def test_bundle_print_after_shutdown(fake_context):  #pylint:disable=redefined-o
 
     # Add search request to create proper bundle structure
     bundle.set_initial_search('test-playlist')
-    bundle.set_multi_input_request()
 
     # Add request to generate content
     req = fake_source_dict(fake_context)

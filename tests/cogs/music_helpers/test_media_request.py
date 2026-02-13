@@ -41,7 +41,6 @@ async def test_media_request_bundle_single(fake_context): #pylint:disable=redefi
     x = fake_source_dict(fake_context)
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     b.set_initial_search(x.raw_search_string)
-    b.set_multi_input_request()
     b.add_media_request(x)
     b.all_requests_added()
     assert b.print()[0] == f'Media request queued for download: "{x.raw_search_string}"'
@@ -60,8 +59,7 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     z = fake_source_dict(fake_context)
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    b.set_initial_search(multi_input_string)
-    b.set_multi_input_request()
+    b.set_multi_input_request(multi_input_string)
     b.add_media_request(x)
     b.add_media_request(y)
     b.add_media_request(z)
@@ -117,8 +115,7 @@ async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disab
     z = fake_source_dict(fake_context)
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    b.set_initial_search('https://foo.example.com/playlist')
-    b.set_multi_input_request()
+    b.set_multi_input_request('https://foo.example.com/playlist')
     b.add_media_request(x)
     b.add_media_request(y)
     b.add_media_request(z)
@@ -166,7 +163,6 @@ async def test_media_request_bundle_shutdown(fake_context): #pylint:disable=rede
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     b.set_initial_search("test search")
-    b.set_multi_input_request()
     b.add_media_request(x)
     b.add_media_request(y)
     b.all_requests_added()
@@ -191,7 +187,6 @@ async def test_media_request_bundle_shutdown_single_item(fake_context): #pylint:
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     b.set_initial_search(x.raw_search_string)
-    b.set_multi_input_request()
     b.add_media_request(x)
     b.all_requests_added()
 
@@ -215,7 +210,6 @@ async def test_media_request_bundle_shutdown_initialization(fake_context): #pyli
     # Should work normally before shutdown
     x = fake_source_dict(fake_context)
     b.set_initial_search(x.raw_search_string)
-    b.set_multi_input_request()
     b.add_media_request(x)
     b.all_requests_added()
     assert len(b.print()) > 0
@@ -326,7 +320,6 @@ def test_media_request_bundle_print_single_item(media_request_bundle, fake_conte
         SearchType.SEARCH
     )
     media_request_bundle.set_initial_search('single test')
-    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
 
@@ -337,8 +330,7 @@ def test_media_request_bundle_print_single_item(media_request_bundle, fake_conte
 
 def test_media_request_bundle_print_multiple_items_with_status(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test print method with multiple items showing top message and status"""
-    media_request_bundle.set_initial_search('playlist test')
-    media_request_bundle.set_multi_input_request()
+    media_request_bundle.set_multi_input_request('playlist test')
 
     # Add multiple requests
     for i in range(3):
@@ -420,7 +412,6 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
         SearchType.SEARCH
     )
     media_request_bundle.set_initial_search('failed request')
-    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
 
@@ -458,7 +449,6 @@ def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_co
         SearchType.DIRECT
     )
     media_request_bundle.set_initial_search('https://example.com/video')
-    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
 
@@ -481,7 +471,6 @@ def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fa
         SearchType.SEARCH
     )
     media_request_bundle.set_initial_search('test search string')
-    media_request_bundle.set_multi_input_request()
     media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
 
@@ -607,7 +596,6 @@ def test_bundle_override_message_functionality(fake_context):  #pylint:disable=r
     # Add request with override message
     req = fake_source_dict(fake_context)
     bundle.set_initial_search(req.raw_search_string)
-    bundle.set_multi_input_request()
     bundle.add_media_request(req)
     bundle.all_requests_added()
 
@@ -630,7 +618,6 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     # Add request that will be completed (shouldn't appear in messages)
     req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
     bundle.set_initial_search("search")
-    bundle.set_multi_input_request()
     bundle.add_media_request(req)
     bundle.all_requests_added()
     bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
@@ -647,7 +634,6 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     # Add single failed request
     req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
     bundle.set_initial_search("search")
-    bundle.set_multi_input_request()
     bundle.add_media_request(req)
     bundle.all_requests_added()
     bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason="Test failure")
@@ -668,8 +654,7 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
 def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:disable=redefined-outer-name
     """Test that multi-item bundles include status header"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.set_initial_search("test-playlist")
-    bundle.set_multi_input_request()
+    bundle.set_multi_input_request("test-playlist")
 
     # Add multiple requests
     requests = []
@@ -772,8 +757,7 @@ def test_bundle_text_channel_parameter_storage(fake_context):  #pylint:disable=r
 def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefined-outer-name
     """Test new completion messaging in bundle print method"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.set_initial_search("test-playlist")
-    bundle.set_multi_input_request()
+    bundle.set_multi_input_request("test-playlist")
 
     # Add multiple requests to trigger multi-item messaging
     req1 = fake_source_dict(fake_context)
@@ -806,7 +790,6 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
 
     # Test URL gets wrapped in angle brackets
     bundle.set_initial_search("https://example.com/playlist")
-    bundle.set_multi_input_request()
 
     req1 = fake_source_dict(fake_context)
     req2 = fake_source_dict(fake_context)
@@ -821,7 +804,6 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
     # Test non-URL doesn't get wrapped
     bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     bundle2.set_initial_search("My Playlist")
-    bundle2.set_multi_input_request()
 
     req3 = fake_source_dict(fake_context)
     req4 = fake_source_dict(fake_context)
@@ -867,7 +849,6 @@ def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint
         pagination_length=100  # Very short to trigger pagination
     )
     bundle.set_initial_search("test-playlist")
-    bundle.set_multi_input_request()
 
     # Add multiple requests with medium-length strings
     for i in range(5):
@@ -904,7 +885,6 @@ def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disa
         pagination_length=150  # Short enough to create pagination
     )
     bundle.set_initial_search("test-playlist")
-    bundle.set_multi_input_request()
 
     # Add requests
     requests = []
@@ -954,7 +934,6 @@ def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:di
         pagination_length=200  # Create multiple pages
     )
     bundle.set_initial_search("test-playlist")
-    bundle.set_multi_input_request()
 
     # Add many requests to span multiple pages
     requests = []
@@ -1011,7 +990,7 @@ def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disa
     assert 'Processing search "spotify:album:123abc"' in result[0]
 
     # Finish search - message changes from "Processing search" to just "Processing"
-    bundle.set_multi_input_request()
+    bundle.set_multi_input_request('foo')
     result = bundle.print()
     assert len(result) == 1
     # After set_multi_input_request, the message changes
@@ -1045,7 +1024,6 @@ def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1082,7 +1060,6 @@ def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disabl
     req3 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.add_media_request(req3)
@@ -1118,7 +1095,6 @@ def test_media_request_bundle_get_failure_summary_no_duplicates(fake_context):  
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1146,7 +1122,6 @@ def test_media_request_bundle_get_failure_summary_none_when_no_failures(fake_con
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1170,7 +1145,6 @@ def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylin
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()
@@ -1205,7 +1179,6 @@ def test_media_request_bundle_get_failure_summary_with_none_reason(fake_context)
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()
@@ -1235,7 +1208,6 @@ def test_media_request_bundle_get_failure_summary_with_empty_reason(fake_context
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()
@@ -1265,7 +1237,6 @@ def test_media_request_bundle_get_failure_summary_all_failures_without_reasons(f
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()
@@ -1288,7 +1259,6 @@ def test_media_request_bundle_get_failure_summary_empty_bundle(fake_context):  #
     )
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     # Don't add any requests
     bundle.all_requests_added()
 
@@ -1309,7 +1279,6 @@ def test_media_request_bundle_get_retry_summary_basic(fake_context):  #pylint:di
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1342,7 +1311,6 @@ def test_media_request_bundle_get_retry_summary_with_backoff(fake_context):  #py
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1371,7 +1339,6 @@ def test_media_request_bundle_get_retry_summary_backoff_seconds(fake_context):  
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1400,7 +1367,6 @@ def test_media_request_bundle_get_retry_summary_backoff_singular_minute(fake_con
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1430,7 +1396,6 @@ def test_media_request_bundle_get_retry_summary_no_duplicates(fake_context):  #p
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1462,7 +1427,6 @@ def test_media_request_bundle_get_retry_summary_none_when_no_retries(fake_contex
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1487,7 +1451,6 @@ def test_media_request_bundle_get_retry_summary_multiple_retries(fake_context): 
     req3 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.add_media_request(req3)
@@ -1523,7 +1486,6 @@ def test_media_request_bundle_get_retry_summary_with_none_reason(fake_context): 
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()
@@ -1550,7 +1512,6 @@ def test_media_request_bundle_get_retry_summary_empty_bundle(fake_context):  #py
     )
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.all_requests_added()
 
     # Get retry summary - should return None since there are no requests
@@ -1568,7 +1529,6 @@ def test_media_request_bundle_get_retry_summary_truncates_long_reason(fake_conte
 
     media_request = fake_source_dict(fake_context)
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
 
@@ -1604,7 +1564,6 @@ def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pyl
     req2 = fake_source_dict(fake_context)
 
     bundle.set_initial_search('test search')
-    bundle.set_multi_input_request()
     bundle.add_media_request(req1)
     bundle.add_media_request(req2)
     bundle.all_requests_added()

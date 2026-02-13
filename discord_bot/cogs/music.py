@@ -1248,6 +1248,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     bundle.add_media_request(media_request)
                 except PutsBlocked:
                     self.logger.warning(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    # Call bundle shutdown just in case
+                    bundle.shutdown()
                     return False
                 except QueueFull:
                     self.logger.warning(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
@@ -1260,6 +1262,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     bundle.add_media_request(media_request, MediaRequestLifecycleStage.QUEUED)
                 except PutsBlocked:
+                    # Call bundle shutdown just in case
+                    bundle.shutdown()
                     self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                     return False
                 except QueueFull:
@@ -1278,9 +1282,75 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
         return True
 
+    async def _generate_media_requests_from_search(self, ctx: Context, search: str, player: MusicPlayer = None,
+                                                   add_to_playlist: int = None):
+        '''
+        Generate media requests and generate media request bundles from search
+
+        ctx: Discord Context
+        search: Original Search string
+        player: MusicPlayer to pass into
+        add_to_playlist: If came from playlist_item_add, pass it here
+        '''
+        # Setup bundle, show search has started for raw input
+        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+        self.multirequest_bundles[bundle.uuid] = bundle
+        bundle.set_initial_search(search)
+        self.message_queue.update_multiple_mutable(
+            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+            ctx.channel,
+            sticky_messages=False,
+        )
+
+        try:
+            search_results = await self.search_client.check_source(search, self.bot.loop,
+                                                                   self.config.player.queue_max_size)
+        except SearchException as exc:
+            self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
+            # Delete the old bundle, send one off message
+            bundle.shutdown()
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                ctx.channel,
+                sticky_messages=False,
+            )
+            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
+            message_context.function = partial(ctx.send, f'Error searching input "{search}", message: {str(exc.user_message)}',
+                                               delete_after=self.config.general.message_delete_after)
+            self.message_queue.send_single_immutable([message_context])
+            return
+
+        # If multiple items, delete original search and generate new one
+        if len(search_results) > 1:
+            bundle.shutdown()
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                ctx.channel,
+                sticky_messages=False,
+            )
+            bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+            self.multirequest_bundles[bundle.uuid] = bundle
+            multi_search = search_results[0].multi_search_input or search
+            bundle.set_multi_input_request(multi_search)
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                ctx.channel,
+                sticky_messages=False,
+            )
+
+        media_requests = []
+        for item in search_results:
+            mr = MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
+                                               item.resolved_search_string, item.raw_search_string, item.search_type)
+            if add_to_playlist:
+                mr.download_file = False
+                mr.add_to_playlist = add_to_playlist
+            media_requests.append(mr)
+        await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
+
     @command(name='play')
     @command_wrapper
-    async def play_(self, ctx, *, search: str):
+    async def play_(self, ctx: Context, *, search: str):
         '''
         Request a video and add it to the download queue, which will then play after the download
 
@@ -1302,42 +1372,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        # Setup bundle, show search has started for raw input
-        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
-        self.multirequest_bundles[bundle.uuid] = bundle
-        bundle.set_initial_search(search)
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-            ctx.channel,
-            sticky_messages=False,
-        )
-
-        try:
-            search_results = await self.search_client.check_source(search, self.bot.loop,
-                                                                   self.config.player.queue_max_size)
-        except SearchException as exc:
-            self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            # For errors, always show the search request header
-            bundle.set_multi_input_request(error_message=str(exc.user_message))
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
-            return
-
-        # Only add search request header if we have multiple results
-        if len(search_results) > 1:
-            proper_name = None
-            if search_results:
-                proper_name = search_results[0].multi_search_input
-            bundle.set_multi_input_request(proper_name=proper_name)
-
-        media_requests = []
-        for item in search_results:
-            media_requests.append(MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
-                                               item.resolved_search_string, item.raw_search_string, item.search_type))
-        await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
+        await self._generate_media_requests_from_search(ctx, search, player=player)
 
     @command(name='skip')
     @command_wrapper
@@ -1867,39 +1902,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.message_queue.send_single_immutable([message_context])
             return
 
-        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
-        self.multirequest_bundles[bundle.uuid] = bundle
-        bundle.set_initial_search(search)
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-            ctx.channel,
-            sticky_messages=False,
-        )
-
-        try:
-            search_results = await self.search_client.check_source(search, self.bot.loop,
-                                                                   self.config.player.queue_max_size)
-        except SearchException as exc:
-            self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
-            bundle.set_multi_input_request(error_message=str(exc.user_message))
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
-            return
-        proper_name = None
-        if search_results:
-            proper_name = search_results[0].multi_search_input
-        bundle.set_multi_input_request(proper_name=proper_name)
-
-        media_requests = []
-        for search_result in search_results:
-            media_requests.append(MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
-                                  search_result.resolved_search_string, search_result.raw_search_string, search_result.search_type,
-                                  download_file=False,
-                                  add_to_playlist=playlist_id))
-        await self.enqueue_media_requests(ctx, media_requests, bundle)
+        await self._generate_media_requests_from_search(ctx, search, add_to_playlist=playlist_id)
 
     @playlist.command(name='item-remove')
     @command_wrapper
@@ -2205,10 +2208,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
             self.multirequest_bundles[bundle.uuid] = bundle
             # Start/finish bundle to get input_string
-            bundle.set_initial_search(playlist_name)
-            bundle.set_multi_input_request()
+            bundle.set_multi_input_request(playlist_name)
             finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle, player=player)
-
 
             if not finished_all:
                 message_context = MessageContext(ctx.guild.id, ctx.channel.id)

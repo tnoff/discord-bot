@@ -133,8 +133,6 @@ class MultiMediaRequestBundle():
 
         # Search options
         self.input_string: str | None = None
-        self.search_finished: bool = False
-        self.search_error: str | None = None
         self.has_search_banner: bool = False  # Track if search banner exists
 
         # General attributes
@@ -218,25 +216,16 @@ class MultiMediaRequestBundle():
         self.input_string = shorten_string(input_string.replace(' shuffle', ''), 256)
         self.table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
 
-    def set_multi_input_request(self, error_message: str = None, proper_name: str = None):
+    def set_multi_input_request(self, input_string: str):
         '''
         Mark request as having multiple media requests
         '''
-        # Check if first result has better name
-        self.search_finished = True
-        if error_message:
-            self.search_error = error_message
-            # Edit row 0 directly (created by set_initial_search) with error message
-            if self.input_string:
-                self.table.edit_row(0, f'Error processing search "{discord_format_string_embed(self.input_string)}", {error_message}')
-                self.has_search_banner = True
-            return
-        if proper_name:
-            # Shorten string down to 256 at most to be safe
-            self.input_string = shorten_string(proper_name, 256)
         self.has_search_banner = True
+        # Remove 'shuffle' from string
+        # Shorten string down to 256 at most to be safe
+        self.input_string = shorten_string(input_string.replace(' shuffle', ''), 256)
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
-        self._edit_search_banner(f'Processing "{multi_input}"')
+        self.table.add_row(f'Processing "{multi_input}"')
 
     def _increment_counter_for_stage(self, stage: MediaRequestLifecycleStage):
         '''
@@ -391,10 +380,6 @@ class MultiMediaRequestBundle():
         '''
         if self.is_shutdown:
             return True
-        if self.search_finished and self.search_error:
-            return True
-        if not self.search_finished:
-            return False
         return (self.completed + self.failed + self.discarded) == self.total
 
     @property
