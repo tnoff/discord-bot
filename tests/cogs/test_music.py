@@ -394,24 +394,21 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mock_send_single = mocker.patch.object(cog.message_queue, 'send_single_immutable')
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
-    # With the new bundle system, search failures create bundles with error messages
-    # Check that a bundle was created and contains the error message
+    # Assert we got a message about the original search
+    # Mock the message queue to verify the message is sent
+
+    mock_send_single.assert_called_once()
+    message_contexts = mock_send_single.call_args[0][0]
+    assert len(message_contexts) == 1
+    assert message_contexts[0].function.args[0] == 'Error searching input "foo bar", message: woopsie'
+
+    # Bundle should get cleared later after send message
     assert len(cog.multirequest_bundles) == 1
     bundle = list(cog.multirequest_bundles.values())[0]
-
-    # The bundle should have finished with an error
-    assert bundle.search_finished is True
-    assert bundle.search_error == 'woopsie'  # The user_message
-
-    # Call all_requests_added to build row_collections for print
-    bundle.all_requests_added()
-
-    # Verify the bundle's print output contains the error message
-    bundle_messages = bundle.print()
-    assert len(bundle_messages) > 0
-    assert any('woopsie' in msg for msg in bundle_messages)
+    assert bundle.is_shutdown
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -900,7 +897,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
 
     # Set up search banner (required for single-item bundles)
     bundle.set_initial_search(media_request.raw_search_string)
-    bundle.set_multi_input_request()
+
 
     # Add request and set to BACKOFF status
     bundle.add_media_request(media_request)
