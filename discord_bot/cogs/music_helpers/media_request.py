@@ -165,10 +165,11 @@ class MultiMediaRequestBundle():
         # Is probably rare but sometimes everything hits the cache
         # and update was never called but 'add' was
         self._check_finished()
-        # Remove double search if multiple requests not queued
-        if self.total == 1:
-            self.table.remove_row(0)
-            self.media_requests[0].table_index = 0
+
+        # Assume we should remove the initial "Processing search" line
+        # If its not a multi-input search
+        if not self.has_search_banner:
+            self.table.edit_row(0, '')
 
         self.row_collections = self.table.get_paginated_rows()
 
@@ -196,7 +197,7 @@ class MultiMediaRequestBundle():
                 media_request.row_index_in_collection = row_idx
 
         # If we have multiple media_requests and a search string, add status header
-        if self.total > 1 and self.input_string:
+        if self.has_search_banner:
             multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
             top_line = f'Processing "{multi_input}"\n{self.completed}/{self.total - self.discarded} media requests processed successfully, {self.failed} failed'
             self._edit_search_banner(top_line)
@@ -214,7 +215,7 @@ class MultiMediaRequestBundle():
         # Remove 'shuffle' from string
         # Shorten string down to 256 at most to be safe
         self.input_string = shorten_string(input_string.replace(' shuffle', ''), 256)
-        self.table.add_row(f'Processing search "{discord_format_string_embed(self.input_string)}"')
+        self.table.add_row(f'Processing search: "{discord_format_string_embed(self.input_string)}"')
 
     def set_multi_input_request(self, input_string: str):
         '''
@@ -298,7 +299,7 @@ class MultiMediaRequestBundle():
         Check if all requests finished
         '''
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
-        if self.total > 1:
+        if self.has_search_banner:
             top_line = f'Processing "{multi_input}"'
             if self.finished:
                 top_line = f'Completed processing of "{multi_input}"'
@@ -426,7 +427,7 @@ class MultiMediaRequestBundle():
 
         # Build error summary
         t = DapperTable(pagination_options=PaginationLength(self.pagination_length),
-                        prefix='Error Details for Failed Downloads')
+                        prefix='Error Details for Failed Downloads\n')
         for req in failed_requests:
             t.add_row(f'Media Request "{req.search_string}", Failure: {req.failure_reason}')
             # Mark as sent so we don't send it again

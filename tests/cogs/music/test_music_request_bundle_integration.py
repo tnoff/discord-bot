@@ -6,12 +6,12 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 
 from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.download_client import DownloadClientException
+from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadTerminalException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
 from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_source_dict, fake_media_download
+from tests.helpers import fake_source_dict, fake_media_download, random_string
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
@@ -300,7 +300,7 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Setup search state
-    bundle.set_initial_search('test-playlist-0')
+    bundle.set_multi_input_request('test-playlist-0')
 
     # Add test requests
     for _ in range(3):
@@ -1370,3 +1370,225 @@ async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #
     # Remaining bundle should still have valid text_channel
     remaining_bundle = cog.multirequest_bundles[bundle3.uuid]
     assert remaining_bundle.text_channel == fake_context['channel']
+
+
+# ---------------------------------------------------------------------------
+# Single-request lifecycle tests (mirrors the play_() → _generate_media_requests_from_search flow)
+# ---------------------------------------------------------------------------
+
+def test_single_request_state_after_terminal_failure(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Unit test: after a terminal exception the bundle should be finished with
+    failed == 1 and print() should reflect the failure message.
+    Mirrors the state changes made by __return_bad_video.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    # Replicate _generate_media_requests_from_search: set_initial_search, then enqueue_media_requests
+    bundle.set_initial_search(random_string())
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    assert not bundle.finished
+
+    # Replicate download worker: IN_PROGRESS then terminal error → FAILED
+    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+
+    assert bundle.finished
+    assert bundle.failed == 1
+    assert bundle.completed == 0
+
+    output = bundle.print()
+    assert len(output) == 1
+    assert 'failed' in output[0].lower()
+    assert req.raw_search_string in output[0]
+
+
+def test_single_request_print_content_through_lifecycle(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Unit test: verify print() output is correct at every stage of the
+    single-request play_() lifecycle.
+    """
+    search_input = random_string()
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle.set_initial_search(search_input)
+
+    # Before any requests added: shows initial search
+    pre_enqueue = bundle.print()
+    assert len(pre_enqueue) == 1
+    assert search_input in pre_enqueue[0]
+
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    # Queued state: single row, no multi-item header
+    queued_output = bundle.print()
+    assert len(queued_output) == 1
+    assert 'queued' in queued_output[0].lower()
+    # Single-item bundle should NOT have a status header (completed/failed counter)
+    assert 'processed successfully' not in queued_output[0]
+
+    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    in_progress_output = bundle.print()
+    assert len(in_progress_output) == 1
+    assert 'downloading' in in_progress_output[0].lower()
+
+    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+    failed_output = bundle.print()
+    assert len(failed_output) == 1
+    assert 'failed' in failed_output[0].lower()
+    assert bundle.finished
+
+
+def test_single_request_failure_summary_contains_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Unit test: get_failure_summary() should include the terminal error reason
+    so it can be sent as a separate Discord message.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle.set_initial_search(random_string())
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+
+    summary = bundle.get_failure_summary()
+    assert summary is not None
+    full = '\n'.join(summary)
+    assert 'Video Too Long' in full
+
+    # Should not return duplicate summaries
+    assert bundle.get_failure_summary() is None
+
+
+@pytest.mark.asyncio
+async def test_single_request_terminal_failure_cleanup_via_send_messages(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Integration test: after __return_bad_video is called for a terminal exception,
+    send_messages should remove the bundle from multirequest_bundles and set
+    delete_after on the Discord message.
+
+    This is the regression test for the bug where terminal exceptions left the
+    original bundle undeleteed.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # Replicate _generate_media_requests_from_search
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_initial_search(random_string())
+
+    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+
+    # Replicate enqueue_media_requests
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+
+    # send_messages: initial queued state
+    await cog.send_messages()
+    assert bundle.uuid in cog.multirequest_bundles
+
+    # Replicate download worker reaching IN_PROGRESS, then hitting a terminal error
+    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+    await cog.send_messages()
+    assert bundle.uuid in cog.multirequest_bundles  # still alive, not finished yet
+
+    # Terminal exception path: __return_bad_video marks bundle FAILED and queues update
+    exc = DownloadTerminalException('Video Too Long', user_message='Video Too Long')
+    await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
+
+    # Bundle should be finished but not yet removed (removal happens in send_messages)
+    assert bundle.finished
+    assert bundle.uuid in cog.multirequest_bundles
+
+    # send_messages should remove the bundle and set delete_after on the message
+    await cog.send_messages()
+    assert bundle.uuid not in cog.multirequest_bundles
+
+    # The Discord message should have been sent/edited with delete_after set
+    channel_messages = fake_context['channel'].messages
+    assert len(channel_messages) > 0
+    terminal_msg = channel_messages[-1]
+    assert terminal_msg.delete_after is not None
+
+
+@pytest.mark.asyncio
+async def test_single_request_full_lifecycle_play_successful(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Integration test: full happy-path lifecycle for a single request through
+    the play_() flow — bundle created, IN_PROGRESS, COMPLETED, cleaned up.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    # _generate_media_requests_from_search: create bundle, set initial search
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_initial_search(random_string())
+    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+
+    # enqueue_media_requests: add request and mark all enqueued
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+    await cog.send_messages()
+    assert bundle.uuid in cog.multirequest_bundles
+
+    # search_youtube_music: QUEUED (no-op display) then download worker: IN_PROGRESS
+    bundle.update_request_status(req, MediaRequestLifecycleStage.QUEUED)
+    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+    await cog.send_messages()
+    assert bundle.uuid in cog.multirequest_bundles
+
+    # Download succeeds: COMPLETED
+    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+
+    assert bundle.finished
+    await cog.send_messages()
+
+    # Bundle should be removed after send_messages processes the finished bundle
+    assert bundle.uuid not in cog.multirequest_bundles
+
+    # For a completed single request, print() returns [] so the Discord message
+    # is deleted outright (not edited with delete_after), leaving channel empty
+    assert len(fake_context['channel'].messages) == 0
+
+
+@pytest.mark.asyncio
+async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Regression test: terminal exception must not leave orphaned bundles in
+    multirequest_bundles (memory leak).
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_initial_search(random_string())
+    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
+
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    assert len(cog.multirequest_bundles) == 1
+
+    exc = DownloadTerminalException('Age Restricted', user_message='Age Restricted')
+    await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
+    await cog.send_messages()
+
+    assert len(cog.multirequest_bundles) == 0

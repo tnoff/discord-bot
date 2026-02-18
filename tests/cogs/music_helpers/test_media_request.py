@@ -364,6 +364,7 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
         (MediaRequestLifecycleStage.DISCARDED, None)   # Discarded items don't show in messages
     ]
 
+    media_request_bundle.set_multi_input_request('test playlist')
     media_requests = []
     for i, (status, expected_text) in enumerate(statuses_to_test):
         media_request = MediaRequest(
@@ -496,6 +497,7 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
         MediaRequestLifecycleStage.DISCARDED
     ]
 
+    media_request_bundle.set_multi_input_request('test playlist')
     for i, stage in enumerate(lifecycle_stages):
         media_request = MediaRequest(
             fake_context['guild'].id,
@@ -790,26 +792,18 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
 
     # Test URL gets wrapped in angle brackets
     bundle.set_initial_search("https://example.com/playlist")
-
-    req1 = fake_source_dict(fake_context)
-    req2 = fake_source_dict(fake_context)
-    bundle.add_media_request(req1)
-    bundle.add_media_request(req2)
-    bundle.all_requests_added()
-
     messages = bundle.print()
     full_message = "\n".join(messages)
     assert "<https://example.com/playlist>" in full_message
 
-    # Test non-URL doesn't get wrapped
     bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle2.set_initial_search("My Playlist")
-
-    req3 = fake_source_dict(fake_context)
-    req4 = fake_source_dict(fake_context)
-    bundle2.add_media_request(req3)
-    bundle2.add_media_request(req4)
+    bundle2.set_multi_input_request('My Playlist')
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+    bundle2.add_media_request(req1)
+    bundle2.add_media_request(req2)
     bundle2.all_requests_added()
+    # Test non-URL doesn't get wrapped
 
     messages2 = bundle2.print()
     full_message2 = "\n".join(messages2)
@@ -848,7 +842,7 @@ def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint
         fake_context['channel'],
         pagination_length=100  # Very short to trigger pagination
     )
-    bundle.set_initial_search("test-playlist")
+    bundle.set_multi_input_request("test-playlist")
 
     # Add multiple requests with medium-length strings
     for i in range(5):
@@ -982,12 +976,12 @@ def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disa
     assert initial_print == [''] or not initial_print
 
     # Add search request - bundle should now have something to print even without media requests
-    bundle.set_initial_search("spotify:album:123abc")
+    bundle.set_multi_input_request("spotify:album:123abc")
 
     # During search phase (before set_multi_input_request), print should show processing message
     result = bundle.print()
     assert len(result) == 1
-    assert 'Processing search "spotify:album:123abc"' in result[0]
+    assert 'Processing "spotify:album:123abc"' in result[0]
 
     # Finish search - message changes from "Processing search" to just "Processing"
     bundle.set_multi_input_request('foo')
