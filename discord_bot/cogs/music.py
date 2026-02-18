@@ -538,9 +538,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         if failure_summary:
                             # Queue error summary as a separate single immutable message
                             contexts = []
-                            for item in failure_summary:
+                            for failure_msg in failure_summary:
                                 error_mc = MessageContext(bundle.guild_id, bundle.channel_id)
-                                error_mc.function = partial(bundle.text_channel.send, content=item, delete_after=self.config.general.message_delete_after)
+                                error_mc.function = partial(bundle.text_channel.send, content=failure_msg, delete_after=self.config.general.message_delete_after)
                                 contexts.append(error_mc)
                             self.message_queue.send_single_immutable(contexts)
 
@@ -735,14 +735,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                  skip_callback_functions: bool=False):
         message = exception.user_message
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
-        if not bundle:
-            return
-        bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=message)
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-            bundle.text_channel,
-            sticky_messages=False,
-        )
+        if bundle:
+            bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=message)
+            self.message_queue.update_multiple_mutable(
+                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                bundle.text_channel,
+                sticky_messages=False,
+            )
         if not skip_callback_functions and media_request.history_playlist_item_id:
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
@@ -792,7 +791,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
 
         try:
-            self.logger.debug(f'Handing off media_request {str(media_request)} to download queue')
+            self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
             if bundle:
                 bundle.update_request_status(media_request, MediaRequestLifecycleStage.QUEUED)
@@ -1240,6 +1239,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Returns true if all items added, false if some were not
         '''
         for media_request in entries:
+            self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {str(bundle)}')
             # Unless a direct or youtube url, pass into the search queue
             # Also requires youtube music search is set
             if self.config.download.enable_youtube_music_search and media_request.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
