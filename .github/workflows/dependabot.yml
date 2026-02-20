@@ -1,0 +1,11 @@
+name: Dependabot Auto Approve
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-approve:
+    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@275b2654c0e9c77536d58251e65e81befc3a8cc0
+    with:
+      allowed_update_types: 'patch'
