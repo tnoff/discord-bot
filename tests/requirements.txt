@@ -8,4 +8,4 @@ pytest-mock==3.15.1
 requests-mock==1.12.1
 # Currently required for pytest-freezegun, can remove once they have that fixed
 setuptools==82.0.0
-tox==4.41.0
+tox==4.44.0
