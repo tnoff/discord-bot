@@ -1,1 +1,3 @@
 * @tnoff
+requirements.txt @tnoff @github-actions
+tests/requirements.txt @tnoff @github-actions
