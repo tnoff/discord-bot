@@ -80,18 +80,19 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     assert 'Media request queued for download' in initial_print[0]
 
     # Update first request to in progress
-    bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.IN_PROGRESS)
+    media_requests[0].lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     progress_print = bundle.print()
     assert '0/3 media requests processed successfully, 0 failed' in progress_print[0]
     assert 'Downloading and processing media request' in progress_print[0]
 
     # Complete first request
-    bundle.update_request_status(media_requests[0], MediaRequestLifecycleStage.COMPLETED)
+    media_requests[0].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     complete_print = bundle.print()
     assert '1/3 media requests processed successfully, 0 failed' in complete_print[0]
 
     # Fail second request
-    bundle.update_request_status(media_requests[1], MediaRequestLifecycleStage.FAILED, 'Test failure')
+    media_requests[1].lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    media_requests[1].failure_reason = 'Test failure'
     failed_print = bundle.print()
     assert '1/3 media requests processed successfully, 1 failed' in failed_print[0]
     assert 'Media request failed download' in failed_print[0]
@@ -104,7 +105,7 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     assert 'Test failure' in failure_text
 
     # Complete third request
-    bundle.update_request_status(media_requests[2], MediaRequestLifecycleStage.COMPLETED)
+    media_requests[2].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     final_print = bundle.print()
     assert '2/3 media requests processed successfully, 1 failed' in final_print[0]
 
@@ -129,7 +130,8 @@ async def test_request_bundle_integration_message_processing(mocker, fake_contex
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
     bundle.all_requests_added()
-    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    bundle.update_request_status()
 
     # Register bundle for processing
     index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
@@ -143,7 +145,8 @@ async def test_request_bundle_integration_message_processing(mocker, fake_contex
     assert bundle.uuid in cog.multirequest_bundles
 
     # Complete the request
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
     cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
 
     # Process messages again
@@ -231,8 +234,11 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
     assert len(cog.multirequest_bundles) == 3
 
     # Complete bundles at different rates
-    bundles[0][0].update_request_status(bundles[0][1], MediaRequestLifecycleStage.COMPLETED)
-    bundles[1][0].update_request_status(bundles[1][1], MediaRequestLifecycleStage.FAILED, 'Test error')
+    bundles[0][1].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundles[0][0].update_request_status()
+    bundles[1][1].lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    bundles[1][1].failure_reason = 'Test error'
+    bundles[1][0].update_request_status()
     # Leave third bundle in progress
 
     # Verify states
@@ -318,10 +324,8 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     assert not shutdown_print
 
     # Even status updates shouldn't produce output after shutdown
-    # Need to create a MediaRequest object for update_request_status
-    test_req = fake_source_dict(fake_context)
-    test_req.uuid = bundle.media_requests[0].uuid  # Use the UUID from the first request in bundle
-    bundle.update_request_status(test_req, MediaRequestLifecycleStage.COMPLETED)
+    bundle.bundled_requests[0].media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
     post_update_print = bundle.print()
     assert not post_update_print
 
@@ -418,7 +422,8 @@ async def test_race_condition_fix_bundle_cleanup(fake_context):  #pylint:disable
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     assert bundle.finished is True
     assert bundle.uuid in cog.multirequest_bundles
@@ -531,7 +536,8 @@ def test_bundle_cleanup_thread_safety_with_fix(fake_context):  #pylint:disable=r
 
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
-        bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+        req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+        bundle.update_request_status()
 
         bundles.append(bundle)
 
@@ -576,7 +582,8 @@ def test_comprehensive_error_resilience_with_fixes(fake_context):  #pylint:disab
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     # Test race condition fix
     def thread_safe_cleanup():
@@ -622,7 +629,8 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
 
     # Complete all requests
     for req in requests:
-        bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+        req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     assert bundle.finished is True
 
@@ -753,7 +761,8 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     finished_bundle.set_initial_search('test search')
     req1 = fake_source_dict(fake_context)
     finished_bundle.add_media_request(req1)
-    finished_bundle.update_request_status(req1, MediaRequestLifecycleStage.COMPLETED)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    finished_bundle.update_request_status()
     assert finished_bundle.finished is True
     assert finished_bundle.is_shutdown is False
 
@@ -808,7 +817,7 @@ def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=rede
     bundle.add_media_request(req)
 
     # Initial state should be SEARCHING
-    assert bundle.media_requests[0].status == MediaRequestLifecycleStage.SEARCHING
+    assert bundle.bundled_requests[0].media_request.lifecycle_stage == MediaRequestLifecycleStage.SEARCHING
 
     # Test valid transitions
     transitions = [
@@ -820,12 +829,14 @@ def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=rede
 
     for from_stage, to_stage in transitions:
         # Reset to from_stage
-        bundle.media_requests[0].status = from_stage
+        req.lifecycle_stage = from_stage
+        bundle.bundled_requests[0].stored_status = from_stage
 
         # Transition to to_stage
-        result = bundle.update_request_status(req, to_stage)
+        req.lifecycle_stage = to_stage
+        result = bundle.update_request_status()
         assert result is True
-        assert bundle.media_requests[0].status == to_stage
+        assert bundle.bundled_requests[0].media_request.lifecycle_stage == to_stage
 
 @pytest.mark.asyncio
 async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=redefined-outer-name
@@ -841,7 +852,8 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     assert bundle.finished is True
 
@@ -939,7 +951,8 @@ async def test_concurrent_bundle_status_updates(fake_context):  #pylint:disable=
 
     # Simulate concurrent updates
     def update_status(req, status):
-        return bundle.update_request_status(req, status)
+        req.lifecycle_stage = status
+        return bundle.update_request_status()
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         # Complete 5 requests and fail 5 requests concurrently
@@ -1001,8 +1014,7 @@ def test_bundle_uuid_uniqueness(fake_context):  #pylint:disable=redefined-outer-
 def test_bundle_finished_property_edge_cases(fake_context):  #pylint:disable=redefined-outer-name
     """Test bundle finished property with edge cases"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    # Mark search as finished (no search banner needed for this test)
-    bundle.search_finished = True
+    bundle.all_requests_enqueued = True
     # Empty bundle is considered finished (0 processed out of 0 total)
     assert bundle.finished is True
 
@@ -1016,9 +1028,10 @@ def test_bundle_finished_property_edge_cases(fake_context):  #pylint:disable=red
     assert bundle.finished is False
 
     # Mix of completed and discarded should still be finished
-    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.DISCARDED)
-    bundle.update_request_status(requests[2], MediaRequestLifecycleStage.FAILED)
+    requests[0].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    requests[1].lifecycle_stage = MediaRequestLifecycleStage.DISCARDED
+    requests[2].lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    bundle.update_request_status()
 
     # Should be finished: completed (1) + failed (1) + discarded (1) = total (3)
     assert bundle.finished is True
@@ -1074,9 +1087,9 @@ def test_bundle_cleanup_thread_safety_simulation(fake_context):  #pylint:disable
     """Test the thread-safe bundle cleanup logic from music.py"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Create a finished bundle
+    # Create a finished bundle - set flag directly since no table rows exist
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle.search_finished = True  # Mark as finished without search banner
+    bundle.all_requests_enqueued = True
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Simulate the thread-safe removal logic from music.py lines 658-662
@@ -1235,7 +1248,8 @@ async def test_bundle_processing_status_updates_use_text_channel(fake_context): 
         # Test different bundle status updates that were fixed in the commit
 
         # Update to IN_PROGRESS (music.py:943)
-        bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+        req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+        bundle.update_request_status()
         cog.message_queue.update_multiple_mutable(
             f'request_bundle-{bundle.uuid}',
             bundle.text_channel,
@@ -1243,7 +1257,8 @@ async def test_bundle_processing_status_updates_use_text_channel(fake_context): 
         )
 
         # Update to COMPLETED (when adding to player - music.py:812)
-        bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+        req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+        bundle.update_request_status()
         cog.message_queue.update_multiple_mutable(
             f'request_bundle-{bundle.uuid}',
             bundle.text_channel,
@@ -1340,13 +1355,15 @@ async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #
     for bundle in [bundle1, bundle2]:
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
-        bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+        req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+        bundle.update_request_status()
 
     req3 = fake_source_dict(fake_context)
     req3.guild_id = 999
     req3.channel_id = 888
     bundle3.add_media_request(req3)
-    bundle3.update_request_status(req3, MediaRequestLifecycleStage.COMPLETED)
+    req3.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle3.update_request_status()
 
     # Test cleanup for specific guild (music.py:1095-1108)
     test_guild_id = fake_context['guild'].id
@@ -1392,8 +1409,11 @@ def test_single_request_state_after_terminal_failure(fake_context):  #pylint:dis
     assert not bundle.finished
 
     # Replicate download worker: IN_PROGRESS then terminal error → FAILED
-    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
-    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    bundle.update_request_status()
+    req.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req.failure_reason = 'Video Too Long'
+    bundle.update_request_status()
 
     assert bundle.finished
     assert bundle.failed == 1
@@ -1430,12 +1450,13 @@ def test_single_request_print_content_through_lifecycle(fake_context):  #pylint:
     # Single-item bundle should NOT have a status header (completed/failed counter)
     assert 'processed successfully' not in queued_output[0]
 
-    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     in_progress_output = bundle.print()
     assert len(in_progress_output) == 1
     assert 'downloading' in in_progress_output[0].lower()
 
-    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+    req.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req.failure_reason = 'Video Too Long'
     failed_output = bundle.print()
     assert len(failed_output) == 1
     assert 'failed' in failed_output[0].lower()
@@ -1453,7 +1474,8 @@ def test_single_request_failure_summary_contains_reason(fake_context):  #pylint:
     bundle.add_media_request(req)
     bundle.all_requests_added()
 
-    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason='Video Too Long')
+    req.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req.failure_reason = 'Video Too Long'
 
     summary = bundle.get_failure_summary()
     assert summary is not None
@@ -1496,7 +1518,8 @@ async def test_single_request_terminal_failure_cleanup_via_send_messages(mocker,
     assert bundle.uuid in cog.multirequest_bundles
 
     # Replicate download worker reaching IN_PROGRESS, then hitting a terminal error
-    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    bundle.update_request_status()
     cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
     await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles  # still alive, not finished yet
@@ -1545,14 +1568,17 @@ async def test_single_request_full_lifecycle_play_successful(mocker, fake_contex
     assert bundle.uuid in cog.multirequest_bundles
 
     # search_youtube_music: QUEUED (no-op display) then download worker: IN_PROGRESS
-    bundle.update_request_status(req, MediaRequestLifecycleStage.QUEUED)
-    bundle.update_request_status(req, MediaRequestLifecycleStage.IN_PROGRESS)
+    req.lifecycle_stage = MediaRequestLifecycleStage.QUEUED
+    bundle.update_request_status()
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    bundle.update_request_status()
     cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
     await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles
 
     # Download succeeds: COMPLETED
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
     cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
 
     assert bundle.finished

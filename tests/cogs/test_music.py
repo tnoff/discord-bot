@@ -902,7 +902,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
     # Add request and set to BACKOFF status
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
 
     # Test that bundle print shows the BACKOFF message
     result = bundle.print()
@@ -945,11 +945,12 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
     )
 
     bundle.add_media_request(media_request)
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
+    bundle.update_request_status()
 
     # Verify status was set correctly
-    request_data = bundle.media_requests[0]
-    assert request_data.status == MediaRequestLifecycleStage.BACKOFF
+    request_data = bundle.bundled_requests[0]
+    assert request_data.media_request.lifecycle_stage == MediaRequestLifecycleStage.BACKOFF
 
 
 # Memory leak fix tests

@@ -22,19 +22,19 @@ async def test_media_request_basics(fake_context): #pylint:disable=redefined-out
 async def test_media_request_retry_count_initialization(fake_context): #pylint:disable=redefined-outer-name
     """Test that retry_count is always initialized to 0"""
     x = fake_source_dict(fake_context)
-    assert x.retry_count == 0
+    assert x.retry_information.retry_count == 0
 
 @pytest.mark.asyncio
 async def test_media_request_retry_count_increments(fake_context): #pylint:disable=redefined-outer-name
     """Test that retry_count can be incremented"""
     x = fake_source_dict(fake_context)
-    assert x.retry_count == 0
+    assert x.retry_information.retry_count == 0
 
-    x.retry_count += 1
-    assert x.retry_count == 1
+    x.retry_information.retry_count += 1
+    assert x.retry_information.retry_count == 1
 
-    x.retry_count += 1
-    assert x.retry_count == 2
+    x.retry_information.retry_count += 1
+    assert x.retry_information.retry_count == 2
 
 @pytest.mark.asyncio
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
@@ -45,10 +45,10 @@ async def test_media_request_bundle_single(fake_context): #pylint:disable=redefi
     b.all_requests_added()
     assert b.print()[0] == f'Media request queued for download: "{x.raw_search_string}"'
 
-    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     assert b.print()[0] == f'Downloading and processing media request: "{x.raw_search_string}"'
 
-    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
+    x.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     assert not b.print()
 
 @pytest.mark.asyncio
@@ -75,21 +75,22 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     assert '<https://foo.example.com/playlist>' in full_output
     assert '0/3 media requests processed successfully, 0 failed' in full_output
 
-    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Processing ' in full_output
     assert '0/3 media requests processed successfully, 0 failed' in full_output
     assert 'Downloading and processing media request:' in full_output
 
-    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
-    b.update_request_status(y, MediaRequestLifecycleStage.IN_PROGRESS)
+    x.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    y.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '1/3 media requests processed successfully, 0 failed' in full_output
 
-    b.update_request_status(y, MediaRequestLifecycleStage.FAILED, failure_reason='cats ate the chords')
-    b.update_request_status(z, MediaRequestLifecycleStage.IN_PROGRESS)
+    y.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    y.failure_reason = 'cats ate the chords'
+    z.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '1/3 media requests processed successfully, 1 failed' in full_output
@@ -101,7 +102,7 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     summary_text = '\n'.join(summary)
     assert 'cats ate the chords' in summary_text
 
-    b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
+    z.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '2/3 media requests processed successfully, 1 failed' in full_output
@@ -122,32 +123,32 @@ async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disab
     b.all_requests_added()
 
     # First request starts processing
-    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Downloading and processing media request:' in full_output
 
     # First request fails and will retry
-    b.update_request_status(x, MediaRequestLifecycleStage.RETRY)
+    x.lifecycle_stage = MediaRequestLifecycleStage.RETRY
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Failed, will retry:' in full_output
     assert x.search_string in full_output
 
     # Second request completes successfully
-    b.update_request_status(y, MediaRequestLifecycleStage.IN_PROGRESS)
-    b.update_request_status(y, MediaRequestLifecycleStage.COMPLETED)
+    y.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    y.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert '1/3 media requests processed successfully, 0 failed' in full_output
 
     # First request (after retry) completes successfully
-    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
-    b.update_request_status(x, MediaRequestLifecycleStage.COMPLETED)
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    x.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     # Third request completes
-    b.update_request_status(z, MediaRequestLifecycleStage.IN_PROGRESS)
-    b.update_request_status(z, MediaRequestLifecycleStage.COMPLETED)
+    z.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    z.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     print_output = b.print()
     full_output = '\n'.join(print_output)
@@ -177,7 +178,7 @@ async def test_media_request_bundle_shutdown(fake_context): #pylint:disable=rede
     assert not b.print()
 
     # Even if we update status, should still return empty
-    b.update_request_status(x, MediaRequestLifecycleStage.IN_PROGRESS)
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     assert not b.print()
 
 @pytest.mark.asyncio
@@ -222,8 +223,8 @@ def media_request_bundle(fake_context):  #pylint:disable=redefined-outer-name
         fake_context['channel'].id,
         fake_context['channel']
     )
-    # Set up search state for testing - bundles created in tests should be ready for use
-    bundle.search_finished = True
+    # Set the enqueued flag directly - no table rows exist, so all_requests_added() would fail
+    bundle.all_requests_enqueued = True
     return bundle
 
 
@@ -248,7 +249,8 @@ def test_media_request_bundle_finished_property_all_completed(media_request_bund
     media_request_bundle.add_media_request(media_request)
 
     # Mark as completed
-    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    media_request_bundle.update_request_status()
 
     assert media_request_bundle.finished
 
@@ -269,33 +271,11 @@ def test_media_request_bundle_finished_property_mixed_status(media_request_bundl
         media_request_bundle.add_media_request(media_request)
 
     # Mark different statuses
-    requests = list(media_request_bundle.media_requests)
+    bundled_requests = list(media_request_bundle.bundled_requests)
 
-    # Create actual MediaRequest objects to update status
-    media_request_1 = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        'test search 0',
-        'test search 0',
-        SearchType.SEARCH
-    )
-    media_request_1.uuid = requests[0].uuid
-
-    media_request_2 = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        'test search 1',
-        'test search 1',
-        SearchType.SEARCH
-    )
-    media_request_2.uuid = requests[1].uuid
-
-    media_request_bundle.update_request_status(media_request_1, MediaRequestLifecycleStage.COMPLETED)
-    media_request_bundle.update_request_status(media_request_2, MediaRequestLifecycleStage.FAILED)
+    bundled_requests[0].media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundled_requests[1].media_request.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    media_request_bundle.update_request_status()
 
     # Third one remains queued, so not finished
     assert not media_request_bundle.finished
@@ -384,9 +364,10 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
     # Update statuses
     for media_request, (status, _) in zip(media_requests, statuses_to_test):
         if status == MediaRequestLifecycleStage.FAILED:
-            media_request_bundle.update_request_status(media_request, status, failure_reason="test failure")
+            media_request.lifecycle_stage = status
+            media_request.failure_reason = "test failure"
         else:
-            media_request_bundle.update_request_status(media_request, status)
+            media_request.lifecycle_stage = status
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -417,11 +398,8 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
     media_request_bundle.all_requests_added()
 
     # Mark as failed with reason
-    media_request_bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.FAILED,
-        failure_reason="Video too long"
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    media_request.failure_reason = "Video too long"
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -476,7 +454,7 @@ def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fa
     media_request_bundle.all_requests_added()
 
     # Set to BACKOFF status
-    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -511,19 +489,8 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
         media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
 
-    for i, (media_request, stage) in enumerate(zip(media_request_bundle.media_requests, lifecycle_stages)):
-        # Reconstruct MediaRequest object with the stored UUID
-        mr = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            f'test search {i}',
-            f'test search {i}',
-            SearchType.SEARCH
-        )
-        mr.uuid = media_request.uuid
-        media_request_bundle.update_request_status(mr, stage)
+    for bundled_req, stage in zip(media_request_bundle.bundled_requests, lifecycle_stages):
+        bundled_req.media_request.lifecycle_stage = stage
 
     result = media_request_bundle.print()
     result_text = ' '.join(result)
@@ -553,15 +520,18 @@ def test_media_request_bundle_finished_property_with_backoff(media_request_bundl
     media_request_bundle.add_media_request(media_request)
 
     # BACKOFF status should not be considered finished
-    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.BACKOFF)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
+    media_request_bundle.update_request_status()
     assert not media_request_bundle.finished
 
     # IN_PROGRESS status should not be considered finished
-    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.IN_PROGRESS)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    media_request_bundle.update_request_status()
     assert not media_request_bundle.finished
 
     # COMPLETED status should be considered finished
-    media_request_bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    media_request_bundle.update_request_status()
     assert media_request_bundle.finished
 
 def test_chunk_list_edge_cases():
@@ -592,25 +562,29 @@ def test_chunk_list_edge_cases():
 
 
 def test_bundle_override_message_functionality(fake_context):  #pylint:disable=redefined-outer-name
-    """Test override_message functionality in bundle print"""
+    """Test FAILED status shows 'Media request failed download' row, failure_reason via get_failure_summary()"""
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
 
-    # Add request with override message
+    # Add request
     req = fake_source_dict(fake_context)
     bundle.set_initial_search(req.raw_search_string)
     bundle.add_media_request(req)
     bundle.all_requests_added()
 
-    # Update with override message
-    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED,
-                                failure_reason="Original failure",
-                                override_message="Custom override message")
+    # Set FAILED with a failure_reason directly on the request
+    req.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req.failure_reason = "Original failure"
 
-    # Test that override message is used instead of default formatting
+    # The row shows "Media request failed download" (NOT the failure_reason inline)
     messages = bundle.print()
     assert len(messages) == 1
-    assert "Custom override message" in messages[0]
-    assert "Original failure" not in messages[0]  # Original failure reason should be ignored
+    assert "Media request failed download" in messages[0]
+    assert "Original failure" not in messages[0]
+
+    # The failure_reason is available via get_failure_summary()
+    summary = bundle.get_failure_summary()
+    assert summary is not None
+    assert "Original failure" in '\n'.join(summary)
 
 
 def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-outer-name
@@ -622,7 +596,7 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
-    bundle.update_request_status(req, MediaRequestLifecycleStage.COMPLETED)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     # Print should return empty list when no messages to display
     messages = bundle.print()
@@ -638,7 +612,8 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
-    bundle.update_request_status(req, MediaRequestLifecycleStage.FAILED, failure_reason="Test failure")
+    req.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req.failure_reason = "Test failure"
 
     messages = bundle.print()
     # Should not include top-level status since total == 1
@@ -666,9 +641,9 @@ def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:di
         requests.append(req)
     bundle.all_requests_added()
 
-    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.FAILED)
-    bundle.update_request_status(requests[2], MediaRequestLifecycleStage.QUEUED)
+    requests[0].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    requests[1].lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    requests[2].lifecycle_stage = MediaRequestLifecycleStage.QUEUED
 
     messages = bundle.print()
     # Should include status header since total > 1
@@ -721,15 +696,18 @@ def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=r
     assert not bundle.finished_successfully
 
     # Complete first request - still not finished
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.COMPLETED)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
     assert not bundle.finished_successfully
 
     # Fail second request - still not finished successfully (has failures)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED)
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    bundle.update_request_status()
     assert not bundle.finished_successfully
 
     # Discard third request - still not finished successfully (has failures)
-    bundle.update_request_status(req3, MediaRequestLifecycleStage.DISCARDED)
+    req3.lifecycle_stage = MediaRequestLifecycleStage.DISCARDED
+    bundle.update_request_status()
     assert not bundle.finished_successfully
 
     # Test scenario where all are completed or discarded (no failures)
@@ -739,8 +717,9 @@ def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=r
     bundle2.add_media_request(req4)
     bundle2.add_media_request(req5)
 
-    bundle2.update_request_status(req4, MediaRequestLifecycleStage.COMPLETED)
-    bundle2.update_request_status(req5, MediaRequestLifecycleStage.DISCARDED)
+    req4.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    req5.lifecycle_stage = MediaRequestLifecycleStage.DISCARDED
+    bundle2.update_request_status()
 
     # Now should be finished successfully (no failures)
     assert bundle2.finished_successfully
@@ -775,8 +754,8 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
     assert "test-playlist" in full_message
 
     # Complete all requests
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.COMPLETED)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    req2.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     # Test completion messaging
     messages = bundle.print()
@@ -904,8 +883,8 @@ def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disa
         assert f'item{i}' in initial_output
 
     # Complete first two items
-    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.COMPLETED)
+    requests[0].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    requests[1].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     new_result = bundle.print()
     new_output = '\n'.join(new_result)
@@ -946,8 +925,8 @@ def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:di
     bundle.all_requests_added()
 
     # Complete some items from the beginning
-    bundle.update_request_status(requests[0], MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(requests[1], MediaRequestLifecycleStage.COMPLETED)
+    requests[0].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    requests[1].lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
 
     new_result = bundle.print()
     new_output = '\n'.join(new_result)
@@ -983,14 +962,6 @@ def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disa
     assert len(result) == 1
     assert 'Processing "spotify:album:123abc"' in result[0]
 
-    # Finish search - message changes from "Processing search" to just "Processing"
-    bundle.set_multi_input_request('foo')
-    result = bundle.print()
-    assert len(result) == 1
-    # After set_multi_input_request, the message changes
-    assert 'Processing' in result[0]
-    assert 'spotify:album:123abc' in result[0]
-
     # Add media requests
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -1023,7 +994,8 @@ def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:
 
     # Mark as failed with a reason
     failure_reason = "Download attempt flagged as bot download, skipping"
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason=failure_reason)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    media_request.failure_reason = failure_reason
 
     # Get the printed output
     result = bundle.print()
@@ -1035,8 +1007,8 @@ def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:
     assert failure_reason not in result_text
 
     # Verify the failure reason is stored
-    bundled_req = bundle.media_requests[0]
-    assert bundled_req.failure_reason == failure_reason
+    bundled_req = bundle.bundled_requests[0]
+    assert bundled_req.media_request.failure_reason == failure_reason
     assert bundled_req.failure_reason_sent is False
 
 
@@ -1060,9 +1032,11 @@ def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disabl
     bundle.all_requests_added()
 
     # Mark two as failed with reasons
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Bot download flagged")
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(req3, MediaRequestLifecycleStage.FAILED, failure_reason="Video unavailable")
+    req1.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req1.failure_reason = "Bot download flagged"
+    req2.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    req3.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req3.failure_reason = "Video unavailable"
 
     # Get failure summary
     summary = bundle.get_failure_summary()
@@ -1075,8 +1049,8 @@ def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disabl
     assert 'Video unavailable' in summary_text
 
     # Should be marked as sent
-    assert bundle.media_requests[0].failure_reason_sent is True
-    assert bundle.media_requests[2].failure_reason_sent is True
+    assert bundle.bundled_requests[0].failure_reason_sent is True
+    assert bundle.bundled_requests[2].failure_reason_sent is True
 
 
 def test_media_request_bundle_get_failure_summary_no_duplicates(fake_context):  #pylint:disable=redefined-outer-name
@@ -1093,7 +1067,8 @@ def test_media_request_bundle_get_failure_summary_no_duplicates(fake_context):  
     bundle.all_requests_added()
 
     # Mark as failed
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.FAILED, failure_reason="Test error")
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    media_request.failure_reason = "Test error"
 
     # Get failure summary first time
     summary1 = bundle.get_failure_summary()
@@ -1120,7 +1095,8 @@ def test_media_request_bundle_get_failure_summary_none_when_no_failures(fake_con
     bundle.all_requests_added()
 
     # Mark as completed (not failed)
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     # Should return None
     summary = bundle.get_failure_summary()
@@ -1144,7 +1120,8 @@ def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylin
     bundle.all_requests_added()
 
     # First failure
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Error 1")
+    req1.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req1.failure_reason = "Error 1"
     summary1 = bundle.get_failure_summary()
     assert summary1 is not None
     summary1_text = '\n'.join(summary1)
@@ -1152,7 +1129,8 @@ def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylin
     assert 'Error 2' not in summary1_text
 
     # Second failure
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="Error 2")
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req2.failure_reason = "Error 2"
     summary2 = bundle.get_failure_summary()
     assert summary2 is not None
     summary2_text = '\n'.join(summary2)
@@ -1178,8 +1156,10 @@ def test_media_request_bundle_get_failure_summary_with_none_reason(fake_context)
     bundle.all_requests_added()
 
     # Mark first as failed with reason, second as failed without reason
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Real error")
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason=None)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req1.failure_reason = "Real error"
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req2.failure_reason = None
 
     # Get failure summary - should only include req1
     summary = bundle.get_failure_summary()
@@ -1207,8 +1187,10 @@ def test_media_request_bundle_get_failure_summary_with_empty_reason(fake_context
     bundle.all_requests_added()
 
     # Mark first as failed with reason, second as failed with empty string
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason="Real error")
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="")
+    req1.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req1.failure_reason = "Real error"
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req2.failure_reason = ""
 
     # Get failure summary - should only include req1
     summary = bundle.get_failure_summary()
@@ -1236,8 +1218,10 @@ def test_media_request_bundle_get_failure_summary_all_failures_without_reasons(f
     bundle.all_requests_added()
 
     # Mark both as failed without reasons
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.FAILED, failure_reason=None)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.FAILED, failure_reason="")
+    req1.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req1.failure_reason = None
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    req2.failure_reason = ""
 
     # Get failure summary - should return None since no failures have reasons
     summary = bundle.get_failure_summary()
@@ -1277,12 +1261,9 @@ def test_media_request_bundle_get_retry_summary_basic(fake_context):  #pylint:di
     bundle.all_requests_added()
 
     # Mark as retry with reason
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason="Bot flagged download",
-        retry_count=1
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = "Bot flagged download"
+    media_request.retry_information.retry_count = 1
 
     # Get retry summary
     summary = bundle.get_retry_summary(max_retries=3)
@@ -1309,13 +1290,10 @@ def test_media_request_bundle_get_retry_summary_with_backoff(fake_context):  #py
     bundle.all_requests_added()
 
     # Mark as retry with backoff time (240 seconds = 4 minutes)
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason="Bot flagged download",
-        retry_count=1,
-        retry_backoff_seconds=240
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = "Bot flagged download"
+    media_request.retry_information.retry_count = 1
+    media_request.retry_information.retry_backoff_seconds = 240
 
     summary = bundle.get_retry_summary(max_retries=3)
 
@@ -1337,13 +1315,10 @@ def test_media_request_bundle_get_retry_summary_backoff_seconds(fake_context):  
     bundle.all_requests_added()
 
     # Mark as retry with short backoff (30 seconds)
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason="Bot flagged download",
-        retry_count=1,
-        retry_backoff_seconds=30
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = "Bot flagged download"
+    media_request.retry_information.retry_count = 1
+    media_request.retry_information.retry_backoff_seconds = 30
 
     summary = bundle.get_retry_summary(max_retries=3)
 
@@ -1365,13 +1340,10 @@ def test_media_request_bundle_get_retry_summary_backoff_singular_minute(fake_con
     bundle.all_requests_added()
 
     # Mark as retry with 60 seconds = 1 minute
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason="Bot flagged download",
-        retry_count=1,
-        retry_backoff_seconds=60
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = "Bot flagged download"
+    media_request.retry_information.retry_count = 1
+    media_request.retry_information.retry_backoff_seconds = 60
 
     summary = bundle.get_retry_summary(max_retries=3)
 
@@ -1394,12 +1366,9 @@ def test_media_request_bundle_get_retry_summary_no_duplicates(fake_context):  #p
     bundle.all_requests_added()
 
     # Mark as retry
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason="Test error",
-        retry_count=1
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = "Test error"
+    media_request.retry_information.retry_count = 1
 
     # Get retry summary first time
     summary1 = bundle.get_retry_summary(max_retries=3)
@@ -1425,7 +1394,8 @@ def test_media_request_bundle_get_retry_summary_none_when_no_retries(fake_contex
     bundle.all_requests_added()
 
     # Mark as completed (not retry)
-    bundle.update_request_status(media_request, MediaRequestLifecycleStage.COMPLETED)
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
 
     # Should return None
     summary = bundle.get_retry_summary(max_retries=3)
@@ -1451,11 +1421,13 @@ def test_media_request_bundle_get_retry_summary_multiple_retries(fake_context): 
     bundle.all_requests_added()
 
     # Mark two as retry with different reasons
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason="Error 1", retry_count=1)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.COMPLETED)
-    bundle.update_request_status(req3, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason="Error 2", retry_count=2)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req1.retry_information.retry_reason = "Error 1"
+    req1.retry_information.retry_count = 1
+    req2.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    req3.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req3.retry_information.retry_reason = "Error 2"
+    req3.retry_information.retry_count = 2
 
     # Get retry summary
     summary = bundle.get_retry_summary(max_retries=3)
@@ -1485,10 +1457,12 @@ def test_media_request_bundle_get_retry_summary_with_none_reason(fake_context): 
     bundle.all_requests_added()
 
     # Mark first as retry with reason, second as retry without reason
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason="Real error", retry_count=1)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason=None, retry_count=1)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req1.retry_information.retry_reason = "Real error"
+    req1.retry_information.retry_count = 1
+    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req2.retry_information.retry_reason = None
+    req2.retry_information.retry_count = 1
 
     # Get retry summary - should only include req1
     summary = bundle.get_retry_summary(max_retries=3)
@@ -1529,12 +1503,9 @@ def test_media_request_bundle_get_retry_summary_truncates_long_reason(fake_conte
     # Create a very long error message (longer than Discord's 2000 char limit)
     long_error = "A" * 3000
 
-    bundle.update_request_status(
-        media_request,
-        MediaRequestLifecycleStage.RETRY,
-        retry_reason=long_error,
-        retry_count=1
-    )
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    media_request.retry_information.retry_reason = long_error
+    media_request.retry_information.retry_count = 1
 
     summary = bundle.get_retry_summary(max_retries=3)
 
@@ -1563,16 +1534,18 @@ def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pyl
     bundle.all_requests_added()
 
     # First retry
-    bundle.update_request_status(req1, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason="Error 1", retry_count=1)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req1.retry_information.retry_reason = "Error 1"
+    req1.retry_information.retry_count = 1
     summary1 = bundle.get_retry_summary(max_retries=3)
     assert summary1 is not None
     assert len(summary1) == 1
     assert 'Error 1' in summary1[0]
 
     # Second retry (different request)
-    bundle.update_request_status(req2, MediaRequestLifecycleStage.RETRY,
-                                 retry_reason="Error 2", retry_count=1)
+    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    req2.retry_information.retry_reason = "Error 2"
+    req2.retry_information.retry_count = 1
     summary2 = bundle.get_retry_summary(max_retries=3)
     assert summary2 is not None
     assert len(summary2) == 1

@@ -279,19 +279,19 @@ class DownloadClient():
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
                     span.record_exception(error)
-                    if media_request.retry_count + 1 >= max_retries:
+                    if media_request.retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
                         raise RetryLimitExceeded('Retry limit exceeded') from error
                     span.set_status(StatusCode.OK)
-                    media_request.retry_count += 1
+                    media_request.retry_information.retry_count += 1
                     raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
                 # Fallback
                 span.record_exception(error)
-                if media_request.retry_count + 1 >= max_retries:
+                if media_request.retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
                     raise RetryLimitExceeded('Retry limit exceeded') from error
                 span.set_status(StatusCode.OK)
-                media_request.retry_count += 1
+                media_request.retry_information.retry_count += 1
                 raise RetryableException('Untracked error message', media_request=media_request) from error
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore

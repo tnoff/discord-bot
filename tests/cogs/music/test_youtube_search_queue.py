@@ -132,8 +132,8 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     assert download_item == media_request
 
     # Verify bundle status was updated
-    bundle_request = bundle.media_requests[0]
-    assert bundle_request.status == MediaRequestLifecycleStage.QUEUED
+    bundle_request = bundle.bundled_requests[0]
+    assert bundle_request.media_request.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
 
 
 @pytest.mark.asyncio()
@@ -257,8 +257,8 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     await cog.search_youtube_music()
 
     # Verify bundle status was updated to DISCARDED
-    bundle_request = bundle.media_requests[0]
-    assert bundle_request.status == MediaRequestLifecycleStage.DISCARDED
+    bundle_request = bundle.bundled_requests[0]
+    assert bundle_request.media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
 
 
 @pytest.mark.asyncio()
@@ -492,7 +492,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     assert download_queue_item == direct_request
 
     # Verify bundle was updated
-    assert len(bundle.media_requests) == 2
+    assert len(bundle.bundled_requests) == 2
 
 
 @pytest.mark.asyncio()
@@ -966,5 +966,5 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     assert cog.download_queue.size(fake_context['guild'].id) == 2
 
     # Verify both bundles were updated
-    assert len(bundle1.media_requests) == 1
-    assert len(bundle2.media_requests) == 1
+    assert len(bundle1.bundled_requests) == 1
+    assert len(bundle2.bundled_requests) == 1
