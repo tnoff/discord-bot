@@ -251,7 +251,7 @@ class DownloadClient():
         span_attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
             try:
-                data = self.ytdl.extract_info(media_request.search_string, download=media_request.download_file)
+                data = self.ytdl.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
@@ -279,19 +279,19 @@ class DownloadClient():
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
                     span.record_exception(error)
-                    if media_request.retry_count + 1 >= max_retries:
+                    if media_request.retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
                         raise RetryLimitExceeded('Retry limit exceeded') from error
                     span.set_status(StatusCode.OK)
-                    media_request.retry_count += 1
+                    media_request.retry_information.retry_count += 1
                     raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
                 # Fallback
                 span.record_exception(error)
-                if media_request.retry_count + 1 >= max_retries:
+                if media_request.retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
                     raise RetryLimitExceeded('Retry limit exceeded') from error
                 span.set_status(StatusCode.OK)
-                media_request.retry_count += 1
+                media_request.retry_information.retry_count += 1
                 raise RetryableException('Untracked error message', media_request=media_request) from error
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore

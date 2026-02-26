@@ -10,6 +10,7 @@ from discord_bot.cogs.music_helpers.download_client import ExistingFileException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.utils.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
@@ -29,16 +30,14 @@ class MockSearchClient:
         return None
 
 
-def create_test_media_request(test_context, search_string='test search', bundle_uuid=None):
+def create_test_media_request(test_context, search_string='test search', bundle_uuid=None, search_type=SearchType.SEARCH):
     """Helper to create test media requests"""
     request = MediaRequest(
         test_context['guild'].id,
         test_context['channel'].id,
         test_context['author'].display_name,
         test_context['author'].id,
-        search_string,
-        search_string,
-        SearchType.SEARCH
+        SearchResult(search_type, search_string)
     )
     if bundle_uuid:
         request.bundle_uuid = bundle_uuid
@@ -124,7 +123,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     await cog.search_youtube_music()
 
     # Verify search string was updated with YouTube prefix
-    assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+    assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
     # Verify request was added to download queue
     assert cog.download_queue.size(fake_context['guild'].id) > 0
@@ -132,8 +131,8 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     assert download_item == media_request
 
     # Verify bundle status was updated
-    bundle_request = bundle.media_requests[0]
-    assert bundle_request.status == MediaRequestLifecycleStage.QUEUED
+    bundle_request = bundle.bundled_requests[0]
+    assert bundle_request.media_request.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
 
 
 @pytest.mark.asyncio()
@@ -176,7 +175,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
             await cog.search_youtube_music()
 
             # Verify search string was updated with YouTube prefix
-            assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+            assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
             # Verify download queue is empty (cache hit, no download needed)
             assert cog.download_queue.size(fake_context['guild'].id) == 0
@@ -213,7 +212,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     await cog.search_youtube_music()
 
     # Verify original search string unchanged
-    assert media_request.search_string == 'test search'
+    assert media_request.search_result.raw_search_string == 'test search'
 
     # Verify download queue still has item
     assert cog.download_queue.size(fake_context['guild'].id) == 1
@@ -257,8 +256,8 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     await cog.search_youtube_music()
 
     # Verify bundle status was updated to DISCARDED
-    bundle_request = bundle.media_requests[0]
-    assert bundle_request.status == MediaRequestLifecycleStage.DISCARDED
+    bundle_request = bundle.bundled_requests[0]
+    assert bundle_request.media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
 
 
 @pytest.mark.asyncio()
@@ -458,11 +457,9 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
 
     # Create search-type media requests (should go to search queue)
     search_request = create_test_media_request(fake_context, 'search term', bundle.uuid)
-    search_request.search_type = SearchType.SEARCH
 
     # Create direct-type media request (should go directly to download queue)
-    direct_request = create_test_media_request(fake_context, 'https://direct.url', bundle.uuid)
-    direct_request.search_type = SearchType.DIRECT
+    direct_request = create_test_media_request(fake_context, 'https://direct.url', bundle.uuid, SearchType.DIRECT)
 
     entries = [search_request, direct_request]
 
@@ -492,7 +489,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     assert download_queue_item == direct_request
 
     # Verify bundle was updated
-    assert len(bundle.media_requests) == 2
+    assert len(bundle.bundled_requests) == 2
 
 
 @pytest.mark.asyncio()
@@ -603,10 +600,8 @@ async def test_search_queue_disabled_routing(mocker, fake_context):  #pylint:dis
 
     # Create search-type media requests (should go directly to download queue when disabled)
     search_request = create_test_media_request(fake_context, 'search term', bundle.uuid)
-    search_request.search_type = SearchType.SEARCH
 
-    spotify_request = create_test_media_request(fake_context, 'spotify search', bundle.uuid)
-    spotify_request.search_type = SearchType.SPOTIFY
+    spotify_request = create_test_media_request(fake_context, 'spotify search', bundle.uuid, SearchType.SPOTIFY)
 
     entries = [search_request, spotify_request]
 
@@ -660,19 +655,14 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
 
     # Create requests of different types
     search_request = create_test_media_request(fake_context, 'search term', bundle.uuid)
-    search_request.search_type = SearchType.SEARCH
 
-    spotify_request = create_test_media_request(fake_context, 'spotify track', bundle.uuid)
-    spotify_request.search_type = SearchType.SPOTIFY
+    spotify_request = create_test_media_request(fake_context, 'spotify track', bundle.uuid, SearchType.SPOTIFY)
 
-    direct_request = create_test_media_request(fake_context, 'https://direct.url', bundle.uuid)
-    direct_request.search_type = SearchType.DIRECT
+    direct_request = create_test_media_request(fake_context, 'https://direct.url', bundle.uuid, SearchType.DIRECT)
 
-    youtube_request = create_test_media_request(fake_context, 'https://youtube.com/watch?v=123', bundle.uuid)
-    youtube_request.search_type = SearchType.YOUTUBE
+    youtube_request = create_test_media_request(fake_context, 'https://youtube.com/watch?v=123', bundle.uuid, SearchType.YOUTUBE)
 
-    youtube_playlist_request = create_test_media_request(fake_context, 'https://youtube.com/playlist?list=123', bundle.uuid)
-    youtube_playlist_request.search_type = SearchType.YOUTUBE_PLAYLIST
+    youtube_playlist_request = create_test_media_request(fake_context, 'https://youtube.com/playlist?list=123', bundle.uuid, SearchType.YOUTUBE_PLAYLIST)
 
     entries = [search_request, spotify_request, direct_request, youtube_request, youtube_playlist_request]
 
@@ -741,7 +731,6 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     # Create a bundle and media request
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
-    media_request.search_type = SearchType.SEARCH
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     entries = [media_request]
@@ -808,7 +797,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     await cog.search_youtube_music()
 
     # Verify search still happened and item went to download queue
-    assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+    assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
     assert cog.download_queue.size(fake_context['guild'].id) == 1
 
 
@@ -840,7 +829,6 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
     search_requests = []
     for i in range(10):  # More than download queue size of 2
         request = create_test_media_request(fake_context, f'search term {i}', bundle.uuid)
-        request.search_type = SearchType.SEARCH
         search_requests.append(request)
 
     # Mock cache misses
@@ -906,7 +894,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
         await cog.search_youtube_music()
         # Should not crash despite message queue failure
         # Verify core functionality still works
-        assert media_request.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+        assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
         assert cog.download_queue.size(fake_context['guild'].id) == 1
     except Exception as e: #pylint:disable=broad-exception-caught
         # If exception propagates, it should be handled gracefully in real implementation
@@ -959,12 +947,12 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     await cog.search_youtube_music()
 
     # Verify both items were processed correctly
-    assert media_request1.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
-    assert media_request2.search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+    assert media_request1.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+    assert media_request2.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
 
     # Both should be in download queue
     assert cog.download_queue.size(fake_context['guild'].id) == 2
 
     # Verify both bundles were updated
-    assert len(bundle1.media_requests) == 1
-    assert len(bundle2.media_requests) == 1
+    assert len(bundle1.bundled_requests) == 1
+    assert len(bundle2.bundled_requests) == 1

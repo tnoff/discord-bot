@@ -119,7 +119,7 @@ async def test_prepare_source_errors():
     with pytest.raises(RetryableException) as exc:
         await x.create_source(y, 3, loop)
     # BotDownloadFlagged is now a RetryableException
-    assert exc.value.media_request.retry_count == 1
+    assert exc.value.media_request.retry_information.retry_count == 1
 
     x = DownloadClient(yield_dlp_error('Requested format is not available'), None)
     y = fake_source_dict(fake_context, download_file=False)
@@ -200,14 +200,14 @@ async def test_retryable_exception_increments_retry_count():
     y = fake_source_dict(fake_context, download_file=False)
 
     # Initial retry count should be 0
-    assert y.retry_count == 0
+    assert y.retry_information.retry_count == 0
 
     # Attempt download, should raise RetryableException and increment retry_count
     with pytest.raises(RetryableException):
         await x.create_source(y, 3, loop)
 
     # Retry count should be incremented
-    assert y.retry_count == 1
+    assert y.retry_information.retry_count == 1
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_all_unknown_errors_are_retryable():
@@ -231,7 +231,7 @@ async def test_all_unknown_errors_are_retryable():
             await x.create_source(y, 3, loop)
 
         assert exc.value.media_request == y
-        assert y.retry_count >= 1  # Should have incremented retry count
+        assert y.retry_information.retry_count >= 1  # Should have incremented retry count
 
 # ========== DownloadFailureQueue Tests ==========
 
@@ -359,7 +359,7 @@ async def test_retry_limit_exceeded_on_bot_flagged():
     y = fake_source_dict(fake_context, download_file=False)
 
     # Set retry count to max_retries - 1, so next attempt hits the limit
-    y.retry_count = 2
+    y.retry_information.retry_count = 2
 
     # With max_retries=3 and retry_count=2, 2+1 >= 3 is True, so RetryLimitExceeded should be raised
     with pytest.raises(RetryLimitExceeded) as exc:
@@ -378,7 +378,7 @@ async def test_retry_limit_exceeded_on_unknown_error():
     y = fake_source_dict(fake_context, download_file=False)
 
     # Set retry count to max_retries - 1
-    y.retry_count = 2
+    y.retry_information.retry_count = 2
 
     # With max_retries=3 and retry_count=2, should raise RetryLimitExceeded
     with pytest.raises(RetryLimitExceeded) as exc:

@@ -19,6 +19,7 @@ from discord_bot.database import BASE
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 class HelperException(Exception):
@@ -77,7 +78,8 @@ def fake_source_dict(fakes: dict[str, Any], download_file: bool = True, is_direc
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
-    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_string, search_string, search_type, download_file=download_file)
+    search_result = SearchResult(search_type=search_type, raw_search_string=search_string)
+    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_result, download_file=download_file)
     mr.message_context = message_context
     return mr
 
@@ -94,8 +96,8 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
         file_path = Path(tmp_file.name)
         file_path.write_text('testing', encoding='utf-8')
         webpage_url = f'https://foo.example/{random_string()}'
-        if media_request.search_type == SearchType.DIRECT:
-            webpage_url = media_request.search_string
+        if media_request.search_result.search_type == SearchType.DIRECT:
+            webpage_url = media_request.search_result.resolved_search_string
         media_download = MediaDownload(file_path, {
             'duration': 120,
             'webpage_url': webpage_url,

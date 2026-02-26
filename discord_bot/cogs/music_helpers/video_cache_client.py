@@ -152,7 +152,7 @@ class VideoCacheClient():
         attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
             with self.session_generator() as db_session:
-                video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_request.search_string))
+                video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_request.search_result.resolved_search_string))
                 if not video_cache:
                     return None
 
