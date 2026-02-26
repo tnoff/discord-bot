@@ -251,7 +251,7 @@ class DownloadClient():
         span_attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
             try:
-                data = self.ytdl.extract_info(media_request.search_string, download=media_request.download_file)
+                data = self.ytdl.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)

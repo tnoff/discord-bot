@@ -2,6 +2,7 @@ import pytest
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, chunk_list
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
@@ -14,9 +15,34 @@ async def test_media_request_basics(fake_context): #pylint:disable=redefined-out
     x = fake_source_dict(fake_context)
     assert x.download_file is True
 
-    assert str(x) == x.search_string
+    assert str(x) == x.search_result.resolved_search_string
     x_direct = fake_source_dict(fake_context, is_direct_search=True)
-    assert str(x_direct) == f'<{x_direct.search_string}>'
+    assert str(x_direct) == f'<{x_direct.search_result.raw_search_string}>'
+
+def test_media_request_display_name_default(fake_context):  #pylint:disable=redefined-outer-name
+    """display_name returns the raw search string (no override set)"""
+    x = fake_source_dict(fake_context)
+    assert x.display_name == x.search_result.raw_search_string
+
+def test_media_request_display_name_override(fake_context):  #pylint:disable=redefined-outer-name
+    """display_name_override takes precedence over raw_search_string"""
+    x = fake_source_dict(fake_context)
+    x.display_name_override = 'My Custom Title'
+    assert x.display_name == 'My Custom Title'
+
+def test_media_request_display_name_used_in_bundle_rows(fake_context):  #pylint:disable=redefined-outer-name
+    """display_name_override is shown in bundle table rows instead of raw search string"""
+    x = fake_source_dict(fake_context)
+    x.display_name_override = 'Override Title'
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b.set_initial_search('playlist')
+    b.add_media_request(x)
+    b.all_requests_added()
+    assert 'Override Title' in b.print()[0]
+    assert x.search_result.raw_search_string not in b.print()[0]
+
+    x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    assert 'Override Title' in b.print()[0]
 
 @pytest.mark.asyncio
 async def test_media_request_retry_count_initialization(fake_context): #pylint:disable=redefined-outer-name
@@ -40,13 +66,13 @@ async def test_media_request_retry_count_increments(fake_context): #pylint:disab
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
     x = fake_source_dict(fake_context)
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    b.set_initial_search(x.raw_search_string)
+    b.set_initial_search(x.search_result.raw_search_string)
     b.add_media_request(x)
     b.all_requests_added()
-    assert b.print()[0] == f'Media request queued for download: "{x.raw_search_string}"'
+    assert b.print()[0] == f'Media request queued for download: "{x.search_result.raw_search_string}"'
 
     x.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
-    assert b.print()[0] == f'Downloading and processing media request: "{x.raw_search_string}"'
+    assert b.print()[0] == f'Downloading and processing media request: "{x.search_result.raw_search_string}"'
 
     x.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     assert not b.print()
@@ -133,7 +159,7 @@ async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disab
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Failed, will retry:' in full_output
-    assert x.search_string in full_output
+    assert x.search_result.raw_search_string in full_output
 
     # Second request completes successfully
     y.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
@@ -187,13 +213,13 @@ async def test_media_request_bundle_shutdown_single_item(fake_context): #pylint:
     x = fake_source_dict(fake_context)
 
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    b.set_initial_search(x.raw_search_string)
+    b.set_initial_search(x.search_result.raw_search_string)
     b.add_media_request(x)
     b.all_requests_added()
 
     # Initially should have message for single item
     assert len(b.print()) == 1
-    assert f'Media request queued for download: "{x.raw_search_string}"' in b.print()[0]
+    assert f'Media request queued for download: "{x.search_result.raw_search_string}"' in b.print()[0]
 
     # After shutdown, should return empty
     b.shutdown()
@@ -210,7 +236,7 @@ async def test_media_request_bundle_shutdown_initialization(fake_context): #pyli
 
     # Should work normally before shutdown
     x = fake_source_dict(fake_context)
-    b.set_initial_search(x.raw_search_string)
+    b.set_initial_search(x.search_result.raw_search_string)
     b.add_media_request(x)
     b.all_requests_added()
     assert len(b.print()) > 0
@@ -242,9 +268,7 @@ def test_media_request_bundle_finished_property_all_completed(media_request_bund
         fake_context['channel'].id,
         'test_user',
         123456,
-        'test search',
-        'test search',
-        SearchType.SEARCH
+        SearchResult(SearchType.SEARCH, 'test search')
     )
     media_request_bundle.add_media_request(media_request)
 
@@ -264,9 +288,7 @@ def test_media_request_bundle_finished_property_mixed_status(media_request_bundl
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'test search {i}',
-            f'test search {i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'test search {i}')
         )
         media_request_bundle.add_media_request(media_request)
 
@@ -295,9 +317,7 @@ def test_media_request_bundle_print_single_item(media_request_bundle, fake_conte
         fake_context['channel'].id,
         'test_user',
         123456,
-        'single test',
-        'single test',
-        SearchType.SEARCH
+        SearchResult(SearchType.SEARCH, 'single test')
     )
     media_request_bundle.set_initial_search('single test')
     media_request_bundle.add_media_request(media_request)
@@ -319,9 +339,7 @@ def test_media_request_bundle_print_multiple_items_with_status(media_request_bun
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'test {i}',
-            f'test {i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'test {i}')
         )
         media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
@@ -352,9 +370,7 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'request {i}',
-            f'request {i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'request {i}')
         )
         media_request_bundle.add_media_request(media_request)
         media_requests.append(media_request)
@@ -389,9 +405,7 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
         fake_context['channel'].id,
         'test_user',
         123456,
-        'failed request',
-        'failed request',
-        SearchType.SEARCH
+        SearchResult(SearchType.SEARCH, 'failed request')
     )
     media_request_bundle.set_initial_search('failed request')
     media_request_bundle.add_media_request(media_request)
@@ -423,9 +437,7 @@ def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_co
         fake_context['channel'].id,
         'test_user',
         123456,
-        'https://example.com/video',
-        'https://example.com/video',
-        SearchType.DIRECT
+        SearchResult(SearchType.DIRECT, 'https://example.com/video')
     )
     media_request_bundle.set_initial_search('https://example.com/video')
     media_request_bundle.add_media_request(media_request)
@@ -445,9 +457,7 @@ def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fa
         fake_context['channel'].id,
         'test_user',
         123456,
-        'test search string',
-        'test search string',
-        SearchType.SEARCH
+        SearchResult(SearchType.SEARCH, 'test search string')
     )
     media_request_bundle.set_initial_search('test search string')
     media_request_bundle.add_media_request(media_request)
@@ -482,9 +492,7 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'test search {i}',
-            f'test search {i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'test search {i}')
         )
         media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
@@ -513,9 +521,7 @@ def test_media_request_bundle_finished_property_with_backoff(media_request_bundl
         fake_context['channel'].id,
         'test_user',
         123456,
-        'test search',
-        'test search',
-        SearchType.SEARCH
+        SearchResult(SearchType.SEARCH, 'test search')
     )
     media_request_bundle.add_media_request(media_request)
 
@@ -567,7 +573,7 @@ def test_bundle_override_message_functionality(fake_context):  #pylint:disable=r
 
     # Add request
     req = fake_source_dict(fake_context)
-    bundle.set_initial_search(req.raw_search_string)
+    bundle.set_initial_search(req.search_result.raw_search_string)
     bundle.add_media_request(req)
     bundle.all_requests_added()
 
@@ -592,7 +598,7 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add request that will be completed (shouldn't appear in messages)
-    req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
+    req = MediaRequest(123, 456, "user", 1, SearchResult(SearchType.SEARCH, "search"), download_file=True)
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -608,7 +614,7 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add single failed request
-    req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH, download_file=True)
+    req = MediaRequest(123, 456, "user", 1, SearchResult(SearchType.SEARCH, "search"), download_file=True)
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -830,9 +836,7 @@ def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'test search item with some length {i}',
-            f'test search item with some length {i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'test search item with some length {i}')
         )
         bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -867,9 +871,7 @@ def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disa
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'item{i}',
-            f'item{i}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'item{i}')
         )
         bundle.add_media_request(req)
         requests.append(req)
@@ -916,9 +918,7 @@ def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:di
             fake_context['channel'].id,
             'test_user',
             123456,
-            f'media_request_item_{i:02d}',
-            f'media_request_item_{i:02d}',
-            SearchType.SEARCH
+            SearchResult(SearchType.SEARCH, f'media_request_item_{i:02d}')
         )
         bundle.add_media_request(req)
         requests.append(req)

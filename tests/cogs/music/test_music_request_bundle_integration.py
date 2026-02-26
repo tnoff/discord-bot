@@ -1422,7 +1422,7 @@ def test_single_request_state_after_terminal_failure(fake_context):  #pylint:dis
     output = bundle.print()
     assert len(output) == 1
     assert 'failed' in output[0].lower()
-    assert req.raw_search_string in output[0]
+    assert req.search_result.raw_search_string in output[0]
 
 
 def test_single_request_print_content_through_lifecycle(fake_context):  #pylint:disable=redefined-outer-name

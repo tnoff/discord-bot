@@ -40,8 +40,8 @@ def yield_fake_search_client(media_request: MediaRequest = None):
             if media_request:
                 # Convert MediaRequest to SearchResult
                 search_result = SearchResult(
-                    media_request.search_type,
-                    media_request.search_string
+                    media_request.search_result.search_type,
+                    media_request.search_result.raw_search_string
                 )
                 return [search_result]
             return []
@@ -93,8 +93,8 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
             search_results = []
             for media_request in source_dict_list:
                 search_result = SearchResult(
-                    media_request.search_type,
-                    media_request.search_string
+                    media_request.search_result.search_type,
+                    media_request.search_result.raw_search_string
                 )
                 search_results.append(search_result)
             return search_results
@@ -180,10 +180,10 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     item0 = cog.download_queue.get_nowait()
     item1 = cog.download_queue.get_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
-    assert item0.raw_search_string == s.raw_search_string
-    assert item0.search_type == s.search_type
-    assert item1.raw_search_string == s1.raw_search_string
-    assert item1.search_type == s1.search_type
+    assert item0.search_result.raw_search_string == s.search_result.raw_search_string
+    assert item0.search_result.search_type == s.search_result.search_type
+    assert item1.search_result.raw_search_string == s1.search_result.raw_search_string
+    assert item1.search_result.search_type == s1.search_result.search_type
 
 @pytest.mark.asyncio()
 async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -890,13 +890,11 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_string='test song',
-        raw_search_string='test song',
-        search_type=SearchType.SEARCH
+        search_result=SearchResult(SearchType.SEARCH, 'test song')
     )
 
     # Set up search banner (required for single-item bundles)
-    bundle.set_initial_search(media_request.raw_search_string)
+    bundle.set_initial_search(media_request.search_result.raw_search_string)
 
 
     # Add request and set to BACKOFF status
@@ -939,9 +937,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_string='test song',
-        raw_search_string='test song',
-        search_type=SearchType.SEARCH
+        search_result=SearchResult(SearchType.SEARCH, 'test song')
     )
 
     bundle.add_media_request(media_request)

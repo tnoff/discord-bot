@@ -1,13 +1,13 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
 from uuid import uuid4
 
 from dappertable import DapperTable, PaginationLength, shorten_string
 from discord import TextChannel
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage
+from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.utils.common import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming, AttributeNaming
 
@@ -19,7 +19,7 @@ class RetryInformation:
     '''
     retry_reason: str | None = None
     retry_count: int = field(init=False)
-    retry_backoff_seconds: int | None = None
+    retry_backoff_seconds: int  = None
     retry_reason_sent: bool = False
 
     def __post_init__(self):
@@ -38,37 +38,31 @@ class MediaRequest():
     channel_id : Channel where video was requested
     requester_name: Display name of original requester
     requester_id : User id of original requester
-    search_string : Search string, after processing
-    raw_search_string : Original search string
+    search_result : Search result
     search_type : Type of search it was
     added_from_history : Whether or not this was added from history
     download_file : Download file eventually
     add_to_playlist : Set to add to playlist after download
     history_playlist_item_id : Delete playlist item from history playlist, pass in database id
-    display_name_override : Only used in media request bundles, overrides search strings
     '''
     # Required fields
     guild_id: int
     channel_id: int
     requester_name: str
     requester_id: int
-    search_string: str
+    search_result: SearchResult
 
-    # Keep original search string for later
-    # In these cases, original search is what was passed into the search and search string is often youtube url
-    # For example raw_search_string can be 'foo title foo artist' and search_string can be the direct url after yt music search
-    raw_search_string: str
-    search_type: Literal[SearchType.SPOTIFY, SearchType.DIRECT, SearchType.SEARCH, SearchType.OTHER]
     # Optional values
     added_from_history: bool = False
     download_file: bool = True
     add_to_playlist: int = None
     history_playlist_item_id: int = None
-    display_name_override: str = None
     # Generated fields
     uuid: str = field(default_factory=lambda: f'request.{uuid4()}')
     # Track bundle uuid later on
     bundle_uuid: str = None
+    # Usually for playlist items, cleaner to show in media bundles
+    display_name_override: str = None
 
     # Track lifecycle stage
     lifecycle_stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
@@ -83,15 +77,20 @@ class MediaRequest():
         Fix embed issues
         https://support.discord.com/hc/en-us/articles/206342858--How-do-I-disable-auto-embed
         '''
-        return_string = self.raw_search_string or self.search_string
-        return discord_format_string_embed(return_string)
+        return discord_format_string_embed(self.search_result.resolved_search_string)
+
+    @property
+    def display_name(self):
+        '''
+        Show proper display name for UI functions
+        '''
+        return self.display_name_override or discord_format_string_embed(self.search_result.raw_search_string)
 
 @dataclass
 class BundledMediaRequest:
     '''
     Represents a media request within a bundle with tracking information
 
-    search_string: Display string for the media request
     status: Current lifecycle stage of the request
     table_index: Index in the DapperTable, None if discarded
     row_collection_index: Index of the collection in paginated rows
@@ -99,7 +98,6 @@ class BundledMediaRequest:
     failure_reason: Error message if the request failed
     failure_reason_sent: Whether the failure reason has been sent to the user
     '''
-    search_string: str
     media_request: MediaRequest
     table_index: int | None = None
     row_collection_index: int | None = None
@@ -119,10 +117,10 @@ def media_request_attributes(media_request: MediaRequest) -> dict:
     Return media request attributes for spans
     '''
     return {
-        MediaRequestNaming.SEARCH_STRING.value: media_request.search_string,
+        MediaRequestNaming.SEARCH_STRING.value: media_request.search_result.raw_search_string,
         MediaRequestNaming.REQUESTER.value: media_request.requester_id,
         MediaRequestNaming.GUILD.value: media_request.guild_id,
-        MediaRequestNaming.SEARCH_TYPE.value: media_request.search_type.value,
+        MediaRequestNaming.SEARCH_TYPE.value: media_request.search_result.search_type.value,
         MediaRequestNaming.UUID.value: str(media_request.uuid),
         AttributeNaming.RETRY_COUNT.value: media_request.retry_information.retry_count,
     }
@@ -261,7 +259,6 @@ class MultiMediaRequestBundle():
         '''
         Add new media request
         '''
-        search_string = discord_format_string_embed(media_request.display_name_override or media_request.raw_search_string)
         # Generally upon add only discard, searching, and queued are used
         # Ignore discarded requests in terms of showing to user
         # But keep track of numbers for later calculations
@@ -269,11 +266,10 @@ class MultiMediaRequestBundle():
         if media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED:
             self._increment_counter_for_stage(media_request.lifecycle_stage)
         elif media_request.lifecycle_stage in [MediaRequestLifecycleStage.QUEUED, MediaRequestLifecycleStage.SEARCHING]:
-            table_index = self.table.add_row(f'Media request queued for download: "{search_string}"')
+            table_index = self.table.add_row(f'Media request queued for download: "{discord_format_string_embed(media_request.display_name)}"')
         elif media_request.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED:
             self._increment_counter_for_stage(media_request.lifecycle_stage)
         self.bundled_requests.append(BundledMediaRequest(
-            search_string=search_string,
             media_request=media_request,
             table_index=table_index,
         ))
@@ -332,25 +328,25 @@ class MultiMediaRequestBundle():
         # Since we lock the row count and pagination when the bundle is created
         # We dont want to allow longer messages than were originally present
         for bundled_request in self.bundled_requests:
+            # Dont update if we dont need to
             if bundled_request.stored_status == bundled_request.media_request.lifecycle_stage:
                 continue
             match bundled_request.media_request.lifecycle_stage:
-
                 case MediaRequestLifecycleStage.QUEUED:
                     # Keep the existing "queued for download" message, don't update
                     pass
                 case MediaRequestLifecycleStage.IN_PROGRESS:
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
-                            self._edit_row_data(bundled_request, f'Downloading and processing media request: "{bundled_request.search_string}"')
+                            self._edit_row_data(bundled_request, f'Downloading and processing media request: "{bundled_request.media_request.display_name}"')
                 case MediaRequestLifecycleStage.BACKOFF:
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
-                            self._edit_row_data(bundled_request, f'Waiting to process: "{bundled_request.search_string}"')
+                            self._edit_row_data(bundled_request, f'Waiting to process: "{bundled_request.media_request.display_name}"')
                 case MediaRequestLifecycleStage.RETRY:
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
-                            self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.search_string}"')
+                            self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.media_request.display_name}"')
                 case MediaRequestLifecycleStage.COMPLETED:
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
@@ -366,7 +362,7 @@ class MultiMediaRequestBundle():
                         self._increment_counter_for_stage(bundled_request.media_request.lifecycle_stage)
                         # Store failure reason separately, don't include in row to keep message short
                         # Keep the row message short (shorter than original "queued" message)
-                        x = f'Media request failed download: "{bundled_request.search_string}"'
+                        x = f'Media request failed download: "{bundled_request.media_request.display_name}"'
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, x)
             bundled_request.stored_status = bundled_request.media_request.lifecycle_stage
@@ -407,6 +403,7 @@ class MultiMediaRequestBundle():
         if self.is_shutdown:
             return []
 
+        # Reset print statement
         self.update_request_status()
         # If row_collections hasn't been built yet, we're still in search phase
         if not self.row_collections:
@@ -439,7 +436,7 @@ class MultiMediaRequestBundle():
         t = DapperTable(pagination_options=PaginationLength(self.pagination_length),
                         prefix='Error Details for Failed Downloads\n')
         for req in failed_requests:
-            t.add_row(f'Media Request "{req.search_string}", Failure: {req.media_request.failure_reason}')
+            t.add_row(f'Media Request "{req.media_request.display_name}", Failure: {req.media_request.failure_reason}')
             # Mark as sent so we don't send it again
             req.failure_reason_sent = True
 
@@ -477,7 +474,7 @@ class MultiMediaRequestBundle():
                     backoff_str = f', retrying in ~{req.media_request.retry_information.retry_backoff_seconds} seconds'
 
             # Build prefix and suffix, then calculate available space for retry_reason
-            prefix = f'Retrying "{req.search_string}" (attempt {req.media_request.retry_information.retry_count}/{max_retries}{backoff_str}):\n```\n'
+            prefix = f'Retrying "{req.media_request.display_name}" (attempt {req.media_request.retry_information.retry_count}/{max_retries}{backoff_str}):\n```\n'
             suffix = '\n```'
             available_length = DISCORD_MAX_MESSAGE_LENGTH - len(prefix) - len(suffix)
             truncated_reason = shorten_string(req.media_request.retry_information.retry_reason, available_length)

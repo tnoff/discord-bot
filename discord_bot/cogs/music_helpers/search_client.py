@@ -62,7 +62,7 @@ class SearchResult():
     SearchClient search results
     '''
     search_type: SearchType
-    # Search string before it is passed to youtube music
+    # Original search string given before any processing
     raw_search_string: str
     # If generated from a playlist/album
     multi_search_input: str = None

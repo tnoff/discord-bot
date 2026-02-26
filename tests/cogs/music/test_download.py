@@ -10,6 +10,7 @@ from discord_bot.cogs.music_helpers.download_client import ExistingFileException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_download_client_download_exception, yield_fake_download_client, yield_download_client_download_error
@@ -19,7 +20,7 @@ from tests.helpers import fake_engine, fake_context #pylint:disable=unused-impor
 @pytest.mark.asyncio()
 async def test_download_queue_no_download(mocker, fake_context):  #pylint:disable=redefined-outer-name
     s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id,
-                   'https://foo.example.com/title', 'https://foo.example.com/title', SearchType.DIRECT, download_file=False)
+                   SearchResult(SearchType.DIRECT, 'https://foo.example.com/title'), download_file=False)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example.com/title'}, s)
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
