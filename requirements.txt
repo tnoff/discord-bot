@@ -4,7 +4,7 @@ beautifulsoup4==4.14.3
 boto3==1.42.59
 click==8.3.1
 croniter==6.0.0
-discord.py==2.6.4
+discord.py==2.7.0
 dappertable @ git+https://github.com/tnoff/dappertable.git@v0.2.4
 google-api-python-client==2.190.0
 moviepy==2.2.1
