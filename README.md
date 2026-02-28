@@ -79,7 +79,12 @@ general:
     otlp:
       enabled: true
     memory_profiling:
-      enabled: false  # Optional: enable memory profiling
+      enabled: false       # Optional: enable memory profiling
+    process_metrics:
+      enabled: false       # Optional: CPU/memory/thread metrics
+    health_server:
+      enabled: false       # Optional: HTTP liveness endpoint on port 8080
+      port: 8080
 ```
 
 See the [Monitoring Documentation](./docs/monitoring/index.md) for complete setup instructions, available metrics, and configuration options.

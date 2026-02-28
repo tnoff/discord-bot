@@ -96,6 +96,26 @@ Based on the bot's configuration, you'll likely want to mount:
 - **Config**: `/opt/discord/cnf`
 - **Logs**: `/var/log/discord`
 
+## Health Check
+
+The image ships with a built-in `HEALTHCHECK` directive that calls the bot's HTTP health endpoint (port 8080). To use it:
+
+1. Enable the health server in your config:
+   ```yaml
+   general:
+     monitoring:
+       health_server:
+         enabled: true
+         port: 8080
+   ```
+
+2. Publish the port when running the container:
+   ```bash
+   docker run -d -p 8080:8080 ... discord-bot
+   ```
+
+Docker will automatically probe `http://localhost:8080/health` every 60 seconds and mark the container unhealthy if the bot is not ready. See the [Health Server documentation](./monitoring/health_server.md) for full details.
+
 ## Usage Example
 
 ```bash
@@ -105,6 +125,7 @@ sudo chown -R 1000:1000 /path/to/discord/logs
 
 # Run the container
 docker run -d \
+  -p 8080:8080 \
   -v /path/to/discord/data:/opt/discord:rw \
   -v /path/to/discord/logs:/var/log/discord:rw \
   -v /path/to/discord.cnf:/opt/discord/cnf/discord.cnf:ro \

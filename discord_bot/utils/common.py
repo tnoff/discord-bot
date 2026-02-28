@@ -48,11 +48,17 @@ class MonitoringProcessMetricsConfig(BaseModel):
     enabled: bool = False
     interval_seconds: int = Field(default=15, ge=1)
 
+class MonitoringHealthServerConfig(BaseModel):
+    '''Health server monitoring configuration'''
+    enabled: bool = False
+    port: int = Field(default=8080, ge=1, le=65535)
+
 class MonitoringConfig(BaseModel):
     '''Monitoring configuration'''
     otlp: MonitoringOtlpConfig
     memory_profiling: Optional[MonitoringMemoryProfilingConfig] = None
     process_metrics: Optional[MonitoringProcessMetricsConfig] = None
+    health_server: Optional[MonitoringHealthServerConfig] = None
 
 class LoggingConfig(BaseModel):
     '''Logging configuration'''
