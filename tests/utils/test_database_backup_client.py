@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 from sqlalchemy import text
 
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
@@ -7,20 +8,18 @@ from discord_bot.database import MarkovChannel, MarkovRelation, Playlist
 from tests.helpers import fake_engine, mock_session  #pylint:disable=unused-import
 
 
-def test_database_backup_client_init(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_database_backup_client_init(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test DatabaseBackupClient initialization'''
-    logger = mocker.Mock()
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     assert client.db_engine == fake_engine
-    assert client.logger == logger
+    assert client.logger.name == 'databasebackup'
     assert client.CHUNK_SIZE == 1000
     assert client.BATCH_SIZE == 1000
 
 
-def test_create_backup_empty_database(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_create_backup_empty_database(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test backup creation with empty database'''
-    logger = mocker.Mock()
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
 
     backup_file = client.create_backup()
 
@@ -55,10 +54,8 @@ def test_create_backup_empty_database(fake_engine, mocker):  #pylint:disable=red
     backup_file.unlink()
 
 
-def test_create_backup_with_data(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_create_backup_with_data(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test backup creation with actual data'''
-    logger = mocker.Mock()
-
     # Add test data
     with mock_session(fake_engine) as session:
         # Add markov channels
@@ -75,7 +72,7 @@ def test_create_backup_with_data(fake_engine, mocker):  #pylint:disable=redefine
 
         session.commit()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     # Verify file was created
@@ -100,10 +97,8 @@ def test_create_backup_with_data(fake_engine, mocker):  #pylint:disable=redefine
     backup_file.unlink()
 
 
-def test_create_backup_streaming_large_table(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_create_backup_streaming_large_table(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that backup streams data in chunks for large tables'''
-    logger = mocker.Mock()
-
     # Add more rows than CHUNK_SIZE to test streaming
     with mock_session(fake_engine) as session:
         for i in range(2500):  # More than 2x CHUNK_SIZE
@@ -115,7 +110,7 @@ def test_create_backup_streaming_large_table(fake_engine, mocker):  #pylint:disa
             session.add(relation)
         session.commit()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     # Verify all data was backed up
@@ -133,17 +128,15 @@ def test_create_backup_streaming_large_table(fake_engine, mocker):  #pylint:disa
     backup_file.unlink()
 
 
-def test_create_backup_only_includes_base_tables(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_create_backup_only_includes_base_tables(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that backup only includes tables from BASE.metadata'''
-    logger = mocker.Mock()
-
     # Create a table not in BASE.metadata
     with fake_engine.connect() as connection:
         connection.execute(text('CREATE TABLE custom_table (id INTEGER PRIMARY KEY, data TEXT)'))
         connection.execute(text("INSERT INTO custom_table VALUES (1, 'test')"))
         connection.commit()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     with open(backup_file, 'r', encoding='utf-8') as f:
@@ -160,11 +153,9 @@ def test_create_backup_only_includes_base_tables(fake_engine, mocker):  #pylint:
     backup_file.unlink()
 
 
-def test_create_backup_handles_special_types(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_create_backup_handles_special_types(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that backup handles dates and special types correctly'''
     from datetime import datetime  #pylint:disable=import-outside-toplevel
-    logger = mocker.Mock()
-
     # Add data with dates/times
     with mock_session(fake_engine) as session:
         playlist = Playlist(
@@ -176,7 +167,7 @@ def test_create_backup_handles_special_types(fake_engine, mocker):  #pylint:disa
         session.add(playlist)
         session.commit()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     with open(backup_file, 'r', encoding='utf-8') as f:
@@ -203,7 +194,8 @@ def test_create_backup_logging(fake_engine, mocker):  #pylint:disable=redefined-
         session.add(channel)
         session.commit()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    with patch('logging.getLogger', return_value=logger):
+        client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     # Check that debug logging was called for table backup
@@ -222,7 +214,8 @@ def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=redefine
     '''Test that backup file size is logged correctly'''
     logger = mocker.Mock()
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    with patch('logging.getLogger', return_value=logger):
+        client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     # Verify file size is logged
@@ -239,10 +232,8 @@ def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=redefine
     backup_file.unlink()
 
 
-def test_backup_metadata_includes_alembic_version(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+def test_backup_metadata_includes_alembic_version(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that backup includes alembic version metadata'''
-    logger = mocker.Mock()
-
     # Mock alembic_version table
     with fake_engine.connect() as connection:
         try:
@@ -252,7 +243,7 @@ def test_backup_metadata_includes_alembic_version(fake_engine, mocker):  #pylint
         except Exception:  # pylint: disable=broad-except
             pass  # Table might already exist
 
-    client = DatabaseBackupClient(fake_engine, logger)
+    client = DatabaseBackupClient(fake_engine)
     backup_file = client.create_backup()
 
     with open(backup_file, 'r', encoding='utf-8') as f:

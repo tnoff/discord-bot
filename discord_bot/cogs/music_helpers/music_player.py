@@ -1,6 +1,6 @@
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
-from logging import RootLogger
+import logging
 from pathlib import Path
 from re import sub
 from time import time
@@ -45,7 +45,7 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    def __init__(self, logger: RootLogger, ctx: Context,
+    def __init__(self, ctx: Context,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  message_queue: MessageQueue,
                  history_playlist_id: int,
@@ -56,7 +56,7 @@ class MusicPlayer:
         self.bot = ctx.bot
         self.guild = ctx.guild
         self.text_channel = ctx.channel
-        self.logger = logger
+        self.logger = logging.getLogger('music')
 
         self.disconnect_timeout: int = disconnect_timeout
         self.file_dir: Path = file_dir

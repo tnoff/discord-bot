@@ -2,6 +2,7 @@
 Process metrics utilities
 Tracks process-level metrics (memory, CPU, etc.) using psutil and reports via logging
 """
+import logging
 import time
 from threading import Thread
 
@@ -13,8 +14,8 @@ class ProcessMetricsProfiler:
     Profile process-level metrics using psutil
     Reports via periodic logging showing memory usage, CPU, threads, etc.
     """
-    def __init__(self, logger, interval_seconds=15):
-        self.logger = logger
+    def __init__(self, interval_seconds=15):
+        self.logger = logging.getLogger('process_metrics')
         self.interval_seconds = interval_seconds
         self._running = False
         self._thread = None

@@ -34,6 +34,33 @@ general:
 | `filter_high_volume_spans` | boolean | No | `true` | Enable filtering of high volume spans that are in OK state |
 | `high_volume_span_patterns` | list[string] | No | See below | List of regex patterns to match span names for filtering |
 
+#### Logging Section (`logging`)
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `log_level` | int | Yes | N/A | Log level: 0=NOTSET, 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL |
+| `otlp_only` | boolean | No | `false` | When `true`, skip local file logging and send logs via OTLP only |
+| `log_dir` | string | Yes (unless `otlp_only`) | N/A | Directory to write log files |
+| `log_file_count` | int | Yes (unless `otlp_only`) | N/A | Number of backup log files to keep |
+| `log_file_max_bytes` | int | Yes (unless `otlp_only`) | N/A | Max log file size in bytes before rotation |
+| `logging_format` | string | No | `%(asctime)s - %(levelname)s - %(message)s` | Python logging format string |
+| `logging_date_format` | string | No | `%Y-%m-%dT%H-%M-%S` | Date format for log timestamps |
+| `third_party_log_level` | int | No | `30` (WARNING) | Log level applied to third-party loggers (discord.py, etc.) |
+
+##### OTLP-Only Logging
+
+To send logs exclusively via OTLP and skip writing local log files, set `otlp_only: true` in the logging section. The `log_dir`, `log_file_count`, and `log_file_max_bytes` fields are not required in this mode:
+
+```yaml
+general:
+  logging:
+    log_level: 20
+    otlp_only: true
+  monitoring:
+    otlp:
+      enabled: true
+```
+
 ### High Volume Span Filtering
 
 When `filter_high_volume_spans` is enabled, spans matching the configured regex patterns are filtered out if they complete successfully (OK status). Failed spans are always exported for debugging purposes.

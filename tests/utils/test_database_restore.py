@@ -19,10 +19,9 @@ def db_engine():
 
 
 @pytest.fixture
-def backup_client(db_engine, mocker):  #pylint:disable=redefined-outer-name
+def backup_client(db_engine):  #pylint:disable=redefined-outer-name
     '''Create a DatabaseBackupClient instance'''
-    logger = mocker.Mock()
-    return DatabaseBackupClient(db_engine=db_engine, logger=logger)
+    return DatabaseBackupClient(db_engine=db_engine)
 
 
 def test_restore_empty_backup(backup_client):  #pylint:disable=redefined-outer-name

@@ -12,7 +12,7 @@ from discord.ext.commands import Bot
 from opentelemetry.trace import SpanKind, get_current_span
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.sdk._logs import LoggingHandler
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm.session import Session
 
 from discord_bot.cogs.schema import StorageConfig
@@ -62,13 +62,23 @@ class MonitoringConfig(BaseModel):
 
 class LoggingConfig(BaseModel):
     '''Logging configuration'''
-    log_dir: str
     log_level: Literal[0, 10, 20, 30, 40, 50]
-    log_file_count: int
-    log_file_max_bytes: int
+    otlp_only: bool = False
+    log_dir: Optional[str] = None
+    log_file_count: Optional[int] = None
+    log_file_max_bytes: Optional[int] = None
     logging_format: str = '%(asctime)s - %(levelname)s - %(message)s'
     logging_date_format: str = '%Y-%m-%dT%H-%M-%S'
     third_party_log_level: Literal[0, 10, 20, 30, 40, 50] = 30  # Default to WARNING (30)
+
+    @model_validator(mode='after')
+    def require_file_fields_when_not_otlp_only(self):
+        '''Handle logic for no log file settings'''
+        if not self.otlp_only:
+            missing = [f for f in ('log_dir', 'log_file_count', 'log_file_max_bytes') if getattr(self, f) is None]
+            if missing:
+                raise ValueError(f'Fields required when otlp_only is false: {", ".join(missing)}')
+        return self
 
 class IncludeConfig(BaseModel):
     '''Cog include configuration'''
@@ -111,14 +121,14 @@ def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger
         logger.addHandler(ch)
         logger.setLevel(10)
         return logger
-    # Else set more proper rotated file logging
-    log_file = Path(logging_config.log_dir) / f'{logger_name}.log'
-    fh = RotatingFileHandler(str(log_file),
-                             backupCount=logging_config.log_file_count,
-                             maxBytes=logging_config.log_file_max_bytes)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
     logger.setLevel(logging_config.log_level)
+    if not logging_config.otlp_only:
+        log_file = Path(logging_config.log_dir) / f'{logger_name}.log'
+        fh = RotatingFileHandler(str(log_file),
+                                 backupCount=logging_config.log_file_count,
+                                 maxBytes=logging_config.log_file_max_bytes)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
     if otlp_logger:
         handler = LoggingHandler(level=logging_config.log_level, logger_provider=otlp_logger)
         logger.addHandler(handler)

@@ -154,7 +154,7 @@ async def test_run_config_with_intents(mocker):
             assert result.exception is None
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_keyboard_interrupt_calls_cog_unload(mocker):
+async def test_keyboard_interrupt_calls_cog_unload():
     '''
     Test that KeyboardInterrupt triggers cog_unload on all cogs
     '''
@@ -201,9 +201,6 @@ async def test_keyboard_interrupt_calls_cog_unload(mocker):
             self.close_called = True
             self.bot_closed = True
 
-    # Create fake logger
-    fake_logger = mocker.MagicMock()
-
     # Create fake cogs
     cog1 = FakeCog()
     cog2 = FakeCog()
@@ -213,7 +210,7 @@ async def test_keyboard_interrupt_calls_cog_unload(mocker):
     bot = FakeBotWithInterrupt()
 
     # Run main_loop which should catch KeyboardInterrupt and call cog_unload
-    await main_loop(bot, cog_list, 'fake-token', fake_logger)
+    await main_loop(bot, cog_list, 'fake-token')
 
     # Verify cog_unload was called on all cogs
     assert cog1.cog_unload_called is True
@@ -225,7 +222,7 @@ async def test_keyboard_interrupt_calls_cog_unload(mocker):
     assert bot.close_called is True
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_sigterm_calls_cog_unload(mocker):
+async def test_sigterm_calls_cog_unload():
     '''
     Test that SIGTERM (Docker stop) triggers cog_unload on all cogs
     '''
@@ -278,9 +275,6 @@ async def test_sigterm_calls_cog_unload(mocker):
             self.close_called = True
             self.bot_closed = True
 
-    # Create fake logger
-    fake_logger = mocker.MagicMock()
-
     # Create fake cogs
     cog1 = FakeCog()
     cog2 = FakeCog()
@@ -290,7 +284,7 @@ async def test_sigterm_calls_cog_unload(mocker):
     bot = FakeBotWithSignal()
 
     # Run main_loop which should catch SIGTERM and call cog_unload
-    await main_loop(bot, cog_list, 'fake-token', fake_logger)
+    await main_loop(bot, cog_list, 'fake-token')
 
     # Verify bot was started
     assert bot.started is True

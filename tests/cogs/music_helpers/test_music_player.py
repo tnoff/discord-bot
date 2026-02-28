@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -19,7 +18,7 @@ def with_music_player(fake_context): #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
         message_queue = MessageQueue()
         history_queue = Queue()
-        player = MusicPlayer(logging, fake_context['context'], 10, 0.01, Path(tmp_dir), message_queue, None, history_queue)
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), message_queue, None, history_queue)
         yield player
 
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name

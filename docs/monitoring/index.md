@@ -36,11 +36,12 @@ See [Metrics Reference](metrics_reference.md) for the complete list of available
 Structured logs are exported to the OTLP collector when enabled:
 
 - **Standard Python Logging** - All bot logs use Python's standard logging module
-- **File Rotation** - Logs written to local files with automatic rotation
+- **File Rotation** - Logs written to local files with automatic rotation (optional, see `otlp_only`)
 - **OTLP Export** - When OTLP is enabled, logs are forwarded to the collector with OpenTelemetry resource attributes
+- **OTLP-Only Mode** - Set `logging.otlp_only: true` to skip local file logging entirely and rely solely on OTLP log export
 - **Log Levels** - Configurable per-logger levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 
-**Implementation**: Logs use Python's `logging` module with `RotatingFileHandler` for local storage. When OTLP is enabled, `LoggingHandler` from OpenTelemetry SDK forwards logs to the OTLP endpoint with structured attributes.
+**Implementation**: Logs use Python's `logging` module. By default, `RotatingFileHandler` is used for local file storage. When `otlp_only` is enabled, the file handler is skipped and logs flow exclusively through OpenTelemetry's `LoggingHandler` to the OTLP endpoint.
 
 ### Traces
 

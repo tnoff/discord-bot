@@ -49,7 +49,6 @@ class DatabaseBackup(CogHelper):
         # Initialize backup client
         self.backup_client = DatabaseBackupClient(
             db_engine=self.db_engine,
-            logger=self.logger
         )
 
         self._task = None

@@ -3,6 +3,7 @@ Memory profiling utilities
 Tracks memory allocations by location using tracemalloc and reports via logging
 """
 import linecache
+import logging
 import tracemalloc
 from threading import Thread
 import time
@@ -12,8 +13,8 @@ class MemoryProfiler:
     Profile Python memory usage by tracking allocation locations using tracemalloc
     Reports via periodic logging showing top allocation sites by file and line number
     """
-    def __init__(self, logger, interval_seconds=60, top_n_lines=25):
-        self.logger = logger
+    def __init__(self, interval_seconds=60, top_n_lines=25):
+        self.logger = logging.getLogger('memory_profiler')
         self.interval_seconds = interval_seconds
         self.top_n_lines = top_n_lines
         self._running = False

@@ -1163,7 +1163,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guild_path.mkdir(exist_ok=True, parents=True)
                 # Generate and start player
                 history_playlist_id = self.__get_history_playlist(ctx.guild.id)
-                player = MusicPlayer(self.logger, ctx,
+                player = MusicPlayer(ctx,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.message_queue,
                                      history_playlist_id, self.history_playlist_queue)
