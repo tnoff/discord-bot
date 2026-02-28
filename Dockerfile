@@ -56,6 +56,8 @@ RUN apt-get remove -y git unzip gcc cmake curl && apt-get autoremove -y
 # Make sure deno in path
 ENV PATH="$PATH:/opt/discord/.deno/bin"
 
+EXPOSE 8080
+
 WORKDIR "/opt/discord"
 
 # Switch to non-root user for runtime
@@ -63,6 +65,9 @@ USER discord
 
 # Make sure cache dir exists
 RUN mkdir -p /opt/discord/.cache
+
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]

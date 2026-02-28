@@ -14,6 +14,7 @@ The Discord bot includes comprehensive monitoring capabilities using OpenTelemet
 - **[Metrics Reference](metrics_reference.md)** - Complete list of available metrics and queries
 - **[Memory Profiling](memory_profiling.md)** - Guide to using the built-in memory profiler
 - **[Process Metrics](process_metrics.md)** - Guide to using the built-in process profiler
+- **[Health Server](health_server.md)** - HTTP liveness endpoint for Docker/Kubernetes probes
 
 ## Observability Components
 

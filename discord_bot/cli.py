@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import run, get_running_loop
 import logging
 from logging import RootLogger
@@ -43,6 +44,7 @@ from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, GeneralConfig
+from discord_bot.utils.health_server import HealthServer
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
@@ -100,7 +102,7 @@ def read_config(config_file: str) -> dict:
         raise DiscordBotException('General config section required')
     return settings
 
-async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: RootLogger):
+async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: RootLogger, health_server=None):
     '''
     Main loop for starting bot
     Includes logic to handle stops and cog removals
@@ -129,6 +131,8 @@ async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: Roo
         async with bot:
             for cog in cog_list:
                 await bot.add_cog(cog)
+            if health_server:
+                asyncio.create_task(health_server.serve())
             await bot.start(token)
     except KeyboardInterrupt:
         logger.info('Main :: Received keyboard interrupt, shutting down gracefully...')
@@ -284,6 +288,12 @@ def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogge
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog)}, {str(e)}')
 
+    health_server = None
+    if general_config.monitoring and general_config.monitoring.health_server \
+            and general_config.monitoring.health_server.enabled:
+        hs_logger = get_logger('health_server', general_config.logging)
+        health_server = HealthServer(bot, hs_logger, port=general_config.monitoring.health_server.port)
+
     # Make sure we cast to string here just to keep it consistent
     rejectlist_guilds = list(general_config.rejectlist_guilds)
     logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
@@ -308,10 +318,10 @@ def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogge
 
     if loop and loop.is_running():
         logger.debug('Main :: Async event loop already running. Adding coroutine to the event loop.')
-        loop.create_task(main_loop(bot, cog_list, token, logger))
+        loop.create_task(main_loop(bot, cog_list, token, logger, health_server=health_server))
     else:
         logger.debug('Main :: Starting new discord bot instance')
-        run(main_loop(bot, cog_list, token, logger))
+        run(main_loop(bot, cog_list, token, logger, health_server=health_server))
 
 
 
