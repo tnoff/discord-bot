@@ -39,16 +39,15 @@ class TestHealthServerInit:
     def test_init(self):
         """Constructor sets attributes correctly."""
         bot = _make_bot()
-        logger = Mock()
-        hs = HealthServer(bot, logger, port=9090)
+        hs = HealthServer(bot, port=9090)
         assert hs.bot is bot
-        assert hs.logger is logger
+        assert hs.logger.name == 'health_server'
         assert hs.port == 9090
 
     def test_init_default_port(self):
         """Default port is 8080."""
         bot = _make_bot()
-        hs = HealthServer(bot, Mock())
+        hs = HealthServer(bot)
         assert hs.port == 8080
 
 
@@ -59,7 +58,7 @@ class TestHealthServerAsync:
     async def test_health_ok(self):
         """Returns 200 when bot is ready and not closed."""
         bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, Mock(), port=18080)
+        hs = HealthServer(bot, port=18080)
         task = asyncio.create_task(hs.serve())
         await asyncio.sleep(0.05)  # let server start
         try:
@@ -76,7 +75,7 @@ class TestHealthServerAsync:
     async def test_health_not_ready(self):
         """Returns 503 when bot is not ready."""
         bot = _make_bot(is_ready=False, is_closed=False)
-        hs = HealthServer(bot, Mock(), port=18081)
+        hs = HealthServer(bot, port=18081)
         task = asyncio.create_task(hs.serve())
         await asyncio.sleep(0.05)
         try:
@@ -93,7 +92,7 @@ class TestHealthServerAsync:
     async def test_health_closed(self):
         """Returns 503 when bot is closed."""
         bot = _make_bot(is_ready=True, is_closed=True)
-        hs = HealthServer(bot, Mock(), port=18082)
+        hs = HealthServer(bot, port=18082)
         task = asyncio.create_task(hs.serve())
         await asyncio.sleep(0.05)
         try:

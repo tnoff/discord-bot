@@ -4,6 +4,7 @@ Runs as an asyncio task inside the bot's event loop.
 """
 import asyncio
 import json
+import logging
 
 
 class HealthServer:
@@ -14,9 +15,9 @@ class HealthServer:
     503 {"status": "unavailable"} otherwise.
     """
 
-    def __init__(self, bot, logger, port=8080):
+    def __init__(self, bot, port=8080):
         self.bot = bot
-        self.logger = logger
+        self.logger = logging.getLogger('health_server')
         self.port = port
 
     async def serve(self):

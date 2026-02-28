@@ -3,7 +3,7 @@ Tests for memory profiling utilities
 """
 # pylint: disable=redefined-outer-name,protected-access
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from discord_bot.utils.memory_profiler import MemoryProfiler
 
@@ -13,8 +13,7 @@ class TestMemoryProfiler:
 
     def test_init(self):
         """Test MemoryProfiler initialization"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, interval_seconds=30, top_n_lines=25)
+        tracker = MemoryProfiler(interval_seconds=30, top_n_lines=25)
         assert tracker.interval_seconds == 30
         assert tracker.top_n_lines == 25
         assert tracker._running is False
@@ -22,8 +21,7 @@ class TestMemoryProfiler:
 
     def test_start_stop(self):
         """Test starting and stopping the tracker"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, interval_seconds=1)
+        tracker = MemoryProfiler(interval_seconds=1)
 
         # Should not be running initially
         assert tracker._running is False
@@ -40,8 +38,7 @@ class TestMemoryProfiler:
 
     def test_start_already_running(self):
         """Test starting tracker when already running"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, interval_seconds=1)
+        tracker = MemoryProfiler(interval_seconds=1)
 
         tracker.start()
         assert tracker._running is True
@@ -54,8 +51,7 @@ class TestMemoryProfiler:
 
     def test_get_snapshot_summary(self):
         """Test getting a human-readable snapshot summary"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, top_n_lines=10)
+        tracker = MemoryProfiler(top_n_lines=10)
 
         # Start tracemalloc
         tracker.start()
@@ -73,8 +69,7 @@ class TestMemoryProfiler:
 
     def test_get_top_allocations(self):
         """Test getting top allocation sites"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, top_n_lines=5)
+        tracker = MemoryProfiler(top_n_lines=5)
 
         # Start tracemalloc
         tracker.start()
@@ -103,8 +98,7 @@ class TestMemoryProfiler:
 
     def test_get_allocation_diff(self):
         """Test getting allocation differences between snapshots"""
-        mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, top_n_lines=5)
+        tracker = MemoryProfiler(top_n_lines=5)
 
         tracker.start()
 
@@ -133,7 +127,8 @@ class TestMemoryProfiler:
     def test_memory_profiling_with_logging(self):
         """Test that memory snapshots are logged"""
         mock_logger = Mock()
-        tracker = MemoryProfiler(mock_logger, interval_seconds=1, top_n_lines=10)
+        with patch('logging.getLogger', return_value=mock_logger):
+            tracker = MemoryProfiler(interval_seconds=1, top_n_lines=10)
 
         # Start tracker and wait for snapshot
         tracker.start()

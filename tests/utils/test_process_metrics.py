@@ -3,7 +3,7 @@ Tests for process metrics profiler
 """
 # pylint: disable=redefined-outer-name,protected-access
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
@@ -13,16 +13,14 @@ class TestProcessMetricsProfiler:
 
     def test_init(self):
         """Test ProcessMetricsProfiler initialization"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger, interval_seconds=15)
+        profiler = ProcessMetricsProfiler(interval_seconds=15)
         assert profiler.interval_seconds == 15
         assert profiler._running is False
         assert profiler._thread is None
 
     def test_start_stop(self):
         """Test starting and stopping the profiler"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger, interval_seconds=1)
+        profiler = ProcessMetricsProfiler(interval_seconds=1)
 
         # Should not be running initially
         assert profiler._running is False
@@ -39,8 +37,7 @@ class TestProcessMetricsProfiler:
 
     def test_start_already_running(self):
         """Test starting profiler when already running"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger, interval_seconds=1)
+        profiler = ProcessMetricsProfiler(interval_seconds=1)
 
         profiler.start()
         assert profiler._running is True
@@ -53,8 +50,7 @@ class TestProcessMetricsProfiler:
 
     def test_get_process_metrics(self):
         """Test getting process metrics"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger)
+        profiler = ProcessMetricsProfiler()
 
         metrics = profiler.get_process_metrics()
 
@@ -73,8 +69,7 @@ class TestProcessMetricsProfiler:
 
     def test_get_metrics_summary(self):
         """Test getting human-readable metrics summary"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger)
+        profiler = ProcessMetricsProfiler()
 
         summary = profiler.get_metrics_summary()
 
@@ -90,7 +85,8 @@ class TestProcessMetricsProfiler:
     def test_metrics_with_logging(self):
         """Test that metrics are logged"""
         mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger, interval_seconds=1)
+        with patch('logging.getLogger', return_value=mock_logger):
+            profiler = ProcessMetricsProfiler(interval_seconds=1)
 
         # Start profiler and wait for snapshot
         profiler.start()
@@ -107,8 +103,7 @@ class TestProcessMetricsProfiler:
 
     def test_memory_deltas(self):
         """Test that memory deltas are calculated"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(mock_logger)
+        profiler = ProcessMetricsProfiler()
 
         # Get first summary (no deltas yet)
         summary1 = profiler.get_metrics_summary()

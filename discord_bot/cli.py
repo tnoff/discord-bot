@@ -1,7 +1,6 @@
 import asyncio
 from asyncio import run, get_running_loop
 import logging
-from logging import RootLogger
 import re
 import signal
 from sys import stderr
@@ -102,11 +101,12 @@ def read_config(config_file: str) -> dict:
         raise DiscordBotException('General config section required')
     return settings
 
-async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, logger: RootLogger, health_server=None):
+async def main_loop(bot: Bot, cog_list: List[CogHelper], token: str, health_server=None):
     '''
     Main loop for starting bot
     Includes logic to handle stops and cog removals
     '''
+    logger = logging.getLogger('main')
     # Set up signal handlers for graceful shutdown
     loop = get_running_loop()
     shutdown_triggered = False
@@ -235,33 +235,32 @@ def main(config_file): #pylint:disable=too-many-statements
         # Start memory profiling if enabled
         if general_config.monitoring and general_config.monitoring.memory_profiling and general_config.monitoring.memory_profiling.enabled:
             logger.info('Main :: Starting memory profiler')
-            memory_profiler_logger = get_logger('memory_profiler', general_config.logging, otlp_logger=logger_provider)
-            memory_profiler_logger.setLevel(logging.INFO)
+            get_logger('memory_profiler', general_config.logging, otlp_logger=logger_provider).setLevel(logging.INFO)
             interval_seconds = general_config.monitoring.memory_profiling.interval_seconds
             top_n_lines = general_config.monitoring.memory_profiling.top_n_lines
-            memory_profiler = MemoryProfiler(memory_profiler_logger, interval_seconds=interval_seconds, top_n_lines=top_n_lines)
+            memory_profiler = MemoryProfiler(interval_seconds=interval_seconds, top_n_lines=top_n_lines)
             memory_profiler.start()
 
         # Start process metrics profiling if enabled
         if general_config.monitoring and general_config.monitoring.process_metrics and general_config.monitoring.process_metrics.enabled:
             logger.info('Main :: Starting process metrics profiler')
-            process_metrics_logger = get_logger('process_metrics', general_config.logging, otlp_logger=logger_provider)
-            process_metrics_logger.setLevel(logging.INFO)
+            get_logger('process_metrics', general_config.logging, otlp_logger=logger_provider).setLevel(logging.INFO)
             interval_seconds = general_config.monitoring.process_metrics.interval_seconds
-            process_metrics_profiler = ProcessMetricsProfiler(process_metrics_logger, interval_seconds=interval_seconds)
+            process_metrics_profiler = ProcessMetricsProfiler(interval_seconds=interval_seconds)
             process_metrics_profiler.start()
 
         # Run main bot
-        main_runner(general_config, settings, logger, db_engine)
+        main_runner(general_config, settings, db_engine)
     finally:
         # Ensure database engine is properly disposed
         if db_engine:
             db_engine.dispose()
 
-def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogger, db_engine: Engine):
+def main_runner(general_config: GeneralConfig, settings: dict, db_engine: Engine):
     '''
     Main runner logic
     '''
+    logger = logging.getLogger('main')
     token = general_config.discord_token
 
     logger.debug('Main :: Generating Intents')
@@ -291,8 +290,8 @@ def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogge
     health_server = None
     if general_config.monitoring and general_config.monitoring.health_server \
             and general_config.monitoring.health_server.enabled:
-        hs_logger = get_logger('health_server', general_config.logging)
-        health_server = HealthServer(bot, hs_logger, port=general_config.monitoring.health_server.port)
+        get_logger('health_server', general_config.logging)
+        health_server = HealthServer(bot, port=general_config.monitoring.health_server.port)
 
     # Make sure we cast to string here just to keep it consistent
     rejectlist_guilds = list(general_config.rejectlist_guilds)
@@ -318,10 +317,10 @@ def main_runner(general_config: GeneralConfig, settings: dict, logger: RootLogge
 
     if loop and loop.is_running():
         logger.debug('Main :: Async event loop already running. Adding coroutine to the event loop.')
-        loop.create_task(main_loop(bot, cog_list, token, logger, health_server=health_server))
+        loop.create_task(main_loop(bot, cog_list, token, health_server=health_server))
     else:
         logger.debug('Main :: Starting new discord bot instance')
-        run(main_loop(bot, cog_list, token, logger, health_server=health_server))
+        run(main_loop(bot, cog_list, token, health_server=health_server))
 
 
 

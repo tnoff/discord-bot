@@ -91,19 +91,40 @@ See the [Monitoring Documentation](./docs/monitoring/index.md) for complete setu
 
 ### Log Setup
 
-If no log section given, logs will go to stdout by default. If you wish to setup logs and have log rotation set:
+If no log section given, logs will go to stdout by default.
+
+#### File Logging
+
+To write logs to rotating files:
 
 ```
 ---
 general:
   discord_token: blah-blah-blah-discord-token
   logging:
+    log_level: 20 # Log level (0=NOTSET, 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL)
     log_dir: /logs/discord # Log file path
     log_file_count: 2 # Max backup log files
     log_file_max_bytes: 1240000 # Size to rotate log files at
 ```
 
 A `log_dir` can be passed and then each cog is setup to send to a log file within that dir. Each log file will be named after the cog, so look for `music.log` for music cog logs, for example.
+
+#### OTLP-Only Logging
+
+If you have OTLP enabled and want logs sent exclusively via OTLP (no local log files), set `otlp_only: true`. The `log_dir`, `log_file_count`, and `log_file_max_bytes` fields are not required in this mode:
+
+```
+---
+general:
+  discord_token: blah-blah-blah-discord-token
+  logging:
+    log_level: 20
+    otlp_only: true
+  monitoring:
+    otlp:
+      enabled: true
+```
 
 ### Include Cogs
 

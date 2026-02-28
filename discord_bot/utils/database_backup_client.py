@@ -1,8 +1,8 @@
 from pathlib import Path
 from datetime import datetime
 import json
+import logging
 import tempfile
-from logging import RootLogger
 from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
 
@@ -18,9 +18,9 @@ class DatabaseBackupClient:
     # Number of rows to insert at a time during restoration (batching for efficiency)
     BATCH_SIZE = 1000
 
-    def __init__(self, db_engine: Engine, logger: RootLogger):
+    def __init__(self, db_engine: Engine):
         self.db_engine = db_engine
-        self.logger = logger
+        self.logger = logging.getLogger('databasebackup')
 
     def _get_alembic_version(self) -> str:
         '''

@@ -46,7 +46,7 @@ def test_pydantic_logging_config_missing_required():
     }
     with pytest.raises(PydanticValidationError) as exc:
         GeneralConfig(**logging_input)
-    assert 'log_dir' in str(exc.value)
+    assert 'log_level' in str(exc.value)
 
 def test_pydantic_logging_config_valid():
     logging_input = {
