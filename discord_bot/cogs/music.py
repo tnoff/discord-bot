@@ -791,11 +791,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except QueueEmpty:
             return True
 
+        # Set status, will likely be updated later
+        media_request.lifecycle_stage = MediaRequestLifecycleStage.SEARCHING
+
         await self.youtube_music_backoff_time()
 
-        # Reset lifecycle stage coming back from a RETRY_SEARCH
-        if media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH:
-            media_request.lifecycle_stage = MediaRequestLifecycleStage.SEARCHING
 
         self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
