@@ -24,7 +24,7 @@ class YoutubeMusicClient():
                 results = self.client.search(search_string, filter='songs')
             except YTMusicServerError as error:
                 if '429' in str(error):
-                    raise YoutubeMusicRetryException('429 Exhaust Limit Hit')
+                    raise YoutubeMusicRetryException('429 Exhaust Limit Hit') from error
                 raise error
             try:
                 return results[0]['videoId']

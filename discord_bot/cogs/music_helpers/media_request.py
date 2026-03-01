@@ -66,8 +66,9 @@ class MediaRequest():
 
     # Track lifecycle stage
     lifecycle_stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
-    # Retry info tracker
-    retry_information: RetryInformation = field(default_factory=RetryInformation)
+    # Retry info tracker — separate counters for each phase
+    download_retry_information: RetryInformation = field(default_factory=RetryInformation)
+    youtube_music_retry_information: RetryInformation = field(default_factory=RetryInformation)
     # Failure reason tracking
     failure_reason: str | None = None
 
@@ -122,7 +123,7 @@ def media_request_attributes(media_request: MediaRequest) -> dict:
         MediaRequestNaming.GUILD.value: media_request.guild_id,
         MediaRequestNaming.SEARCH_TYPE.value: media_request.search_result.search_type.value,
         MediaRequestNaming.UUID.value: str(media_request.uuid),
-        AttributeNaming.RETRY_COUNT.value: media_request.retry_information.retry_count,
+        AttributeNaming.RETRY_COUNT.value: media_request.download_retry_information.retry_count,
     }
 
 # https://stackoverflow.com/questions/312443/how-do-i-split-a-list-into-equally-sized-chunks
@@ -343,7 +344,11 @@ class MultiMediaRequestBundle():
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, f'Waiting to process: "{bundled_request.media_request.display_name}"')
-                case MediaRequestLifecycleStage.RETRY:
+                case MediaRequestLifecycleStage.RETRY_DOWNLOAD:
+                    if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
+                        if bundled_request.table_index is not None:
+                            self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.media_request.display_name}"')
+                case MediaRequestLifecycleStage.RETRY_SEARCH:
                     if bundled_request.stored_status != bundled_request.media_request.lifecycle_stage:
                         if bundled_request.table_index is not None:
                             self._edit_row_data(bundled_request, f'Failed, will retry: "{bundled_request.media_request.display_name}"')
@@ -442,20 +447,32 @@ class MultiMediaRequestBundle():
 
         return t.print()
 
-    def get_retry_summary(self, max_retries: int):
+    def get_retry_summary(self, download_max_retries: int, search_max_retries: int):
         '''
         Get a list of retry notification messages that haven't been sent yet
         Returns None if there are no new retries with reasons
         Marks returned retries as sent to prevent duplicate messages
 
-        max_retries: Maximum retry count for display (e.g., "attempt 1/3")
+        download_max_retries: Maximum retry count for downloads (e.g., "attempt 1/3")
+        search_max_retries: Maximum retry count for youtube music searches
         '''
-        # Only get retries that haven't been sent yet
+        retry_stages = {MediaRequestLifecycleStage.RETRY_DOWNLOAD, MediaRequestLifecycleStage.RETRY_SEARCH}
+
+        def _retry_info(req):
+            if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD:
+                return req.media_request.download_retry_information
+            return req.media_request.youtube_music_retry_information
+
+        def _max_retries(req):
+            if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD:
+                return download_max_retries
+            return search_max_retries
+
         retry_requests = [
             req for req in self.bundled_requests
-            if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY
-            and req.media_request.retry_information.retry_reason
-            and not req.media_request.retry_information.retry_reason_sent
+            if req.media_request.lifecycle_stage in retry_stages
+            and _retry_info(req).retry_reason
+            and not _retry_info(req).retry_reason_sent
         ]
 
         if not retry_requests:
@@ -464,22 +481,25 @@ class MultiMediaRequestBundle():
         # Build individual messages per retry with code block for error
         messages = []
         for req in retry_requests:
+            retry_info = _retry_info(req)
+            max_r = _max_retries(req)
+
             # Format backoff time in human-readable format
             backoff_str = ''
-            if req.media_request.retry_information.retry_backoff_seconds:
-                if req.media_request.retry_information.retry_backoff_seconds >= 60:
-                    minutes = req.media_request.retry_information.retry_backoff_seconds // 60
+            if retry_info.retry_backoff_seconds:
+                if retry_info.retry_backoff_seconds >= 60:
+                    minutes = retry_info.retry_backoff_seconds // 60
                     backoff_str = f', retrying in ~{minutes} minute{"s" if minutes != 1 else ""}'
                 else:
-                    backoff_str = f', retrying in ~{req.media_request.retry_information.retry_backoff_seconds} seconds'
+                    backoff_str = f', retrying in ~{retry_info.retry_backoff_seconds} seconds'
 
             # Build prefix and suffix, then calculate available space for retry_reason
-            prefix = f'Retrying "{req.media_request.display_name}" (attempt {req.media_request.retry_information.retry_count}/{max_retries}{backoff_str}):\n```\n'
+            prefix = f'Retrying "{req.media_request.display_name}" (attempt {retry_info.retry_count}/{max_r}{backoff_str}):\n```\n'
             suffix = '\n```'
             available_length = DISCORD_MAX_MESSAGE_LENGTH - len(prefix) - len(suffix)
-            truncated_reason = shorten_string(req.media_request.retry_information.retry_reason, available_length)
+            truncated_reason = shorten_string(retry_info.retry_reason, available_length)
             msg = f'{prefix}{truncated_reason}{suffix}'
             messages.append(msg)
-            req.media_request.retry_information.retry_reason_sent = True
+            retry_info.retry_reason_sent = True
 
         return messages
