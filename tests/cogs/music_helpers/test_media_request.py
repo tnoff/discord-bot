@@ -48,19 +48,19 @@ def test_media_request_display_name_used_in_bundle_rows(fake_context):  #pylint:
 async def test_media_request_retry_count_initialization(fake_context): #pylint:disable=redefined-outer-name
     """Test that retry_count is always initialized to 0"""
     x = fake_source_dict(fake_context)
-    assert x.retry_information.retry_count == 0
+    assert x.download_retry_information.retry_count == 0
 
 @pytest.mark.asyncio
 async def test_media_request_retry_count_increments(fake_context): #pylint:disable=redefined-outer-name
     """Test that retry_count can be incremented"""
     x = fake_source_dict(fake_context)
-    assert x.retry_information.retry_count == 0
+    assert x.download_retry_information.retry_count == 0
 
-    x.retry_information.retry_count += 1
-    assert x.retry_information.retry_count == 1
+    x.download_retry_information.retry_count += 1
+    assert x.download_retry_information.retry_count == 1
 
-    x.retry_information.retry_count += 1
-    assert x.retry_information.retry_count == 2
+    x.download_retry_information.retry_count += 1
+    assert x.download_retry_information.retry_count == 2
 
 @pytest.mark.asyncio
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
@@ -155,7 +155,7 @@ async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disab
     assert 'Downloading and processing media request:' in full_output
 
     # First request fails and will retry
-    x.lifecycle_stage = MediaRequestLifecycleStage.RETRY
+    x.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
     print_output = b.print()
     full_output = '\n'.join(print_output)
     assert 'Failed, will retry:' in full_output
@@ -1261,12 +1261,12 @@ def test_media_request_bundle_get_retry_summary_basic(fake_context):  #pylint:di
     bundle.all_requests_added()
 
     # Mark as retry with reason
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = "Bot flagged download"
-    media_request.retry_information.retry_count = 1
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = "Bot flagged download"
+    media_request.download_retry_information.retry_count = 1
 
     # Get retry summary
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     assert len(summary) == 1
@@ -1290,12 +1290,12 @@ def test_media_request_bundle_get_retry_summary_with_backoff(fake_context):  #py
     bundle.all_requests_added()
 
     # Mark as retry with backoff time (240 seconds = 4 minutes)
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = "Bot flagged download"
-    media_request.retry_information.retry_count = 1
-    media_request.retry_information.retry_backoff_seconds = 240
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = "Bot flagged download"
+    media_request.download_retry_information.retry_count = 1
+    media_request.download_retry_information.retry_backoff_seconds = 240
 
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     assert 'retrying in ~4 minutes' in summary[0]
@@ -1315,12 +1315,12 @@ def test_media_request_bundle_get_retry_summary_backoff_seconds(fake_context):  
     bundle.all_requests_added()
 
     # Mark as retry with short backoff (30 seconds)
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = "Bot flagged download"
-    media_request.retry_information.retry_count = 1
-    media_request.retry_information.retry_backoff_seconds = 30
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = "Bot flagged download"
+    media_request.download_retry_information.retry_count = 1
+    media_request.download_retry_information.retry_backoff_seconds = 30
 
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     assert 'retrying in ~30 seconds' in summary[0]
@@ -1340,12 +1340,12 @@ def test_media_request_bundle_get_retry_summary_backoff_singular_minute(fake_con
     bundle.all_requests_added()
 
     # Mark as retry with 60 seconds = 1 minute
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = "Bot flagged download"
-    media_request.retry_information.retry_count = 1
-    media_request.retry_information.retry_backoff_seconds = 60
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = "Bot flagged download"
+    media_request.download_retry_information.retry_count = 1
+    media_request.download_retry_information.retry_backoff_seconds = 60
 
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     assert 'retrying in ~1 minute' in summary[0]
@@ -1366,17 +1366,17 @@ def test_media_request_bundle_get_retry_summary_no_duplicates(fake_context):  #p
     bundle.all_requests_added()
 
     # Mark as retry
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = "Test error"
-    media_request.retry_information.retry_count = 1
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = "Test error"
+    media_request.download_retry_information.retry_count = 1
 
     # Get retry summary first time
-    summary1 = bundle.get_retry_summary(max_retries=3)
+    summary1 = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary1 is not None
     assert 'Test error' in summary1[0]
 
     # Get retry summary second time - should return None since already sent
-    summary2 = bundle.get_retry_summary(max_retries=3)
+    summary2 = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary2 is None
 
 
@@ -1398,7 +1398,7 @@ def test_media_request_bundle_get_retry_summary_none_when_no_retries(fake_contex
     bundle.update_request_status()
 
     # Should return None
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary is None
 
 
@@ -1421,16 +1421,16 @@ def test_media_request_bundle_get_retry_summary_multiple_retries(fake_context): 
     bundle.all_requests_added()
 
     # Mark two as retry with different reasons
-    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req1.retry_information.retry_reason = "Error 1"
-    req1.retry_information.retry_count = 1
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req1.download_retry_information.retry_reason = "Error 1"
+    req1.download_retry_information.retry_count = 1
     req2.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
-    req3.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req3.retry_information.retry_reason = "Error 2"
-    req3.retry_information.retry_count = 2
+    req3.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req3.download_retry_information.retry_reason = "Error 2"
+    req3.download_retry_information.retry_count = 2
 
     # Get retry summary
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     assert len(summary) == 2
@@ -1457,15 +1457,15 @@ def test_media_request_bundle_get_retry_summary_with_none_reason(fake_context): 
     bundle.all_requests_added()
 
     # Mark first as retry with reason, second as retry without reason
-    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req1.retry_information.retry_reason = "Real error"
-    req1.retry_information.retry_count = 1
-    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req2.retry_information.retry_reason = None
-    req2.retry_information.retry_count = 1
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req1.download_retry_information.retry_reason = "Real error"
+    req1.download_retry_information.retry_count = 1
+    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req2.download_retry_information.retry_reason = None
+    req2.download_retry_information.retry_count = 1
 
     # Get retry summary - should only include req1
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary is not None
     assert len(summary) == 1
     assert 'Real error' in summary[0]
@@ -1483,7 +1483,7 @@ def test_media_request_bundle_get_retry_summary_empty_bundle(fake_context):  #py
     bundle.all_requests_added()
 
     # Get retry summary - should return None since there are no requests
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary is None
 
 
@@ -1503,11 +1503,11 @@ def test_media_request_bundle_get_retry_summary_truncates_long_reason(fake_conte
     # Create a very long error message (longer than Discord's 2000 char limit)
     long_error = "A" * 3000
 
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    media_request.retry_information.retry_reason = long_error
-    media_request.retry_information.retry_count = 1
+    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    media_request.download_retry_information.retry_reason = long_error
+    media_request.download_retry_information.retry_count = 1
 
-    summary = bundle.get_retry_summary(max_retries=3)
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
 
     assert summary is not None
     # Message should be truncated to fit within Discord's limit
@@ -1534,19 +1534,19 @@ def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pyl
     bundle.all_requests_added()
 
     # First retry
-    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req1.retry_information.retry_reason = "Error 1"
-    req1.retry_information.retry_count = 1
-    summary1 = bundle.get_retry_summary(max_retries=3)
+    req1.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req1.download_retry_information.retry_reason = "Error 1"
+    req1.download_retry_information.retry_count = 1
+    summary1 = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary1 is not None
     assert len(summary1) == 1
     assert 'Error 1' in summary1[0]
 
     # Second retry (different request)
-    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-    req2.retry_information.retry_reason = "Error 2"
-    req2.retry_information.retry_count = 1
-    summary2 = bundle.get_retry_summary(max_retries=3)
+    req2.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    req2.download_retry_information.retry_reason = "Error 2"
+    req2.download_retry_information.retry_count = 1
+    summary2 = bundle.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert summary2 is not None
     assert len(summary2) == 1
     # Should only contain the new retry

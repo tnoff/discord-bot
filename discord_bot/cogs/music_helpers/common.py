@@ -39,7 +39,8 @@ class MediaRequestLifecycleStage(Enum):
     COMPLETED = 'completed'
     DISCARDED = 'discarded'
     BACKOFF = 'backoff'
-    RETRY = 'retry'
+    RETRY_DOWNLOAD = 'retry_download'
+    RETRY_SEARCH = 'retry_search'
 
 class MessageType(Enum):
     '''
