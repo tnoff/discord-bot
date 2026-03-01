@@ -49,7 +49,7 @@ from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
-from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.clients.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER
@@ -786,7 +786,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
 
         self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
-        youtube_music_result = await self.search_client.search_youtube_music(media_request.search_result.raw_search_string, self.bot.loop)
+        try:
+            youtube_music_result = await self.search_client.search_youtube_music(media_request.search_result.raw_search_string, self.bot.loop)
+        except YoutubeMusicRetryException:
+            self.youtube_music_search_queue.put_nowait(media_request.guild_id, (media_request, channel), priority=self.server_queue_priority.get(media_request.guild_id, None))
+            await sleep(5)
+            return False
         if youtube_music_result:
             # This returns the raw id, make sure we add the proper prefix for caching bits
             media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
