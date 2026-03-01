@@ -11,6 +11,8 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.search_client import SearchResult
+from discord_bot.utils.clients.youtube_music import YoutubeMusicRetryException
+from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.utils.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
@@ -956,3 +958,219 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     # Verify both bundles were updated
     assert len(bundle1.bundled_requests) == 1
     assert len(bundle2.bundled_requests) == 1
+
+
+class RateLimitedSearchClient:
+    """Mock search client that raises YoutubeMusicRetryException"""
+    async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
+        raise YoutubeMusicRetryException('429 Exhaust Limit Hit')
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that a 429 re-enqueues the item and sets RETRY_SEARCH lifecycle stage"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = RateLimitedSearchClient()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+    cog.message_queue = MagicMock()
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    result = await cog.search_youtube_music()
+
+    assert result is False
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
+    assert media_request.youtube_music_retry_information.retry_count == 1
+    assert media_request.youtube_music_retry_information.retry_reason is not None
+    # Item should be back in the search queue
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 1
+    # Not in download queue
+    assert cog.download_queue.size(fake_context['guild'].id) == 0
+
+
+@pytest.mark.asyncio()
+@pytest.mark.freeze_time
+async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that a 429 sets the youtube_music_wait_timestamp with exponential backoff"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = RateLimitedSearchClient()
+    cog.message_queue = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    freezer.move_to('2025-01-01 12:00:00 UTC')
+    assert cog.youtube_music_wait_timestamp is None
+
+    await cog.search_youtube_music()
+
+    # Failure queue size is 1, so multiplier is 2^1 = 2
+    # Expected: now (1735732800) + 30*2 + 5 = 1735732865
+    assert cog.youtube_music_wait_timestamp == 1735732865
+    assert cog.youtube_music_failure_queue.size == 1
+
+
+@pytest.mark.asyncio()
+@pytest.mark.freeze_time
+async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that repeated 429s grow the backoff exponentially"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = RateLimitedSearchClient()
+    cog.message_queue = MagicMock()
+
+    # Pre-populate failure queue with 2 existing failures
+    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    assert cog.youtube_music_failure_queue.size == 2
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    freezer.move_to('2025-01-01 12:00:00 UTC')
+    await cog.search_youtube_music()
+
+    # Failure queue size is now 3, so multiplier is 2^3 = 8
+    # Expected: now (1735732800) + 30*8 + 5 = 1735733045
+    assert cog.youtube_music_failure_queue.size == 3
+    assert cog.youtube_music_wait_timestamp == 1735733045
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that hitting max retries marks the request as FAILED instead of re-queuing"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True, 'max_youtube_music_search_retries': 3}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = RateLimitedSearchClient()
+    cog.message_queue = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    # Simulate already at retry limit
+    media_request.youtube_music_retry_information.retry_count = 2
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    await cog.search_youtube_music()
+
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
+    assert media_request.failure_reason is not None
+    # Should NOT be re-queued in search queue
+    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 0
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that a re-queued item resets from RETRY_SEARCH back to SEARCHING on next attempt"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    call_count = 0
+
+    class SucceedOnSecondCallClient:
+        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise YoutubeMusicRetryException('429 Exhaust Limit Hit')
+            return 'test-video-id'
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = SucceedOnSecondCallClient()
+    cog.message_queue = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    # First call hits 429
+    mocker.patch.object(cog, 'youtube_music_backoff_time', return_value=True)
+    await cog.search_youtube_music()
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
+
+    # Second call succeeds — lifecycle should reset to SEARCHING then proceed to QUEUED
+    await cog.search_youtube_music()
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that a successful search adds a success to the failure queue"""
+    config = BASE_MUSIC_CONFIG | {
+        'music': {'download': {'enable_youtube_music_search': True}}
+    }
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.search_client = MockSearchClient('test-video-id')
+    cog.message_queue = MagicMock()
+
+    # Pre-populate failure queue
+    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    assert cog.youtube_music_failure_queue.size == 2
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+
+    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, (media_request, fake_context['channel']))
+
+    await cog.search_youtube_music()
+
+    # Successful search should remove one failure from the queue
+    assert cog.youtube_music_failure_queue.size == 1

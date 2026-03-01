@@ -1,6 +1,3 @@
-from asyncio import QueueFull, QueueEmpty
-from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
 from functools import partial
 from pathlib import Path
 from shutil import copyfile
@@ -15,99 +12,12 @@ from discord_bot.database import VideoCache
 
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
+from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.utils.otel import otel_span_wrapper
-from discord_bot.utils.queue import Queue
 
-@dataclass
-class DownloadStatus:
-    '''
-    Download Status for tracking
-    '''
-    success: bool = True
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    exception_type: str = None
-    exception_message: str = None
-
-class DownloadFailureQueue:
-    '''
-    Download Failure Rate Tracking
-    '''
-    def __init__(self, max_size: int = 100, max_age_seconds: int = 300):
-        '''
-        Download failure queue to track how often failures have been happening
-
-        max_size : Track the last X items
-        max_age_seconds : Maximum age of failures to keep (in seconds)
-        '''
-        self.queue: Queue[DownloadStatus] = Queue(maxsize=max_size)
-        self.max_age_seconds = max_age_seconds
-
-
-    def add_item(self, new_item: DownloadStatus) -> bool:
-        '''
-        Add new item and clean old entries
-        '''
-        # Clean old items before adding new one
-        self._clean_old_items()
-        if new_item.success:
-            # If we hit a success, get the last queue item to reset some of the counters
-            try:
-                self.queue.get_nowait()
-            except QueueEmpty:
-                pass
-            return True
-        while True:
-            try:
-                self.queue.put_nowait(new_item)
-                return True
-            except QueueFull:
-                self.queue.get_nowait()
-
-    def _clean_old_items(self):
-        '''
-        Remove items older than max_age_seconds
-        '''
-        if self.max_age_seconds <= 0:
-            return
-
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=self.max_age_seconds)
-
-        # Get all items, filter out old ones, and rebuild queue
-        items = self.queue.clear()
-        fresh_items = [item for item in items if item.created_at > cutoff]
-
-        for item in fresh_items:
-            try:
-                self.queue.put_nowait(item)
-            except QueueFull:
-                break
-
-    @property
-    def size(self):
-        '''
-        Size of queue
-        '''
-        return self.queue.size()
-
-    def get_status_summary(self) -> str:
-        '''
-        Get a summary string of the queue status for logging
-        Returns format: "X failures in queue, oldest: <timestamp>"
-        '''
-        items = self.queue.items()
-        if not items:
-            return "0 failures in queue"
-
-        oldest = min(items, key=lambda x: x.created_at)
-        age_seconds = int((datetime.now(timezone.utc) - oldest.created_at).total_seconds())
-
-        if age_seconds >= 60:
-            age_str = f"{age_seconds // 60}m {age_seconds % 60}s ago"
-        else:
-            age_str = f"{age_seconds}s ago"
-
-        return f"{len(items)} failures in queue, oldest: {age_str}"
+# Re-export under the original names for backwards compatibility
+DownloadStatus = FailureStatus
+DownloadFailureQueue = FailureQueue
 
 
 class DownloadClientException(Exception):
@@ -279,19 +189,19 @@ class DownloadClient():
                     raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
                 if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
                     span.record_exception(error)
-                    if media_request.retry_information.retry_count + 1 >= max_retries:
+                    if media_request.download_retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
                         raise RetryLimitExceeded('Retry limit exceeded') from error
                     span.set_status(StatusCode.OK)
-                    media_request.retry_information.retry_count += 1
+                    media_request.download_retry_information.retry_count += 1
                     raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
                 # Fallback
                 span.record_exception(error)
-                if media_request.retry_information.retry_count + 1 >= max_retries:
+                if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
                     raise RetryLimitExceeded('Retry limit exceeded') from error
                 span.set_status(StatusCode.OK)
-                media_request.retry_information.retry_count += 1
+                media_request.download_retry_information.retry_count += 1
                 raise RetryableException('Untracked error message', media_request=media_request) from error
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
