@@ -746,7 +746,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise ExistingFileException('Bot shutdown called, exiting early')
         await sleep(.01)
         try:
-            media_request, channel = self.youtube_music_search_queue.get_nowait()
+            media_request = self.youtube_music_search_queue.get_nowait()
         except QueueEmpty:
             return True
 
@@ -774,7 +774,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.error(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
                 media_request.state_machine.mark_failed('Youtube music search rate limit exceeded after max retries')
             else:
-                self.youtube_music_search_queue.put_nowait(media_request.guild_id, (media_request, channel), priority=self.server_queue_priority.get(media_request.guild_id, None))
+                self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                 media_request.state_machine.mark_retry_search(str(e), backoff_seconds)
             return False
         if youtube_music_result:
@@ -1253,7 +1253,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Also requires youtube music search is set
             if self.config.download.enable_youtube_music_search and media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
                 try:
-                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, (media_request, ctx.channel), priority=self.server_queue_priority.get(media_request.guild_id, None))
+                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     bundle.add_media_request(media_request)
                 except PutsBlocked:
                     self.logger.warning(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
