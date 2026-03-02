@@ -73,13 +73,6 @@ class MockYoutubeRaise():
         raise HttpError(MockResponse(), 'foo'.encode('utf-8'))
 
 
-class MockYoutubeMusic():
-    def __init__(self):
-        pass
-
-    def search(self, *_args, **_kwargs):
-        return 'vid-1234'
-
 @pytest.mark.asyncio
 async def test_spotify_message_check():
     x = SearchClient()
@@ -128,7 +121,7 @@ async def test_spotify_album_get():
 async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     # YouTube music search is now handled separately in the music queue
     loop = asyncio.get_running_loop()
-    x = SearchClient(spotify_client=MockSpotifyClient(), youtube_music_client=MockYoutubeMusic())
+    x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert result[0].resolved_search_string == 'foo track foo artists'
     assert result[0].raw_search_string == 'foo track foo artists'
@@ -243,7 +236,7 @@ async def test_basic_search():
 async def test_basic_search_with_youtube_music():
     # YouTube music search is now handled separately in the music queue
     loop = asyncio.get_running_loop()
-    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    x = SearchClient()
     result = await x.check_source('foo bar', loop, 5)
     assert result[0].resolved_search_string == 'foo bar'
     assert result[0].search_type == SearchType.SEARCH
@@ -253,7 +246,7 @@ async def test_basic_search_with_youtube_music():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search_with_youtube_music_skips_direct():
     loop = asyncio.get_running_loop()
-    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    x = SearchClient()
     result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa', loop, 5)
     assert result[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result[0].search_type == SearchType.YOUTUBE
@@ -336,7 +329,7 @@ async def test_search_workflow_direct_url():
 async def test_search_workflow_with_youtube_music():
     """Test search workflow - YouTube Music integration now handled separately in music queue"""
     loop = asyncio.get_running_loop()
-    x = SearchClient(youtube_music_client=MockYoutubeMusic())
+    x = SearchClient()
     results = await x.check_source('search term', loop, 5)
 
     assert len(results) == 1
