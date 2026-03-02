@@ -31,7 +31,7 @@ from discord_bot.cogs.music_helpers.common import SearchType, MessageType, Multi
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
-from discord_bot.cogs.music_helpers.download_client import DownloadStatus, DownloadFailureQueue
+from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchClient, SearchException, check_youtube_video
@@ -49,7 +49,7 @@ from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
-from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.clients.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER
@@ -116,6 +116,7 @@ class MusicDownloadConfig(BaseModel):
     cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
     storage: Optional[MusicStorageConfig] = None
     max_download_retries: int = Field(default=3, ge=1)
+    max_youtube_music_search_retries: int = Field(default=3, ge=1)
     # Mostly to keep a cap on the queue to avoid issues
     failure_tracking_max_size: int = Field(default=100, ge=1)
     # Recommended to be at least an hour
@@ -278,10 +279,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client,
                                           youtube_music_client=self.youtube_music_client)
         self.download_client = DownloadClient(ytdl, self.download_dir)
-        self.download_failure_queue = DownloadFailureQueue(
+        self.download_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
+        self.youtube_music_failure_queue = FailureQueue(
+            max_size=self.config.download.failure_tracking_max_size,
+            max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+        )
+        self.youtube_music_wait_timestamp: float | None = None
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -545,7 +551,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                             self.message_queue.send_single_immutable(contexts)
 
                         # Send retry notifications as separate messages
-                        retry_summary = bundle.get_retry_summary(self.config.download.max_download_retries)
+                        retry_summary = bundle.get_retry_summary(self.config.download.max_download_retries, self.config.download.max_youtube_music_search_retries)
                         if retry_summary:
                             contexts = []
                             for msg in retry_summary:
@@ -785,14 +791,48 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except QueueEmpty:
             return True
 
+        # Set status, will likely be updated later
+        media_request.lifecycle_stage = MediaRequestLifecycleStage.SEARCHING
+
+        await self.youtube_music_backoff_time()
+
+
         self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
-        youtube_music_result = await self.search_client.search_youtube_music(media_request.search_result.raw_search_string, self.bot.loop)
+        bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
+        try:
+            youtube_music_result = await self.search_client.search_youtube_music(media_request.search_result.raw_search_string, self.bot.loop)
+            self.youtube_music_failure_queue.add_item(FailureStatus())
+        except YoutubeMusicRetryException as e:
+            self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
+            self.logger.warning(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
+            self.update_youtube_music_timestamp(backoff_multiplier=2 ** self.youtube_music_failure_queue.size)
+            backoff_seconds = None
+            if self.youtube_music_wait_timestamp:
+                backoff_seconds = int(self.youtube_music_wait_timestamp - datetime.now(timezone.utc).timestamp())
+                backoff_seconds = max(0, backoff_seconds)
+                self.logger.warning(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
+            media_request.youtube_music_retry_information.retry_count += 1
+            if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
+                self.logger.error(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
+                media_request.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+                media_request.failure_reason = 'Youtube music search rate limit exceeded after max retries'
+            else:
+                self.youtube_music_search_queue.put_nowait(media_request.guild_id, (media_request, channel), priority=self.server_queue_priority.get(media_request.guild_id, None))
+                media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_SEARCH
+                media_request.youtube_music_retry_information.retry_reason = str(e)
+                media_request.youtube_music_retry_information.retry_backoff_seconds = backoff_seconds
+            if bundle:
+                self.message_queue.update_multiple_mutable(
+                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
+                    channel,
+                    sticky_messages=False,
+                )
+            return False
         if youtube_music_result:
             # This returns the raw id, make sure we add the proper prefix for caching bits
             media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
 
         # Check if cache item exists already
-        bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
         if await self._enqueue_media_download_from_cache(media_request, bundle):
             return True
 
@@ -877,6 +917,45 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.youtube_download_wait_timestamp = new_timestamp
         return True
 
+    def update_youtube_music_timestamp(self, backoff_multiplier: int = 1) -> bool:
+        '''
+        Update the youtube music search backoff timestamp
+
+        backoff_multiplier: Multiply backoff time by factor
+        '''
+        new_timestamp = int(datetime.now(timezone.utc).timestamp())
+        new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
+        random.seed(time())
+        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
+        self.logger.info(f'Waiting on youtube music search backoff, waiting until {new_timestamp}')
+        self.youtube_music_wait_timestamp = new_timestamp
+        return True
+
+    async def youtube_music_backoff_time(self):
+        '''
+        Wait for next youtube music search time
+        '''
+        if self.youtube_music_wait_timestamp is None:
+            return True
+
+        now = datetime.now(timezone.utc).timestamp()
+        sleep_duration = max(0, self.youtube_music_wait_timestamp - now)
+
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Exiting bot wait loop')
+
+        if sleep_duration == 0:
+            return True
+
+        try:
+            await asyncio.wait_for(
+                self.bot_shutdown_event.wait(),
+                timeout=sleep_duration
+            )
+            raise ExitEarlyException('Exiting bot wait loop')
+        except asyncio.TimeoutError:
+            return True
+
     async def download_files(self): #pylint:disable=too-many-statements
         '''
         Main runner
@@ -949,7 +1028,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                               self.config.download.max_download_retries,
                                                                               self.bot.loop)
                     self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
-                    self.download_failure_queue.add_item(DownloadStatus())
+                    self.download_failure_queue.add_item(FailureStatus())
                     self.update_download_timestamp(media_download=media_download)
                 except ExistingFileException as e:
                     # File exists on disk already, create again from cache
@@ -968,7 +1047,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return
                 except RetryLimitExceeded as e:
                     self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {str(e)}')
-                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
+                    self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
                                                                         exception_message=str(e)))
                     self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
                     await self.__return_bad_video(media_request, e)
@@ -977,7 +1056,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return
                 except RetryableException as e:
                     self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
-                    self.download_failure_queue.add_item(DownloadStatus(success=False, exception_type=type(e).__name__,
+                    self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
                                                                         exception_message=str(e)))
                     self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
                     # Apply extra backoff for number of failures found
@@ -992,9 +1071,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
                     self.download_queue.put_nowait(media_request.guild_id, media_request)
                     # Use original exception message if available for more detail
-                    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY
-                    media_request.retry_information.retry_reason = str(e.__cause__) if e.__cause__ is not None else str(e)
-                    media_request.retry_information.retry_backoff_seconds = backoff_seconds
+                    media_request.lifecycle_stage = MediaRequestLifecycleStage.RETRY_DOWNLOAD
+                    media_request.download_retry_information.retry_reason = str(e.__cause__) if e.__cause__ is not None else str(e)
+                    media_request.download_retry_information.retry_backoff_seconds = backoff_seconds
                     if bundle:
                         self.message_queue.update_multiple_mutable(
                             f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
