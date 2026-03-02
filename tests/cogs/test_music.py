@@ -46,10 +46,6 @@ def yield_fake_search_client(media_request: MediaRequest = None):
                 return [search_result]
             return []
 
-        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
-            # Return a fake video ID for testing
-            return 'fake-video-id'
-
     return FakeSearchClient
 
 def yield_fake_download_client(media_download: MediaDownload):
@@ -99,10 +95,6 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
                 search_results.append(search_result)
             return search_results
 
-        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
-            # Return a fake video ID for testing
-            return 'fake-video-id'
-
     return FakeSearchClient
 
 def yield_search_client_check_source_raises():
@@ -112,10 +104,6 @@ def yield_search_client_check_source_raises():
 
         async def check_source(self, *_args, **_kwargs):
             raise SearchException('foo', user_message='woopsie')
-
-        async def search_youtube_music(self, search_string, loop): #pylint:disable=unused-argument
-            # Return a fake video ID for testing
-            return 'fake-video-id'
 
     return FakeSearchClient
 
