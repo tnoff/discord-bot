@@ -1,7 +1,7 @@
 import pytest
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, chunk_list
+from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, MediaRequestStateMachine, chunk_list
 from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
@@ -1010,6 +1010,136 @@ def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:
     bundled_req = bundle.bundled_requests[0]
     assert bundled_req.media_request.failure_reason == failure_reason
     assert bundled_req.failure_reason_sent is False
+
+
+# ---------------------------------------------------------------------------
+# MediaRequestStateMachine tests
+# ---------------------------------------------------------------------------
+
+def test_state_machine_created_on_media_request(fake_context):  #pylint:disable=redefined-outer-name
+    """MediaRequest.__post_init__ attaches a MediaRequestStateMachine instance"""
+    req = fake_source_dict(fake_context)
+    assert isinstance(req.state_machine, MediaRequestStateMachine)
+
+def test_state_machine_mark_searching(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_searching transitions lifecycle_stage to SEARCHING"""
+    req = fake_source_dict(fake_context)
+    req.lifecycle_stage = MediaRequestLifecycleStage.RETRY_SEARCH
+    req.state_machine.mark_searching()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.SEARCHING
+
+def test_state_machine_mark_queued(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_queued transitions lifecycle_stage to QUEUED"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_queued()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
+
+def test_state_machine_mark_in_progress(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_in_progress transitions lifecycle_stage to IN_PROGRESS"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_in_progress()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
+
+def test_state_machine_mark_backoff(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_backoff transitions lifecycle_stage to BACKOFF"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_backoff()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.BACKOFF
+
+def test_state_machine_mark_completed(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_completed transitions lifecycle_stage to COMPLETED"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_completed()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED
+
+def test_state_machine_mark_discarded(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_discarded transitions lifecycle_stage to DISCARDED"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_discarded()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
+
+def test_state_machine_mark_failed_sets_stage(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_failed transitions lifecycle_stage to FAILED"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_failed()
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.FAILED
+
+def test_state_machine_mark_failed_with_reason(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_failed sets failure_reason when provided"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_failed('something went wrong')
+    assert req.failure_reason == 'something went wrong'
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.FAILED
+
+def test_state_machine_mark_failed_without_reason_preserves_existing(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_failed without reason leaves an existing failure_reason untouched"""
+    req = fake_source_dict(fake_context)
+    req.failure_reason = 'original reason'
+    req.state_machine.mark_failed()
+    assert req.failure_reason == 'original reason'
+
+def test_state_machine_mark_retry_download(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_retry_download sets stage and retry info atomically"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_download('ytdlp error', 30)
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    assert req.download_retry_information.retry_reason == 'ytdlp error'
+    assert req.download_retry_information.retry_backoff_seconds == 30
+
+def test_state_machine_mark_retry_download_no_backoff(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_retry_download accepts None for backoff_seconds"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_download('error', None)
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    assert req.download_retry_information.retry_backoff_seconds is None
+
+def test_state_machine_mark_retry_search(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_retry_search sets stage and retry info atomically"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_search('429 rate limit', 60)
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
+    assert req.youtube_music_retry_information.retry_reason == '429 rate limit'
+    assert req.youtube_music_retry_information.retry_backoff_seconds == 60
+
+def test_state_machine_mark_retry_does_not_cross_contaminate(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_retry_download and mark_retry_search write to separate RetryInformation objects"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_download('download error', 10)
+    req.state_machine.mark_retry_search('search error', 20)
+    assert req.download_retry_information.retry_reason == 'download error'
+    assert req.youtube_music_retry_information.retry_reason == 'search error'
+
+def test_state_machine_on_change_fires_on_transition(fake_context):  #pylint:disable=redefined-outer-name
+    """Registered on_change callback is called with (media_request, new_stage) on each transition"""
+    req = fake_source_dict(fake_context)
+    calls = []
+    req.state_machine.set_on_change(lambda r, s: calls.append((r, s)))
+
+    req.state_machine.mark_queued()
+    req.state_machine.mark_in_progress()
+
+    assert len(calls) == 2
+    assert calls[0] == (req, MediaRequestLifecycleStage.QUEUED)
+    assert calls[1] == (req, MediaRequestLifecycleStage.IN_PROGRESS)
+
+def test_state_machine_no_callback_no_error(fake_context):  #pylint:disable=redefined-outer-name
+    """Transitions without a registered callback complete without error"""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_completed()  # no callback registered
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED
+
+def test_state_machine_set_on_change_replaces_previous(fake_context):  #pylint:disable=redefined-outer-name
+    """set_on_change replaces any previously registered callback"""
+    req = fake_source_dict(fake_context)
+    first_calls = []
+    second_calls = []
+
+    req.state_machine.set_on_change(lambda r, s: first_calls.append(s))
+    req.state_machine.set_on_change(lambda r, s: second_calls.append(s))
+    req.state_machine.mark_queued()
+
+    assert not first_calls
+    assert second_calls == [MediaRequestLifecycleStage.QUEUED]
 
 
 def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disable=redefined-outer-name

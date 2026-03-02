@@ -364,7 +364,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     # Mock cache miss
     mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
 
-    result = await cog._enqueue_media_download_from_cache(media_request, bundle) #pylint:disable=protected-access
+    result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
     assert result is False
 
@@ -397,7 +397,7 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
             mocker.patch.object(cog, 'get_player', return_value=mock_player)
             mock_add_source = mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
-            result = await cog._enqueue_media_download_from_cache(media_request, bundle) #pylint:disable=protected-access
+            result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
             assert result is True
             mock_add_source.assert_called_once_with(cached_download, mock_player)
@@ -431,7 +431,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
             # Mock playlist addition
             mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
 
-            result = await cog._enqueue_media_download_from_cache(media_request, bundle) #pylint:disable=protected-access
+            result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
             assert result is True
             cog._Music__add_playlist_item_function.assert_called_once_with(456, cached_download) #pylint:disable=protected-access
