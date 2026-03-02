@@ -687,8 +687,8 @@ async def test_bundle_error_handling_missing_bundle(fake_context):  #pylint:disa
     # Test __ensure_video_download_result with missing bundle
     result = await cog._Music__ensure_video_download_result(req, None)  #pylint:disable=protected-access
 
-    # Should return None (early return) and handle gracefully (not crash)
-    assert result is None
+    # Should return False and handle gracefully (not crash)
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -1173,9 +1173,10 @@ async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #py
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
 
-    # Add a media request
+    # Add a media request, registering the on_change callback so transitions trigger updates
     req = fake_source_dict(fake_context)
     req.bundle_uuid = bundle.uuid
+    req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
 
     # Mock message queue to verify text_channel parameter is passed correctly
@@ -1201,10 +1202,11 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
 
-    # Add a media request
+    # Add a media request, registering the on_change callback so transitions trigger updates
     req = fake_source_dict(fake_context)
     req.add_to_playlist = 123  # Simulate playlist add request
     req.bundle_uuid = bundle.uuid
+    req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
 
     # Mock message queue to verify text_channel parameter
@@ -1509,6 +1511,7 @@ async def test_single_request_terminal_failure_cleanup_via_send_messages(mocker,
 
     # Replicate enqueue_media_requests
     req = fake_source_dict(fake_context)
+    req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
     bundle.all_requests_added()
     cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)

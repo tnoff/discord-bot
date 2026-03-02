@@ -72,6 +72,12 @@ class MediaRequest():
     # Failure reason tracking
     failure_reason: str | None = None
 
+    def __post_init__(self):
+        '''
+        Attach state machine after dataclass fields are set
+        '''
+        self.state_machine: 'MediaRequestStateMachine' = MediaRequestStateMachine(self)
+
     def __str__(self):
         '''
         Expose as string
@@ -86,6 +92,70 @@ class MediaRequest():
         Show proper display name for UI functions
         '''
         return self.display_name_override or discord_format_string_embed(self.search_result.raw_search_string)
+
+class MediaRequestStateMachine:
+    '''
+    Encapsulates lifecycle stage transitions for a MediaRequest.
+    Use the named mark_* methods rather than setting lifecycle_stage directly.
+    An optional on_change callback is fired after every transition:
+        callback(media_request, new_stage)
+    Register it via set_on_change(), typically when the request is added to a bundle.
+    '''
+    def __init__(self, request: MediaRequest):
+        self._request = request
+        self._on_change = None
+
+    def set_on_change(self, callback):
+        '''Register a callback fired after every lifecycle transition.'''
+        self._on_change = callback
+
+    def _transition(self, stage: MediaRequestLifecycleStage):
+        self._request.lifecycle_stage = stage
+        if self._on_change:
+            self._on_change(self._request, stage)
+
+    def mark_searching(self):
+        '''Transition to SEARCHING'''
+        self._transition(MediaRequestLifecycleStage.SEARCHING)
+
+    def mark_queued(self):
+        '''Transition to QUEUED'''
+        self._transition(MediaRequestLifecycleStage.QUEUED)
+
+    def mark_in_progress(self):
+        '''Transition to IN_PROGRESS'''
+        self._transition(MediaRequestLifecycleStage.IN_PROGRESS)
+
+    def mark_backoff(self):
+        '''Transition to BACKOFF'''
+        self._transition(MediaRequestLifecycleStage.BACKOFF)
+
+    def mark_retry_download(self, reason: str, backoff_seconds: int | None = None):
+        '''Transition to RETRY_DOWNLOAD and record retry details'''
+        self._request.download_retry_information.retry_reason = reason
+        self._request.download_retry_information.retry_backoff_seconds = backoff_seconds
+        self._transition(MediaRequestLifecycleStage.RETRY_DOWNLOAD)
+
+    def mark_retry_search(self, reason: str, backoff_seconds: int | None = None):
+        '''Transition to RETRY_SEARCH and record retry details'''
+        self._request.youtube_music_retry_information.retry_reason = reason
+        self._request.youtube_music_retry_information.retry_backoff_seconds = backoff_seconds
+        self._transition(MediaRequestLifecycleStage.RETRY_SEARCH)
+
+    def mark_failed(self, reason: str | None = None):
+        '''Transition to FAILED, optionally recording a failure reason'''
+        if reason is not None:
+            self._request.failure_reason = reason
+        self._transition(MediaRequestLifecycleStage.FAILED)
+
+    def mark_completed(self):
+        '''Transition to COMPLETED'''
+        self._transition(MediaRequestLifecycleStage.COMPLETED)
+
+    def mark_discarded(self):
+        '''Transition to DISCARDED'''
+        self._transition(MediaRequestLifecycleStage.DISCARDED)
+
 
 @dataclass
 class BundledMediaRequest:
