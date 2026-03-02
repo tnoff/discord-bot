@@ -16,7 +16,6 @@ from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTE
 from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
-from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
 from discord_bot.utils.otel import otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -88,18 +87,15 @@ class SearchClient():
     '''
     Wraps search functions
     '''
-    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None, youtube_music_client: YoutubeMusicClient = None):
+    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None):
         '''
         Init download client
 
-        message_queue : The bots message queue
         spotify_client : Spotify Client
         youtube_client : Youtube Client
-        youtube_music_client : Youtube Music Client
         '''
         self.spotify_client: SpotifyClient | None = spotify_client
         self.youtube_client: YoutubeClient | None = youtube_client
-        self.youtube_music_client: YoutubeMusicClient | None = youtube_music_client
 
     def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None):
         '''
@@ -224,25 +220,6 @@ class SearchClient():
 
             # Else assume this was a search message to put into youtube music
             return [SearchResult(SearchType.SEARCH, search, None)]
-
-    def __search_youtube_music(self, search_string: str):
-        '''
-        Search youtube music
-
-        search_string : Search string to look for
-        '''
-        return self.youtube_music_client.search(search_string)
-
-    async def search_youtube_music(self, search_string: str, loop: AbstractEventLoop):
-        '''
-        Check result in youtube music
-
-        search_type: Original search type
-        search_string: New search string
-        loop: Loop to run function in
-        '''
-        to_run = partial(self.__search_youtube_music, search_string)
-        return await loop.run_in_executor(None, to_run)
 
     async def check_source(self, search: str, loop: AbstractEventLoop,
                            max_results: int) -> List[SearchResult]:

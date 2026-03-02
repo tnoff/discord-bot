@@ -276,8 +276,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ytdl = YoutubeDL(ytdlopts)
         if self.config.download.enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
-        self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client,
-                                          youtube_music_client=self.youtube_music_client)
+        self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
         self.download_client = DownloadClient(ytdl, self.download_dir)
         self.download_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -758,7 +757,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
         try:
-            youtube_music_result = await self.search_client.search_youtube_music(media_request.search_result.raw_search_string, self.bot.loop)
+            youtube_music_result = await asyncio.get_running_loop().run_in_executor(None, partial(self.youtube_music_client.search, media_request.search_result.raw_search_string))
             self.youtube_music_failure_queue.add_item(FailureStatus())
         except YoutubeMusicRetryException as e:
             self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
