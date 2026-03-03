@@ -178,7 +178,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._download_task = None
         self._message_task = None
-        self._history_playlist_task = None
+        self._post_play_processing_task = None
         self._youtube_search_task = None
 
         # Keep track of when bot is in shutdown mode
@@ -301,7 +301,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__send_message_loop_active_callback, 'Send message loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__playlist_history_loop_active_callback, 'Playlist update loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
         if self.youtube_music_client:
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
 
@@ -317,14 +317,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             })
         ]
 
-    def __playlist_history_loop_active_callback(self, _options):
+    def __post_play_processing_loop_active_callback(self, _options):
         '''
         Loop active callback check
         '''
-        value = 1 if (self._history_playlist_task and not self._history_playlist_task.done()) else 0
+        value = 1 if (self._post_play_processing_task and not self._post_play_processing_task.done()) else 0
         return [
             Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'playlist_history'
+                AttributeNaming.BACKGROUND_JOB.value: 'post_play_processing'
             })
         ]
     def __download_file_loop_active_callback(self, _options):
@@ -420,7 +420,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.config.download.enable_youtube_music_search:
             self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
-            self._history_playlist_task = self.bot.loop.create_task(return_loop_runner(self.playlist_history_update, self.bot, self.logger)())
+            self._post_play_processing_task = self.bot.loop.create_task(return_loop_runner(self.post_play_processing, self.bot, self.logger)())
 
     async def cog_unload(self):
         '''
@@ -453,8 +453,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._download_task.cancel()
             if self._message_task:
                 self._message_task.cancel()
-            if self._history_playlist_task:
-                self._history_playlist_task.cancel()
+            if self._post_play_processing_task:
+                self._post_play_processing_task.cancel()
             if self._youtube_search_task:
                 self._youtube_search_task.cancel()
 
@@ -470,7 +470,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
 
 
-    async def playlist_history_update(self):
+    async def post_play_processing(self):
         '''
         Update history playlists
         '''
@@ -482,7 +482,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
             return
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.playlist_history_update', kind=SpanKind.CONSUMER):
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.post_play_processing', kind=SpanKind.CONSUMER):
             with self.with_db_session() as db_session:
 
                 # Update analytics table

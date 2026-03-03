@@ -305,7 +305,7 @@ async def test_playlist_history_queue(mocker, fake_engine, fake_context):  #pyli
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
             assert cog.download_queue.queues[fake_context['guild'].id]
@@ -322,7 +322,7 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
             # Process search queue if YouTube Music search is enabled

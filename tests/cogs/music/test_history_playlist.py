@@ -23,7 +23,7 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
@@ -35,7 +35,7 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
 
             # Run twice to exercise dupes aren't created
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
@@ -62,12 +62,12 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             s2 = fake_source_dict(fake_context)
             sd2 = MediaDownload(sd.file_path, {'webpage_url': 'https://foo.example.dos', 'duration': 90}, s2)
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd2))
-            await cog.playlist_history_update()
+            await cog.post_play_processing()
 
             with mock_session(fake_engine) as session:
                 assert session.query(Playlist).count() == 1
