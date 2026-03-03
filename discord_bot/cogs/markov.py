@@ -19,7 +19,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
+from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER
@@ -201,24 +201,25 @@ class Markov(CogHelper):
 
         with self.with_db_session() as db_session:
             for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
+                guild_id = markov_channel.server_id
                 with otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL,
                                        attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
                                                    DiscordContextNaming.GUILD.value: markov_channel.server_id}):
                     self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
-                    channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, markov_channel.channel_id))
-                    server = await async_retry_discord_message_command(partial(self.bot.fetch_guild, markov_channel.server_id))
+                    channel = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_channel, markov_channel.channel_id))
+                    server = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_guild, markov_channel.server_id))
                     # Not sure why but this check in particular seems especially flakey
-                    emojis = await async_retry_discord_message_command(partial(server.fetch_emojis), max_retries=5)
+                    emojis = await self.dispatch_fetch(guild_id, partial(server.fetch_emojis), max_retries=5)
                     self.logger.info('Gathering markov messages for '
                                     f'channel {markov_channel.channel_id}')
                     # Start at the beginning of channel history,
                     # slowly make your way make to current day
                     if not markov_channel.last_message_id:
-                        messages = await async_retry_discord_message_command(partial(fetch_messages, channel, retention_cutoff))
+                        messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel, retention_cutoff))
                     else:
                         try:
-                            last_message = await async_retry_discord_message_command(partial(channel.fetch_message, markov_channel.last_message_id))
-                            messages = await async_retry_discord_message_command(partial(fetch_messages, channel, last_message))
+                            last_message = await self.dispatch_fetch(guild_id, partial(channel.fetch_message, markov_channel.last_message_id))
+                            messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel, last_message))
                         except NotFound:
                             self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
                                                 f' in channel {markov_channel.id}')
@@ -279,24 +280,24 @@ class Markov(CogHelper):
             db_session.commit()
 
         if ctx.guild.id in self.server_reject_list:
-            return await async_retry_discord_message_command(partial(ctx.send, 'Unable to turn on markov for server, in reject list'))
+            return await self.dispatch_message(ctx, 'Unable to turn on markov for server, in reject list')
 
         with self.with_db_session() as db_session:
             # Ensure channel not already on
             markov = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
 
             if markov:
-                return await async_retry_discord_message_command(partial(ctx.send, 'Channel already has markov turned on'))
+                return await self.dispatch_message(ctx, 'Channel already has markov turned on')
             channel = await self.bot.fetch_channel(ctx.channel.id)
             if channel.type not in [ChannelType.text, ChannelType.voice]:
-                return await async_retry_discord_message_command(partial(ctx.send, 'Not a valid markov channel, cannot turn on markov'))
+                return await self.dispatch_message(ctx, 'Not a valid markov channel, cannot turn on markov')
 
             new_markov = MarkovChannel(channel_id=ctx.channel.id,
                                        server_id=ctx.guild.id,
                                        last_message_id=None)
             retry_database_commands(db_session, partial(add_channel, db_session, new_markov))
             self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
-            return await async_retry_discord_message_command(partial(ctx.send, 'Markov turned on for channel'))
+            return await self.dispatch_message(ctx, 'Markov turned on for channel')
 
     @markov.command(name='off')
     @command_wrapper
@@ -313,12 +314,12 @@ class Markov(CogHelper):
             markov_channel = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
 
             if not markov_channel:
-                return await async_retry_discord_message_command(partial(ctx.send, 'Channel does not have markov turned on'))
+                return await self.dispatch_message(ctx, 'Channel does not have markov turned on')
             self.logger.info(f'Turning off markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
             self.delete_channel_relations(db_session, markov_channel.id)
             retry_database_commands(db_session, partial(delete_channels, db_session, markov_channel))
-            return await async_retry_discord_message_command(partial(ctx.send, 'Markov turned off for channel'))
+            return await self.dispatch_message(ctx, 'Markov turned off for channel')
 
     @markov.command(name='list-channels')
     @command_wrapper
@@ -330,7 +331,7 @@ class Markov(CogHelper):
             markov_channels = retry_database_commands(db_session, partial(list_guild_channels, db_session, ctx))
 
             if not markov_channels.count():
-                return await async_retry_discord_message_command(partial(ctx.send, 'Markov not enabled for any channels in server'))
+                return await self.dispatch_message(ctx, 'Markov not enabled for any channels in server')
 
             headers = [
                 DapperTableHeader('Channel', 64),
@@ -341,7 +342,7 @@ class Markov(CogHelper):
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.print():
-                await async_retry_discord_message_command(partial(ctx.send, output))
+                await self.dispatch_message(ctx, output)
             return True
 
     @markov.command(name='speak')
@@ -376,7 +377,7 @@ class Markov(CogHelper):
             return db_session.get(MarkovRelation, choice(possible_words)).follower_word
 
         if ctx.guild.id in self.server_reject_list:
-            return await async_retry_discord_message_command(partial(ctx.send, 'Unable to use markov for server, in reject list'))
+            return await self.dispatch_message(ctx, 'Unable to use markov for server, in reject list')
 
         self.logger.info(f'Calling speak on server {ctx.guild.id}')
         all_words = []
@@ -395,8 +396,8 @@ class Markov(CogHelper):
 
             if len(possible_words) == 0:
                 if first_word:
-                    return await async_retry_discord_message_command(partial(ctx.send, f'No markov word matching "{first_word}"'))
-                return await async_retry_discord_message_command(partial(ctx.send, 'No markov words to pick from'))
+                    return await self.dispatch_message(ctx, f'No markov word matching "{first_word}"')
+                return await self.dispatch_message(ctx, 'No markov words to pick from')
 
             word = retry_database_commands(db_session, partial(get_first_leader_word, db_session, possible_words))
             all_words.append(word)
@@ -408,4 +409,4 @@ class Markov(CogHelper):
                 # Get random choice of leader ids
                 word = retry_database_commands(db_session, partial(get_first_follower_word, db_session, relation_ids))
                 all_words.append(word)
-            return await async_retry_discord_message_command(partial(ctx.send, ' '.join(markov_word for markov_word in all_words)))
+            return await self.dispatch_message(ctx, ' '.join(markov_word for markov_word in all_words))

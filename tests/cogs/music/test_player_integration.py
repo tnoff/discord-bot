@@ -1,4 +1,5 @@
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,6 +25,7 @@ async def test_get_player_and_then_check_voice(mocker, fake_context):  # pylint:
     """Test player creation and voice client check"""
     fake_context['guild'].voice_client = None
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     assert fake_context['guild'].id in cog.players
@@ -52,6 +54,7 @@ async def test_get_player_no_create(mocker, fake_context):  # pylint: disable=re
 async def test_get_player_check_voice_client_active(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """Test get_player with check_voice_client_active when no voice client"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     assert await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], check_voice_client_active=True) is None
 
@@ -69,6 +72,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
         }
     } | BASE_MUSIC_CONFIG
     cog = Music(fake_context['bot'], config, fake_engine)
+    cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -104,8 +108,10 @@ async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_conte
 
 @pytest.mark.asyncio
 async def test_player_message_queue_integration(mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """Test that player operations trigger message queue updates"""
+    """Test that player operations trigger dispatcher.update_mutable calls"""
+    from unittest.mock import Mock  # pylint: disable=import-outside-toplevel
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -113,11 +119,10 @@ async def test_player_message_queue_integration(mocker, fake_context):  # pylint
         with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
             await cog.add_source_to_player(media_download, player)
 
-            # Check that message queue has been updated for this player
-            msg_type, msg_data = cog.message_queue.get_next_message()
+            # Check that dispatcher.update_mutable was called with play_order key
             expected_key = f'play_order-{fake_context["guild"].id}'
-            assert msg_type is not None
-            assert msg_data == expected_key
+            assert cog.dispatcher.update_mutable.called
+            assert cog.dispatcher.update_mutable.call_args[0][0] == expected_key
 
 
 @pytest.mark.asyncio

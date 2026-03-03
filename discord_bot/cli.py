@@ -37,6 +37,7 @@ from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.general import General
 from discord_bot.cogs.markov import Markov
+from discord_bot.cogs.message_dispatcher import MessageDispatcher
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.role import RoleAssignment
 from discord_bot.cogs.urban import UrbanDictionary
@@ -48,6 +49,7 @@ from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
 POSSIBLE_COGS = [
+    MessageDispatcher,   # must be first — music/markov depend on it
     DeleteMessages,
     DatabaseBackup,
     Markov,

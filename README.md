@@ -192,4 +192,5 @@ general:
 ### Other Docs
 
 - [CLI and Application Lifecycle](./docs/cli.md)
+- [Message Dispatcher](./docs/message_dispatcher.md)
 - [Monitoring and Observability](./docs/monitoring/)

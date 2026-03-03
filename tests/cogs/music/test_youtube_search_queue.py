@@ -118,7 +118,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     await cog.search_youtube_music()
 
@@ -251,7 +251,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=QueueFull())
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     await cog.search_youtube_music()
 
@@ -471,7 +471,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Call enqueue_media_requests
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, player=mock_player)
@@ -526,7 +526,7 @@ async def test_search_youtube_music_search_client_exception(mocker, fake_context
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Should handle exception gracefully and not crash
     try:
@@ -613,7 +613,7 @@ async def test_search_queue_disabled_routing(mocker, fake_context):  #pylint:dis
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Call enqueue_media_requests
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, player=mock_player)
@@ -674,7 +674,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Call enqueue_media_requests
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, player=mock_player)
@@ -743,7 +743,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Call enqueue_media_requests
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, player=mock_player)
@@ -788,7 +788,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Remove bundle to simulate expiration
     del cog.multirequest_bundles[bundle.uuid]
@@ -839,7 +839,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Should be able to enqueue all search requests to search queue
     result = await cog.enqueue_media_requests(fake_context['context'], search_requests, bundle, player=mock_player)
@@ -884,10 +884,10 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     # Mock cache miss
     mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
 
-    # Mock message queue to raise exception
-    failing_message_queue = MagicMock()
-    failing_message_queue.update_multiple_mutable.side_effect = Exception("Message queue error")
-    cog.message_queue = failing_message_queue
+    # Mock dispatcher to raise exception
+    failing_dispatcher = MagicMock()
+    failing_dispatcher.update_mutable.side_effect = Exception("Message queue error")
+    cog.dispatcher = failing_dispatcher
 
     # Should handle message queue failure gracefully
     try:
@@ -940,7 +940,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
 
     # Mock message queue
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Process both items
     await cog.search_youtube_music()
@@ -982,7 +982,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
     bundle.all_requests_added()
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
@@ -1011,7 +1011,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
 
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
@@ -1045,7 +1045,7 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
 
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Pre-populate failure queue with 2 existing failures
     cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
@@ -1081,7 +1081,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
 
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
@@ -1122,7 +1122,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
 
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = SucceedOnSecondCallClient()
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
@@ -1153,7 +1153,7 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
 
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
-    cog.message_queue = MagicMock()
+    cog.dispatcher = MagicMock()
 
     # Pre-populate failure queue
     cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))

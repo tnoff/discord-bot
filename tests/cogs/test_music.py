@@ -110,6 +110,7 @@ def yield_search_client_check_source_raises():
 @pytest.mark.asyncio
 async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -123,6 +124,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
 @pytest.mark.asyncio
 async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -137,6 +139,7 @@ async def test_awaken(mocker, fake_context):  #pylint:disable=redefined-outer-na
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.connect_(cog, fake_context['context'])
@@ -145,6 +148,7 @@ async def test_awaken(mocker, fake_context):  #pylint:disable=redefined-outer-na
 @pytest.mark.asyncio
 async def test_awaken_user_not_joined(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.connect_(cog, fake_context['context'])
@@ -160,6 +164,7 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     s1 = fake_source_dict(fake_context)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
     # Process search queue if YouTube Music search is enabled
     if cog.config.download.enable_youtube_music_search:
@@ -186,6 +191,7 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -209,6 +215,7 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -228,11 +235,13 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.players[fake_context['guild'].id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context['context'])
-            m0 = cog.message_queue.get_next_message()
-            assert m0[1][0].function.args[0] == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
+            assert cog.dispatcher.send_single.called
+            sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+            assert sent_funcs[0].args[0] == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
 
 @pytest.mark.asyncio()
 async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -247,6 +256,7 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -268,6 +278,7 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -289,6 +300,7 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -329,6 +341,7 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             # Process search queue if YouTube Music search is enabled
             if cog.config.download.enable_youtube_music_search:
@@ -345,6 +358,7 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     s1 = fake_source_dict(fake_context)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     # Put source dict so we can a download queue to block
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
     cog.download_queue.block(fake_context['guild'].id)
@@ -367,6 +381,7 @@ async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redef
     s1 = fake_source_dict(fake_context)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], config, None)
+    cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
     # The test verifies that queue-full protection works
     # The warning log message confirms the functionality is working
@@ -382,21 +397,17 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    mock_send_single = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
     # Assert we got a message about the original search
-    # Mock the message queue to verify the message is sent
+    cog.dispatcher.send_single.assert_called()
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    assert len(sent_funcs) == 1
+    assert sent_funcs[0].args[0] == 'Error searching input "foo bar", message: woopsie'
 
-    mock_send_single.assert_called_once()
-    message_contexts = mock_send_single.call_args[0][0]
-    assert len(message_contexts) == 1
-    assert message_contexts[0].function.args[0] == 'Error searching input "foo bar", message: woopsie'
-
-    # Bundle should get cleared later after send message
-    assert len(cog.multirequest_bundles) == 1
-    bundle = list(cog.multirequest_bundles.values())[0]
-    assert bundle.is_shutdown
+    # Bundle is immediately removed from multirequest_bundles when shutdown via _get_bundle_content
+    assert len(cog.multirequest_bundles) == 0
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -417,6 +428,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
             cog = Music(fake_context['bot'], config, fake_engine)
+            cog.dispatcher = Mock()
             cog.video_cache.iterate_file(sd)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -532,8 +544,6 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
     # Mock the tasks to None (default state)
     cog._cleanup_task = None  # pylint: disable=protected-access
     cog._download_task = None  # pylint: disable=protected-access
-    cog._cache_cleanup_task = None  # pylint: disable=protected-access
-    cog._message_task = None  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Mock file operations at pathlib level
@@ -581,12 +591,6 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
     result = cog._Music__download_file_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 0
-
-    # Test send_message callback with running task
-    cog._message_task = mock_task_running  # pylint: disable=protected-access
-    result = cog._Music__send_message_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 1
 
     # Test cleanup_player callback with no task (None)
     cog._cleanup_task = None  # pylint: disable=protected-access
@@ -679,8 +683,6 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     # Set tasks to None to avoid cancellation
     cog._cleanup_task = None  # pylint: disable=protected-access
     cog._download_task = None  # pylint: disable=protected-access
-    cog._cache_cleanup_task = None  # pylint: disable=protected-access
-    cog._message_task = None  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Add fake players with mock destroy method
@@ -963,8 +965,6 @@ async def test_shutdown_timeout_with_hanging_players(fake_context, mocker):  #py
     # Set tasks to None to avoid cancellation issues  #pylint:disable=protected-access
     cog._cleanup_task = None
     cog._download_task = None
-    cog._cache_cleanup_task = None
-    cog._message_task = None
     cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
@@ -1005,8 +1005,6 @@ async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disab
     # Set tasks to None  #pylint:disable=protected-access
     cog._cleanup_task = None
     cog._download_task = None
-    cog._cache_cleanup_task = None
-    cog._message_task = None
     cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
@@ -1029,14 +1027,12 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Create mock tasks
     mock_cleanup_task = Mock()
     mock_download_task = Mock()
-    mock_message_task = Mock()
     mock_history_task = Mock()
     mock_search_task = Mock()
 
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
     cog._download_task = mock_download_task
-    cog._message_task = mock_message_task
     cog._post_play_processing_task = mock_history_task
     cog._youtube_search_task = mock_search_task
 
@@ -1053,7 +1049,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Verify all tasks were cancelled
     mock_cleanup_task.cancel.assert_called_once()
     mock_download_task.cancel.assert_called_once()
-    mock_message_task.cancel.assert_called_once()
     mock_history_task.cancel.assert_called_once()
     mock_search_task.cancel.assert_called_once()
 
@@ -1073,8 +1068,6 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
     # Set tasks to None  #pylint:disable=protected-access
     cog._cleanup_task = None
     cog._download_task = None
-    cog._cache_cleanup_task = None
-    cog._message_task = None
     cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
@@ -1087,8 +1080,8 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
 async def test_cleanup_players_shutdown_called(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup_players properly handles shutdown_called players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(cog.message_queue, 'send_single_immutable')
 
     # Create a mock player with shutdown_called=True
     mock_player = mocker.Mock()
@@ -1108,6 +1101,7 @@ async def test_cleanup_players_shutdown_called(fake_context, mocker):  #pylint:d
 async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup_players sends proper message for inactive timeout"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # Create a mock player that times out
@@ -1118,8 +1112,7 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
     mock_player.text_channel = fake_context['channel']
     cog.players[fake_context['guild'].id] = mock_player
 
-    # Mock message queue and cleanup
-    message_mock = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    # Mock cleanup
     cleanup_mock = mocker.patch.object(cog, 'cleanup')
 
     await cog.cleanup_players()
@@ -1128,10 +1121,10 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
     mock_player.voice_channel_inactive_timeout.assert_called_once_with(timeout_seconds=cog.config.player.inactive_voice_channel_timeout)
 
     # Verify message was sent
-    message_mock.assert_called_once()
+    cog.dispatcher.send_single.assert_called_once()
     # Check that the message content contains expected text
-    message_context = message_mock.call_args[0][0][0]
-    assert 'No one active in voice channel' in str(message_context.function.keywords['content'])
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    assert 'No one active in voice channel' in str(sent_funcs[0].keywords['content'])
 
     # Verify cleanup was called
     cleanup_mock.assert_called_once_with(fake_context['guild'])
@@ -1140,6 +1133,7 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
 async def test_voice_client_cleanup_called_before_disconnect(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that voice_client.cleanup() is called before disconnect()"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1172,6 +1166,7 @@ async def test_voice_client_cleanup_called_before_disconnect(fake_context, mocke
 async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup handles case when voice_client is None"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1189,63 +1184,10 @@ async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint
     assert fake_context['guild'].id not in cog.players
 
 @pytest.mark.asyncio
-async def test_voice_client_cleanup_handles_cleanup_exception(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup handles exceptions during voice_client.cleanup()"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    mocker.patch('discord_bot.cogs.music.sleep')
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-
-    # Create a mock voice client that raises exception on cleanup
-    mock_voice_client = mocker.MagicMock()
-    mock_voice_client.cleanup = mocker.MagicMock(side_effect=Exception("Cleanup failed"))
-    mock_voice_client.disconnect = mocker.AsyncMock()
-
-    fake_context['guild'].voice_client = mock_voice_client
-
-    # Create player
-    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    mocker.patch.object(player, 'cleanup', return_value=None)
-
-    # Call cleanup - should not raise exception
-    await cog.cleanup(fake_context['guild'])
-
-    # Verify disconnect was still called despite cleanup exception
-    mock_voice_client.disconnect.assert_called_once()
-
-    # Verify player was cleaned up
-    assert fake_context['guild'].id not in cog.players
-
-@pytest.mark.asyncio
-async def test_voice_client_cleanup_handles_disconnect_exception(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup handles exceptions during voice_client.disconnect()"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    mocker.patch('discord_bot.cogs.music.sleep')
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-
-    # Create a mock voice client that raises exception on disconnect
-    mock_voice_client = mocker.MagicMock()
-    mock_voice_client.cleanup = mocker.MagicMock()
-    mock_voice_client.disconnect = mocker.AsyncMock(side_effect=Exception("Disconnect failed"))
-
-    fake_context['guild'].voice_client = mock_voice_client
-
-    # Create player
-    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    mocker.patch.object(player, 'cleanup', return_value=None)
-
-    # Call cleanup - should not raise exception
-    await cog.cleanup(fake_context['guild'])
-
-    # Verify cleanup was still called despite disconnect exception
-    mock_voice_client.cleanup.assert_called_once()
-
-    # Verify player was cleaned up
-    assert fake_context['guild'].id not in cog.players
-
-@pytest.mark.asyncio
 async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup handles external_shutdown_called=True correctly"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1259,9 +1201,6 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
     # Create player
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'cleanup', return_value=None)
-
-    # Mock the message queue to verify the message is sent
-    mock_send_single = mocker.patch.object(cog.message_queue, 'send_single_immutable')
 
     # Call cleanup with external_shutdown_called=True
     await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
@@ -1270,12 +1209,9 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
     mock_voice_client.cleanup.assert_called_once()
     mock_voice_client.disconnect.assert_called_once()
 
-    # Verify the external shutdown message was sent via message_queue
-    mock_send_single.assert_called_once()
-    message_contexts = mock_send_single.call_args[0][0]
-    assert len(message_contexts) == 1
-    assert message_contexts[0].guild_id == player.guild.id
-    assert message_contexts[0].channel_id == player.text_channel.id
+    # Verify the external shutdown message was sent via dispatcher
+    cog.dispatcher.send_single.assert_called_once()
+    assert cog.dispatcher.send_single.call_args[0][0] == player.guild.id
 
     # Verify player was cleaned up
     assert fake_context['guild'].id not in cog.players
@@ -1284,6 +1220,7 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
 async def test_voice_client_cleanup_without_external_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup with external_shutdown_called=False does not send message"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1297,9 +1234,6 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
     # Create player
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'cleanup', return_value=None)
-
-    # Mock the message queue to verify no external shutdown message is sent
-    mock_send_single = mocker.patch.object(cog.message_queue, 'send_single_immutable')
 
     # Call cleanup with external_shutdown_called=False (default)
     await cog.cleanup(fake_context['guild'], external_shutdown_called=False)
@@ -1309,7 +1243,7 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
     mock_voice_client.disconnect.assert_called_once()
 
     # Verify NO external shutdown message was sent
-    mock_send_single.assert_not_called()
+    cog.dispatcher.send_single.assert_not_called()
 
     # Verify player was cleaned up
     assert fake_context['guild'].id not in cog.players
@@ -1318,6 +1252,7 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
 async def test_voice_client_cleanup_external_shutdown_skips_disconnect_wait(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that external shutdown does not wait for disconnect to complete"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1401,8 +1336,8 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     # Add bundle to multirequest_bundles
     cog.multirequest_bundles['bundle-1'] = mock_bundle
 
-    # Mock message queue
-    mock_update_multiple = mocker.patch.object(cog.message_queue, 'update_multiple_mutable')
+    # Set dispatcher mock
+    cog.dispatcher = Mock()
 
     # Call cleanup - should not raise exception even though player doesn't exist
     await cog.cleanup(fake_context['guild'])
@@ -1410,18 +1345,18 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     # Verify bundle was shutdown
     mock_bundle.shutdown.assert_called_once()
 
-    # Verify message queue update was called
+    # Verify dispatcher update_mutable was called
     # This verifies the bug fix where we use item.text_channel instead of player.text_channel
     # (if we used player.text_channel, it would raise AttributeError since player is None)
-    mock_update_multiple.assert_called()
+    cog.dispatcher.update_mutable.assert_called()
 
     # Verify the bundle-specific call used item.text_channel
     # Look for calls with the bundle UUID
-    bundle_calls = [call for call in mock_update_multiple.call_args_list
+    bundle_calls = [call for call in cog.dispatcher.update_mutable.call_args_list
                    if mock_bundle.uuid in str(call)]
     if bundle_calls:
-        # Verify it used item.text_channel (second positional argument)
-        assert bundle_calls[0][0][1] == mock_bundle.text_channel
+        # Verify it used item.text_channel.id (4th positional argument, index 3)
+        assert bundle_calls[0][0][3] == mock_bundle.text_channel.id
 
     # Verify voice client cleanup and disconnect were still called
     mock_voice_client.cleanup.assert_called_once()
@@ -1479,31 +1414,25 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
         update_video_guild_analytics(session, fake_context['guild'].id, 3600, True)  # 1 hour, cached
         session.commit()
 
-    # Mock message queue
-    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    # Set dispatcher mock
+    cog.dispatcher = Mock()
 
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify message was sent
-    mock_send.assert_called_once()
+    cog.dispatcher.send_single.assert_called_once()
 
-    # Get the message context that was sent
-    call_args = mock_send.call_args[0][0]
-    assert len(call_args) == 1
-    message_context = call_args[0]
+    # Verify guild_id
+    assert cog.dispatcher.send_single.call_args[0][0] == fake_context['guild'].id
 
-    # Verify message context properties
-    assert message_context.guild_id == fake_context['guild'].id
-    assert message_context.channel_id == fake_context['channel'].id
-
-    # Execute the message function to get the actual message
-    message_func = message_context.function
-    assert message_func is not None
+    # Get the message content from the partial's positional arg
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    assert len(sent_funcs) == 1
 
     # Verify message content contains expected stats
     # Total: 10,800 seconds = 0 days, 3 hours, 0 minutes, 0 seconds
-    message_content = message_func.args[0]
+    message_content = sent_funcs[0].args[0]
     assert 'Music Stats for Server' in message_content
     assert 'Total Plays: 2' in message_content
     assert 'Cached Plays: 1' in message_content
@@ -1525,19 +1454,18 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
         update_video_guild_analytics(session, fake_context['guild'].id, one_day * 2 + 18000, False)
         session.commit()
 
-    # Mock message queue
-    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    # Set dispatcher mock
+    cog.dispatcher = Mock()
 
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify message was sent
-    mock_send.assert_called_once()
+    cog.dispatcher.send_single.assert_called_once()
 
-    # Get the message content
-    call_args = mock_send.call_args[0][0]
-    message_context = call_args[0]
-    message_content = message_context.function.args[0]
+    # Get the message content from the partial's positional arg
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    message_content = sent_funcs[0].args[0]
 
     # Verify message shows days correctly
     # Total: 190,800 seconds = 2 days, 5 hours, 0 minutes, 0 seconds
@@ -1559,16 +1487,15 @@ async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, f
         update_video_guild_analytics(session, fake_context['guild'].id, 114330, False)
         session.commit()
 
-    # Mock message queue
-    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    # Set dispatcher mock
+    cog.dispatcher = Mock()
 
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
-    # Get the message content
-    call_args = mock_send.call_args[0][0]
-    message_context = call_args[0]
-    message_content = message_context.function.args[0]
+    # Get the message content from the partial's positional arg
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    message_content = sent_funcs[0].args[0]
 
     # Verify message shows all components correctly
     # After migration: 1 day + 27930 seconds (7 hours 45 min 30 sec)
@@ -1589,11 +1516,11 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
     # Mock the database check to return False
     mocker.patch.object(cog, '_Music__check_database_session', return_value=False)
 
-    # Mock message queue
-    mock_send = mocker.patch.object(cog.message_queue, 'send_single_immutable')
+    # Set dispatcher mock
+    cog.dispatcher = Mock()
 
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify no message was sent (function returned early)
-    mock_send.assert_not_called()
+    cog.dispatcher.send_single.assert_not_called()

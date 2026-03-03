@@ -11,7 +11,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import async_retry_discord_message_command, return_loop_runner
+from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER
 
@@ -72,18 +72,20 @@ class DeleteMessages(CogHelper):
         '''
         async def fetch_messages(channel):
             return [m async for m in channel.history(limit=100, oldest_first=True)]
+
         # Set heartbeat metric
         await sleep(self.loop_sleep_interval)
         with otel_span_wrapper('delete_messages.check'):
             for channel_dict in self.discord_channels:
+                guild_id = channel_dict['server_id']
                 with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_dict['channel_id']}):
                     self.logger.debug(f'Checking Channel ID {channel_dict["channel_id"]}')
-                    channel = await async_retry_discord_message_command(partial(self.bot.fetch_channel, channel_dict["channel_id"]))
+                    channel = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_channel, channel_dict["channel_id"]))
 
                     delete_after = channel_dict.get('delete_after', DELETE_AFTER_DEFAULT)
                     cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
-                    messages = await async_retry_discord_message_command(partial(fetch_messages, channel))
+                    messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel))
                     for message in messages:
                         if message.created_at < cutoff_period:
                             self.logger.info(f'Deleting message id {message.id}, in channel {channel.id}, in server {channel_dict["server_id"]}')
-                            await async_retry_discord_message_command(partial(message.delete))
+                            await self.send_funcs(guild_id, [partial(message.delete)])

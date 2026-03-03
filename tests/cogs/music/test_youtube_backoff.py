@@ -1,4 +1,5 @@
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -216,6 +217,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog.dispatcher = MagicMock()
             freezer.move_to('2025-01-01 12:00:00 UTC')
 
             # Pre-populate failure queue

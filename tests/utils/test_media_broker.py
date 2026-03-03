@@ -4,6 +4,9 @@ from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
 
 from tests.helpers import fake_media_download, fake_source_dict, generate_fake_context
 
+# Tests inspect MediaBroker internals directly; suppress the blanket warning.
+# pylint: disable=protected-access
+
 
 def _make_request():
     fake_context = generate_fake_context()

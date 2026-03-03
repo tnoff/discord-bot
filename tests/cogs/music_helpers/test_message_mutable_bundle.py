@@ -1,6 +1,6 @@
 import pytest
 
-from discord_bot.cogs.music_helpers.message_context import MessageMutableBundle
+from discord_bot.cogs.message_dispatcher import MessageMutableBundle
 
 from tests.helpers import fake_context, generate_fake_context  # pylint: disable=unused-import
 
@@ -35,8 +35,8 @@ def message_bundle(fake_context):  #pylint: disable=redefined-outer-name
 @pytest.mark.asyncio
 async def test_message_bundle_initial_empty_state(message_bundle):  #pylint: disable=redefined-outer-name
     """Test that a new MessageMutableBundle starts empty"""
-    assert message_bundle.get_message_count() == 0
-    assert not message_bundle.has_messages()
+    assert len(message_bundle.message_contexts) == 0
+    assert not message_bundle.message_contexts
 
 
 @pytest.mark.asyncio
@@ -48,7 +48,7 @@ async def test_message_bundle_first_send(message_bundle, fake_context):  #pylint
 
     # Should return send functions for all messages
     assert len(dispatch_functions) == 3
-    assert message_bundle.get_message_count() == 3
+    assert len(message_bundle.message_contexts) == 3
 
     # Execute the dispatch functions
     results = []
@@ -142,7 +142,7 @@ async def test_message_bundle_delete_extra_messages(message_bundle, fake_context
         await func()
 
     # Check message count was reduced
-    assert message_bundle.get_message_count() == 2
+    assert len(message_bundle.message_contexts) == 2
 
 
 @pytest.mark.asyncio
@@ -178,7 +178,7 @@ async def test_message_bundle_add_new_messages(message_bundle, fake_context):  #
 
     # Check that new messages were added
     assert len(fake_context['channel'].messages) == 4
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,7 @@ async def test_message_bundle_complex_update(message_bundle, fake_context):  #py
         new_results.append(result)
 
     # Final message count should be 4
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
 
 
 @pytest.mark.asyncio
@@ -236,8 +236,8 @@ async def test_message_bundle_clear_all_messages(message_bundle, fake_context): 
         await func()
 
     # Bundle should be empty
-    assert message_bundle.get_message_count() == 0
-    assert not message_bundle.has_messages()
+    assert len(message_bundle.message_contexts) == 0
+    assert not message_bundle.message_contexts
 
 
 @pytest.mark.asyncio
@@ -285,7 +285,7 @@ async def test_message_bundle_empty_content_list(message_bundle):  #pylint: disa
     # Empty content should return empty dispatch list
     dispatch_functions = message_bundle.get_message_dispatch([])
     assert len(dispatch_functions) == 0
-    assert message_bundle.get_message_count() == 0
+    assert len(message_bundle.message_contexts) == 0
 
 
 @pytest.mark.asyncio
@@ -514,7 +514,7 @@ async def test_sticky_messages_deletion_before_new_content(message_bundle, fake_
 
     # Verify initial messages exist
     assert len(fake_context['channel'].messages) == 2
-    assert message_bundle.get_message_count() == 2
+    assert len(message_bundle.message_contexts) == 2
     original_message_ids = [msg.id for msg in fake_context['channel'].messages]
 
     # Add interrupting message to trigger sticky behavior
@@ -589,7 +589,7 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
     update_message_references(message_bundle, results)
 
     # Verify initial state
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
     assert len(fake_context['channel'].messages) == 4
 
     # Update to new content: [A, B, D] (removing C)
@@ -630,7 +630,7 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
     assert len(send_operations) == 0, f"Expected 0 send operations, got {len(send_operations)}"
 
     # Verify final state
-    assert message_bundle.get_message_count() == 3
+    assert len(message_bundle.message_contexts) == 3
 
     # Verify content correctness regardless of implementation
     message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
@@ -813,7 +813,7 @@ async def test_content_aware_diffing_multiple_edits_plus_keep_last(message_bundl
     assert "B'" in message_contents
     assert "C'" in message_contents
     assert "D" in message_contents
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
 
 
 @pytest.mark.asyncio
@@ -842,7 +842,7 @@ async def test_content_aware_diffing_duplicate_content_matching(message_bundle, 
     update_message_references(message_bundle, results)
 
     # Verify initial state
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
     assert len(fake_context['channel'].messages) == 4
 
     # Update to: [A, B, C] (remove one B)
@@ -871,7 +871,7 @@ async def test_content_aware_diffing_duplicate_content_matching(message_bundle, 
 
 
     # Verify final state has correct content regardless of implementation efficiency
-    assert message_bundle.get_message_count() == 3
+    assert len(message_bundle.message_contexts) == 3
     message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A" in message_contents
     assert "B" in message_contents
@@ -912,7 +912,7 @@ async def test_content_aware_diffing_duplicate_content_middle_removal(message_bu
     update_message_references(message_bundle, results)
 
     # Verify initial state
-    assert message_bundle.get_message_count() == 5
+    assert len(message_bundle.message_contexts) == 5
     assert len(fake_context['channel'].messages) == 5
 
     # Store original D message for tracking
@@ -933,7 +933,7 @@ async def test_content_aware_diffing_duplicate_content_middle_removal(message_bu
         await func()
 
     # Verify final state has correct content
-    assert message_bundle.get_message_count() == 4
+    assert len(message_bundle.message_contexts) == 4
     message_contents = [msg.content for msg in fake_context['channel'].messages if not msg.deleted]
     assert "A" in message_contents
     assert "B" in message_contents
