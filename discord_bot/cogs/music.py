@@ -30,7 +30,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
@@ -270,11 +270,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for key, val in self.config.download.extra_ytdlp_options.items():
             ytdlopts[key] = val
         # Add any filter functions, do some logic so we only pass a single function into the processor
-        if self.config.download.max_video_length or self.config.download.banned_videos_list or self.video_cache:
-            callback_function = None
-            if self.video_cache:
-                callback_function = partial(self.video_cache.search_existing_file)
-            ytdlopts['match_filter'] = match_generator(self.config.download.max_video_length, self.config.download.banned_videos_list, video_cache_search=callback_function)
+        if self.config.download.max_video_length or self.config.download.banned_videos_list:
+            ytdlopts['match_filter'] = match_generator(self.config.download.max_video_length, self.config.download.banned_videos_list)
         ytdl = YoutubeDL(ytdlopts)
         if self.config.download.enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
@@ -746,7 +743,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Runner for youtube music searches
         '''
         if self.bot_shutdown_event.is_set():
-            raise ExistingFileException('Bot shutdown called, exiting early')
+            raise ExitEarlyException('Bot shutdown called, exiting early')
         await sleep(.01)
         try:
             media_request = self.youtube_music_search_queue.get_nowait()
@@ -974,13 +971,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
                     self.download_failure_queue.add_item(FailureStatus())
                     self.update_download_timestamp(media_download=media_download)
-                except ExistingFileException as e:
-                    # File exists on disk already, create again from cache
-                    self.logger.debug(f'Existing file found for download {str(media_request)}, using existing file from url "{e.video_cache.video_url}"')
-                    media_download = self.video_cache.generate_download_from_existing(media_request, e.video_cache)
-                    self.update_download_timestamp(media_download=media_download)
-                    span.set_status(StatusCode.OK)
-                    # Dont return since we have media download here
                 except DownloadTerminalException as e:
                     # Terminal error - known permanent failure (age restricted, private, etc.)
                     # Don't track in failure queue as these aren't transient issues

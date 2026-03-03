@@ -1,14 +1,12 @@
 from functools import partial
 from pathlib import Path
 from shutil import copyfile
-from typing import Callable, List
+from typing import List
 
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
-
-from discord_bot.database import VideoCache
 
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
@@ -99,19 +97,10 @@ class BotDownloadFlagged(RetryableException):
     Youtube flagged download as a bot
     '''
 
-class ExistingFileException(Exception):
-    '''
-    Throw when existing file found
-    '''
-    def __init__(self, message, video_cache: VideoCache = None):
-        self.message = message
-        super().__init__(message)
-        self.video_cache = video_cache
-
 
 OTEL_SPAN_PREFIX = 'music.download_client'
 
-def match_generator(max_video_length: int, banned_videos_list: List[str], video_cache_search: Callable = None):
+def match_generator(max_video_length: int, banned_videos_list: List[str]):
     '''
     Generate filters for yt-dlp
     '''
@@ -127,13 +116,6 @@ def match_generator(max_video_length: int, banned_videos_list: List[str], video_
             for banned_url in banned_videos_list:
                 if vid_url == banned_url:
                     raise VideoBanned('Video Banned', user_message='Video is banned by bot maintainer')
-        # Check if video exists within cache, and raise
-        extractor = info.get('extractor')
-        vid_id = info.get('id')
-        if video_cache_search:
-            result = video_cache_search(extractor, vid_id)
-            if result:
-                raise ExistingFileException('File already downloaded', video_cache=result)
 
     return filter_function
 
