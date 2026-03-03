@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.download_client import ExistingFileException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.search_client import SearchResult
@@ -83,7 +83,7 @@ async def test_search_youtube_music_bot_shutdown(mocker, fake_context):  #pylint
     cog = Music(fake_context['bot'], config, None)
     cog.bot_shutdown_event.set()
 
-    with pytest.raises(ExistingFileException) as exc:
+    with pytest.raises(ExitEarlyException) as exc:
         await cog.search_youtube_music()
     assert 'Bot shutdown called' in str(exc.value)
 
