@@ -24,7 +24,7 @@ pytz==2026.1.post1
 requests==2.32.5
 spotipy==2.25.2
 SQLAlchemy==2.0.48
-yt-dlp==2026.2.21
+yt-dlp==2026.3.3
 # Dont pin, let yt-dlp install
 yt-dlp-ejs
 ytmusicapi==1.11.5
