@@ -534,7 +534,7 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
     cog._download_task = None  # pylint: disable=protected-access
     cog._cache_cleanup_task = None  # pylint: disable=protected-access
     cog._message_task = None  # pylint: disable=protected-access
-    cog._history_playlist_task = None  # pylint: disable=protected-access
+    cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Mock file operations at pathlib level
     mocker.patch('pathlib.Path.unlink')
@@ -571,8 +571,8 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
     mock_task_finished.done.return_value = True  # Task is finished
 
     # Test playlist_history callback with running task
-    cog._history_playlist_task = mock_task_running  # pylint: disable=protected-access
-    result = cog._Music__playlist_history_loop_active_callback(None)  # pylint: disable=protected-access
+    cog._post_play_processing_task = mock_task_running  # pylint: disable=protected-access
+    result = cog._Music__post_play_processing_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 1
 
@@ -681,7 +681,7 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     cog._download_task = None  # pylint: disable=protected-access
     cog._cache_cleanup_task = None  # pylint: disable=protected-access
     cog._message_task = None  # pylint: disable=protected-access
-    cog._history_playlist_task = None  # pylint: disable=protected-access
+    cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Add fake players with mock destroy method
     player1 = mocker.Mock()
@@ -965,7 +965,7 @@ async def test_shutdown_timeout_with_hanging_players(fake_context, mocker):  #py
     cog._download_task = None
     cog._cache_cleanup_task = None
     cog._message_task = None
-    cog._history_playlist_task = None
+    cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
     await cog.cog_unload()
@@ -1007,7 +1007,7 @@ async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disab
     cog._download_task = None
     cog._cache_cleanup_task = None
     cog._message_task = None
-    cog._history_playlist_task = None
+    cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
     await cog.cog_unload()
@@ -1037,7 +1037,7 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     cog._cleanup_task = mock_cleanup_task
     cog._download_task = mock_download_task
     cog._message_task = mock_message_task
-    cog._history_playlist_task = mock_history_task
+    cog._post_play_processing_task = mock_history_task
     cog._youtube_search_task = mock_search_task
 
     # Mock other cleanup methods
@@ -1075,7 +1075,7 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
     cog._download_task = None
     cog._cache_cleanup_task = None
     cog._message_task = None
-    cog._history_playlist_task = None
+    cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
     await cog.cog_unload()
