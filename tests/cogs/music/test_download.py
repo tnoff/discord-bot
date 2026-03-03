@@ -14,7 +14,7 @@ from discord_bot.cogs.music_helpers.search_client import SearchResult
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_download_client_download_exception, yield_fake_download_client, yield_download_client_download_error
-from tests.helpers import mock_session, fake_source_dict, fake_media_download
+from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 @pytest.mark.asyncio()

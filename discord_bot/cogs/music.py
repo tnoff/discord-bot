@@ -32,6 +32,7 @@ from discord_bot.cogs.music_helpers.message_context import MessageContext
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import ExistingFileException, DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
+from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchClient, SearchException, check_youtube_video
@@ -175,6 +176,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise CogMissingRequiredArg('Music not enabled')
 
         self.players = {}
+        self.media_broker = MediaBroker()
         self._cleanup_task = None
         self._download_task = None
         self._message_task = None
@@ -644,7 +646,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with self.with_db_session() as db_session:
             # Then check for deleted videos
             for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session)):
-                delete_videos.append(video_cache.id)
+                if self.media_broker.can_evict_base(video_cache.video_url):
+                    delete_videos.append(video_cache.id)
 
             with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
                 if delete_videos:
@@ -681,6 +684,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
+                self.media_broker.register_download(media_download)
                 media_download.media_request.state_machine.mark_completed()
                 self.message_queue.update_multiple_mutable(
                     f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
@@ -840,6 +844,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Fired automatically by MediaRequestStateMachine after every lifecycle transition.
         Triggers a bundle UI refresh so the user sees the updated status.
+        Removes terminal requests from the media broker. FAILED and DISCARDED have no file to
+        track. COMPLETED requests with download_file=False (e.g. playlist item-add) never call
+        register_download so their IN_FLIGHT entry must be cleaned up here too.
         '''
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
         if bundle:
@@ -848,6 +855,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 bundle.text_channel,
                 sticky_messages=False,
             )
+        if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
+            self.media_broker.remove(str(media_request.uuid))
+        elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
+            # playlist item-add and similar paths reach COMPLETED without ever going through
+            # add_source_to_player, so register_download is never called and the broker entry
+            # would otherwise stay IN_FLIGHT permanently
+            self.media_broker.remove(str(media_request.uuid))
 
     def update_download_timestamp(self, media_download: MediaDownload = None,
                                   backoff_multiplier: int = 1) -> bool:
@@ -1169,7 +1183,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player = MusicPlayer(ctx,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.message_queue,
-                                     history_playlist_id, self.history_playlist_queue)
+                                     history_playlist_id, self.history_playlist_queue,
+                                     broker=self.media_broker)
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
@@ -1354,6 +1369,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             mr = MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
                               search_result)
             mr.state_machine.set_on_change(self._on_request_state_change)
+            self.media_broker.register_request(mr)
             if add_to_playlist:
                 mr.download_file = False
                 mr.add_to_playlist = add_to_playlist
@@ -2162,6 +2178,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                              history_playlist_item_id=item.id,
                                              display_name_override=item.title)
                 media_request.state_machine.set_on_change(self._on_request_state_change)
+                self.media_broker.register_request(media_request)
                 playlist_items.append(media_request)
 
             # Check if playlist is empty and provide user feedback
