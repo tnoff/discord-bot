@@ -151,19 +151,6 @@ def test_remove(fake_engine):  #pylint:disable=redefined-outer-name
                     x.remove_video_cache([query.id])
                     assert session.query(VideoCache).count() == 1
 
-def test_search_existing_file(fake_engine):  #pylint:disable=redefined-outer-name
-    test_extractor = 'foo-extractor'
-    with TemporaryDirectory() as tmp_dir:
-        fake_context = generate_fake_context()
-        x = VideoCacheClient(Path(tmp_dir), 10, partial(mock_session, fake_engine), None, None)
-        with fake_media_download(tmp_dir, fake_context=fake_context, extractor=test_extractor) as s:
-            # Override the id to match our test
-            x.iterate_file(s)
-            result = x.search_existing_file(test_extractor, s.id) #pylint:disable=no-member
-            assert result.base_path == str(s.file_path)
-            generated = x.generate_download_from_existing(s.media_request, result)
-            assert generated.webpage_url == s.webpage_url  # pylint: disable=no-member
-
 def test_verify_cache_ignore_cleanup_paths_file(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that files in ignore_cleanup_paths are not deleted'''
     with TemporaryDirectory() as tmp_dir:

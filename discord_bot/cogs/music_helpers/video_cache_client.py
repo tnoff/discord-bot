@@ -14,7 +14,7 @@ from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_d
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
 from discord_bot.cogs.music_helpers import database_functions
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming, MusicMediaDownloadNaming
+from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 
@@ -166,21 +166,6 @@ class VideoCacheClient():
         attributes[MusicVideoCacheNaming.ID.value] = video_cache.id
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.generate_download', kind=SpanKind.INTERNAL, attributes=attributes):
             return self.__generate_source_download(video_cache, media_request)
-
-    def search_existing_file(self, extractor: str, video_id: str) -> VideoCache:
-        '''
-        Search cache for existing files
-        '''
-        attributes = {
-            MusicMediaDownloadNaming.VIDEO_ID.value: video_id,
-            MusicMediaDownloadNaming.EXTRACTOR.value: extractor,
-        }
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_existing', kind=SpanKind.INTERNAL, attributes=attributes):
-            with self.session_generator() as db_session:
-                existing = retry_database_commands(db_session, partial(database_functions.get_vide_cache_by_extractor_video_id, db_session, extractor, video_id))
-                if existing:
-                    return existing
-                return None
 
     def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
         '''

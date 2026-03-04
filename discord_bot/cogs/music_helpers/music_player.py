@@ -18,6 +18,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.message_queue import MessageQueue
+from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 
@@ -49,7 +50,8 @@ class MusicPlayer:
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  message_queue: MessageQueue,
                  history_playlist_id: int,
-                 history_playlist_queue: Queue):
+                 history_playlist_queue: Queue,
+                 broker: MediaBroker | None = None):
         '''
         file_dir : Files for guild stored here
         '''
@@ -84,6 +86,7 @@ class MusicPlayer:
         self.shutdown_called: bool = False
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
+        self.broker: MediaBroker | None = broker
 
     async def start_tasks(self):
         '''
@@ -107,6 +110,8 @@ class MusicPlayer:
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
+        if self.broker:
+            self.broker.checkout(str(media_download.media_request.uuid), self.guild.id)
 
         audio_source = FFmpegPCMAudio(str(media_download.file_path))
         self.current_audio_source = audio_source
@@ -118,6 +123,8 @@ class MusicPlayer:
             self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
             cleanup_source(media_download, audio_source)
+            if self.broker:
+                self.broker.remove(str(media_download.media_request.uuid))
             if not self.shutdown_called:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
@@ -133,6 +140,8 @@ class MusicPlayer:
         await self.next.wait()
         self.np_message = ''
         cleanup_source(media_download, audio_source)
+        if self.broker:
+            self.broker.remove(str(media_download.media_request.uuid))
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
@@ -267,6 +276,8 @@ class MusicPlayer:
         items = self._play_queue.clear()
         for item in items:
             item.delete()
+            if self.broker:
+                self.broker.remove(str(item.media_request.uuid))
         return items
 
     def shuffle_queue(self) -> bool:
@@ -324,6 +335,8 @@ class MusicPlayer:
         self.logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
         cleanup_source(self.current_media_download, self.current_audio_source)
+        if self.broker and self.current_media_download:
+            self.broker.remove(str(self.current_media_download.media_request.uuid))
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
@@ -331,6 +344,8 @@ class MusicPlayer:
                 media_download = self._play_queue.get_nowait()
                 self.logger.debug(f'Removing item {media_download} from play queue')
                 media_download.delete()
+                if self.broker:
+                    self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:
                 break
 

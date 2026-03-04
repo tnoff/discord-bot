@@ -86,13 +86,6 @@ def get_video_cache_by_url(db_session: Session, webpage_url: str):
     """Get video cache by url"""
     return db_session.query(VideoCache).filter(VideoCache.video_url == webpage_url).first()
 
-def get_vide_cache_by_extractor_video_id(db_session: Session, extractor: str, video_id: str):
-    """Get files based on extractor and video_id"""
-    return db_session.query(VideoCache).\
-        filter(VideoCache.extractor == extractor).\
-        filter(VideoCache.video_id == video_id).first()
-
-
 def get_video_cache_by_id(db_session: Session, video_cache_id: int):
     """Get video cache by id"""
     return db_session.get(VideoCache, video_cache_id)

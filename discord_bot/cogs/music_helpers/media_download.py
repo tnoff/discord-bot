@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field, InitVar
 from pathlib import Path
 from shutil import copyfile
+from uuid import uuid4
 
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.utils.otel import MediaRequestNaming, MusicMediaDownloadNaming
@@ -30,12 +31,14 @@ class MediaDownload():
     extractor: str | None = field(init=False, default=None)
 
     # Other fields
+    uuid: str = field(init=False)
     base_path: Path | None = field(init=False, default=None)
 
     def __post_init__(self, ytdl_data: dict):
         '''
         Extract YT-DLP fields from ytdl_data dict
         '''
+        self.uuid = str(uuid4())
         # Extract only the keys we want from ytdl_data
         self.id = ytdl_data.get('id')
         self.title = ytdl_data.get('title')
