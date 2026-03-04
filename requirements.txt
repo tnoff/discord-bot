@@ -11,7 +11,7 @@ google-api-python-client==2.191.0
 moviepy==2.2.1
 pydantic==2.12.5
 pydantic-yaml==1.6.0
-opentelemetry-sdk==1.39.1
+opentelemetry-sdk==1.40.0
 # Dont pin these so dependabot updates are easier
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-sqlalchemy
