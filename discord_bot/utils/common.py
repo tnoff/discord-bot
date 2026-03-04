@@ -11,7 +11,7 @@ from discord.errors import DiscordServerError, RateLimited, NotFound
 from discord.ext.commands import Bot
 from opentelemetry.trace import SpanKind, get_current_span
 from opentelemetry.trace.status import StatusCode
-from opentelemetry.sdk._logs import LoggingHandler
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm.session import Session
 
