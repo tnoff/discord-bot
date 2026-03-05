@@ -1,7 +1,7 @@
 alembic==1.18.4
 async-timeout==5.0.1
 beautifulsoup4==4.14.3
-boto3==1.42.61
+boto3==1.42.62
 click==8.3.1
 croniter==6.0.0
 davey==0.1.4
