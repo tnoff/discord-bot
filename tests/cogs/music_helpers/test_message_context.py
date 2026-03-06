@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_bot.cogs.music_helpers.message_context import MessageContext
-from discord_bot.cogs.music_helpers.message_context import MessageMutableBundle
+from discord_bot.cogs.message_dispatcher import MessageContext, MessageMutableBundle
 from tests.helpers import fake_context #pylint: disable=unused-import
 from tests.helpers import FakeMessage
 

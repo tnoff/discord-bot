@@ -57,6 +57,20 @@ These metrics are exported by the Music cog when enabled.
 
 **Usage**: Monitor cache disk usage.
 
+## MessageDispatcher Metrics
+
+### `message_dispatcher_queue_depth`
+
+**Type**: Observable Gauge
+**Unit**: dimensionless (1)
+**Description**: Total number of work items pending across all per-guild queues
+**Labels**:
+- `background_job` = `message_dispatcher_queue`
+
+**Usage**: A sustained non-zero value indicates the dispatcher is processing a
+backlog. Spike during heavy music downloads or bulk operations is expected; a
+value that never drains suggests a stuck worker.
+
 ## Heartbeat Metrics
 
 These metrics indicate that background loops are active and running.
@@ -70,16 +84,18 @@ These metrics indicate that background loops are active and running.
 
 The bot exports heartbeat metrics for these loops:
 
-- **Markov check loop** - Markov chain message processing
-- **Delete message loop** - Automated message deletion
-- **Send message loop** - Discord message queue processing (Music)
-- **Cleanup player loop** - Inactive player cleanup (Music)
-- **Cache cleanup loop** - Audio file cache cleanup (Music)
-- **Download files loop** - Audio file downloading (Music)
-- **Playlist update loop** - Playlist history tracking (Music)
-- **YouTube search loop** - YouTube Music search processing (Music)
+| `background_job` label | Description |
+|------------------------|-------------|
+| `message_dispatcher_workers` | Count of active per-guild dispatcher worker tasks |
+| `markov_check` | Markov chain message processing loop |
+| `delete_message_check` | Automated message deletion loop |
+| `cleanup_players` | Inactive music player cleanup loop (Music) |
+| `download_files` | Audio file downloading loop (Music) |
+| `post_play_processing` | Post-play history/playlist tracking loop (Music) |
+| `search_youtube_music` | YouTube Music search processing loop (Music) |
 
-**Usage**: Monitor background job health.
+**Usage**: A value of `0` means the loop task has exited unexpectedly. Alert on
+`heartbeat{background_job="..."} == 0`.
 
 ## Configuration-Dependent Metrics
 

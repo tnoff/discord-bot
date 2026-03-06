@@ -45,12 +45,8 @@ async def test_request_bundle_integration_creation_and_registration(fake_context
     assert bundle.failed == 0
     assert bundle.input_string == 'https://test.playlist.com/123'
 
-    # Register with message queue
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Verify message queue registration
-    assert index_name in cog.message_queue.mutable_bundles
+    # Verify bundle is registered in cog
+    assert bundle.uuid in cog.multirequest_bundles
 
 
 @pytest.mark.asyncio
@@ -113,49 +109,6 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     assert bundle.finished is True
 
 
-@pytest.mark.asyncio
-async def test_request_bundle_integration_message_processing(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    """Test request bundle message processing through music.py send_messages"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-
-    # Create bundle with test data
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    cog.multirequest_bundles[bundle.uuid] = bundle
-
-    # Setup search state
-    bundle.set_initial_search('test-playlist-url')
-
-    # Add test request
-    req = fake_source_dict(fake_context)
-    bundle.add_media_request(req)
-    bundle.all_requests_added()
-    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
-    bundle.update_request_status()
-
-    # Register bundle for processing
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Process messages
-    result = await cog.send_messages()
-    assert result is True
-
-    # Verify bundle is still in multirequest_bundles (not finished)
-    assert bundle.uuid in cog.multirequest_bundles
-
-    # Complete the request
-    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
-    bundle.update_request_status()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
-
-    # Process messages again
-    result = await cog.send_messages()
-    assert result is True
-
-    # Now bundle should be removed (finished)
-    assert bundle.uuid not in cog.multirequest_bundles
-
 
 @pytest.mark.asyncio
 async def test_request_bundle_integration_uuid_extraction(fake_context):  #pylint:disable=redefined-outer-name
@@ -188,11 +141,7 @@ async def test_request_bundle_integration_error_handling(fake_context):  #pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Test with non-existent bundle UUID
-    fake_uuid = 'request.bundle.non-existent-uuid'
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{fake_uuid}'
-
-    # Register non-existent bundle with message queue
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
+    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-request.bundle.non-existent-uuid'
 
     # Extract UUID
     extracted_uuid = index_name.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
@@ -224,11 +173,6 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
         bundle.add_media_request(req)
         bundle.all_requests_added()
         bundles.append((bundle, req))
-
-    # Register all bundles
-    for bundle, req in bundles:
-        index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-        cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
 
     # Verify all bundles are tracked
     assert len(cog.multirequest_bundles) == 3
@@ -330,29 +274,6 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     assert not post_update_print
 
 
-@pytest.mark.asyncio
-async def test_request_bundle_integration_non_sticky_message_behavior(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that request bundles use non-sticky message behavior"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-
-    # Mock the message queue update method to capture sticky_messages parameter
-    mock_update = mocker.patch.object(cog.message_queue, 'update_multiple_mutable')
-
-    # Create and register bundle
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    cog.multirequest_bundles[bundle.uuid] = bundle
-
-    req = fake_source_dict(fake_context)
-    bundle.add_media_request(req)
-
-    # Register bundle for processing (this should call update_multiple_mutable with sticky_messages=False)
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-
-    # Verify that the method was called with sticky_messages=False
-    mock_update.assert_called_with(index_name, fake_context['channel'], sticky_messages=False)
-
-
 # NOTE: Comprehensive integration test for playlist bundle storage was removed
 # due to complex mocking requirements. The fix has been applied and verified
 # through simpler tests. The core fix ensures bundles are stored in
@@ -385,12 +306,7 @@ async def test_request_bundle_playlist_item_add_invalid_playlist_error(fake_cont
         yield MockDBEmpty()
 
     cog.with_db_session = mock_db_session_empty
-
-    # Mock message queue to capture error message
-    sent_messages = []
-    def mock_send_single_immutable(contexts):
-        sent_messages.extend(contexts)
-    cog.message_queue.send_single_immutable = mock_send_single_immutable
+    cog.dispatcher = MagicMock()
 
     # Call playlist item-add with invalid playlist index
     result = await cog.playlist_item_add.callback(cog, fake_context['context'], 999, search="test song")
@@ -398,12 +314,11 @@ async def test_request_bundle_playlist_item_add_invalid_playlist_error(fake_cont
     # Should return None for invalid playlist
     assert result is None
 
-    # Should have sent an error message
-    assert len(sent_messages) > 0
-
-    # Verify error message content (it should be about invalid playlist index)
-    # The message function should be set up to send an error about invalid playlist index
-    assert sent_messages[0].function is not None
+    # Should have sent an error message via dispatcher
+    cog.dispatcher.send_single.assert_called_once()
+    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
+    assert len(sent_funcs) == 1
+    assert callable(sent_funcs[0])
 
     # Verify no bundle was created for invalid playlist
     assert len(cog.multirequest_bundles) == 0
@@ -653,26 +568,6 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
     # Apply memory leak fix
     cog.multirequest_bundles.clear()
     assert len(cog.multirequest_bundles) == 0
-
-def test_bundle_channel_parameter_handling(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that bundle operations handle None channel parameter correctly for existing bundles"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-
-    # Create a bundle by first calling with a valid channel (this creates the bundle in message_queue)
-    bundle_uuid = "test-bundle-uuid"
-    bundle_index = f'request_bundle-{bundle_uuid}'
-
-    # First call with valid channel to create the bundle
-    cog.message_queue.update_multiple_mutable(bundle_index, fake_context['channel'])
-
-    # Second call with None channel should work (bundle already exists)
-    # This is the valid case - updating existing bundle with None channel
-    result = cog.message_queue.update_multiple_mutable(bundle_index, None)
-    assert result is True
-
-    # Verify the bundle exists and is queued for processing
-    assert bundle_index in cog.message_queue.mutable_bundles
-    assert cog.message_queue.mutable_bundles[bundle_index].is_queued_for_processing is True
 
 
 @pytest.mark.asyncio
@@ -1049,9 +944,6 @@ async def test_message_queue_cleanup_with_missing_bundle(fake_context):  #pylint
     fake_uuid = 'request.bundle.non-existent-uuid'
     index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{fake_uuid}'
 
-    # Register the non-existent bundle with message queue
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'])
-
     # Extract UUID as the real code does
     bundle_uuid = index_name.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
 
@@ -1147,22 +1039,6 @@ def test_bundle_string_parsing_safety():
             assert bundle_uuid == expected_uuid
 
 
-@pytest.mark.asyncio
-async def test_message_content_dispatch_with_empty_bundles(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that empty message content is handled properly in message dispatch"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-
-    # Test with empty message content (common when bundles are cleaned up)
-    message_content = []
-
-    # This simulates the code path in music.py around line 678
-    # where empty message content should be handled gracefully
-    funcs = await cog.message_queue.update_mutable_bundle_content(
-        'test-bundle-uuid', message_content, delete_after=None
-    )
-
-    # Should return empty function list for empty content
-    assert funcs == []
 
 @pytest.mark.asyncio
 async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #pylint:disable=redefined-outer-name
@@ -1179,18 +1055,17 @@ async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #py
     req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
 
-    # Mock message queue to verify text_channel parameter is passed correctly
-    with patch.object(cog.message_queue, 'update_multiple_mutable', return_value=True) as mock_update:
-        # Test bundle failure update via __ensure_video_download_result (music.py:867)
-        # pylint: disable=protected-access
-        await cog._Music__ensure_video_download_result(req, None)
+    cog.dispatcher = MagicMock()
+    # Test bundle failure update via __ensure_video_download_result (music.py:867)
+    # pylint: disable=protected-access
+    await cog._Music__ensure_video_download_result(req, None)
 
-        # Verify text_channel parameter was used (not None)
-        mock_update.assert_called_with(
-            f'request_bundle-{bundle.uuid}',
-            fake_context['channel'],  # Should be bundle.text_channel, not None
-            sticky_messages=False,
-        )
+    # Verify text_channel parameter was used (not None)
+    cog.dispatcher.update_mutable.assert_called()
+    call_args = cog.dispatcher.update_mutable.call_args
+    assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
+    assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
+    assert call_args[1].get('sticky') is False
 
 
 @pytest.mark.asyncio
@@ -1209,82 +1084,34 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
     req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
 
-    # Mock message queue to verify text_channel parameter
-    with patch.object(cog.message_queue, 'update_multiple_mutable', return_value=True) as mock_update:
-        with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
-            # Mock successful playlist add
-            mock_db.return_value = 456  # playlist_item_id
+    cog.dispatcher = MagicMock()
+    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+        # Mock successful playlist add
+        mock_db.return_value = 456  # playlist_item_id
 
-            # Create a fake media download that would trigger playlist add
-            with TemporaryDirectory() as tmp_dir:
-                with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
-                    media_download.media_request = req
+        # Create a fake media download that would trigger playlist add
+        with TemporaryDirectory() as tmp_dir:
+            with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
+                media_download.media_request = req
 
-                    # Test the playlist add private method (music.py:1833)
-                    # pylint: disable=protected-access
-                    await cog._Music__add_playlist_item_function(123, media_download)
+                # Test the playlist add private method (music.py:1833)
+                # pylint: disable=protected-access
+                await cog._Music__add_playlist_item_function(123, media_download)
 
-                    # Verify text_channel parameter was used (not None) - music.py:1833
-                    mock_update.assert_called_with(
-                        f'request_bundle-{bundle.uuid}',
-                        fake_context['channel'],  # Should be bundle.text_channel, not None
-                        sticky_messages=False,
-                    )
+                # Verify text_channel parameter was used (not None) - music.py:1833
+                cog.dispatcher.update_mutable.assert_called()
+                call_args = cog.dispatcher.update_mutable.call_args
+                assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
+                assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
+                assert call_args[1].get('sticky') is False
 
-
-@pytest.mark.asyncio
-async def test_bundle_processing_status_updates_use_text_channel(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that bundle processing status updates use text_channel correctly"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-
-    # Create bundle with text_channel
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    cog.multirequest_bundles[bundle.uuid] = bundle
-
-    # Add a media request
-    req = fake_source_dict(fake_context)
-    bundle.add_media_request(req)
-
-    # Mock message queue to track calls
-    with patch.object(cog.message_queue, 'update_multiple_mutable', return_value=True) as mock_update:
-        # Test different bundle status updates that were fixed in the commit
-
-        # Update to IN_PROGRESS (music.py:943)
-        req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
-        bundle.update_request_status()
-        cog.message_queue.update_multiple_mutable(
-            f'request_bundle-{bundle.uuid}',
-            bundle.text_channel,
-            sticky_messages=False,
-        )
-
-        # Update to COMPLETED (when adding to player - music.py:812)
-        req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
-        bundle.update_request_status()
-        cog.message_queue.update_multiple_mutable(
-            f'request_bundle-{bundle.uuid}',
-            bundle.text_channel,
-            sticky_messages=False,
-        )
-
-        # Verify all calls used bundle.text_channel (not None)
-        expected_calls = [
-            (f'request_bundle-{bundle.uuid}', fake_context['channel'], False),
-            (f'request_bundle-{bundle.uuid}', fake_context['channel'], False),
-        ]
-
-        actual_calls = [(call.args[0], call.args[1], call.kwargs.get('sticky_messages', True)) for call in mock_update.call_args_list]
-        assert len(actual_calls) == len(expected_calls)
-        for actual, expected in zip(actual_calls, expected_calls):
-            assert actual[0] == expected[0]  # bundle key
-            assert actual[1] == expected[1]  # text_channel
-            assert actual[2] == expected[2]  # sticky_messages
 
 
 @pytest.mark.asyncio
 async def test_bundle_constructor_integration_with_music_cog(fake_context):  #pylint:disable=redefined-outer-name
     """Test that Music cog creates bundles with proper text_channel parameter"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
 
     # Test bundle creation in enqueue_media_requests (music.py:1219)
     entries = [fake_source_dict(fake_context), fake_source_dict(fake_context)]
@@ -1489,16 +1316,14 @@ def test_single_request_failure_summary_contains_reason(fake_context):  #pylint:
 
 
 @pytest.mark.asyncio
-async def test_single_request_terminal_failure_cleanup_via_send_messages(mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_single_request_terminal_failure_cleanup_via_on_change(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """
     Integration test: after __return_bad_video is called for a terminal exception,
-    send_messages should remove the bundle from multirequest_bundles and set
-    delete_after on the Discord message.
-
-    This is the regression test for the bug where terminal exceptions left the
-    original bundle undeleteed.
+    the _on_request_state_change callback removes the bundle from multirequest_bundles
+    synchronously (no send_messages loop needed).
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # Replicate _generate_media_requests_from_search
@@ -1506,93 +1331,64 @@ async def test_single_request_terminal_failure_cleanup_via_send_messages(mocker,
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
 
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-
     # Replicate enqueue_media_requests
     req = fake_source_dict(fake_context)
     req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
     bundle.all_requests_added()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
 
-    # send_messages: initial queued state
-    await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles
 
-    # Replicate download worker reaching IN_PROGRESS, then hitting a terminal error
+    # Replicate download worker reaching IN_PROGRESS (set directly — no callback)
     req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     bundle.update_request_status()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-    await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles  # still alive, not finished yet
 
-    # Terminal exception path: __return_bad_video marks bundle FAILED and queues update
+    # Terminal exception path: __return_bad_video → mark_failed → _on_request_state_change
+    # → _get_bundle_content → multirequest_bundles.pop() (synchronous)
     exc = DownloadTerminalException('Video Too Long', user_message='Video Too Long')
     await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
 
-    # Bundle should be finished but not yet removed (removal happens in send_messages)
     assert bundle.finished
-    assert bundle.uuid in cog.multirequest_bundles
-
-    # send_messages should remove the bundle and set delete_after on the message
-    await cog.send_messages()
     assert bundle.uuid not in cog.multirequest_bundles
-
-    # The Discord message should have been sent/edited with delete_after set
-    channel_messages = fake_context['channel'].messages
-    assert len(channel_messages) > 0
-    terminal_msg = channel_messages[-1]
-    assert terminal_msg.delete_after is not None
 
 
 @pytest.mark.asyncio
 async def test_single_request_full_lifecycle_play_successful(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """
-    Integration test: full happy-path lifecycle for a single request through
-    the play_() flow — bundle created, IN_PROGRESS, COMPLETED, cleaned up.
+    Integration test: full happy-path lifecycle for a single request —
+    bundle created, IN_PROGRESS, COMPLETED, cleaned up via _get_bundle_content.
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # _generate_media_requests_from_search: create bundle, set initial search
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
 
     # enqueue_media_requests: add request and mark all enqueued
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
     bundle.all_requests_added()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-    await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles
 
-    # search_youtube_music: QUEUED (no-op display) then download worker: IN_PROGRESS
+    # Download worker: IN_PROGRESS (set directly — no callback registered)
     req.lifecycle_stage = MediaRequestLifecycleStage.QUEUED
     bundle.update_request_status()
     req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
     bundle.update_request_status()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-    await cog.send_messages()
     assert bundle.uuid in cog.multirequest_bundles
 
     # Download succeeds: COMPLETED
     req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     bundle.update_request_status()
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
-
     assert bundle.finished
-    await cog.send_messages()
 
-    # Bundle should be removed after send_messages processes the finished bundle
+    # _get_bundle_content removes the bundle when finished
+    cog._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.text_channel)  #pylint:disable=protected-access
     assert bundle.uuid not in cog.multirequest_bundles
-
-    # For a completed single request, print() returns [] so the Discord message
-    # is deleted outright (not edited with delete_after), leaving channel empty
-    assert len(fake_context['channel'].messages) == 0
 
 
 @pytest.mark.asyncio
@@ -1602,15 +1398,15 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
     multirequest_bundles (memory leak).
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
-    index_name = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    cog.message_queue.update_multiple_mutable(index_name, fake_context['channel'], sticky_messages=False)
 
     req = fake_source_dict(fake_context)
+    req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
     bundle.all_requests_added()
 
@@ -1618,6 +1414,5 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
 
     exc = DownloadTerminalException('Age Restricted', user_message='Age Restricted')
     await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
-    await cog.send_messages()
 
     assert len(cog.multirequest_bundles) == 0

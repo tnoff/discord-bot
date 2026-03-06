@@ -7,7 +7,6 @@ import pytest
 
 from discord_bot.exceptions import ExitEarlyException
 
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_bot.utils.queue import Queue
 
@@ -16,9 +15,10 @@ from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVo
 @contextmanager
 def with_music_player(fake_context): #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
-        message_queue = MessageQueue()
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), message_queue, None, history_queue)
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
         yield player
 
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name
@@ -52,7 +52,10 @@ async def test_music_player_loop_basic(fake_context): #pylint:disable=redefined-
             await player.player_loop()
             assert player._history.get_nowait() == media_download #pylint:disable=protected-access
             assert player._play_queue.empty() #pylint:disable=protected-access
-            assert player.message_queue.get_next_message() == (MessageType.MULTIPLE_MUTABLE, f'play_order-{fake_context["guild"].id}')
+            # Verify dispatcher.update_mutable was called with play_order key
+            expected_key = f'play_order-{fake_context["guild"].id}'
+            assert player.dispatcher.update_mutable.called
+            assert player.dispatcher.update_mutable.call_args[0][0] == expected_key
 
 @pytest.mark.asyncio
 async def test_music_player_join_already_there(fake_context): #pylint:disable=redefined-outer-name

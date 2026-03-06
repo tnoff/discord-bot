@@ -3,7 +3,6 @@ import pytest
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, MediaRequestStateMachine, chunk_list
 from discord_bot.cogs.music_helpers.search_client import SearchResult
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue, MessageQueueException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 
@@ -658,29 +657,6 @@ def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:di
     assert "test-playlist" in full_message
     assert "1/3 media requests processed successfully, 1 failed" in full_message
 
-
-def test_message_queue_none_channel_validation(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that MessageQueue properly validates None text_channel parameter with MessageQueueException"""
-    message_queue = MessageQueue()
-
-    # Test 1: Creating new bundle with valid channel should work
-    bundle_name = "test-bundle-1"
-    result = message_queue.update_multiple_mutable(bundle_name, fake_context['channel'])
-    assert result is True
-    assert bundle_name in message_queue.mutable_bundles
-
-    # Test 2: Updating existing bundle with None channel should work (bundle already exists)
-    result = message_queue.update_multiple_mutable(bundle_name, None)
-    assert result is True
-
-    # Test 3: Creating new bundle with None channel should raise MessageQueueException
-    new_bundle_name = "test-bundle-2"
-    with pytest.raises(MessageQueueException) as exc_info:
-        message_queue.update_multiple_mutable(new_bundle_name, None)
-
-    assert "Cannot create new message bundle" in str(exc_info.value)
-    assert new_bundle_name in str(exc_info.value)
-    assert new_bundle_name not in message_queue.mutable_bundles  # Bundle should not be created
 
 
 def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=redefined-outer-name

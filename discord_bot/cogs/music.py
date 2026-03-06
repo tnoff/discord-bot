@@ -15,7 +15,6 @@ from typing import List, Optional
 
 from dappertable import shorten_string, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
-from discord.errors import DiscordServerError
 from discord import VoiceChannel, TextChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -27,13 +26,11 @@ from yt_dlp.postprocessor import PostProcessor
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType, MessageType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.cogs.music_helpers.message_context import MessageContext
+from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchClient, SearchException, check_youtube_video
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
@@ -44,7 +41,7 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import async_retry_discord_message_command, rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed, run_commit
+from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed, run_commit
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -179,14 +176,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.media_broker = MediaBroker()
         self._cleanup_task = None
         self._download_task = None
-        self._message_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
-        # Message queue bits
-        self.message_queue: MessageQueue = MessageQueue()
+        # MessageDispatcher — looked up in cog_load
+        self.dispatcher = None
         # History Playlist Queue
         self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
         if self.db_engine:
@@ -297,7 +293,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
         # Timestamps for heartbeat gauges
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__send_message_loop_active_callback, 'Send message loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
@@ -334,17 +329,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files'
-            })
-        ]
-
-    def __send_message_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._message_task and not self._message_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'send_messages'
             })
         ]
 
@@ -413,9 +397,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
+        self.dispatcher = self.bot.get_cog('MessageDispatcher')
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
-        self._message_task = self.bot.loop.create_task(return_loop_runner(self.send_messages, self.bot, self.logger, continue_exceptions=DiscordServerError)())
         if self.config.download.enable_youtube_music_search:
             self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
@@ -450,8 +434,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._cleanup_task.cancel()
             if self._download_task:
                 self._download_task.cancel()
-            if self._message_task:
-                self._message_task.cancel()
             if self._post_play_processing_task:
                 self._post_play_processing_task.cancel()
             if self._youtube_search_task:
@@ -507,96 +489,40 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding new history item "{history_item.media_download.webpage_url}" to playlist {history_item.playlist_id}')
                 self.__playlist_insert_item(history_item.playlist_id, history_item.media_download.webpage_url, history_item.media_download.title, history_item.media_download.uploader)
 
-    async def send_messages(self):
+    def _get_play_order_content(self, guild_id: int) -> list:
         '''
-        Send messages runner
+        Get queue order message content for a guild.
         '''
-        await sleep(.01)
+        player = self.players.get(guild_id)
+        return player.get_queue_order_messages() if player else []
 
-        source_type, item = self.message_queue.get_next_message()
+    def _get_bundle_content(self, bundle_uuid: str, guild_id: int, channel) -> tuple:
+        '''
+        Get mutable message content for a MultiMediaRequestBundle.
+        Sends failure/retry summaries as separate one-off messages.
+        Returns (content_list, delete_after).
+        '''
+        bundle = self.multirequest_bundles.get(bundle_uuid)
+        if not bundle:
+            return [], None
 
-        if not source_type:
-            if self.bot_shutdown_event.is_set():
-                raise ExitEarlyException('Bot in shutdown and i dont have any more messages, exiting early')
-            return True
+        content = bundle.print()
 
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.send_messages', kind=SpanKind.CONSUMER):
-            self.logger.info(f'Received new message type {source_type} with item {str(item)}')
-            if source_type == MessageType.SINGLE_IMMUTABLE:
-                for message_context in item:
-                    await async_retry_discord_message_command(message_context.function, allow_404=True)
-                return True
-            if source_type == MessageType.MULTIPLE_MUTABLE:
-                delete_after = None
-                message_content = []
-                if MultipleMutableType.REQUEST_BUNDLE.value in item:
-                    bundle_uuid = item.split(f'{MultipleMutableType.REQUEST_BUNDLE.value}-', 1)[1]
-                    bundle = self.multirequest_bundles.get(bundle_uuid)
-                    if bundle:
-                        # Set channel to default backup if necessary
-                        # Note if bundle is in shutdown this returns []
-                        message_content = bundle.print()
+        for failure_msg in (bundle.get_failure_summary() or []):
+            self.dispatcher.send_single(guild_id, [partial(channel.send, content=failure_msg,
+                                                            delete_after=self.config.general.message_delete_after)])
 
-                        # Send error summary as a separate message if there are failures
-                        failure_summary = bundle.get_failure_summary()
-                        if failure_summary:
-                            # Queue error summary as a separate single immutable message
-                            contexts = []
-                            for failure_msg in failure_summary:
-                                error_mc = MessageContext(bundle.guild_id, bundle.channel_id)
-                                error_mc.function = partial(bundle.text_channel.send, content=failure_msg, delete_after=self.config.general.message_delete_after)
-                                contexts.append(error_mc)
-                            self.message_queue.send_single_immutable(contexts)
+        for msg in (bundle.get_retry_summary(self.config.download.max_download_retries,
+                                              self.config.download.max_youtube_music_search_retries) or []):
+            self.dispatcher.send_single(guild_id, [partial(channel.send, content=msg,
+                                                            delete_after=self.config.general.message_delete_after)])
 
-                        # Send retry notifications as separate messages
-                        retry_summary = bundle.get_retry_summary(self.config.download.max_download_retries, self.config.download.max_youtube_music_search_retries)
-                        if retry_summary:
-                            contexts = []
-                            for msg in retry_summary:
-                                retry_mc = MessageContext(bundle.guild_id, bundle.channel_id)
-                                retry_mc.function = partial(bundle.text_channel.send, content=msg, delete_after=self.config.general.message_delete_after)
-                                contexts.append(retry_mc)
-                            self.message_queue.send_single_immutable(contexts)
+        delete_after = None
+        if bundle.finished:
+            self.multirequest_bundles.pop(bundle_uuid, None)
+            delete_after = self.config.general.message_delete_after
 
-                        # Make sure all finished/terminal bundles get removed
-                        if bundle.finished:
-                            self.multirequest_bundles.pop(bundle_uuid, None)
-                            delete_after = self.config.general.message_delete_after
-                    else:
-                        # Bundle already processed and removed, skip
-                        message_content = []
-
-                elif MultipleMutableType.PLAY_ORDER.value in item:
-                    guild_id = item.split(f'{MultipleMutableType.PLAY_ORDER.value}-', 1)[1]
-                    player = self.players.get(int(guild_id), None)
-                    message_content = player.get_queue_order_messages() if player else []
-
-                funcs = await self.message_queue.update_mutable_bundle_content(item, message_content, delete_after=delete_after)
-                results = []
-                for func in funcs:
-                    # Safety check: validate and truncate content if it exceeds Discord's limit
-                    if hasattr(func, 'keywords') and 'content' in func.keywords:
-                        content = func.keywords['content']
-                        content_length = len(content)
-                        if content_length > 2000:
-                            self.logger.warning(
-                                f'Message content exceeds 2000 chars (length: {content_length}). '
-                                f'Bundle: {item}, Function: {func.func.__name__ if hasattr(func, "func") else "unknown"}.'
-                            )
-                            self.logger.warning(f'Full content message:\n{content}')
-                            # Truncate to 1900 to stay well under the limit
-                            truncated_content = content[:1900]
-                            # Create new partial with truncated content
-                            new_kwargs = func.keywords.copy()
-                            new_kwargs['content'] = truncated_content
-                            func = partial(func.func, *func.args, **new_kwargs)
-                    result = await async_retry_discord_message_command(func)
-                    # Update message references for new messages (only pass Message objects, not delete results)
-                    if result and hasattr(result, 'id'):
-                        results.append(result)
-                await self.message_queue.update_mutable_bundle_references(item, results)
-                return True
-            return False
+        return content, delete_after
 
     async def cleanup_players(self):
         '''
@@ -616,10 +542,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guilds.append(player.guild)
                 continue
             if player.voice_channel_inactive_timeout(timeout_seconds=self.config.player.inactive_voice_channel_timeout):
-                message_context = MessageContext(player.guild.id, player.text_channel.id)
-                message_context.function = partial(player.text_channel.send, content='No one active in voice channel, shutting myself down',
-                                                    delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(player.guild.id, [partial(player.text_channel.send,
+                    content='No one active in voice channel, shutting myself down',
+                    delete_after=self.config.general.message_delete_after)])
                 self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
                 guilds.append(player.guild)
         # Run in separate loop since the cleanup function removes items form self.players
@@ -683,10 +608,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                  f'to queue in guild {media_download.media_request.guild_id}')
                 self.media_broker.register_download(media_download)
                 media_download.media_request.state_machine.mark_completed()
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
-                    player.text_channel,
-                )
+                key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
+                self.dispatcher.update_mutable(key, player.guild.id,
+                    self._get_play_order_content(player.guild.id), player.text_channel.id)
 
                 return True
             except QueueFull:
@@ -847,11 +771,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
         if bundle:
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                bundle.text_channel,
-                sticky_messages=False,
-            )
+            key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+            content, delete_after = self._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.text_channel)
+            self.dispatcher.update_mutable(key, bundle.guild_id, content, bundle.text_channel.id,
+                                           sticky=False, delete_after=delete_after)
         if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
             self.media_broker.remove(str(media_request.uuid))
         elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
@@ -1062,10 +985,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             player = await self.get_player(guild.id, create_player=False)
             # Set external shutdown so this doesnt happen twice
             if external_shutdown_called and player:
-                message_context = MessageContext(player.guild.id, player.text_channel.id)
-                message_context.function = partial(player.text_channel.send, content='External shutdown called on bot, please contact admin for details',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(player.guild.id, [partial(player.text_channel.send,
+                    content='External shutdown called on bot, please contact admin for details',
+                    delete_after=self.config.general.message_delete_after)])
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
 
@@ -1074,12 +996,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             disconnect_task = None
 
             if voice_client:
-                try:
-                    # cleanup() must be called to free native memory and remove from state cache
-                    voice_client.cleanup()
-                    self.logger.debug(f'Called cleanup() on voice client for guild {guild.id}')
-                except Exception as e:
-                    self.logger.warning(f'Error calling cleanup() on voice client: {e}')
+                # cleanup() must be called to free native memory and remove from state cache
+                voice_client.cleanup()
+                self.logger.debug(f'Called cleanup() on voice client for guild {guild.id}')
 
                 # Start disconnect in background (don't block here)
                 disconnect_task = create_task(voice_client.disconnect())
@@ -1101,10 +1020,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await player.cleanup()
                 # Cleanup queue messages if they still exist
                 self.logger.info(f'Clearing queue message for guild {guild.id}')
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}',
-                    player.text_channel,
-                )
+                key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
+                self.dispatcher.update_mutable(key, guild.id,
+                    self._get_play_order_content(guild.id), player.text_channel.id)
 
             pending_items = self.download_queue.clear_queue(guild.id)
             self.logger.debug(f'Cleanup found {len(pending_items)} existing download items')
@@ -1118,11 +1036,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     continue
                 self.logger.debug(f'Calling shutdown on media request bundle {uuid}, was associated with guild {guild.id}')
                 item.shutdown()
-                self.message_queue.update_multiple_mutable(
-                    f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}',
-                    item.text_channel,
-                    sticky_messages=False,
-                )
+                key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}'
+                content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.text_channel)
+                self.dispatcher.update_mutable(key, item.guild_id, content, item.text_channel.id,
+                                               sticky=False, delete_after=delete_after)
 
             self.logger.debug(f'Deleting download dir for guild {guild.id}')
             guild_path = self.download_dir / f'{guild.id}'
@@ -1133,11 +1050,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Do not wait on external shutdown as we should assume thats called from cog_cleanup
             # And we dont really care as much about preserving resources on full pod/app shutdown
             if disconnect_task and not external_shutdown_called:
-                try:
-                    await disconnect_task
-                    self.logger.debug(f'Disconnected voice client for guild {guild.id}')
-                except Exception as e:
-                    self.logger.warning(f'Error disconnecting voice client: {e}')
+                await disconnect_task
+                self.logger.debug(f'Disconnected voice client for guild {guild.id}')
 
     async def get_player(self, guild_id: int,
                          join_channel = None,
@@ -1158,10 +1072,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player = self.players[guild_id]
             except KeyError:
                 if check_voice_client_active:
-                    message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                    message_context.function = partial(ctx.send, 'I am not currently playing anything',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                        'I am not currently playing anything',
+                        delete_after=self.config.general.message_delete_after)])
                     return None
                 if not create_player:
                     return None
@@ -1172,17 +1085,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 history_playlist_id = self.__get_history_playlist(ctx.guild.id)
                 player = MusicPlayer(ctx,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
-                                     guild_path, self.message_queue,
+                                     guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
                                      broker=self.media_broker)
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
                 if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.size(guild_id)):
-                    message_context = MessageContext(player.guild.id, player.text_channel.id)
-                    message_context.function = partial(player.text_channel.send, 'I am not currently playing anything',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(player.guild.id, [partial(player.text_channel.send,
+                        'I am not currently playing anything',
+                        delete_after=self.config.general.message_delete_after)])
                     return None
             # Check if we should join voice
             if not player.guild.voice_client and join_channel:
@@ -1196,20 +1108,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             channel = ctx.author.voice.channel
         except AttributeError:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'{ctx.author.display_name} not in voice chat channel. Please join one and try again',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'{ctx.author.display_name} not in voice chat channel. Please join one and try again',
+                delete_after=self.config.general.message_delete_after)])
             return None
 
         if not check_voice_chats:
             return channel
 
         if channel.guild.id is not ctx.guild.id:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'User not joined to channel bot is in, ignoring command',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'User not joined to channel bot is in, ignoring command',
+                delete_after=self.config.general.message_delete_after)])
             return None
         return channel
 
@@ -1219,9 +1129,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
             except async_timeout as e:
                 self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Bot cannot join channel {channel}', delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Bot cannot join channel {channel}',
+                    delete_after=self.config.general.message_delete_after)])
             return None
 
     @command(name='join', aliases=['awaken'])
@@ -1236,9 +1146,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await self.__ensure_player(ctx, channel)
 
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Connected to: {channel}', delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Connected to: {channel}',
+            delete_after=self.config.general.message_delete_after)])
 
     async def enqueue_media_requests(self, ctx: Context, entries: List[MediaRequest],
                                      bundle: MultiMediaRequestBundle, player: MusicPlayer = None) -> bool:
@@ -1291,11 +1201,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         bundle.all_requests_added()
 
         if bundle:
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
+            key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+                                           sticky=False, delete_after=delete_after)
         return True
 
     async def _generate_media_requests_from_search(self, ctx: Context, search: str, player: MusicPlayer = None,
@@ -1312,11 +1221,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
         self.multirequest_bundles[bundle.uuid] = bundle
         bundle.set_initial_search(search)
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-            ctx.channel,
-            sticky_messages=False,
-        )
+        key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+        content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+        self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+                                       sticky=False, delete_after=delete_after)
 
         try:
             search_results = await self.search_client.check_source(search, self.bot.loop,
@@ -1325,34 +1233,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
             # Delete the old bundle, send one off message
             bundle.shutdown()
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Error searching input "{search}", message: {str(exc.user_message)}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+                                           sticky=False, delete_after=delete_after)
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Error searching input "{search}", message: {str(exc.user_message)}',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         # If multiple items, delete original search and generate new one
         if len(search_results) > 1:
             bundle.shutdown()
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
+            key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+                                           sticky=False, delete_after=delete_after)
             bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
             self.multirequest_bundles[bundle.uuid] = bundle
             multi_search = search_results[0].multi_search_input or search
             bundle.set_multi_input_request(multi_search)
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}',
-                ctx.channel,
-                sticky_messages=False,
-            )
+            key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+                                           sticky=False, delete_after=delete_after)
 
         media_requests = []
         for search_result in search_results:
@@ -1408,10 +1312,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
         current_title = player.current_media_download.title
         player.video_skipped = True
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Skipping video "{current_title}"',
-                                           delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Skipping video "{current_title}"',
+            delete_after=self.config.general.message_delete_after)])
         player.guild.voice_client.stop()
 
     @command(name='clear')
@@ -1427,20 +1330,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         if player.check_queue_empty():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There are currently no more queued videos.',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There are currently no more queued videos.',
+                delete_after=self.config.general.message_delete_after)])
             return
         self.logger.info(f'Player clear called in guild {ctx.guild.id}')
         player.clear_queue()
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
-            player.text_channel,
-        )
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, 'Cleared player queue', delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
+        self.dispatcher.update_mutable(key, player.guild.id,
+            self._get_play_order_content(player.guild.id), player.text_channel.id)
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            'Cleared player queue',
+            delete_after=self.config.general.message_delete_after)])
         return
 
     @command(name='history')
@@ -1454,10 +1355,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = await self.get_player(ctx.guild.id, ctx=ctx)
 
         if player.check_history_empty():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There have been no videos played.',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There have been no videos played.',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         headers = [
@@ -1476,12 +1376,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'{uploader}',
             ])
         messages = table.print()
-        message_contexts = []
-        for mess in messages:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
-            message_contexts.append(message_context)
-        self.message_queue.send_single_immutable(message_contexts)
+        self.dispatcher.send_single(ctx.guild.id,
+            [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
+             for mess in messages])
 
     @command(name='shuffle')
     @command_wrapper
@@ -1496,16 +1393,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         if player.check_queue_empty():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There are currently no more queued videos.',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There are currently no more queued videos.',
+                delete_after=self.config.general.message_delete_after)])
             return
         player.shuffle_queue()
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
-            player.text_channel,
-        )
+        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
+        self.dispatcher.update_mutable(key, player.guild.id,
+            self._get_play_order_content(player.guild.id), player.text_channel.id)
 
     @command(name='remove')
     @command_wrapper
@@ -1523,37 +1418,32 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         if player.check_queue_empty():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There are currently no more queued videos.',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There are currently no more queued videos.',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         try:
             queue_index = int(queue_index)
         except ValueError:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Invalid queue index {queue_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Invalid queue index {queue_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         item = player.remove_queue_item(queue_index)
         if item is None:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to remove queue index {queue_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to remove queue index {queue_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Removed item {item.title} from queue',
-                                           delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Removed item {item.title} from queue',
+            delete_after=self.config.general.message_delete_after)])
         item.delete()
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
-            player.text_channel,
-        )
+        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
+        self.dispatcher.update_mutable(key, player.guild.id,
+            self._get_play_order_content(player.guild.id), player.text_channel.id)
 
     @command(name='bump')
     @command_wrapper
@@ -1571,36 +1461,31 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         if player.check_queue_empty():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There are currently no more queued videos.',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There are currently no more queued videos.',
+                delete_after=self.config.general.message_delete_after)])
             return
         try:
             queue_index = int(queue_index)
         except ValueError:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Invalid queue index {queue_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Invalid queue index {queue_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         item = player.bump_queue_item(queue_index)
         if item is None:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to bump queue index {queue_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to bump queue index {queue_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Bumped item "{item.title}" to top of queue',
-                                           delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Bumped item "{item.title}" to top of queue',
+            delete_after=self.config.general.message_delete_after)])
 
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}',
-            player.text_channel,
-        )
+        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
+        self.dispatcher.update_mutable(key, player.guild.id,
+            self._get_play_order_content(player.guild.id), player.text_channel.id)
 
     @command(name='stop')
     @command_wrapper
@@ -1629,23 +1514,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         if ctx.channel.id == player.text_channel.id:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'I am already sending messages to channel {ctx.channel.name}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'I am already sending messages to channel {ctx.channel.name}',
+                delete_after=self.config.general.message_delete_after)])
             return
-        # Update the bundle to move to the new channel (this deletes old messages)
         bundle_index = f'{MultipleMutableType.PLAY_ORDER.value}-{ctx.guild.id}'
-        await self.message_queue.update_mutable_bundle_channel(bundle_index, ctx.channel)
+        # Move the bundle to the new channel (deletes old messages, re-sends in new channel)
+        self.dispatcher.update_mutable_channel(bundle_index, ctx.guild.id, ctx.channel.id)
 
         # Update the player's text channel reference
         player.text_channel = ctx.channel
-
-        # Queue an update to send new messages in the new channel
-        self.message_queue.update_multiple_mutable(
-            bundle_index,
-            ctx.channel,
-        )
 
     async def __get_playlist_public_view(self, playlist_id: int, guild_id: int):
         '''
@@ -1676,18 +1554,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             index = int(playlist_index)
         except ValueError:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Invalid playlist index {playlist_index}',
+                delete_after=self.config.general.message_delete_after)])
             return None, False
 
         with self.with_db_session() as db_session:
             if index > 0:
                 if not retry_database_commands(db_session, partial(database_functions.playlist_count, db_session, ctx.guild.id)):
-                    message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                    message_context.function = partial(ctx.send, 'No playlists in database',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                        'No playlists in database',
+                        delete_after=self.config.general.message_delete_after)])
                     return None, False
 
             is_history = False
@@ -1697,9 +1574,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             else:
                 playlist = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, (index - 1)))[0]
             if not playlist:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Invalid playlist index {playlist_index}', delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Invalid playlist index {playlist_index}',
+                    delete_after=self.config.general.message_delete_after)])
                 return None, False
             return playlist.id, is_history
 
@@ -1708,9 +1585,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Check if database session is in use
         '''
         if not self.db_engine:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'Functionality not available, database is not enabled')
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'Functionality not available, database is not enabled')])
             return False
         return True
 
@@ -1720,9 +1596,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Playlist functions. Use '!help playlist'
         '''
         if ctx.invoked_subcommand is None:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'Invalid sub command passed...', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'Invalid sub command passed...',
+                delete_after=self.config.general.message_delete_after)])
 
     async def __playlist_create(self, ctx: Context, name: str):
 
@@ -1732,16 +1608,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Check name doesn't conflict with history
         playlist_name = shorten_string(name, 256)
         if PLAYHISTORY_PREFIX in playlist_name.lower():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')])
             return None
         with self.with_db_session() as db_session:
             existing_playlist = retry_database_commands(db_session, partial(database_functions.get_playlist_by_name_and_guild, db_session, playlist_name, ctx.guild.id))
             if existing_playlist:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Unable to create playlist "{name}", a playlist with that name already exists')
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Unable to create playlist "{name}", a playlist with that name already exists')])
                 return None
 
             playlist = Playlist(
@@ -1753,10 +1627,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             retry_database_commands(db_session, partial(run_commit, db_session))
             self.logger.info(f'Playlist created "{playlist_name}" with id {playlist.id} in guild {ctx.guild.id}')
             public_playlist_id = await self.__get_playlist_public_view(playlist.id, ctx.guild.id)
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Created playlist "{playlist_name}" with ID {public_playlist_id}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Created playlist "{playlist_name}" with ID {public_playlist_id}',
+                delete_after=self.config.general.message_delete_after)])
             return playlist.id
 
     @playlist.command(name='create')
@@ -1785,10 +1658,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             playlist_items = retry_database_commands(db_session, partial(database_functions.list_playlist_non_history, db_session, ctx.guild.id, 0))
 
             if not playlist_items and not history_playlist:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, 'No playlists in database',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    'No playlists in database',
+                    delete_after=self.config.general.message_delete_after)])
                 return
 
             if history_playlist:
@@ -1814,12 +1686,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     last_queued,
                 ])
             messages = table.print()
-            message_contexts = []
-            for mess in messages:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
-                message_contexts.append(message_context)
-            self.message_queue.send_single_immutable(message_contexts)
+            self.dispatcher.send_single(ctx.guild.id,
+                [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
+                 for mess in messages])
 
     def __playlist_insert_item(self, playlist_id: int, video_url: str, video_title: str, video_uploader: str):
         with self.with_db_session() as db_session:
@@ -1887,9 +1756,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
 
         if is_history:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         await self._generate_media_requests_from_search(ctx, search, add_to_playlist=playlist_id)
@@ -1915,31 +1784,27 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         try:
             video_index = int(video_index)
         except ValueError:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Invalid item index {video_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Invalid item index {video_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
         if video_index < 1:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Invalid item index {video_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Invalid item index {video_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         with self.with_db_session() as db_session:
             item = retry_database_commands(db_session, partial(database_functions.delete_playlist_item_by_index, db_session, playlist_id, (video_index - 1)))
             public_playlist_id = await self.__get_playlist_public_view(playlist_id, ctx.guild.id)
             if item:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Removed item "{item.title}" from playlist {public_playlist_id}',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Removed item "{item.title}" from playlist {public_playlist_id}',
+                    delete_after=self.config.general.message_delete_after)])
                 return
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to find item {video_index}',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to find item {video_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
 
     @playlist.command(name='show')
@@ -1977,18 +1842,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 ])
                 total += 1
             if not total:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'No items in playlist {playlist_id}',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'No items in playlist {playlist_id}',
+                    delete_after=self.config.general.message_delete_after)])
                 return
             messages = table.print()
-            message_contexts = []
-            for mess in messages:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
-                message_contexts.append(message_context)
-            self.message_queue.send_single_immutable(message_contexts)
+            self.dispatcher.send_single(ctx.guild.id,
+                [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
+                 for mess in messages])
 
     @playlist.command(name='delete')
     @command_wrapper
@@ -2004,20 +1865,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         playlist_id, is_history  = await self.__get_playlist(playlist_index, ctx)
         if not playlist_id:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Cannot delete playlist, unable to find id {playlist_index}', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Cannot delete playlist, unable to find id {playlist_index}',
+                delete_after=self.config.general.message_delete_after)])
             return
         if is_history:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'Cannot delete history playlist, is reserved', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'Cannot delete history playlist, is reserved',
+                delete_after=self.config.general.message_delete_after)])
             return
         await self.__playlist_delete(playlist_id)
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Deleted playlist {playlist_index}',
-                                           delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Deleted playlist {playlist_index}',
+            delete_after=self.config.general.message_delete_after)])
         return
 
     async def __playlist_delete(self, playlist_id: int):
@@ -2043,27 +1903,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         playlist_id, is_history = await self.__get_playlist(playlist_index, ctx)
         if is_history:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'Cannot rename history playlist, is reserved', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'Cannot rename history playlist, is reserved',
+                delete_after=self.config.general.message_delete_after)])
             return
         if not playlist_id:
             return None
 
         playlist_name = shorten_string(playlist_name, 256)
         if PLAYHISTORY_PREFIX in playlist_name.lower():
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to create playlist "{playlist_name}", name cannot contain {PLAYHISTORY_PREFIX}')
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to create playlist "{playlist_name}", name cannot contain {PLAYHISTORY_PREFIX}')])
             return None
 
         self.logger.info(f'Renaming playlist {playlist_id} to name "{playlist_name}"')
         with self.with_db_session() as db_session:
             retry_database_commands(db_session, partial(database_functions.rename_playlist, db_session, playlist_id, playlist_name))
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Renamed playlist {playlist_index} to name "{playlist_name}"',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Renamed playlist {playlist_index} to name "{playlist_name}"',
+                delete_after=self.config.general.message_delete_after)])
             return
 
     @playlist.command(name='save-queue')
@@ -2095,10 +1953,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         player = await self.get_player(ctx.guild.id, create_player=False)
         if not player:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'No player connected, no queue to save',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'No player connected, no queue to save',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         # Do a deepcopy here so list doesn't mutate as we iterate
@@ -2110,32 +1967,30 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.logger.info(f'Saving queue contents to playlist "{name}", is_history? {is_history}')
 
         if len(queue_copy) == 0:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'There are no videos to add to playlist',
-                                               delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'There are no videos to add to playlist',
+                delete_after=self.config.general.message_delete_after)])
             return
 
         for data in queue_copy:
             try:
                 playlist_item_id = self.__playlist_insert_item(playlist_id, data.webpage_url, data.title, data.uploader)
             except PlaylistMaxLength:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, 'Cannot add more items to playlist, already max size',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    'Cannot add more items to playlist, already max size',
+                    delete_after=self.config.general.message_delete_after)])
                 break
             if playlist_item_id:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Added item "{data.title}" to playlist', delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Added item "{data.title}" to playlist',
+                    delete_after=self.config.general.message_delete_after)])
                 continue
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Unable to add playlist item "{data.title}", likely already exists', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
-        message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-        message_context.function = partial(ctx.send, f'Finished adding items to playlist "{name}"', delete_after=self.config.general.message_delete_after)
-        self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Unable to add playlist item "{data.title}", likely already exists',
+                delete_after=self.config.general.message_delete_after)])
+        self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+            f'Finished adding items to playlist "{name}"',
+            delete_after=self.config.general.message_delete_after)])
         return
 
     async def __delete_non_existing_item(self, item_id: int):
@@ -2173,10 +2028,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             # Check if playlist is empty and provide user feedback
             if not playlist_items:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Playlist "{playlist_name}" contains no items to queue',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Playlist "{playlist_name}" contains no items to queue',
+                    delete_after=self.config.general.message_delete_after)])
                 return
 
             if shuffle:
@@ -2186,10 +2040,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             if max_num:
                 if max_num < 0:
-                    message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                    message_context.function = partial(ctx.send, f'Invalid number of videos {max_num}',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                        f'Invalid number of videos {max_num}',
+                        delete_after=self.config.general.message_delete_after)])
                     return
                 if max_num < len(playlist_items):
                     playlist_items = playlist_items[:max_num]
@@ -2204,10 +2057,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle, player=player)
 
             if not finished_all:
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
+                    delete_after=self.config.general.message_delete_after)])
 
             retry_database_commands(db_session, partial(database_functions.update_playlist_queued_at, db_session, playlist_id))
 
@@ -2275,39 +2127,37 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         playlist_one_id, is_history1 = await self.__get_playlist(playlist_index_one, ctx)
         playlist_two_id, is_history2  = await self.__get_playlist(playlist_index_two, ctx)
         if is_history1 or is_history2:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, 'Cannot merge history playlist, is reserved', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                'Cannot merge history playlist, is reserved',
+                delete_after=self.config.general.message_delete_after)])
             return
         if not playlist_one_id:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Cannot find playlist {playlist_index_one}', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Cannot find playlist {playlist_index_one}',
+                delete_after=self.config.general.message_delete_after)])
             return
         if not playlist_two_id:
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, f'Cannot find playlist {playlist_index_two}', delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                f'Cannot find playlist {playlist_index_two}',
+                delete_after=self.config.general.message_delete_after)])
             return
         with self.with_db_session() as db_session:
             for item in retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_two_id)):
                 try:
                     playlist_item_id = self.__playlist_insert_item(playlist_one_id, item.video_url, item.title, item.uploader)
                 except PlaylistMaxLength:
-                    message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                    message_context.function = partial(ctx.send, f'Cannot add more items to playlist "{playlist_one_id}", already max size', delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                        f'Cannot add more items to playlist "{playlist_one_id}", already max size',
+                        delete_after=self.config.general.message_delete_after)])
                     return
                 if playlist_item_id:
-                    message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                    message_context.function = partial(ctx.send, f'Added item "{item.title}" to playlist {playlist_index_one}',
-                                                       delete_after=self.config.general.message_delete_after)
-                    self.message_queue.send_single_immutable([message_context])
+                    self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                        f'Added item "{item.title}" to playlist {playlist_index_one}',
+                        delete_after=self.config.general.message_delete_after)])
                     continue
-                message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-                message_context.function = partial(ctx.send, f'Unable to add playlist item "{item.title}", likely already exists',
-                                                   delete_after=self.config.general.message_delete_after)
-                self.message_queue.send_single_immutable([message_context])
+                self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                    f'Unable to add playlist item "{item.title}", likely already exists',
+                    delete_after=self.config.general.message_delete_after)])
         await self.__playlist_delete(playlist_index_two)
 
     @command(name='random-play')
@@ -2353,6 +2203,5 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
                     f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, {minutes} minutes, and {seconds} seconds\n' \
                     f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
-            message_context = MessageContext(ctx.guild.id, ctx.channel.id)
-            message_context.function = partial(ctx.send, message, delete_after=self.config.general.message_delete_after)
-            self.message_queue.send_single_immutable([message_context])
+            self.dispatcher.send_single(ctx.guild.id, [partial(ctx.send,
+                message, delete_after=self.config.general.message_delete_after)])

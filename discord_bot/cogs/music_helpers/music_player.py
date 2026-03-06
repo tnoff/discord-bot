@@ -17,7 +17,6 @@ from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.message_queue import MessageQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
@@ -48,7 +47,7 @@ class MusicPlayer:
 
     def __init__(self, ctx: Context,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
-                 message_queue: MessageQueue,
+                 dispatcher,
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
                  broker: MediaBroker | None = None):
@@ -67,7 +66,7 @@ class MusicPlayer:
         self._play_queue: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
         self._history: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
         self.next: Event = Event()
-        self.message_queue: MessageQueue = message_queue
+        self.dispatcher = dispatcher
 
         # History playlist
         self.history_playlist_id: int = history_playlist_id
@@ -132,10 +131,9 @@ class MusicPlayer:
                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{media_download.webpage_url}"')
         self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
-        self.message_queue.update_multiple_mutable(
-            f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}',
-            self.text_channel
-        )
+        key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
+        self.dispatcher.update_mutable(key, self.guild.id,
+                                       self.get_queue_order_messages(), self.text_channel.id)
 
         await self.next.wait()
         self.np_message = ''
@@ -158,10 +156,9 @@ class MusicPlayer:
 
         # Make sure we delete queue messages if nothing left
         if self._play_queue.empty():
-            self.message_queue.update_multiple_mutable(
-                f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}',
-                self.text_channel
-            )
+            key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
+            self.dispatcher.update_mutable(key, self.guild.id,
+                                           self.get_queue_order_messages(), self.text_channel.id)
 
     def get_queue_order_messages(self):
         '''

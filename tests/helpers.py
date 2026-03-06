@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from discord_bot.database import BASE
-from discord_bot.cogs.music_helpers.message_context import MessageContext
+from discord_bot.cogs.message_dispatcher import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.search_client import SearchResult
@@ -307,6 +307,9 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
 
         def event(self, func: Callable) -> None:
             self.startup_functions.append(func)
+
+        def get_cog(self, _name: str) -> None:
+            return None
 
         def is_closed(self) -> bool:
             return self.bot_closed

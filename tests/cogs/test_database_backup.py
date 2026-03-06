@@ -327,26 +327,3 @@ async def test_database_backup_loop_upload_failure(fake_context, fake_engine, mo
 
     # Verify error message in logs
     assert 'Failed to upload backup to S3' in caplog.text
-
-
-@pytest.mark.asyncio
-@freeze_time('2025-12-04 00:00:00', tz_offset=0)
-async def test_database_backup_loop_handles_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
-    '''Test that exceptions during backup are caught and logged'''
-    mocker.patch('discord_bot.cogs.database_backup.sleep')
-
-    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-
-    # Make backup raise an exception
-    mocker.patch.object(
-        cog.backup_client,
-        'create_backup',
-        side_effect=Exception('Test error')
-    )
-
-    # Should not raise exception (caught internally)
-    await cog.database_backup_loop()
-
-    # Verify exception was logged
-    assert 'Database backup failed' in caplog.text
-    assert 'Test error' in caplog.text

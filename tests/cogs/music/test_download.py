@@ -1,5 +1,6 @@
 from functools import partial
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -47,6 +48,7 @@ async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disab
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], config, fake_engine)
+            cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
             await cog.download_files()
@@ -68,6 +70,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], config, fake_engine)
+            cog.dispatcher = MagicMock()
             cog.video_cache.iterate_file(sd)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
