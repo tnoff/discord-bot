@@ -3,6 +3,7 @@ from typing import List
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from spotipy import Spotify
+from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -14,7 +15,8 @@ class SpotifyClient():
     '''
     def __init__(self, client_id: str, client_secret: str):
         auth_manager = SpotifyClientCredentials(client_id=client_id,
-                                                client_secret=client_secret)
+                                                client_secret=client_secret,
+                                                cache_handler=MemoryCacheHandler())
         self.client = Spotify(auth_manager=auth_manager)
 
 
