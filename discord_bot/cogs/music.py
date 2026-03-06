@@ -1031,7 +1031,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug(f'Cleanup found {len(pending_items)} existing search queue items')
 
             # Clear all bundles
-            for uuid, item in self.multirequest_bundles.items():
+            for uuid, item in list(self.multirequest_bundles.items()):
                 if int(item.guild_id) != int(guild.id):
                     continue
                 self.logger.debug(f'Calling shutdown on media request bundle {uuid}, was associated with guild {guild.id}')
