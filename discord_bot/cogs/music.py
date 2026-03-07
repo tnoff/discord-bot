@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from time import time
 from typing import List, Optional
 
-from dappertable import shorten_string, DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
+from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord import VoiceChannel, TextChannel
 from opentelemetry.trace import SpanKind
@@ -1361,11 +1361,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         headers = [
-            DapperTableHeader('Pos', 3, zero_pad_index=True),
-            DapperTableHeader('Title', 40),
-            DapperTableHeader('Uploader', 40)
+            Column('Pos', 3, zero_pad=True),
+            Column('Title', 40),
+            Column('Uploader', 40)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                             enclosure_start='```', enclosure_end='```', prefix='History\n')
         table_items = player.get_history_items()
         for (count, item) in enumerate(table_items):
@@ -1375,7 +1375,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'{item.title}',
                 f'{uploader}',
             ])
-        messages = table.print()
+        messages = table.render()
         self.dispatcher.send_single(ctx.guild.id,
             [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
              for mess in messages])
@@ -1667,11 +1667,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 playlist_items = [history_playlist] + [i for i in playlist_items]
 
             headers = [
-                DapperTableHeader('ID', 3),
-                DapperTableHeader('Playlist Name', 64),
-                DapperTableHeader('Last Queued', 20),
+                Column('ID', 3),
+                Column('Playlist Name', 64),
+                Column('Last Queued', 20),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+            table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                                 enclosure_start='```', enclosure_end='```', prefix='Playlist List\n')
             for (count, item) in enumerate(playlist_items):
                 last_queued = 'N/A'
@@ -1685,7 +1685,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     name,
                     last_queued,
                 ])
-            messages = table.print()
+            messages = table.render()
             self.dispatcher.send_single(ctx.guild.id,
                 [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
                  for mess in messages])
@@ -1826,11 +1826,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         with self.with_db_session() as db_session:
             headers = [
-                DapperTableHeader('Pos', 3, zero_pad_index=True),
-                DapperTableHeader('Title', 32),
-                DapperTableHeader('Uploader', 32),
+                Column('Pos', 3, zero_pad=True),
+                Column('Title', 32),
+                Column('Uploader', 32),
             ]
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+            table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                                 enclosure_start='```', enclosure_end='```', prefix=f'Playlist {playlist_index} Items\n')
             total = 0
             for (count, item) in enumerate(retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id))): #pylint:disable=protected-access
@@ -1846,7 +1846,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     f'No items in playlist {playlist_id}',
                     delete_after=self.config.general.message_delete_after)])
                 return
-            messages = table.print()
+            messages = table.render()
             self.dispatcher.send_single(ctx.guild.id,
                 [partial(ctx.send, mess, delete_after=self.config.general.message_delete_after)
                  for mess in messages])

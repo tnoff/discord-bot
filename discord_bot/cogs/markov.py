@@ -5,7 +5,7 @@ from random import choice
 from re import match, sub, MULTILINE
 from typing import Optional, List
 
-from dappertable import DapperTable, DapperTableHeaderOptions, DapperTableHeader, PaginationLength
+from dappertable import DapperTable, Columns, Column, PaginationLength
 from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
 from discord.errors import NotFound, DiscordServerError
@@ -334,14 +334,14 @@ class Markov(CogHelper):
                 return await self.dispatch_message(ctx, 'Markov not enabled for any channels in server')
 
             headers = [
-                DapperTableHeader('Channel', 64),
+                Column('Channel', 64),
             ]
 
-            table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+            table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                                 prefix='Channel List \n')
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
-            for output in table.print():
+            for output in table.render():
                 await self.dispatch_message(ctx, output)
             return True
 
