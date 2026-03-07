@@ -5,7 +5,6 @@ from itertools import islice
 from re import match
 import random
 from time import time
-from typing import List
 
 from googleapiclient.errors import HttpError
 from opentelemetry.trace import SpanKind
@@ -56,6 +55,7 @@ def check_youtube_video(search: str) -> bool:
     youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
     return youtube_short_match or youtube_video_match
 
+
 @dataclass
 class SearchResult():
     '''
@@ -64,8 +64,6 @@ class SearchResult():
     search_type: SearchType
     # Original search string given before any processing
     raw_search_string: str
-    # If generated from a playlist/album
-    multi_search_input: str = None
     # If from an api source where we know a better name for processing
     proper_name: str = None
     # Search string after youtube music search, if given
@@ -85,6 +83,14 @@ class SearchResult():
         if self.youtube_music_search_string:
             return self.youtube_music_search_string
         return self.raw_search_string
+
+@dataclass
+class SearchCollection():
+    '''
+    Collection of Search Results
+    '''
+    search_results: list[SearchResult]
+    collection_name: str = None
 
 class SearchClient():
     '''
@@ -126,7 +132,7 @@ class SearchClient():
         '''
         return self.youtube_client.playlist_get(playlist_id)
 
-    async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> List[SearchResult]:
+    async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> SearchCollection:
         '''
         Create source types
 
@@ -173,8 +179,8 @@ class SearchClient():
                 collection_name = catalog_result.collection_name or search.replace(' shuffle', '')
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(SearchType.SPOTIFY, item.search_string, collection_name, item.title))
-                return results
+                    results.append(SearchResult(SearchType.SPOTIFY, item.search_string, item.title))
+                return SearchCollection(results, collection_name)
 
             if youtube_playlist_matcher:
                 if not self.youtube_client:
@@ -192,35 +198,35 @@ class SearchClient():
                     random.shuffle(catalog_result.items)
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item.search_string, catalog_result.collection_name, item.title))
-                return results
+                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item.search_string, item.title))
+                return SearchCollection(results, catalog_result.collection_name)
 
             if youtube_short_match:
-                return [SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}', None)]
+                return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}', None)])
 
             if youtube_video_match:
-                return [SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)]
+                return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)])
 
             if FXTWITTER_VIDEO_PREFIX in search:
-                return [SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)]
+                return SearchCollection([SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)])
 
             # If we have https:// in url, assume its a direct
             if 'https://' in search:
-                return [SearchResult(SearchType.DIRECT, search, None)]
+                return SearchCollection([SearchResult(SearchType.DIRECT, search, None)])
 
             # Else assume this was a search message to put into youtube music
-            return [SearchResult(SearchType.SEARCH, search, None)]
+            return SearchCollection([SearchResult(SearchType.SEARCH, search, None)])
 
     async def check_source(self, search: str, loop: AbstractEventLoop,
-                           max_results: int) -> List[SearchResult]:
+                           max_results: int) -> SearchCollection:
         '''
         Generate sources from input
 
         search : Search string
         max_results : Max results of items
         '''
-        search_results = await self.__check_source_types(search, loop)
+        collection = await self.__check_source_types(search, loop)
         if max_results is not None:
-            search_results = list(islice(search_results, max_results))
+            collection.search_results = list(islice(collection.search_results, max_results))
 
-        return search_results
+        return collection
