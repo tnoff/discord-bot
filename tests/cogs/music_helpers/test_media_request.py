@@ -24,15 +24,15 @@ def test_media_request_display_name_default(fake_context):  #pylint:disable=rede
     assert x.display_name == x.search_result.raw_search_string
 
 def test_media_request_display_name_override(fake_context):  #pylint:disable=redefined-outer-name
-    """display_name_override takes precedence over raw_search_string"""
+    """proper_name takes precedence over raw_search_string"""
     x = fake_source_dict(fake_context)
-    x.display_name_override = 'My Custom Title'
+    x.search_result.proper_name = 'My Custom Title'
     assert x.display_name == 'My Custom Title'
 
 def test_media_request_display_name_used_in_bundle_rows(fake_context):  #pylint:disable=redefined-outer-name
-    """display_name_override is shown in bundle table rows instead of raw search string"""
+    """proper_name is shown in bundle table rows instead of raw search string"""
     x = fake_source_dict(fake_context)
-    x.display_name_override = 'Override Title'
+    x.search_result.proper_name = 'Override Title'
     b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     b.set_initial_search('playlist')
     b.add_media_request(x)

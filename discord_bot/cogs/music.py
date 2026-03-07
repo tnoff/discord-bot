@@ -26,7 +26,7 @@ from yt_dlp.postprocessor import PostProcessor
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
-from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
 from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
@@ -51,6 +51,7 @@ from discord_bot.utils.clients.youtube_music import YoutubeMusicClient, YoutubeM
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER
+from discord_bot.utils.clients.common import YOUTUBE_VIDEO_PREFIX
 
 # GLOBALS
 
@@ -2013,15 +2014,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             playlist_items = []
             for item in retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id)):
                 search_result = SearchResult(SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                             item.video_url)
+                                             item.video_url, playlist_name, item.title)
                 media_request = MediaRequest(ctx.guild.id,
                                              ctx.channel.id,
                                              ctx.author.display_name,
                                              ctx.author.id,
                                              search_result,
                                              added_from_history=is_history,
-                                             history_playlist_item_id=item.id,
-                                             display_name_override=item.title)
+                                             history_playlist_item_id=item.id)
                 media_request.state_machine.set_on_change(self._on_request_state_change)
                 self.media_broker.register_request(media_request)
                 playlist_items.append(media_request)

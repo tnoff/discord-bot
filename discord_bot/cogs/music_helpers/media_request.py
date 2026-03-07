@@ -61,8 +61,6 @@ class MediaRequest():
     uuid: str = field(default_factory=lambda: f'request.{uuid4()}')
     # Track bundle uuid later on
     bundle_uuid: str = None
-    # Usually for playlist items, cleaner to show in media bundles
-    display_name_override: str = None
 
     # Track lifecycle stage
     lifecycle_stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
@@ -91,7 +89,7 @@ class MediaRequest():
         '''
         Show proper display name for UI functions
         '''
-        return self.display_name_override or discord_format_string_embed(self.search_result.raw_search_string)
+        return self.search_result.proper_name or discord_format_string_embed(self.search_result.raw_search_string)
 
 class MediaRequestStateMachine:
     '''

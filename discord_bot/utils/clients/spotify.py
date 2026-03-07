@@ -7,6 +7,7 @@ from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 
+from discord_bot.utils.clients.common import CatalogResponse, CatalogItem
 from discord_bot.utils.otel import otel_span_wrapper, ThirdPartyNaming
 
 class SpotifyClient():
@@ -20,7 +21,7 @@ class SpotifyClient():
         self.client = Spotify(auth_manager=auth_manager)
 
 
-    def __get_response_items(self, resp: List[dict]) -> List[dict]:
+    def __get_response_items(self, resp: List[dict]) -> List[CatalogItem]:
         '''
         Get items from spotify response
 
@@ -34,15 +35,12 @@ class SpotifyClient():
             except KeyError:
                 track = item
 
-            items.append({
-                'track_name': track['name'],
-                'track_artists': ' '.join(i['name'] for i in track['artists'])
-            })
+            items.append(CatalogItem(f'{track["name"]} {" ".join(i["name"] for i in track["artists"])}', track['name']))
         return items
 
 
     def playlist_get(self, playlist_id: str,
-                     pagination_limit: int = 50) -> List[dict]:
+                     pagination_limit: int = 50) -> CatalogResponse:
         '''
         Get all playlist tracks
 
@@ -70,13 +68,13 @@ class SpotifyClient():
                 items += self.__get_response_items(resp['items'])
                 try:
                     if not resp['next']:
-                        return items, playlist_name
+                        return CatalogResponse(items, playlist_name)
                 except KeyError:
-                    return items
+                    return CatalogResponse(items, playlist_name)
                 offset += pagination_limit
 
     def album_get(self, album_id: str,
-                  pagination_limit: int = 50) -> List[dict]:
+                  pagination_limit: int = 50) -> CatalogResponse:
         '''
         Get all album tracks
         
@@ -102,10 +100,10 @@ class SpotifyClient():
                     raise exc
                 items += self.__get_response_items(resp['items'])
                 if not resp['next']:
-                    return items, album_name
+                    return CatalogResponse(items, album_name)
                 offset += pagination_limit
 
-    def track_get(self, track_id: str) -> List[dict]:
+    def track_get(self, track_id: str) -> CatalogResponse:
         '''
         Get single track
 
@@ -113,4 +111,5 @@ class SpotifyClient():
         '''
         with otel_span_wrapper('spotify.track_get', attributes={ThirdPartyNaming.SPOTIFY_TRACK.value: track_id}, kind=SpanKind.CLIENT):
             resp = self.client.track(track_id)
-            return self.__get_response_items([resp])
+            item =  self.__get_response_items([resp])
+            return CatalogResponse(item)
