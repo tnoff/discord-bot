@@ -258,10 +258,10 @@ class MultiMediaRequestBundle():
         if not self.has_search_banner:
             self.table.edit_row(0, '')
 
-        self.row_collections = self.table.get_paginated_rows()
+        self.row_collections = self.table.get_pages()
 
         # Build mapping from table_index to (collection_idx, row_idx)
-        # DapperTable.get_paginated_rows() returns a list of lists of DapperRow objects
+        # DapperTable.get_pages() returns a list of lists of DapperRow objects
         # We need to map each table_index to its position in the paginated structure
 
         # First, build a flat list of all row indices across all collections
@@ -482,10 +482,10 @@ class MultiMediaRequestBundle():
         self.update_request_status()
         # If row_collections hasn't been built yet, we're still in search phase
         if not self.row_collections:
-            return self.table.print()
+            return self.table.render()
 
         # Use cached row_collections for stable pagination
-        result_strings = [self.table.print_rows(rc) for rc in self.row_collections]
+        result_strings = [self.table.format_page(rc) for rc in self.row_collections]
         # Remove blanks from output
         result_strings = [i for i in result_strings if i != '']
         return result_strings
@@ -515,7 +515,7 @@ class MultiMediaRequestBundle():
             # Mark as sent so we don't send it again
             req.failure_reason_sent = True
 
-        return t.print()
+        return t.render()
 
     def get_retry_summary(self, download_max_retries: int, search_max_retries: int):
         '''

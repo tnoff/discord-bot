@@ -7,7 +7,7 @@ from time import time
 from typing import List
 
 from async_timeout import timeout
-from dappertable import DapperTable, DapperTableHeader, DapperTableHeaderOptions, PaginationLength
+from dappertable import DapperTable, Column, Columns, PaginationLength
 from discord import FFmpegPCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
@@ -171,12 +171,12 @@ class MusicPlayer:
         if not queue_items:
             return items
         headers = [
-            DapperTableHeader('Pos', 3, zero_pad_index=True),
-            DapperTableHeader('Wait Time', 9),
-            DapperTableHeader('Title', 48),
-            DapperTableHeader('Uploader', 48)
+            Column('Pos', 3, zero_pad=True),
+            Column('Wait Time', 9),
+            Column('Title', 48),
+            Column('Uploader', 48)
         ]
-        table = DapperTable(header_options=DapperTableHeaderOptions(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                             enclosure_start='```', enclosure_end='```')
         duration = 0
         # The now playing message should show as a distinct message since you want the embed of the video played right under that message
@@ -195,7 +195,7 @@ class MusicPlayer:
                 f'{uploader}',
             ])
         # Manually add code block formatting to table output
-        table_output = table.print()
+        table_output = table.render()
         if not isinstance(table_output, list):
             table_output = [table_output]
         return items + table_output
