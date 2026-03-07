@@ -8,7 +8,7 @@ import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.search_client import SearchResult
+from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchCollection
 
 from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -43,8 +43,8 @@ def yield_fake_search_client(media_request: MediaRequest = None):
                     media_request.search_result.search_type,
                     media_request.search_result.raw_search_string
                 )
-                return [search_result]
-            return []
+                return SearchCollection([search_result])
+            return SearchCollection([])
 
     return FakeSearchClient
 
@@ -93,7 +93,7 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
                     media_request.search_result.raw_search_string
                 )
                 search_results.append(search_result)
-            return search_results
+            return SearchCollection(search_results)
 
     return FakeSearchClient
 

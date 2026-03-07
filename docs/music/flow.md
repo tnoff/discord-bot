@@ -123,7 +123,7 @@ For each track:
     - Get track name and artist(s)
     - Create SearchResult with search_type=SPOTIFY
     - Format as "Artist - Track Name"
-    - Store multi_search_input (playlist/album name)
+    - Store collection_name (playlist/album name)
 ```
 
 **YouTube Playlist**:
@@ -133,7 +133,7 @@ youtube_client.get_playlist_items()
 For each video:
     - Get video URL
     - Create SearchResult with search_type=YOUTUBE_PLAYLIST
-    - Store multi_search_input (playlist name)
+    - Store collection_name (playlist name)
 ```
 
 **Single Track**:
@@ -251,7 +251,7 @@ For each PlaylistItem:
         search_string=item.video_url,
         raw_search_string=item.video_url,
         search_type=YOUTUBE or DIRECT,
-        multi_search_input=playlist_name,
+        collection_name=playlist_name,
         proper_name=item.title,
         added_from_history=is_history,
         history_playlist_item_id=item.id,

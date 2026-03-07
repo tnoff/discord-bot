@@ -1228,7 +1228,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                        sticky=False, delete_after=delete_after)
 
         try:
-            search_results = await self.search_client.check_source(search, self.bot.loop,
+            collection = await self.search_client.check_source(search, self.bot.loop,
                                                                    self.config.player.queue_max_size)
         except SearchException as exc:
             self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
@@ -1244,7 +1244,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         # If multiple items, delete original search and generate new one
-        if len(search_results) > 1:
+        if collection.collection_name:
             bundle.shutdown()
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
             content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
@@ -1252,15 +1252,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                            sticky=False, delete_after=delete_after)
             bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
             self.multirequest_bundles[bundle.uuid] = bundle
-            multi_search = search_results[0].multi_search_input or search
-            bundle.set_multi_input_request(multi_search)
+            bundle.set_multi_input_request(collection.collection_name)
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
             content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
             self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
 
         media_requests = []
-        for search_result in search_results:
+        for search_result in collection.search_results:
             mr = MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
                               search_result)
             mr.state_machine.set_on_change(self._on_request_state_change)
@@ -2014,7 +2013,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             playlist_items = []
             for item in retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id)):
                 search_result = SearchResult(SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                             item.video_url, playlist_name, item.title)
+                                             item.video_url, proper_name=item.title)
                 media_request = MediaRequest(ctx.guild.id,
                                              ctx.channel.id,
                                              ctx.author.display_name,
