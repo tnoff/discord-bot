@@ -251,16 +251,17 @@ For each PlaylistItem:
         search_string=item.video_url,
         raw_search_string=item.video_url,
         search_type=YOUTUBE or DIRECT,
+        multi_search_input=playlist_name,
+        proper_name=item.title,
         added_from_history=is_history,
         history_playlist_item_id=item.id,
-        display_name_override=item.title
     )
 ```
 
 **Key Differences from `!play`**:
 - `search_string` is already a YouTube URL (from database)
 - `added_from_history` flag prevents re-adding to history
-- `display_name_override` uses stored title instead of search string
+- `proper_name` on `SearchResult` uses stored title instead of search string for display
 - `history_playlist_item_id` tracks which history item to delete if requested
 
 ---

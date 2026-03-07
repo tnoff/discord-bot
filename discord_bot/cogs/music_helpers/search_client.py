@@ -12,10 +12,11 @@ from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
-from discord_bot.cogs.music_helpers.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.utils.clients.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
+from discord_bot.utils.clients.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.utils.clients.spotify import SpotifyClient
 from discord_bot.utils.clients.youtube import YoutubeClient
+from discord_bot.utils.clients.common import CatalogResponse
 from discord_bot.utils.otel import otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -65,6 +66,8 @@ class SearchResult():
     raw_search_string: str
     # If generated from a playlist/album
     multi_search_input: str = None
+    # If from an api source where we know a better name for processing
+    proper_name: str = None
     # Search string after youtube music search, if given
     youtube_music_search_string: str = None
 
@@ -97,7 +100,7 @@ class SearchClient():
         self.spotify_client: SpotifyClient | None = spotify_client
         self.youtube_client: YoutubeClient | None = youtube_client
 
-    def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None):
+    def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None) -> CatalogResponse:
         '''
         Get search strings from spotify
 
@@ -107,32 +110,21 @@ class SearchClient():
         '''
         assert playlist_id or album_id or track_id, 'Playlist or album id must be passed'
 
-        data = []
-        name = None
         if playlist_id:
-            data, name = self.spotify_client.playlist_get(playlist_id)
+            return self.spotify_client.playlist_get(playlist_id)
         if album_id:
-            data, name = self.spotify_client.album_get(album_id)
+            return self.spotify_client.album_get(album_id)
         if track_id:
-            data = self.spotify_client.track_get(track_id)
+            return self.spotify_client.track_get(track_id)
+        return None
 
-        search_strings = []
-        for item in data:
-            search_string = f'{item["track_name"]} {item["track_artists"]}'
-            search_strings.append(search_string)
-        return search_strings, name
-
-    def __check_youtube_source(self, playlist_id: str):
+    def __check_youtube_source(self, playlist_id: str) -> CatalogResponse:
         '''
         Generate youtube sources
 
         playlist_id : ID of youtube playlist
         '''
-        items = []
-        playlist_items, playlist_name = self.youtube_client.playlist_get(playlist_id)
-        for item in playlist_items:
-            items.append(f'{YOUTUBE_VIDEO_PREFIX}{item}')
-        return items, playlist_name
+        return self.youtube_client.playlist_get(playlist_id)
 
     async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> List[SearchResult]:
         '''
@@ -152,7 +144,6 @@ class SearchClient():
             if spotify_playlist_matcher or spotify_album_matcher or spotify_track_matcher:
                 if not self.spotify_client:
                     raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
-                search_string_message = search.replace(' shuffle', '')
                 spotify_args = {}
                 should_shuffle = False
                 if spotify_album_matcher:
@@ -166,7 +157,7 @@ class SearchClient():
 
                 to_run = partial(self.__check_spotify_source, **spotify_args)
                 try:
-                    search_strings, name = await loop.run_in_executor(None, to_run)
+                    catalog_result = await loop.run_in_executor(None, to_run)
                 except SpotifyOauthError as e:
                     message = 'Issue gathering info from spotify, credentials seem invalid'
                     raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
@@ -178,31 +169,30 @@ class SearchClient():
                 if should_shuffle:
                     # https://stackoverflow.com/a/51295230
                     random.seed(time())
-                    random.shuffle(search_strings)
-                spotify_search_original = search_string_message if name is None else name
+                    random.shuffle(catalog_result.items)
+                collection_name = catalog_result.collection_name or search.replace(' shuffle', '')
                 results = []
-                for item in search_strings:
-                    results.append(SearchResult(SearchType.SPOTIFY, item, spotify_search_original))
+                for item in catalog_result.items:
+                    results.append(SearchResult(SearchType.SPOTIFY, item.search_string, collection_name, item.title))
                 return results
 
             if youtube_playlist_matcher:
                 if not self.youtube_client:
                     raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
 
-                search_string_message = search.replace(' shuffle', '')
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
                 to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
                 try:
-                    search_strings, playlist_name = await loop.run_in_executor(None, to_run)
+                    catalog_result = await loop.run_in_executor(None, to_run)
                 except HttpError as e:
                     raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
                 if should_shuffle:
                     # https://stackoverflow.com/a/51295230
                     random.seed(time())
-                    random.shuffle(search_strings)
+                    random.shuffle(catalog_result.items)
                 results = []
-                for item in search_strings:
-                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item, playlist_name))
+                for item in catalog_result.items:
+                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item.search_string, catalog_result.collection_name, item.title))
                 return results
 
             if youtube_short_match:

@@ -79,15 +79,17 @@ def google_api_build_with_page(_typer, _version, developerKey=None): #pylint:dis
 def test_youtube_playlist_get(mocker):
     mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build)
     x = YoutubeClient('foo')
-    res, name = x.playlist_get('1234')
-    assert len(res) == 2
-    assert res[0] == '1234ABC'
-    assert name == 'Example Playlist'
+    result = x.playlist_get('1234')
+    assert len(result.items) == 2
+    assert '1234ABC' in result.items[0].search_string
+    assert result.items[0].title == 'Episode 0'
+    assert result.collection_name == 'Example Playlist'
 
 def test_youtube_playlist_get_with_page_token(mocker):
     mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build_with_page)
     x = YoutubeClient('foo')
-    res, name = x.playlist_get('1234')
-    assert len(res) == 2
-    assert res[0] == '1234ABC'
-    assert name == 'Example Playlist'
+    result = x.playlist_get('1234')
+    assert len(result.items) == 2
+    assert '1234ABC' in result.items[0].search_string
+    assert result.items[0].title == 'Episode 0'
+    assert result.collection_name == 'Example Playlist'

@@ -6,6 +6,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult, check_youtube_video
+from discord_bot.utils.clients.common import CatalogResponse, CatalogItem, YOUTUBE_VIDEO_PREFIX
 
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
 
@@ -15,28 +16,13 @@ class MockSpotifyClient():
         pass
 
     def album_get(self, _album_id):
-        return [
-            {
-                'track_name': 'foo track',
-                'track_artists': 'foo artists',
-            }
-        ], 'Mock Album Name'
+        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Album Name')
 
     def playlist_get(self, _playlist_id):
-        return [
-            {
-                'track_name': 'foo track',
-                'track_artists': 'foo artists',
-            }
-        ], 'Mock Playlist Name'
+        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Playlist Name')
 
     def track_get(self, _track_id):
-        return [
-            {
-                'track_name': 'foo track',
-                'track_artists': 'foo artists',
-            }
-        ]
+        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')])
 
 class MockSpotifyRaise():
     def __init__(self):
@@ -57,9 +43,7 @@ class MockYoutubeClient():
         pass
 
     def playlist_get(self, _playlist_id):
-        return [
-            'aaaaaaaaaaaaaa'
-        ], 'Mock YouTube Playlist'
+        return CatalogResponse([CatalogItem(f'{YOUTUBE_VIDEO_PREFIX}aaaaaaaaaaaaaa', 'foo title')], 'Mock YouTube Playlist')
 
 class MockResponse():
     def __init__(self):

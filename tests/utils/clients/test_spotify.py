@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 from spotipy.exceptions import SpotifyException
 
+from discord_bot.utils.clients.common import CatalogResponse
 from discord_bot.utils.clients.spotify import SpotifyClient
 
 class MockSpotify():
@@ -85,22 +86,22 @@ def test_spotify_playlist_get(mocker):
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
-    result, name = s.playlist_get('foo')
-    assert len(result) == 2
-    assert result[0]['track_artists'] == 'artist1 artist2'
-    assert result[0]['track_name'] == 'Example Song'
-    assert name == 'Example Playlist'
+    result = s.playlist_get('foo')
+    assert len(result.items) == 2
+    assert result.items[0].title == 'Example Song'
+    assert result.items[0].search_string == 'Example Song artist1 artist2'
+    assert result.collection_name == 'Example Playlist'
 
 def test_spotify_album_get(mocker):
     mock_spotify_instance = MockSpotify()
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
-    result, name = s.album_get('foo')
-    assert len(result) == 2
-    assert result[0]['track_artists'] == 'artist1 artist2'
-    assert result[0]['track_name'] == 'Example Song'
-    assert name == 'Example Artist - Example Album'
+    result = s.album_get('foo')
+    assert len(result.items) == 2
+    assert result.items[0].title == 'Example Song'
+    assert result.items[0].search_string == 'Example Song artist1 artist2'
+    assert result.collection_name == 'Example Artist - Example Album'
 
 def test_spotify_track_get(mocker):
     mock_spotify_instance = MockSpotify()
@@ -108,8 +109,8 @@ def test_spotify_track_get(mocker):
 
     s = SpotifyClient('foo', 'bar')
     result = s.track_get('foo')
-    assert result[0]['track_artists'] == 'artist1 artist2'
-    assert result[0]['track_name'] == 'Example Song'
+    assert result.items[0].title == 'Example Song'
+    assert result.items[0].search_string == 'Example Song artist1 artist2'
 
 
 class MockSpotifyWith404():
@@ -267,10 +268,9 @@ def test_spotify_playlist_get_missing_next_key(mocker):
     s = SpotifyClient('foo', 'bar')
 
     result = s.playlist_get('foo')
-    # Should return just items list without playlist_name when KeyError occurs
-    assert isinstance(result, list)  # Returns list instead of tuple
-    assert len(result) == 1  # Should have one track
-    assert result[0]['track_name'] == 'Example Song'
+    assert isinstance(result, CatalogResponse)
+    assert len(result.items) == 1
+    assert result.items[0].title == 'Example Song'
 
 
 def test_spotify_album_get_404_on_album_info(mocker):
@@ -330,11 +330,11 @@ def test_spotify_track_parsing_without_track_wrapper(mocker):
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
-    result, name = s.album_get('foo')
-    assert len(result) == 1
-    assert result[0]['track_name'] == 'Direct Song'
-    assert result[0]['track_artists'] == 'direct_artist1 direct_artist2'
-    assert name == 'Direct Artist - Direct Album'
+    result = s.album_get('foo')
+    assert len(result.items) == 1
+    assert result.items[0].title == 'Direct Song'
+    assert result.items[0].search_string == 'Direct Song direct_artist1 direct_artist2'
+    assert result.collection_name == 'Direct Artist - Direct Album'
 
 
 class MockSpotifyCustomPagination():
@@ -382,11 +382,11 @@ def test_spotify_playlist_get_custom_pagination_limit(mocker):
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
-    result, name = s.playlist_get('foo', pagination_limit=10)
-    assert len(result) == 20  # 2 pages * 10 items each
-    assert name == 'Paginated Playlist'
-    assert result[0]['track_name'] == 'Song 0'
-    assert result[10]['track_name'] == 'Song 10'
+    result = s.playlist_get('foo', pagination_limit=10)
+    assert len(result.items) == 20  # 2 pages * 10 items each
+    assert result.collection_name == 'Paginated Playlist'
+    assert result.items[0].title == 'Song 0'
+    assert result.items[10].title == 'Song 10'
 
 
 def test_spotify_album_get_custom_pagination_limit(mocker):
@@ -395,11 +395,11 @@ def test_spotify_album_get_custom_pagination_limit(mocker):
     mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
-    result, name = s.album_get('foo', pagination_limit=10)
-    assert len(result) == 20  # 2 pages * 10 items each
-    assert name == 'Paginated Artist - Paginated Album'
-    assert result[0]['track_name'] == 'Album Song 0'
-    assert result[10]['track_name'] == 'Album Song 10'
+    result = s.album_get('foo', pagination_limit=10)
+    assert len(result.items) == 20  # 2 pages * 10 items each
+    assert result.collection_name == 'Paginated Artist - Paginated Album'
+    assert result.items[0].title == 'Album Song 0'
+    assert result.items[10].title == 'Album Song 10'
 
 
 # Integration tests that actually execute SpotifyClient code
@@ -426,12 +426,12 @@ def test_spotify_client_integration_playlist_success():
 
         # This will actually execute SpotifyClient code
         client = SpotifyClient('test_id', 'test_secret')
-        result, name = client.playlist_get('test_playlist_id')
+        result = client.playlist_get('test_playlist_id')
 
-        assert len(result) == 1
-        assert result[0]['track_name'] == 'Test Song'
-        assert result[0]['track_artists'] == 'Test Artist'
-        assert name == 'Test Playlist'
+        assert len(result.items) == 1
+        assert result.items[0].title == 'Test Song'
+        assert result.items[0].search_string == 'Test Song Test Artist'
+        assert result.collection_name == 'Test Playlist'
 
 
 def test_spotify_client_integration_album_success():
@@ -455,12 +455,12 @@ def test_spotify_client_integration_album_success():
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
-        result, name = client.album_get('test_album_id')
+        result = client.album_get('test_album_id')
 
-        assert len(result) == 1
-        assert result[0]['track_name'] == 'Album Song'
-        assert result[0]['track_artists'] == 'Album Artist'
-        assert name == 'Test Album Artist - Test Album'
+        assert len(result.items) == 1
+        assert result.items[0].title == 'Album Song'
+        assert result.items[0].search_string == 'Album Song Album Artist'
+        assert result.collection_name == 'Test Album Artist - Test Album'
 
 
 def test_spotify_client_integration_track_success():
@@ -477,9 +477,9 @@ def test_spotify_client_integration_track_success():
         client = SpotifyClient('test_id', 'test_secret')
         result = client.track_get('test_track_id')
 
-        assert len(result) == 1
-        assert result[0]['track_name'] == 'Single Track'
-        assert result[0]['track_artists'] == 'Single Artist'
+        assert len(result.items) == 1
+        assert result.items[0].title == 'Single Track'
+        assert result.items[0].search_string == 'Single Track Single Artist'
 
 
 def test_spotify_client_integration_playlist_404_error():
@@ -600,10 +600,9 @@ def test_spotify_client_integration_keyerror_handling():
         client = SpotifyClient('test_id', 'test_secret')
         result = client.playlist_get('test_playlist_id')
 
-        # Should return just items list when KeyError occurs (no playlist name)
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]['track_name'] == 'Test Song'
+        assert isinstance(result, CatalogResponse)
+        assert len(result.items) == 1
+        assert result.items[0].title == 'Test Song'
 
 
 def test_spotify_client_integration_track_without_wrapper():
@@ -628,12 +627,12 @@ def test_spotify_client_integration_track_without_wrapper():
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
-        result, name = client.album_get('test_album_id')
+        result = client.album_get('test_album_id')
 
-        assert len(result) == 1
-        assert result[0]['track_name'] == 'Direct Song'
-        assert result[0]['track_artists'] == 'Direct Artist'
-        assert name == 'Test Album Artist - Test Album'
+        assert len(result.items) == 1
+        assert result.items[0].title == 'Direct Song'
+        assert result.items[0].search_string == 'Direct Song Direct Artist'
+        assert result.collection_name == 'Test Album Artist - Test Album'
 
 
 def test_spotify_client_integration_pagination():
@@ -676,9 +675,9 @@ def test_spotify_client_integration_pagination():
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
-        result, name = client.playlist_get('test_playlist_id', pagination_limit=10)
+        result = client.playlist_get('test_playlist_id', pagination_limit=10)
 
-        assert len(result) == 15  # 10 + 5 items from two pages
-        assert name == 'Paginated Playlist'
-        assert result[0]['track_name'] == 'Song 0'
-        assert result[14]['track_name'] == 'Song 14'
+        assert len(result.items) == 15  # 10 + 5 items from two pages
+        assert result.collection_name == 'Paginated Playlist'
+        assert result.items[0].title == 'Song 0'
+        assert result.items[14].title == 'Song 14'
