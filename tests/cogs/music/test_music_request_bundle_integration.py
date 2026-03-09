@@ -1416,3 +1416,29 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
     await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
 
     assert len(cog.multirequest_bundles) == 0
+
+
+@pytest.mark.asyncio
+async def test_enqueue_media_requests_all_cache_hits_counted_in_bundle(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Regression test: when all media requests are cache hits they should still be
+    registered in the bundle so that the final status banner shows N/N instead of 0/0.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_multi_input_request('Layla And Other Assorted Love Songs')
+
+    # Use direct URLs so requests bypass the YouTube music search queue and go through cache check
+    requests = [fake_source_dict(fake_context, is_direct_search=True) for _ in range(3)]
+
+    # Simulate all requests being cache hits - returns True without downloading
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=True)
+
+    await cog.enqueue_media_requests(fake_context['context'], requests, bundle)
+
+    assert bundle.total == 3
+    assert bundle.completed == 3
+    assert bundle.finished is True

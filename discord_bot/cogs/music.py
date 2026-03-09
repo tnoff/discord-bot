@@ -1182,21 +1182,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     break
                 continue
             # Else directly add to download queue
-            if not await self._enqueue_media_download_from_cache(media_request, player=player):
-                try:
-                    self.download_queue.put_nowait(media_request.guild_id, media_request)
-                    media_request.state_machine.mark_queued()
-                    bundle.add_media_request(media_request)
-                except PutsBlocked:
-                    # Call bundle shutdown just in case
-                    bundle.shutdown()
-                    self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                    return False
-                except QueueFull:
-                    self.logger.warning(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
-                    media_request.state_machine.mark_discarded()
-                    bundle.add_media_request(media_request)
-                    break
+            if await self._enqueue_media_download_from_cache(media_request, player=player):
+                # Cache hit: mark the current request completed and register it so the bundle counts it
+                media_request.state_machine.mark_completed()
+                bundle.add_media_request(media_request)
+                continue
+            try:
+                self.download_queue.put_nowait(media_request.guild_id, media_request)
+                media_request.state_machine.mark_queued()
+                bundle.add_media_request(media_request)
+            except PutsBlocked:
+                # Call bundle shutdown just in case
+                bundle.shutdown()
+                self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                return False
+            except QueueFull:
+                self.logger.warning(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                media_request.state_machine.mark_discarded()
+                bundle.add_media_request(media_request)
+                break
 
         # Make sure we note that all requests were added to bundle
         bundle.all_requests_added()
