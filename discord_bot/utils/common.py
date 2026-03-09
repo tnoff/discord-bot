@@ -7,7 +7,7 @@ from sys import stdout
 from typing import Awaitable, Callable, Optional, Literal
 
 from aiohttp.client_exceptions import ServerDisconnectedError
-from discord.errors import DiscordServerError, RateLimited, NotFound
+from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
 from discord.ext.commands import Bot
 from opentelemetry.trace import SpanKind, get_current_span
 from opentelemetry.trace.status import StatusCode
@@ -194,9 +194,14 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
         if isinstance(ex, RateLimited) and not is_last_retry:
             await async_sleep(ex.retry_after)
             raise SkipRetrySleep('Skip sleep since we slept already')
+        # Discord error 40062 ("Service resource is being rate limited") is raised as a plain
+        # HTTPException with status 429, not as RateLimited — retry it with normal backoff.
+        # All other HTTPExceptions should propagate immediately without retrying.
+        if isinstance(ex, HTTPException) and ex.status != 429:
+            raise ex
     post_exception_functions = [check_429]
     # These are common discord api exceptions we can retry on
-    retry_exceptions = (RateLimited, DiscordServerError, TimeoutError, ServerDisconnectedError)
+    retry_exceptions = (RateLimited, DiscordServerError, TimeoutError, ServerDisconnectedError, HTTPException)
     accepted_exceptions = ()
     if allow_404:
         accepted_exceptions = NotFound

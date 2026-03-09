@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from pydantic import ValidationError as PydanticValidationError
-from discord.errors import DiscordServerError, RateLimited, NotFound
+from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
 from opentelemetry.trace.status import StatusCode
 import pytest
 
@@ -245,6 +245,34 @@ async def test_retry_command_async_429(mocker):
     with pytest.raises(RateLimited):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async_http_429(mocker):
+    '''HTTPException with status 429 (e.g. error code 40062) should be retried with backoff'''
+    class FakeResponse():
+        def __init__(self):
+            self.status = 429
+            self.reason = 'Service resource is being rate limited'
+    async def test_send_message():
+        raise HTTPException(FakeResponse(), 'bar')
+    mock_time = mocker.patch('discord_bot.utils.common.async_sleep', return_value=False)
+    with pytest.raises(HTTPException):
+        await async_retry_discord_message_command(partial(test_send_message))
+    assert mock_time.call_count == 3
+
+@pytest.mark.asyncio
+async def test_retry_command_async_http_non_429(mocker):
+    '''HTTPException with a non-429 status should propagate immediately without retrying'''
+    class FakeResponse():
+        def __init__(self):
+            self.status = 403
+            self.reason = 'Missing Permissions'
+    async def test_send_message():
+        raise HTTPException(FakeResponse(), 'bar')
+    mock_time = mocker.patch('discord_bot.utils.common.async_sleep', return_value=False)
+    with pytest.raises(HTTPException):
+        await async_retry_discord_message_command(partial(test_send_message))
+    assert mock_time.call_count == 0
 
 @pytest.mark.asyncio
 async def test_retry_command_async_404(mocker):

@@ -280,15 +280,8 @@ class MessageDispatcher(CogHelper):
         self._shutdown: asyncio.Event = asyncio.Event()
         self._seq = itertools.count()
 
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
-                                self.__worker_loop_active_callback, 'Message dispatcher active worker count')
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCHER_QUEUE_DEPTH.value,
                                 self.__queue_depth_callback, 'Message dispatcher total pending items')
-
-    def __worker_loop_active_callback(self, _options):
-        '''Count of per-guild worker tasks that are still running.'''
-        active = sum(1 for t in self._workers.values() if not t.done())
-        return [Observation(active, attributes={AttributeNaming.BACKGROUND_JOB.value: 'message_dispatcher_workers'})]
 
     def __queue_depth_callback(self, _options):
         '''Total number of work items pending across all guild queues.'''
