@@ -315,10 +315,7 @@ async def test_request_bundle_playlist_item_add_invalid_playlist_error(fake_cont
     assert result is None
 
     # Should have sent an error message via dispatcher
-    cog.dispatcher.send_single.assert_called_once()
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
-    assert callable(sent_funcs[0])
+    cog.dispatcher.send_message.assert_called_once()
 
     # Verify no bundle was created for invalid playlist
     assert len(cog.multirequest_bundles) == 0

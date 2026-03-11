@@ -246,6 +246,12 @@ class FakeChannel():
     def history(self, **_kwargs: Any) -> AsyncIterator:
         return AsyncIterator(self.messages)
 
+    def get_partial_message(self, message_id: int) -> Any:
+        for message in self.messages:
+            if message.id == message_id:
+                return message
+        return None
+
     async def fetch_message(self, message_id: int) -> Any:
         for message in self.messages:
             if message.id == message_id:
@@ -373,11 +379,18 @@ class FakeMessageDispatcher():
         if channel is not None:
             channel.messages_sent.append(content)
 
-    def send_single(self, _guild_id: int, funcs: list):
-        async def _run() -> None:
-            for func in funcs:
-                await func()
-        return _run()
+    def delete_message(self, _guild_id: int, channel_id: int, message_id: int) -> None:
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            return
+        for message in list(getattr(channel, 'messages', [])):
+            if message.id == message_id:
+                message.deleted = True
+                try:
+                    channel.messages.remove(message)
+                except ValueError:
+                    pass
+                return
 
     async def fetch_object(self, _guild_id: int, func: Callable, **retry_kwargs: Any) -> Any:
         return await func(**retry_kwargs)

@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import contextmanager
 from functools import cached_property, partial
 from typing import Optional
@@ -15,10 +14,14 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.sql_retry import retry_database_commands
 
+_UNSET = object()
+
 class CogHelper(Cog):
     '''
     Cogs usually have the following bits
     '''
+
+    _message_delete_after: int | None = None
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine,
                  settings_prefix: str = None,
@@ -76,24 +79,26 @@ class CogHelper(Cog):
         '''
         return await self._dispatcher.fetch_object(guild_id, func, **retry_kwargs)
 
-    async def send_funcs(self, guild_id: int, funcs: list):
-        '''
-        Enqueue a list of callables through MessageDispatcher (NORMAL priority).
-        '''
-        result = self._dispatcher.send_single(guild_id, funcs)
-        if asyncio.iscoroutine(result):
-            await result
-
-    async def dispatch_message(self, guild_id: int, channel_id: int, content: str) -> str:
+    async def dispatch_message(self, guild_id: int, channel_id: int, content: str,
+                               delete_after=_UNSET) -> str:
         '''
         Send *content* to the given channel and return *content*.
 
         Routes through MessageDispatcher (NORMAL priority, with retry).
+        If delete_after is not provided, falls back to self._message_delete_after.
         Returns content so callers can use ``return await self.dispatch_message(...)``
         as an early-exit that also signals which message was sent.
         '''
-        self._dispatcher.send_message(guild_id, channel_id, content)
+        if delete_after is _UNSET:
+            delete_after = self._message_delete_after
+        self._dispatcher.send_message(guild_id, channel_id, content, delete_after=delete_after)
         return content
+
+    async def dispatch_delete(self, guild_id: int, channel_id: int, message_id: int) -> None:
+        '''
+        Delete a Discord message by ID through MessageDispatcher (NORMAL priority).
+        '''
+        self._dispatcher.delete_message(guild_id, channel_id, message_id)
 
     def retry_commit(self, db_session: Session):
         '''

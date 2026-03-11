@@ -88,4 +88,4 @@ class DeleteMessages(CogHelper):
                     for message in messages:
                         if message.created_at < cutoff_period:
                             self.logger.info(f'Deleting message id {message.id}, in channel {channel.id}, in server {channel_dict["server_id"]}')
-                            await self.send_funcs(guild_id, [partial(message.delete)])
+                            await self.dispatch_delete(guild_id, channel.id, message.id)

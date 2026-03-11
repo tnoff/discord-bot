@@ -216,11 +216,11 @@ class _MutableSentinel:
 
 
 @dataclass
-class _ImmutableItem:
+class _DeleteItem:
     priority: int = field(default=DispatchPriority.NORMAL, init=False)
     seq: int = field(default=0)
-    funcs: List[Callable] = field(default_factory=list)
-
+    channel_id: int = 0
+    message_id: int = 0
 
 
 @dataclass
@@ -260,7 +260,8 @@ class MessageDispatcher(CogHelper):
     Work items are processed at HIGH > NORMAL > LOW priority.
 
     HIGH   (_MutableSentinel) – flush a mutable bundle update
-    NORMAL (_ImmutableItem)   – one-off channel.send calls
+    NORMAL (_SendItem)        – one-off channel.send calls
+    NORMAL (_DeleteItem)      – message deletions
     LOW    (_ReadItem)        – background reads (channel history, fetch_message)
     '''
 
@@ -377,14 +378,10 @@ class MessageDispatcher(CogHelper):
         queue.put_nowait((item.priority, item.seq, item))
         self._ensure_worker(guild_id)
 
-    def send_single(self, guild_id: int, funcs: List[Callable]):
-        '''
-        Enqueue a list of callables to run at NORMAL priority in *guild_id*.
-        '''
-        if not funcs:
-            return
+    def delete_message(self, guild_id: int, channel_id: int, message_id: int):
+        '''Enqueue a message deletion at NORMAL priority.'''
         queue = self._get_queue(guild_id)
-        item = _ImmutableItem(seq=next(self._seq), funcs=funcs)
+        item = _DeleteItem(seq=next(self._seq), channel_id=channel_id, message_id=message_id)
         queue.put_nowait((item.priority, item.seq, item))
         self._ensure_worker(guild_id)
 
@@ -489,12 +486,16 @@ class MessageDispatcher(CogHelper):
             with otel_span_wrapper('message_dispatcher.process_mutable',
                                    attributes={'key': item.key, 'discord.guild': guild_id}):
                 await self._process_mutable(item.key)
-        elif isinstance(item, _ImmutableItem):
-            self.logger.debug(f'MessageDispatcher :: dispatching {len(item.funcs)} immutable func(s) for guild {guild_id}')
-            with otel_span_wrapper('message_dispatcher.immutable',
-                                   attributes={'discord.guild': guild_id}):
-                for func in item.funcs:
-                    await async_retry_discord_message_command(func, allow_404=True)
+        elif isinstance(item, _DeleteItem):
+            self.logger.debug(f'MessageDispatcher :: deleting message {item.message_id} in channel {item.channel_id} for guild {guild_id}')
+            with otel_span_wrapper('message_dispatcher.delete',
+                                   attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
+                try:
+                    channel = await self.bot.fetch_channel(item.channel_id)
+                    msg = channel.get_partial_message(item.message_id)
+                    await msg.delete()
+                except NotFound:
+                    pass
         elif isinstance(item, _ReadItem):
             self.logger.debug(f'MessageDispatcher :: fetching object for guild {guild_id}')
             with otel_span_wrapper('message_dispatcher.fetch',

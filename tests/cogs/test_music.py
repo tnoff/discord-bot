@@ -239,9 +239,9 @@ async def test_history(mocker, fake_context):  #pylint:disable=redefined-outer-n
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.players[fake_context['guild'].id]._history.put_nowait(sd) #pylint:disable=protected-access
             await cog.history_(cog, fake_context['context'])
-            assert cog.dispatcher.send_single.called
-            sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-            assert sent_funcs[0].args[0] == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
+            assert cog.dispatcher.send_message.called
+            message_content = cog.dispatcher.send_message.call_args[0][2]
+            assert message_content == f'History\n```Pos|| Title                                   || Uploader\n---------------------------------------------------------\n1  || {sd.title}                            || {sd.uploader}```' #pylint:disable=no-member
 
 @pytest.mark.asyncio()
 async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -401,10 +401,8 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
     # Assert we got a message about the original search
-    cog.dispatcher.send_single.assert_called()
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
-    assert sent_funcs[0].args[0] == 'Error searching input "foo bar", message: woopsie'
+    cog.dispatcher.send_message.assert_called()
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", message: woopsie'
 
     # Bundle is immediately removed from multirequest_bundles when shutdown via _get_bundle_content
     assert len(cog.multirequest_bundles) == 0
@@ -1121,10 +1119,9 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
     mock_player.voice_channel_inactive_timeout.assert_called_once_with(timeout_seconds=cog.config.player.inactive_voice_channel_timeout)
 
     # Verify message was sent
-    cog.dispatcher.send_single.assert_called_once()
+    cog.dispatcher.send_message.assert_called_once()
     # Check that the message content contains expected text
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert 'No one active in voice channel' in str(sent_funcs[0].keywords['content'])
+    assert 'No one active in voice channel' in str(cog.dispatcher.send_message.call_args[0][2])
 
     # Verify cleanup was called
     cleanup_mock.assert_called_once_with(fake_context['guild'])
@@ -1210,8 +1207,8 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
     mock_voice_client.disconnect.assert_called_once()
 
     # Verify the external shutdown message was sent via dispatcher
-    cog.dispatcher.send_single.assert_called_once()
-    assert cog.dispatcher.send_single.call_args[0][0] == player.guild.id
+    cog.dispatcher.send_message.assert_called_once()
+    assert cog.dispatcher.send_message.call_args[0][0] == player.guild.id
 
     # Verify player was cleaned up
     assert fake_context['guild'].id not in cog.players
@@ -1243,7 +1240,7 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
     mock_voice_client.disconnect.assert_called_once()
 
     # Verify NO external shutdown message was sent
-    cog.dispatcher.send_single.assert_not_called()
+    cog.dispatcher.send_message.assert_not_called()
 
     # Verify player was cleaned up
     assert fake_context['guild'].id not in cog.players
@@ -1421,18 +1418,14 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify message was sent
-    cog.dispatcher.send_single.assert_called_once()
+    cog.dispatcher.send_message.assert_called_once()
 
     # Verify guild_id
-    assert cog.dispatcher.send_single.call_args[0][0] == fake_context['guild'].id
-
-    # Get the message content from the partial's positional arg
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
+    assert cog.dispatcher.send_message.call_args[0][0] == fake_context['guild'].id
 
     # Verify message content contains expected stats
     # Total: 10,800 seconds = 0 days, 3 hours, 0 minutes, 0 seconds
-    message_content = sent_funcs[0].args[0]
+    message_content = cog.dispatcher.send_message.call_args[0][2]
     assert 'Music Stats for Server' in message_content
     assert 'Total Plays: 2' in message_content
     assert 'Cached Plays: 1' in message_content
@@ -1461,11 +1454,10 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify message was sent
-    cog.dispatcher.send_single.assert_called_once()
+    cog.dispatcher.send_message.assert_called_once()
 
-    # Get the message content from the partial's positional arg
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    message_content = sent_funcs[0].args[0]
+    # Get the message content
+    message_content = cog.dispatcher.send_message.call_args[0][2]
 
     # Verify message shows days correctly
     # Total: 190,800 seconds = 2 days, 5 hours, 0 minutes, 0 seconds
@@ -1493,9 +1485,8 @@ async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, f
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
-    # Get the message content from the partial's positional arg
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    message_content = sent_funcs[0].args[0]
+    # Get the message content
+    message_content = cog.dispatcher.send_message.call_args[0][2]
 
     # Verify message shows all components correctly
     # After migration: 1 day + 27930 seconds (7 hours 45 min 30 sec)
@@ -1523,4 +1514,4 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
     await cog.music_stats(cog, fake_context['context'])
 
     # Verify no message was sent (function returned early)
-    cog.dispatcher.send_single.assert_not_called()
+    cog.dispatcher.send_message.assert_not_called()
