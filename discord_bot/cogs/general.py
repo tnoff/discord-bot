@@ -26,7 +26,7 @@ class General(CogHelper):
         '''
         Say hello to the server
         '''
-        return await self.dispatch_message(ctx, f'Waddup {ctx.author.display_name}')
+        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Waddup {ctx.author.display_name}')
 
     @command(name='roll')
     @command_wrapper
@@ -44,7 +44,7 @@ class General(CogHelper):
         matcher = match(ROLL_REGEX, input_value)
         if not matcher:
             message = f'Invalid input given "{input_value}"'
-            return await self.dispatch_message(ctx, message)
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
         try:
             sides = int(matcher.group('sides'))
             rolls = matcher.group('rolls')
@@ -54,12 +54,12 @@ class General(CogHelper):
                 rolls = int(rolls)
         except ValueError:
             message = f'Non integer value given {input_value}'
-            return await self.dispatch_message(ctx, message)
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
 
         if rolls > 20:
-            return await self.dispatch_message(ctx, f'Invalid input given, max rolls is 20 but "{rolls}" given')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Invalid input given, max rolls is 20 but "{rolls}" given')
         if sides > 100:
-            return await self.dispatch_message(ctx, f'Invalid input given, max sides is 100 but "{sides}" given')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Invalid input given, max sides is 100 but "{sides}" given')
 
 
         roll_values = []
@@ -74,7 +74,7 @@ class General(CogHelper):
             roll_values_message = ' + '.join(f'{d}' for d in roll_values)
             message = f'{ctx.author.display_name} rolled: {roll_values_message} = {total}'
 
-        return await self.dispatch_message(ctx, message)
+        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
 
     @command(name='meta')
     @command_wrapper
@@ -85,4 +85,4 @@ class General(CogHelper):
         message = f'```Server id: {ctx.guild.id}\n'\
                 f'Channel id: {ctx.channel.id}\n'\
                 f'User id: {ctx.author.id}```'
-        return await self.dispatch_message(ctx, message)
+        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)

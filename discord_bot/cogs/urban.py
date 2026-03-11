@@ -34,7 +34,7 @@ class UrbanDictionary(CogHelper):
         word_url = f'{BASE_URL}define.php?term={word}'
         result = requests_get(word_url, timeout=60)
         if result.status_code != 200:
-            return await self.dispatch_message(ctx, f'Unable to lookup word "{word}"')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Unable to lookup word "{word}"')
         soup = BeautifulSoup(result.content, 'html.parser')
         definition_panels = soup.find_all("div", class_="definition")
 
@@ -48,5 +48,5 @@ class UrbanDictionary(CogHelper):
             definition = shorten_string(define, 400)
             text = f'{text}{count+1}. {definition}\n'
         if not text:
-            return await self.dispatch_message(ctx, f'No results found for "{word}"')
-        return await self.dispatch_message(ctx, f'```{text}```')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'No results found for "{word}"')
+        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'```{text}```')

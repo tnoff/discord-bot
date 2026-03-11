@@ -280,24 +280,24 @@ class Markov(CogHelper):
             db_session.commit()
 
         if ctx.guild.id in self.server_reject_list:
-            return await self.dispatch_message(ctx, 'Unable to turn on markov for server, in reject list')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Unable to turn on markov for server, in reject list')
 
         with self.with_db_session() as db_session:
             # Ensure channel not already on
             markov = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
 
             if markov:
-                return await self.dispatch_message(ctx, 'Channel already has markov turned on')
+                return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Channel already has markov turned on')
             channel = await self.bot.fetch_channel(ctx.channel.id)
             if channel.type not in [ChannelType.text, ChannelType.voice]:
-                return await self.dispatch_message(ctx, 'Not a valid markov channel, cannot turn on markov')
+                return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Not a valid markov channel, cannot turn on markov')
 
             new_markov = MarkovChannel(channel_id=ctx.channel.id,
                                        server_id=ctx.guild.id,
                                        last_message_id=None)
             retry_database_commands(db_session, partial(add_channel, db_session, new_markov))
             self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
-            return await self.dispatch_message(ctx, 'Markov turned on for channel')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov turned on for channel')
 
     @markov.command(name='off')
     @command_wrapper
@@ -314,12 +314,12 @@ class Markov(CogHelper):
             markov_channel = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
 
             if not markov_channel:
-                return await self.dispatch_message(ctx, 'Channel does not have markov turned on')
+                return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Channel does not have markov turned on')
             self.logger.info(f'Turning off markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
             self.delete_channel_relations(db_session, markov_channel.id)
             retry_database_commands(db_session, partial(delete_channels, db_session, markov_channel))
-            return await self.dispatch_message(ctx, 'Markov turned off for channel')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov turned off for channel')
 
     @markov.command(name='list-channels')
     @command_wrapper
@@ -331,7 +331,7 @@ class Markov(CogHelper):
             markov_channels = retry_database_commands(db_session, partial(list_guild_channels, db_session, ctx))
 
             if not markov_channels.count():
-                return await self.dispatch_message(ctx, 'Markov not enabled for any channels in server')
+                return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov not enabled for any channels in server')
 
             headers = [
                 Column('Channel', 64),
@@ -342,7 +342,7 @@ class Markov(CogHelper):
             for channel_id in markov_channels:
                 table.add_row([f'<#{channel_id[0]}>'])
             for output in table.render():
-                await self.dispatch_message(ctx, output)
+                await self.dispatch_message(ctx.guild.id, ctx.channel.id,output)
             return True
 
     @markov.command(name='speak')
@@ -377,7 +377,7 @@ class Markov(CogHelper):
             return db_session.get(MarkovRelation, choice(possible_words)).follower_word
 
         if ctx.guild.id in self.server_reject_list:
-            return await self.dispatch_message(ctx, 'Unable to use markov for server, in reject list')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Unable to use markov for server, in reject list')
 
         self.logger.info(f'Calling speak on server {ctx.guild.id}')
         all_words = []
@@ -396,8 +396,8 @@ class Markov(CogHelper):
 
             if len(possible_words) == 0:
                 if first_word:
-                    return await self.dispatch_message(ctx, f'No markov word matching "{first_word}"')
-                return await self.dispatch_message(ctx, 'No markov words to pick from')
+                    return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'No markov word matching "{first_word}"')
+                return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'No markov words to pick from')
 
             word = retry_database_commands(db_session, partial(get_first_leader_word, db_session, possible_words))
             all_words.append(word)
@@ -409,4 +409,4 @@ class Markov(CogHelper):
                 # Get random choice of leader ids
                 word = retry_database_commands(db_session, partial(get_first_follower_word, db_session, relation_ids))
                 all_words.append(word)
-            return await self.dispatch_message(ctx, ' '.join(markov_word for markov_word in all_words))
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,' '.join(markov_word for markov_word in all_words))
