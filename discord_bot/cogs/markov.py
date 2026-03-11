@@ -20,9 +20,8 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365

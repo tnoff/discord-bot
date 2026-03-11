@@ -174,14 +174,3 @@ def run_commit(db_session: Session):
     Run commit on a db_session, useful for using in retries
     '''
     db_session.commit()
-
-def create_observable_gauge(meter_provider, name: str, function, description: str, unit: str = '1'):
-    '''
-    Yield a loop callback method for heartbeat
-    '''
-    meter_provider.create_observable_gauge(
-        name=name,
-        callbacks=[function],
-        unit=unit,
-        description=description,
-    )

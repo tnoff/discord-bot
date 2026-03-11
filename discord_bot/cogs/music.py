@@ -41,7 +41,7 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, create_observable_gauge, run_commit
+from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, run_commit
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -50,7 +50,7 @@ from discord_bot.utils.clients.youtube import YoutubeClient
 from discord_bot.utils.clients.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge
 from discord_bot.utils.clients.common import YOUTUBE_VIDEO_PREFIX
 
 # GLOBALS
