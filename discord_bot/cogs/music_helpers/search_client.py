@@ -11,11 +11,11 @@ from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.utils.clients.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
-from discord_bot.utils.clients.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.utils.clients.spotify import SpotifyClient
-from discord_bot.utils.clients.youtube import YoutubeClient
-from discord_bot.utils.clients.common import CatalogResponse
+from discord_bot.utils.integrations.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
+from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.utils.integrations.spotify import SpotifyClient
+from discord_bot.utils.integrations.youtube import YoutubeClient
+from discord_bot.utils.integrations.common import CatalogResponse
 from discord_bot.utils.otel import otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'

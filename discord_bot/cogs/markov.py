@@ -20,9 +20,8 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.common import create_observable_gauge
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER
+from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -192,9 +191,6 @@ class Markov(CogHelper):
             db_session.query(MarkovRelation).filter(MarkovRelation.created_at < retention_cutoff).delete()
             db_session.commit()
 
-        async def fetch_messages(channel, after):
-            return [m async for m in channel.history(after=after, limit=self.message_check_limit, oldest_first=True)]
-
         await sleep(self.loop_sleep_interval)
         retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
         self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
@@ -206,20 +202,25 @@ class Markov(CogHelper):
                                        attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
                                                    DiscordContextNaming.GUILD.value: markov_channel.server_id}):
                     self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
-                    channel = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_channel, markov_channel.channel_id))
-                    server = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_guild, markov_channel.server_id))
                     # Not sure why but this check in particular seems especially flakey
-                    emojis = await self.dispatch_fetch(guild_id, partial(server.fetch_emojis), max_retries=5)
+                    emojis = await self.dispatch_guild_emojis(guild_id, max_retries=5)
                     self.logger.info('Gathering markov messages for '
                                     f'channel {markov_channel.channel_id}')
                     # Start at the beginning of channel history,
                     # slowly make your way make to current day
                     if not markov_channel.last_message_id:
-                        messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel, retention_cutoff))
+                        messages = await self.dispatch_channel_history(
+                            guild_id, markov_channel.channel_id,
+                            limit=self.message_check_limit,
+                            after=retention_cutoff,
+                        )
                     else:
                         try:
-                            last_message = await self.dispatch_fetch(guild_id, partial(channel.fetch_message, markov_channel.last_message_id))
-                            messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel, last_message))
+                            messages = await self.dispatch_channel_history(
+                                guild_id, markov_channel.channel_id,
+                                limit=self.message_check_limit,
+                                after_message_id=markov_channel.last_message_id,
+                            )
                         except NotFound:
                             self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
                                                 f' in channel {markov_channel.id}')

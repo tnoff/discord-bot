@@ -11,7 +11,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.cogs.music_helpers.search_client import SearchResult
-from discord_bot.utils.clients.youtube_music import YoutubeMusicRetryException
+from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.utils.queue import PutsBlocked
 

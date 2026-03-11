@@ -2,9 +2,11 @@ import asyncio
 
 import pytest
 
-from discord_bot.cogs.message_dispatcher import MessageDispatcher, DispatchPriority, _SendItem, _ReadItem
+from discord_bot.cogs.message_dispatcher import (
+    MessageDispatcher, DispatchPriority, _SendItem, _DeleteItem, _ReadItem,
+)
 
-from tests.helpers import fake_bot_yielder, FakeChannel, FakeGuild, fake_context  # pylint: disable=unused-import
+from tests.helpers import fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, fake_context  # pylint: disable=unused-import
 
 
 def make_dispatcher(channels=None):
@@ -16,17 +18,13 @@ def make_dispatcher(channels=None):
 async def drain_dispatcher(dispatcher, guild_id, timeout=5.0):
     """Wait until all currently-queued work for guild_id has been processed.
 
-    Enqueues a sentinel via send_single that sets an asyncio.Event, then waits
-    for it. Because the queue is FIFO within each priority level, this resolves
-    only after all previously-queued NORMAL items have run.
+    Enqueues a LOW-priority fetch_object that resolves only after all
+    previously-queued NORMAL items have run (HIGH > NORMAL > LOW ordering).
     """
-    done = asyncio.Event()
+    async def _noop():
+        return None
 
-    async def _sentinel():
-        done.set()
-
-    dispatcher.send_single(guild_id, [_sentinel])
-    await asyncio.wait_for(done.wait(), timeout=timeout)
+    await asyncio.wait_for(dispatcher.fetch_object(guild_id, _noop), timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -68,40 +66,41 @@ async def test_update_mutable_creates_bundle(fake_context):  # pylint: disable=r
 
 
 # ---------------------------------------------------------------------------
-# send_single: enqueue at NORMAL priority
+# delete_message: enqueue at NORMAL priority
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_send_single_enqueues_item(fake_context):  # pylint: disable=redefined-outer-name
-    """send_single places an _ImmutableItem at NORMAL priority."""
-    from discord_bot.cogs.message_dispatcher import _ImmutableItem  # pylint: disable=import-outside-toplevel
-
+async def test_delete_message_enqueues_item(fake_context):  # pylint: disable=redefined-outer-name
+    """delete_message places a _DeleteItem at NORMAL priority."""
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
+    channel = fake_context['channel']
 
-    called = []
-
-    async def my_func():
-        called.append(1)
-
-    dispatcher.send_single(guild_id, [my_func])
+    dispatcher.delete_message(guild_id, channel.id, 12345)
 
     queue = dispatcher._guilds[guild_id]  # pylint: disable=protected-access
     assert queue.qsize() == 1
     priority, _, item = queue.get_nowait()
-    assert isinstance(item, _ImmutableItem)
+    assert isinstance(item, _DeleteItem)
     assert priority == DispatchPriority.NORMAL
+    assert item.channel_id == channel.id
+    assert item.message_id == 12345
 
 
 @pytest.mark.asyncio
-async def test_send_single_empty_funcs_no_op(fake_context):  # pylint: disable=redefined-outer-name
-    """send_single with empty list does nothing."""
-    dispatcher = make_dispatcher()
+async def test_delete_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
+    """delete_message causes the worker to delete the message from the channel."""
+    channel = fake_context['channel']
     guild_id = fake_context['guild'].id
+    fake_message = FakeMessage(channel=channel)
+    channel.messages = [fake_message]
+    dispatcher = make_dispatcher(channels=[channel])
 
-    dispatcher.send_single(guild_id, [])
+    dispatcher.delete_message(guild_id, channel.id, fake_message.id)
+    await drain_dispatcher(dispatcher, guild_id)
 
-    assert guild_id not in dispatcher._guilds  # pylint: disable=protected-access
+    assert fake_message.deleted is True
+    assert fake_message not in channel.messages
 
 
 # ---------------------------------------------------------------------------
@@ -141,18 +140,15 @@ async def test_fetch_object_propagates_exception(fake_context):  # pylint: disab
 @pytest.mark.asyncio
 async def test_priority_ordering(fake_context):  # pylint: disable=redefined-outer-name
     """A HIGH item queued after a NORMAL item is still dispatched first."""
-    from discord_bot.cogs.message_dispatcher import _ImmutableItem, _MutableSentinel  # pylint: disable=import-outside-toplevel
+    from discord_bot.cogs.message_dispatcher import _MutableSentinel  # pylint: disable=import-outside-toplevel
 
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     key = f'play_order-{guild_id}'
 
-    async def normal_func():
-        pass
-
     # Submit NORMAL first, then HIGH — HIGH should come out first
     queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
-    normal = _ImmutableItem(seq=next(dispatcher._seq), funcs=[normal_func])  # pylint: disable=protected-access
+    normal = _SendItem(seq=next(dispatcher._seq), channel_id=0, content='test')  # pylint: disable=protected-access
     high = _MutableSentinel(seq=next(dispatcher._seq), key=key)  # pylint: disable=protected-access
     queue.put_nowait((normal.priority, normal.seq, normal))
     queue.put_nowait((high.priority, high.seq, high))
@@ -163,29 +159,21 @@ async def test_priority_ordering(fake_context):  # pylint: disable=redefined-out
     assert pri1 == DispatchPriority.HIGH
     assert pri2 == DispatchPriority.NORMAL
     assert isinstance(item1, _MutableSentinel)
-    assert isinstance(item2, _ImmutableItem)
+    assert isinstance(item2, _SendItem)
 
 
 @pytest.mark.asyncio
 async def test_priority_ordering_low(fake_context):  # pylint: disable=redefined-outer-name
     """A LOW (_ReadItem) queued before a NORMAL item is still dispatched after."""
-    from discord_bot.cogs.message_dispatcher import _ImmutableItem  # pylint: disable=import-outside-toplevel
-
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
-
-    async def low_func():
-        return 'low'
-
-    async def normal_func():
-        pass
 
     # Submit LOW first, then NORMAL — NORMAL should come out first
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
-    low = _ReadItem(seq=next(dispatcher._seq), func=low_func, future=future)  # pylint: disable=protected-access
-    normal = _ImmutableItem(seq=next(dispatcher._seq), funcs=[normal_func])  # pylint: disable=protected-access
+    low = _ReadItem(seq=next(dispatcher._seq), func=lambda: None, future=future)  # pylint: disable=protected-access
+    normal = _SendItem(seq=next(dispatcher._seq), channel_id=0, content='test')  # pylint: disable=protected-access
     queue.put_nowait((low.priority, low.seq, low))
     queue.put_nowait((normal.priority, normal.seq, normal))
 
@@ -194,7 +182,7 @@ async def test_priority_ordering_low(fake_context):  # pylint: disable=redefined
     pri2, _, item2 = queue.get_nowait()
     assert pri1 == DispatchPriority.NORMAL
     assert pri2 == DispatchPriority.LOW
-    assert isinstance(item1, _ImmutableItem)
+    assert isinstance(item1, _SendItem)
     assert isinstance(item2, _ReadItem)
     future.cancel()  # prevent ResourceWarning on the unused future
 
@@ -211,8 +199,8 @@ async def test_guild_isolation():
     guild_a = FakeGuild()
     guild_b = FakeGuild()
 
-    dispatcher.send_single(guild_a.id, [lambda: None])
-    dispatcher.send_single(guild_b.id, [lambda: None])
+    dispatcher.send_message(guild_a.id, 0, 'test')
+    dispatcher.send_message(guild_b.id, 0, 'test')
 
     queue_a = dispatcher._guilds.get(guild_a.id)  # pylint: disable=protected-access
     queue_b = dispatcher._guilds.get(guild_b.id)  # pylint: disable=protected-access
@@ -301,7 +289,7 @@ async def test_cog_unload_cancels_workers(fake_context):  # pylint: disable=rede
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
-    # Trigger worker creation via send_single (needs a running event loop)
+    # Trigger worker creation via drain (needs a running event loop)
     await drain_dispatcher(dispatcher, guild_id)
     assert guild_id in dispatcher._workers  # pylint: disable=protected-access
 
@@ -317,36 +305,17 @@ async def test_cog_unload_cancels_workers(fake_context):  # pylint: disable=rede
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_send_single_executes_func_via_worker(fake_context):  # pylint: disable=redefined-outer-name
-    """send_single actually runs the callable through the worker."""
-    dispatcher = make_dispatcher()
+async def test_send_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
+    """send_message causes the worker to deliver the message to the channel."""
+    channel = fake_context['channel']
     guild_id = fake_context['guild'].id
-    called = []
+    dispatcher = make_dispatcher(channels=[channel])
 
-    async def my_func():
-        called.append(1)
-
-    dispatcher.send_single(guild_id, [my_func])
+    dispatcher.send_message(guild_id, channel.id, 'world')
     await drain_dispatcher(dispatcher, guild_id)
-    assert called == [1]
 
-
-@pytest.mark.asyncio
-async def test_send_single_multiple_funcs_all_executed(fake_context):  # pylint: disable=redefined-outer-name
-    """All callables in a single send_single call are executed in order."""
-    dispatcher = make_dispatcher()
-    guild_id = fake_context['guild'].id
-    order = []
-
-    async def func_a():
-        order.append('a')
-
-    async def func_b():
-        order.append('b')
-
-    dispatcher.send_single(guild_id, [func_a, func_b])
-    await drain_dispatcher(dispatcher, guild_id)
-    assert order == ['a', 'b']
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'world'
 
 
 # ---------------------------------------------------------------------------
@@ -469,20 +438,6 @@ async def test_send_message_enqueues_send_item(fake_context):  # pylint: disable
     assert priority == DispatchPriority.NORMAL
     assert item.channel_id == channel.id
     assert item.content == 'hello'
-
-
-@pytest.mark.asyncio
-async def test_send_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
-    """send_message causes the worker to deliver the message to the channel."""
-    channel = fake_context['channel']
-    guild_id = fake_context['guild'].id
-    dispatcher = make_dispatcher(channels=[channel])
-
-    dispatcher.send_message(guild_id, channel.id, 'world')
-    await drain_dispatcher(dispatcher, guild_id)
-
-    assert len(channel.messages) == 1
-    assert channel.messages[0].content == 'world'
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 from googleapiclient.discovery import build
 from opentelemetry.trace import SpanKind
 
-from discord_bot.utils.clients.common import CatalogResponse, CatalogItem, YOUTUBE_VIDEO_PREFIX
+from discord_bot.utils.integrations.common import CatalogResponse, CatalogItem, YOUTUBE_VIDEO_PREFIX
 from discord_bot.utils.otel import otel_span_wrapper, ThirdPartyNaming
 
 class YoutubeClient():

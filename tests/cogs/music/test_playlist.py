@@ -55,11 +55,11 @@ async def test_create_playlist_message_includes_public_id(fake_engine, mocker, f
 
     # Create first playlist - should get public ID 1
     await cog.playlist_create.callback(cog, fake_context['context'], name='first-playlist')
-    assert cog.dispatcher.send_single.call_args_list[0][0][1][0].args[0] == 'Created playlist "first-playlist" with ID 1'
+    assert cog.dispatcher.send_message.call_args_list[0][0][2] == 'Created playlist "first-playlist" with ID 1'
 
     # Create second playlist - should get public ID 2
     await cog.playlist_create.callback(cog, fake_context['context'], name='second-playlist')
-    assert cog.dispatcher.send_single.call_args_list[1][0][1][0].args[0] == 'Created playlist "second-playlist" with ID 2'
+    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Created playlist "second-playlist" with ID 2'
 
     # Verify playlists were actually created in database
     with mock_session(fake_engine) as db_session:
@@ -76,7 +76,7 @@ async def test_create_playlist_message_with_none_public_id(fake_engine, mocker, 
     mocker.patch.object(cog, '_Music__get_playlist_public_view', return_value=None)
 
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
-    assert cog.dispatcher.send_single.call_args[0][1][0].args[0] == 'Created playlist "test-playlist" with ID None'
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Created playlist "test-playlist" with ID None'
 
 @pytest.mark.asyncio
 async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -89,7 +89,7 @@ async def test_list_playlist(fake_engine, mocker, fake_context):  #pylint:disabl
     await cog.playlist_list.callback(cog, fake_context['context'])
 
     # Index 0: playlist_create message; index 1: playlist_list message
-    assert cog.dispatcher.send_single.call_args_list[1][0][1][0].args[0] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
+    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_list_playlist_with_history(fake_engine, mocker, fake_context):  #
     await cog.playlist_list.callback(cog, fake_context['context'])
 
     # Index 0: playlist_create message; index 1: playlist_list message
-    assert cog.dispatcher.send_single.call_args_list[1][0][1][0].args[0] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
+    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
 
 @pytest.mark.asyncio()
 async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -118,7 +118,7 @@ async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_conte
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     await cog.playlist_item_add.callback(cog, fake_context['context'], 0, search='https://foo.example')
 
-    assert cog.dispatcher.send_single.call_args[0][1][0].args[0] == 'Unable to add "https://foo.example" to history playlist, is reserved and cannot be added to manually'
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Unable to add "https://foo.example" to history playlist, is reserved and cannot be added to manually'
 
 @pytest.mark.asyncio()
 async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -178,7 +178,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
 
     cog.dispatcher.reset_mock()
     await cog.playlist_show.callback(cog, fake_context['context'], 1)
-    assert cog.dispatcher.send_single.call_args[0][1][0].args[0] == 'Playlist 1 Items\n```Pos|| Title                           || Uploader\n-------------------------------------------------\n1  || foo                             || foobar```'
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Playlist 1 Items\n```Pos|| Title                           || Uploader\n-------------------------------------------------\n1  || foo                             || foobar```'
 
 @pytest.mark.asyncio()
 async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -216,7 +216,7 @@ async def test_playlist_delete_history(mocker, fake_engine, fake_context):  #pyl
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.dispatcher = MagicMock()
     await cog.playlist_delete.callback(cog, fake_context['context'], 0)
-    assert cog.dispatcher.send_single.call_args[0][1][0].args[0] == 'Cannot delete history playlist, is reserved'
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Cannot delete history playlist, is reserved'
 
 
 
@@ -240,7 +240,7 @@ async def test_playlist_rename_history(mocker, fake_engine, fake_context):  #pyl
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.dispatcher = MagicMock()
     await cog.playlist_rename.callback(cog, fake_context['context'], 0, playlist_name='foo-bar-playlist')
-    assert cog.dispatcher.send_single.call_args[0][1][0].args[0] == 'Cannot rename history playlist, is reserved'
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Cannot rename history playlist, is reserved'
 
 @pytest.mark.asyncio
 async def test_history_save(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -378,7 +378,7 @@ async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pyli
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_merge.callback(cog, fake_context['context'], 0, 1)
     # Index 0: playlist_create message; index 1: merge error message
-    assert cog.dispatcher.send_single.call_args_list[1][0][1][0].args[0] == 'Cannot merge history playlist, is reserved'
+    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Cannot merge history playlist, is reserved'
 
 def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test __playlist_insert_item private method"""
@@ -711,14 +711,11 @@ async def test_playlist_show_empty_playlist_message_context_fix(fake_engine, moc
     await cog.playlist_show.callback(cog, fake_context['context'], 1)
 
     # Verify message was sent via dispatcher
-    cog.dispatcher.send_single.assert_called_once()
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
-    assert callable(sent_funcs[0])
+    cog.dispatcher.send_message.assert_called_once()
 
     # Verify the message content is correct
-    assert 'No items in playlist' in str(sent_funcs[0].args), \
-           f"Message should contain 'No items in playlist', got: {sent_funcs[0].args}"
+    assert 'No items in playlist' in str(cog.dispatcher.send_message.call_args[0][2]), \
+           f"Message should contain 'No items in playlist', got: {cog.dispatcher.send_message.call_args[0][2]}"
 
 @pytest.mark.asyncio
 async def test_playlist_queue_empty_playlist_user_feedback(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -744,13 +741,10 @@ async def test_playlist_queue_empty_playlist_user_feedback(fake_engine, mocker, 
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
 
     # Verify user gets helpful feedback message
-    cog.dispatcher.send_single.assert_called_once()
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
-    assert callable(sent_funcs[0])
+    cog.dispatcher.send_message.assert_called_once()
 
     # Verify the message content is correct
-    message_text = str(sent_funcs[0].args)
+    message_text = str(cog.dispatcher.send_message.call_args[0][2])
     assert 'contains no items to queue' in message_text, \
            f"Message should contain 'contains no items to queue', got: {message_text}"
     assert 'empty-playlist' in message_text, \
@@ -775,12 +769,10 @@ async def test_playlist_queue_empty_history_playlist_feedback(fake_engine, mocke
     await cog.playlist_queue.callback(cog, fake_context['context'], 0)
 
     # Verify user gets helpful feedback message
-    cog.dispatcher.send_single.assert_called_once()
-    sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-    assert len(sent_funcs) == 1
+    cog.dispatcher.send_message.assert_called_once()
 
     # Verify the message content shows "Channel History" (not the database playlist name)
-    message_text = str(sent_funcs[0].args)
+    message_text = str(cog.dispatcher.send_message.call_args[0][2])
     assert 'contains no items to queue' in message_text, \
            f"Message should contain 'contains no items to queue', got: {message_text}"
     assert 'Channel History' in message_text, \
@@ -1151,12 +1143,7 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
                 await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
 
                 # Verify only failure message is sent (hit limit case)
-                cog.dispatcher.send_single.assert_called_once()
-                sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-                assert len(sent_funcs) == 1
-
-                # Check that the message is about hitting limit
-                assert callable(sent_funcs[0])
+                cog.dispatcher.send_message.assert_called_once()
                 # The message should contain the playlist name and indicate limit hit
                 # We can't easily test the exact message without executing the partial function
 
@@ -1220,9 +1207,7 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
                 await cog._Music__playlist_queue(fake_context['context'], MagicMock(), fake_context['guild'].id, False, 0, True)
 
                 # For history playlists, should still send completion message
-                cog.dispatcher.send_single.assert_called_once()
-                sent_funcs = cog.dispatcher.send_single.call_args[0][1]
-                assert len(sent_funcs) == 1
+                cog.dispatcher.send_message.assert_called_once()
 
                 # Message should mention "Channel History" not the database playlist name
                 # This is set by the special is_history logic

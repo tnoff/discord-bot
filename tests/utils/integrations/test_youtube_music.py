@@ -1,4 +1,4 @@
-from discord_bot.utils.clients.youtube_music import YoutubeMusicClient
+from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
 
 def yield_youtube_mock(results):
     class MockYoutubeMusic():
@@ -10,7 +10,7 @@ def yield_youtube_mock(results):
 
 
 def test_youtube_music_client(mocker):
-    mocker.patch('discord_bot.utils.clients.youtube_music.YTMusic', side_effect=yield_youtube_mock([]))
+    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=yield_youtube_mock([]))
     x = YoutubeMusicClient()
     assert x.search('foo bar') is None
 
@@ -20,6 +20,6 @@ def test_youtube_music_client_with_data(mocker):
             'videoId': '1234'
         }
     ]
-    mocker.patch('discord_bot.utils.clients.youtube_music.YTMusic', side_effect=yield_youtube_mock(results))
+    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=yield_youtube_mock(results))
     x = YoutubeMusicClient()
     assert x.search('foo bar') == '1234'

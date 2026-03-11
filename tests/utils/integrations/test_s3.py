@@ -5,11 +5,11 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 import pytest
 
-from discord_bot.utils.clients.s3 import upload_file, get_file, delete_file, ObjectStorageException
+from discord_bot.utils.integrations.s3 import upload_file, get_file, delete_file, ObjectStorageException
 
 @pytest.fixture
 def mock_s3_client():
-    with patch("discord_bot.utils.clients.s3.client") as mock_client_constructor:
+    with patch("discord_bot.utils.integrations.s3.client") as mock_client_constructor:
         mock_client = MagicMock()
         mock_client_constructor.return_value = mock_client
         yield mock_client

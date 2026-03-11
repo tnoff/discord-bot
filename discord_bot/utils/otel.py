@@ -118,3 +118,15 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
             raise e
         finally:
             pass
+
+
+def create_observable_gauge(meter_provider, name: str, function, description: str, unit: str = '1'):
+    '''
+    Yield a loop callback method for heartbeat
+    '''
+    meter_provider.create_observable_gauge(
+        name=name,
+        callbacks=[function],
+        unit=unit,
+        description=description,
+    )

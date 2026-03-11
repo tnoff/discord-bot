@@ -8,7 +8,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.database import VideoCache, VideoCacheBackup
 from discord_bot.utils.common import run_commit
-from discord_bot.utils.clients.s3 import upload_file, delete_file, get_file
+from discord_bot.utils.integrations.s3 import upload_file, delete_file, get_file
 from discord_bot.cogs.music_helpers.common import StorageOptions
 from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
