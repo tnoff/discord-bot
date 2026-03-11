@@ -15,7 +15,8 @@ from opentelemetry.metrics import Observation
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.common import CogHelper
-from discord_bot.utils.common import async_retry_discord_message_command, create_observable_gauge
+from discord_bot.utils.common import create_observable_gauge
+from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming, otel_span_wrapper
 
 
