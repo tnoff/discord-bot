@@ -1,6 +1,5 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
-from functools import partial
 
 from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
@@ -70,22 +69,18 @@ class DeleteMessages(CogHelper):
         '''
         Main loop runner
         '''
-        async def fetch_messages(channel):
-            return [m async for m in channel.history(limit=100, oldest_first=True)]
-
         # Set heartbeat metric
         await sleep(self.loop_sleep_interval)
         with otel_span_wrapper('delete_messages.check'):
             for channel_dict in self.discord_channels:
                 guild_id = channel_dict['server_id']
-                with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_dict['channel_id']}):
-                    self.logger.debug(f'Checking Channel ID {channel_dict["channel_id"]}')
-                    channel = await self.dispatch_fetch(guild_id, partial(self.bot.fetch_channel, channel_dict["channel_id"]))
-
+                channel_id = channel_dict['channel_id']
+                with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_id}):
+                    self.logger.debug(f'Checking Channel ID {channel_id}')
                     delete_after = channel_dict.get('delete_after', DELETE_AFTER_DEFAULT)
                     cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
-                    messages = await self.dispatch_fetch(guild_id, partial(fetch_messages, channel))
+                    messages = await self.dispatch_channel_history(guild_id, channel_id)
                     for message in messages:
                         if message.created_at < cutoff_period:
-                            self.logger.info(f'Deleting message id {message.id}, in channel {channel.id}, in server {channel_dict["server_id"]}')
-                            await self.dispatch_delete(guild_id, channel.id, message.id)
+                            self.logger.info(f'Deleting message id {message.id}, in channel {channel_id}, in server {guild_id}')
+                            await self.dispatch_delete(guild_id, channel_id, message.id)

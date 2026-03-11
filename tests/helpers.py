@@ -392,8 +392,8 @@ class FakeMessageDispatcher():
                     pass
                 return
 
-    async def fetch_object(self, _guild_id: int, func: Callable, **retry_kwargs: Any) -> Any:
-        return await func(**retry_kwargs)
+    async def fetch_object(self, _guild_id: int, func: Callable, **_retry_kwargs: Any) -> Any:
+        return await func()
 
 
 class FakeContext():

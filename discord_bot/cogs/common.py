@@ -100,6 +100,38 @@ class CogHelper(Cog):
         '''
         self._dispatcher.delete_message(guild_id, channel_id, message_id)
 
+    async def dispatch_guild_emojis(self, guild_id: int, **retry_kwargs) -> list:
+        '''
+        Fetch guild emojis through MessageDispatcher (LOW priority).
+        '''
+        async def _fetch():
+            guild = await self.bot.fetch_guild(guild_id)
+            return await guild.fetch_emojis()
+        return await self._dispatcher.fetch_object(guild_id, _fetch, **retry_kwargs)
+
+    async def dispatch_channel_history(
+        self,
+        guild_id: int,
+        channel_id: int,
+        limit: int = 100,
+        after=None,
+        after_message_id: int | None = None,
+        oldest_first: bool = True,
+    ) -> list:
+        '''
+        Fetch channel history through MessageDispatcher (LOW priority).
+
+        after               :   datetime or discord.Message; passed directly to channel.history
+        after_message_id    :   if given, fetches that message first and uses it as `after`
+        '''
+        async def _fetch():
+            channel = await self.bot.fetch_channel(channel_id)
+            after_obj = after
+            if after_message_id is not None:
+                after_obj = await channel.fetch_message(after_message_id)
+            return [m async for m in channel.history(limit=limit, after=after_obj, oldest_first=oldest_first)]
+        return await self._dispatcher.fetch_object(guild_id, _fetch)
+
     def retry_commit(self, db_session: Session):
         '''
         Common function to retry db_session commit
