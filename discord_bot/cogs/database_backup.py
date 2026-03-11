@@ -13,7 +13,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
-from discord_bot.utils.clients.s3 import upload_file
+from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 
 # Pydantic config model

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from discord_bot.utils.clients.youtube import YoutubeClient
+from discord_bot.utils.integrations.youtube import YoutubeClient
 
 class MockYoutubeRequest():
     def __init__(self, with_page_token=False):
@@ -77,7 +77,7 @@ def google_api_build_with_page(_typer, _version, developerKey=None): #pylint:dis
     return MockYoutube(with_page_token=True)
 
 def test_youtube_playlist_get(mocker):
-    mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build)
+    mocker.patch('discord_bot.utils.integrations.youtube.build', side_effect=google_api_build)
     x = YoutubeClient('foo')
     result = x.playlist_get('1234')
     assert len(result.items) == 2
@@ -86,7 +86,7 @@ def test_youtube_playlist_get(mocker):
     assert result.collection_name == 'Example Playlist'
 
 def test_youtube_playlist_get_with_page_token(mocker):
-    mocker.patch('discord_bot.utils.clients.youtube.build', side_effect=google_api_build_with_page)
+    mocker.patch('discord_bot.utils.integrations.youtube.build', side_effect=google_api_build_with_page)
     x = YoutubeClient('foo')
     result = x.playlist_get('1234')
     assert len(result.items) == 2

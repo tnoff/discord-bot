@@ -45,13 +45,13 @@ from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, ru
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
-from discord_bot.utils.clients.spotify import SpotifyClient
-from discord_bot.utils.clients.youtube import YoutubeClient
-from discord_bot.utils.clients.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
+from discord_bot.utils.integrations.spotify import SpotifyClient
+from discord_bot.utils.integrations.youtube import YoutubeClient
+from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge
-from discord_bot.utils.clients.common import YOUTUBE_VIDEO_PREFIX
+from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 # GLOBALS
 

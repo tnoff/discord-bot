@@ -3,8 +3,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 from spotipy.exceptions import SpotifyException
 
-from discord_bot.utils.clients.common import CatalogResponse
-from discord_bot.utils.clients.spotify import SpotifyClient
+from discord_bot.utils.integrations.common import CatalogResponse
+from discord_bot.utils.integrations.spotify import SpotifyClient
 
 class MockSpotify():
     def __init__(self, auth_manager = None):
@@ -83,7 +83,7 @@ class MockSpotify():
 def test_spotify_playlist_get(mocker):
     # Mock only the spotipy Spotify constructor, not the entire class
     mock_spotify_instance = MockSpotify()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
     result = s.playlist_get('foo')
@@ -94,7 +94,7 @@ def test_spotify_playlist_get(mocker):
 
 def test_spotify_album_get(mocker):
     mock_spotify_instance = MockSpotify()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
     result = s.album_get('foo')
@@ -105,7 +105,7 @@ def test_spotify_album_get(mocker):
 
 def test_spotify_track_get(mocker):
     mock_spotify_instance = MockSpotify()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
     result = s.track_get('foo')
@@ -215,7 +215,7 @@ class MockSpotifyWithDirectTracks():
 def test_spotify_playlist_get_404_on_playlist_info(mocker):
     """Test playlist_get when playlist() call raises 404"""
     mock_spotify_instance = MockSpotifyWith404()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
 
     s = SpotifyClient('foo', 'bar')
 
@@ -240,7 +240,7 @@ def test_spotify_playlist_get_404_on_playlist_tracks(mocker):
             raise exc
 
     mock_spotify_instance = MockSpotifyPlaylistOkTracksError()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     with pytest.raises(SpotifyException) as exc_info:
@@ -252,7 +252,7 @@ def test_spotify_playlist_get_404_on_playlist_tracks(mocker):
 def test_spotify_playlist_get_non_404_error(mocker):
     """Test playlist_get when non-404 SpotifyException is raised - should propagate without setting OK status"""
     mock_spotify_instance = MockSpotifyWithNon404()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     with pytest.raises(SpotifyException) as exc_info:
@@ -264,7 +264,7 @@ def test_spotify_playlist_get_non_404_error(mocker):
 def test_spotify_playlist_get_missing_next_key(mocker):
     """Test playlist_get when response is missing 'next' key - should trigger KeyError path"""
     mock_spotify_instance = MockSpotifyWithMissingKeys()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     result = s.playlist_get('foo')
@@ -276,7 +276,7 @@ def test_spotify_playlist_get_missing_next_key(mocker):
 def test_spotify_album_get_404_on_album_info(mocker):
     """Test album_get when album() call raises 404"""
     mock_spotify_instance = MockSpotifyWith404()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     with pytest.raises(SpotifyException) as exc_info:
@@ -303,7 +303,7 @@ def test_spotify_album_get_404_on_album_tracks(mocker):
             raise exc
 
     mock_spotify_instance = MockSpotifyAlbumOkTracksError()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     with pytest.raises(SpotifyException) as exc_info:
@@ -315,7 +315,7 @@ def test_spotify_album_get_404_on_album_tracks(mocker):
 def test_spotify_album_get_non_404_error(mocker):
     """Test album_get when non-404 SpotifyException is raised"""
     mock_spotify_instance = MockSpotifyWithNon404()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     with pytest.raises(SpotifyException) as exc_info:
@@ -327,7 +327,7 @@ def test_spotify_album_get_non_404_error(mocker):
 def test_spotify_track_parsing_without_track_wrapper(mocker):
     """Test __get_response_items when items don't have 'track' wrapper (KeyError path)"""
     mock_spotify_instance = MockSpotifyWithDirectTracks()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     result = s.album_get('foo')
@@ -379,7 +379,7 @@ class MockSpotifyCustomPagination():
 def test_spotify_playlist_get_custom_pagination_limit(mocker):
     """Test playlist_get with custom pagination limit"""
     mock_spotify_instance = MockSpotifyCustomPagination()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     result = s.playlist_get('foo', pagination_limit=10)
@@ -392,7 +392,7 @@ def test_spotify_playlist_get_custom_pagination_limit(mocker):
 def test_spotify_album_get_custom_pagination_limit(mocker):
     """Test album_get with custom pagination limit"""
     mock_spotify_instance = MockSpotifyCustomPagination()
-    mocker.patch('discord_bot.utils.clients.spotify.Spotify', return_value=mock_spotify_instance)
+    mocker.patch('discord_bot.utils.integrations.spotify.Spotify', return_value=mock_spotify_instance)
     s = SpotifyClient('foo', 'bar')
 
     result = s.album_get('foo', pagination_limit=10)
@@ -421,7 +421,7 @@ def test_spotify_client_integration_playlist_success():
         'next': None
     }
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         # This will actually execute SpotifyClient code
@@ -451,7 +451,7 @@ def test_spotify_client_integration_album_success():
         'next': None
     }
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -471,7 +471,7 @@ def test_spotify_client_integration_track_success():
         'artists': [{'name': 'Single Artist'}]
     }
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -489,7 +489,7 @@ def test_spotify_client_integration_playlist_404_error():
     mock_spotify_instance.playlist.side_effect = SpotifyException(404, -1, "Not found")
     mock_spotify_instance.playlist.side_effect.http_status = 404
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -507,7 +507,7 @@ def test_spotify_client_integration_album_404_error():
     mock_spotify_instance.album.side_effect = SpotifyException(404, -1, "Not found")
     mock_spotify_instance.album.side_effect.http_status = 404
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -526,7 +526,7 @@ def test_spotify_client_integration_playlist_tracks_404_error():
     mock_spotify_instance.playlist_tracks.side_effect = SpotifyException(404, -1, "Not found")
     mock_spotify_instance.playlist_tracks.side_effect.http_status = 404
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -548,7 +548,7 @@ def test_spotify_client_integration_album_tracks_404_error():
     mock_spotify_instance.album_tracks.side_effect = SpotifyException(404, -1, "Not found")
     mock_spotify_instance.album_tracks.side_effect.http_status = 404
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -566,7 +566,7 @@ def test_spotify_client_integration_non_404_error():
     mock_spotify_instance.playlist.side_effect = SpotifyException(403, -1, "Forbidden")
     mock_spotify_instance.playlist.side_effect.http_status = 403
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -594,7 +594,7 @@ def test_spotify_client_integration_keyerror_handling():
         # Missing 'next' key intentionally
     }
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -623,7 +623,7 @@ def test_spotify_client_integration_track_without_wrapper():
         'next': None
     }
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
@@ -671,7 +671,7 @@ def test_spotify_client_integration_pagination():
     mock_spotify_instance.playlist.return_value = {'name': 'Paginated Playlist'}
     mock_spotify_instance.playlist_tracks.side_effect = playlist_tracks_side_effect
 
-    with patch('discord_bot.utils.clients.spotify.Spotify') as mock_spotify_class:
+    with patch('discord_bot.utils.integrations.spotify.Spotify') as mock_spotify_class:
         mock_spotify_class.return_value = mock_spotify_instance
 
         client = SpotifyClient('test_id', 'test_secret')
