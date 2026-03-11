@@ -1,7 +1,6 @@
 from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from re import sub
 from sys import stdout
 from typing import Callable, Optional, Literal
 
@@ -186,12 +185,3 @@ def create_observable_gauge(meter_provider, name: str, function, description: st
         unit=unit,
         description=description,
     )
-
-def discord_format_string_embed(stringy: str) -> str:
-    '''
-    Format discord string so it is not embedded
-    '''
-    # Regex to match URLs and wrap them in angle brackets to prevent embedding
-    # This matches https:// followed by non-whitespace characters
-    url_pattern = r'(https://\S+)'
-    return sub(url_pattern, r'<\1>', stringy)

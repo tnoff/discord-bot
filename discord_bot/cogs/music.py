@@ -41,7 +41,7 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, create_observable_gauge, discord_format_string_embed, run_commit
+from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, create_observable_gauge, run_commit
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
@@ -633,7 +633,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     # Since media download might be none
     async def __ensure_video_download_result(self, media_request: MediaRequest, media_download: MediaDownload):
         if media_download is None:
-            media_request.state_machine.mark_failed(f'Issue downloading video "{discord_format_string_embed(str(media_request))}"')
+            media_request.state_machine.mark_failed(f'Issue downloading video "{media_request}"')
             return False
         return True
 
@@ -1725,7 +1725,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         media_download : Media Download from download client
         '''
         if media_download is None:
-            media_download.media_request.state_machine.mark_failed(f'Issue generating video source "{discord_format_string_embed(str(media_download.media_request))}"')
+            media_download.media_request.state_machine.mark_failed(f'Issue generating video source "{media_download.media_request}"')
             return
         self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
                          f' in guild {media_download.media_request.guild_id}')

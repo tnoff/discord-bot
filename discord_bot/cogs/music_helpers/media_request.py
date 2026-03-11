@@ -8,7 +8,7 @@ from discord import TextChannel
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.search_client import SearchResult
-from discord_bot.utils.common import discord_format_string_embed
+from discord_bot.utils.discord_utils import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming, AttributeNaming
 
 
@@ -335,7 +335,7 @@ class MultiMediaRequestBundle():
         if media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED:
             self._increment_counter_for_stage(media_request.lifecycle_stage)
         elif media_request.lifecycle_stage in [MediaRequestLifecycleStage.QUEUED, MediaRequestLifecycleStage.SEARCHING]:
-            table_index = self.table.add_row(f'Media request queued for download: "{discord_format_string_embed(media_request.display_name)}"')
+            table_index = self.table.add_row(f'Media request queued for download: "{media_request.display_name}"')
         elif media_request.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED:
             self._increment_counter_for_stage(media_request.lifecycle_stage)
         self.bundled_requests.append(BundledMediaRequest(
