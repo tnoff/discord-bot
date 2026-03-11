@@ -238,6 +238,7 @@ class FakeChannel():
         self.id = id or random_id()
         self.name = random_string()
         self.messages = []
+        self.messages_sent = []
         self.type = channel_type
         self.members = members
         self.guild = guild or FakeGuild()
@@ -308,7 +309,9 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
         def event(self, func: Callable) -> None:
             self.startup_functions.append(func)
 
-        def get_cog(self, _name: str) -> None:
+        def get_cog(self, name: str) -> Optional[Any]:
+            if name == 'MessageDispatcher':
+                return FakeMessageDispatcher(self)
             return None
 
         def is_closed(self) -> bool:
@@ -361,14 +364,40 @@ class FakeVoiceClient():
         """Mock disconnect method for VoiceClient"""
         return True
 
+class FakeMessageDispatcher():
+    def __init__(self, bot: Any) -> None:
+        self.bot = bot
+
+    def send_message(self, _guild_id: int, channel_id: int, content: str, **_kwargs: Any) -> None:
+        channel = self.bot.get_channel(channel_id)
+        if channel is not None:
+            channel.messages_sent.append(content)
+
+    def send_single(self, _guild_id: int, funcs: list):
+        async def _run() -> None:
+            for func in funcs:
+                await func()
+        return _run()
+
+    async def fetch_object(self, _guild_id: int, func: Callable, **retry_kwargs: Any) -> Any:
+        return await func(**retry_kwargs)
+
+
 class FakeContext():
     def __init__(self, bot: Optional[Any] = None, guild: Optional[Any] = None, author: Optional[Any] = None, voice_client: Optional[Any] = None, channel: Optional[Any] = None) -> None:
         self.author = author or FakeAuthor()
         self.guild = guild or FakeGuild()
         self.channel = channel or FakeChannel()
-        self.messages_sent = []
         self.bot = bot
         self.voice_client = voice_client or FakeVoiceClient()
+
+    @property
+    def messages_sent(self) -> list:
+        return self.channel.messages_sent
+
+    @messages_sent.setter
+    def messages_sent(self, value: list) -> None:
+        self.channel.messages_sent = value
 
     async def send(self, message: str) -> str:
         self.messages_sent.append(message)

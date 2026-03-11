@@ -1,5 +1,6 @@
+import asyncio
 from contextlib import contextmanager
-from functools import partial
+from functools import cached_property, partial
 from typing import Optional
 
 from discord.ext.commands import Cog, Bot
@@ -11,7 +12,7 @@ from sqlalchemy.orm.session import Session
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import async_retry_discord_message_command, get_logger, LoggingConfig
+from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.sql_retry import retry_database_commands
 
 class CogHelper(Cog):
@@ -62,42 +63,36 @@ class CogHelper(Cog):
         finally:
             db_session.close()
 
+    @cached_property
+    def _dispatcher(self):
+        dispatcher = self.bot.get_cog('MessageDispatcher')
+        if dispatcher is None:
+            raise RuntimeError('MessageDispatcher cog is required but not loaded')
+        return dispatcher
+
     async def dispatch_fetch(self, guild_id: int, func, **retry_kwargs):
         '''
-        Fetch a Discord object through MessageDispatcher (LOW priority) when available,
-        falling back to a direct retry call otherwise.
+        Fetch a Discord object through MessageDispatcher (LOW priority).
         '''
-        dispatcher = self.bot.get_cog('MessageDispatcher')
-        if dispatcher:
-            return await dispatcher.fetch_object(guild_id, func, **retry_kwargs)
-        return await async_retry_discord_message_command(func, **retry_kwargs)
+        return await self._dispatcher.fetch_object(guild_id, func, **retry_kwargs)
 
     async def send_funcs(self, guild_id: int, funcs: list):
         '''
-        Enqueue a list of callables through MessageDispatcher (NORMAL priority) when available,
-        falling back to direct awaited calls otherwise.
+        Enqueue a list of callables through MessageDispatcher (NORMAL priority).
         '''
-        dispatcher = self.bot.get_cog('MessageDispatcher')
-        if dispatcher:
-            dispatcher.send_single(guild_id, funcs)
-        else:
-            for func in funcs:
-                await async_retry_discord_message_command(func)
+        result = self._dispatcher.send_single(guild_id, funcs)
+        if asyncio.iscoroutine(result):
+            await result
 
-    async def dispatch_message(self, ctx, content: str) -> str:
+    async def dispatch_message(self, guild_id: int, channel_id: int, content: str) -> str:
         '''
-        Send *content* to ctx's channel and return *content*.
+        Send *content* to the given channel and return *content*.
 
-        Routes through MessageDispatcher (NORMAL priority, with retry) when
-        the cog is loaded; falls back to a direct retry call otherwise.
+        Routes through MessageDispatcher (NORMAL priority, with retry).
         Returns content so callers can use ``return await self.dispatch_message(...)``
         as an early-exit that also signals which message was sent.
         '''
-        dispatcher = self.bot.get_cog('MessageDispatcher')
-        if dispatcher:
-            dispatcher.send_message(ctx.guild.id, ctx.channel.id, content)
-        else:
-            await async_retry_discord_message_command(partial(ctx.send, content))
+        self._dispatcher.send_message(guild_id, channel_id, content)
         return content
 
     def retry_commit(self, db_session: Session):
