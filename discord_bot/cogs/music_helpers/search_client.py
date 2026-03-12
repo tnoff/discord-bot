@@ -22,9 +22,9 @@ SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_TRACK_REGEX = r'^https://open.spotify.com/track/(?P<track_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)'
 
-YOUTUBE_PLAYLIST_REGEX = r'^https://(www.)?youtube.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
-YOUTUBE_VIDEO_REGEX = r'https://(www.)?youtu(.)?be(.com)?\/(watch\?v=)?(?P<video_id>.{11})'
-YOUTUBE_SHORT_REGEX = r'^https:\/\/(www\.)?youtube.com\/shorts\/(?P<video_id>.{11})'
+YOUTUBE_PLAYLIST_REGEX = r'^https://(www\.)?youtube\.com/playlist\?list=(?P<playlist_id>[a-zA-Z0-9_-]+)(?P<shuffle> *(shuffle)?)'
+YOUTUBE_VIDEO_REGEX = r'^https://(www\.)?youtu(\.)?be(\.com)?/(watch\?v=)?(?P<video_id>[a-zA-Z0-9_-]{11})'
+YOUTUBE_SHORT_REGEX = r'^https://(www\.)?youtube\.com/shorts/(?P<video_id>[a-zA-Z0-9_-]{11})'
 
 class SearchException(Exception):
     '''
@@ -207,11 +207,11 @@ class SearchClient():
             if youtube_video_match:
                 return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)])
 
-            if FXTWITTER_VIDEO_PREFIX in search:
+            if search.startswith(FXTWITTER_VIDEO_PREFIX):
                 return SearchCollection([SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)])
 
             # If we have https:// in url, assume its a direct
-            if 'https://' in search:
+            if search.startswith('https://'):
                 return SearchCollection([SearchResult(SearchType.DIRECT, search, None)])
 
             # Else assume this was a search message to put into youtube music

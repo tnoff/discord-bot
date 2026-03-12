@@ -414,3 +414,75 @@ async def test_spotify_oauth_error_handling():
     # Verify the error message matches expected format
     assert "Issue fetching spotify info" in str(exc_info.value)
     assert exc_info.value.user_message == "Issue gathering info from spotify, credentials seem invalid"
+
+
+# ---------------------------------------------------------------------------
+# Regex correctness: anchoring and character classes
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_youtube_video_mid_string_is_search():
+    """A YouTube URL embedded inside a sentence must not be treated as YOUTUBE."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    result = await x.check_source('listen to https://www.youtube.com/watch?v=dQw4w9WgXcQ later', loop, 5)
+    assert result.search_results[0].search_type == SearchType.SEARCH
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_youtu_be_mid_string_is_search():
+    """A youtu.be short URL embedded in text must not be treated as YOUTUBE."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    result = await x.check_source('check out https://youtu.be/dQw4w9WgXcQ please', loop, 5)
+    assert result.search_results[0].search_type == SearchType.SEARCH
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_https_url_mid_string_is_search():
+    """An https:// URL embedded in a sentence must not be treated as DIRECT."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    result = await x.check_source('see https://soundcloud.com/foo for details', loop, 5)
+    assert result.search_results[0].search_type == SearchType.SEARCH
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_fxtwitter_mid_string_is_search():
+    """An fxtwitter URL embedded in a sentence must not be treated as DIRECT."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    result = await x.check_source('see https://fxtwitter.com/foo/status/123 in context', loop, 5)
+    assert result.search_results[0].search_type == SearchType.SEARCH
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_youtube_video_invalid_id_falls_through_to_direct():
+    """A YouTube URL with an invalid video ID does not match YOUTUBE — it falls through to DIRECT
+    because the URL still starts with https://, so yt-dlp gets to try it."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    result = await x.check_source('https://www.youtube.com/watch?v=not valid!', loop, 5)
+    assert result.search_results[0].search_type == SearchType.DIRECT
+
+
+def test_check_youtube_video_mid_string_returns_none():
+    """check_youtube_video must not match when the URL is embedded inside a sentence."""
+    assert check_youtube_video('listen to https://www.youtube.com/watch?v=dQw4w9WgXcQ later') is None
+    assert check_youtube_video('check https://youtu.be/dQw4w9WgXcQ out') is None
+
+
+def test_check_youtube_video_invalid_id_returns_none():
+    """check_youtube_video must not match when the video ID contains invalid characters."""
+    assert check_youtube_video('https://www.youtube.com/watch?v=not valid!') is None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_youtube_playlist_regex_no_dot_wildcard():
+    """youtube.com in playlist URL must not match arbitrary characters in place of the dot.
+    Falls through to DIRECT (starts with https://) rather than matching as YOUTUBE_PLAYLIST."""
+    loop = asyncio.get_running_loop()
+    x = SearchClient()
+    # 'youtubeXcom' — dot replaced by a non-dot character; must not match as a playlist
+    result = await x.check_source('https://www.youtubeXcom/playlist?list=PLabc123', loop, 5)
+    assert result.search_results[0].search_type != SearchType.YOUTUBE_PLAYLIST
