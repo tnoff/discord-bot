@@ -222,19 +222,19 @@ async def test_retry_command_async(mocker):
         await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError)
     assert mock_time.call_count == 3
 
+
 @pytest.mark.asyncio
-async def test_retry_command_async_with_post(mocker):
+async def test_retry_discord_message_command_server_error(mocker):
+    '''DiscordServerError (5xx) should be retried with exponential backoff'''
     class FakeResponse():
         def __init__(self):
-            self.status = 500
-            self.reason = 'Cat unplugged the machines'
+            self.status = 503
+            self.reason = 'Service Unavailable'
     async def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
-    async def test_post(_ex, _is_last):
-        return 'foo'
     mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
-        await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError, post_exception_functions=[test_post])
+        await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
 
 @pytest.mark.asyncio
