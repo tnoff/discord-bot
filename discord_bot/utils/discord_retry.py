@@ -11,35 +11,21 @@ from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
 OTEL_SPAN_PREFIX = 'utils'
 
 
-class SkipRetrySleep(Exception):
-    '''
-    Call this to skip generic retry logic
-    '''
-
-
 async def async_retry_command(func: Callable[[], Awaitable], max_retries: int = 3,
-                              retry_exceptions=None, post_exception_functions=None,
-                              accepted_exceptions=None):
+                              retry_exceptions=None, accepted_exceptions=None):
     '''
-    Use retries for the command, mostly deals with db issues
+    Retry func up to max_retries times with exponential backoff.
 
-    func: Callable partial function to run
-    max_retries : Max retries until we fail
+    func: Callable to run
+    max_retries: Max retries before re-raising
     retry_exceptions: Retry on these exceptions
-    post_exception_functions: On retry_exceptions, run these functions
-    accepted_exceptions: Exceptions that are swallowed
+    accepted_exceptions: Exceptions that are swallowed (returns False)
     '''
     retry_exceptions = retry_exceptions or ()
-    post_functions = post_exception_functions or []
     accepted_exceptions = accepted_exceptions or ()
-    retry = -1
     with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
-        while True:
-            retry += 1
-            should_sleep = True
-            span.set_attributes({
-                AttributeNaming.RETRY_COUNT.value: retry
-            })
+        for retry in range(max_retries + 1):
+            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
             try:
                 result = await func()
                 span.set_status(StatusCode.OK)
@@ -49,46 +35,50 @@ async def async_retry_command(func: Callable[[], Awaitable], max_retries: int = 
                 span.set_status(StatusCode.OK)
                 return False
             except retry_exceptions as ex:
-                try:
-                    for pf in post_functions:
-                        await pf(ex, retry == max_retries)
-                except SkipRetrySleep:
-                    should_sleep = False
-                if retry < max_retries:
-                    if should_sleep:
-                        sleep_for = 2 ** (retry - 1)
-                        await async_sleep(sleep_for)
-                    continue
-                span.set_status(StatusCode.ERROR)
-                span.record_exception(ex)
-                raise
+                if retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(2 ** retry)
 
 
 async def async_retry_discord_message_command(func: Callable[[], Awaitable], max_retries: int = 3, allow_404: bool = False):
     '''
-    Retry discord send message command, catch case of rate limiting
-
-    func: Function to retry
-    max_retries: Max retry before failing
-    allow_404 : 404 exceptions are fine and we can skip
+    Retry discord API calls with per-exception handling:
+      - RateLimited: sleep retry_after, then retry
+      - DiscordServerError (5xx), TimeoutError, ServerDisconnectedError: exponential backoff retry
+      - HTTPException status=429 (e.g. error code 40062): exponential backoff retry
+      - HTTPException any other status: propagate immediately, no retry
+      - NotFound (404) with allow_404=True: swallowed, returns False
     '''
-    # For 429s, there is a 'retry_after' arg that tells how long to sleep before trying again
-    async def check_429(ex, is_last_retry):
-        if isinstance(ex, RateLimited) and not is_last_retry:
-            await async_sleep(ex.retry_after)
-            raise SkipRetrySleep('Skip sleep since we slept already')
-        # Discord error 40062 ("Service resource is being rate limited") is raised as a plain
-        # HTTPException with status 429, not as RateLimited — retry it with normal backoff.
-        # All other HTTPExceptions should propagate immediately without retrying.
-        if isinstance(ex, HTTPException) and ex.status != 429:
-            raise ex
-    post_exception_functions = [check_429]
-    # These are common discord api exceptions we can retry on
-    retry_exceptions = (RateLimited, DiscordServerError, TimeoutError, ServerDisconnectedError, HTTPException)
-    accepted_exceptions = ()
-    if allow_404:
-        accepted_exceptions = NotFound
-    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT):
-        return await async_retry_command(func, max_retries=max_retries,
-                                         retry_exceptions=retry_exceptions, post_exception_functions=post_exception_functions,
-                                         accepted_exceptions=accepted_exceptions)
+    accepted = (NotFound,) if allow_404 else ()
+    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT) as span:
+        for retry in range(max_retries + 1):
+            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
+            try:
+                result = await func()
+                span.set_status(StatusCode.OK)
+                return result
+            except accepted as ex:
+                span.record_exception(ex)
+                span.set_status(StatusCode.OK)
+                return False
+            except RateLimited as ex:
+                if retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(ex.retry_after)
+            except (DiscordServerError, TimeoutError, ServerDisconnectedError) as ex:
+                if retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(2 ** retry)
+            except HTTPException as ex:
+                # Only retry 429s (e.g. error code 40062 "Service resource is being rate limited")
+                if ex.status != 429 or retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(2 ** retry)
