@@ -58,15 +58,17 @@ All steps below are prerequisites for the HA split. They are ordered by dependen
 
 ## Step 1 — Enable YouTube Music Search by Default
 
-### Problem
+### Problem (resolved)
 
-The YouTube Music search step is currently gated behind `config.download.enable_youtube_music_search`. When disabled (the current default), text queries and Spotify-sourced titles enter the download queue as raw strings. The canonical video ID is not known until yt-dlp resolves it internally — after the download has already started.
+The YouTube Music search step was gated behind a `config.download.enable_youtube_music_search` flag. When disabled, text queries and Spotify-sourced titles entered the download queue as raw strings. The canonical video ID was not known until yt-dlp resolved it internally — after the download had already started.
 
-This creates two problems for broker-level caching:
-- The cache check cannot use a stable key for text queries (`"taylor swift shake it off"` is not a reliable cache key)
-- Two workers processing the same query simultaneously can both slip past the cache check and download the same video twice
+This created two problems for broker-level caching:
+- The cache check could not use a stable key for text queries (`"taylor swift shake it off"` is not a reliable cache key)
+- Two workers processing the same query simultaneously could both slip past the cache check and download the same video twice
 
-### How routing currently works
+The flag has been removed. `YoutubeMusicClient` is always initialised and the search task always runs.
+
+### How routing works
 
 `SearchClient.check_source()` classifies every input into a `SearchType`:
 
@@ -78,15 +80,9 @@ This creates two problems for broker-level caching:
 | `SEARCH` | `"taylor swift shake it off"` | No — resolved inside yt-dlp at download time |
 | `SPOTIFY` | Spotify track/album/playlist URL | Expands to artist+title strings (no video ID) |
 
-`SEARCH` and `SPOTIFY` items are routed through `youtube_music_search_queue` only when `enable_youtube_music_search = True`. The search loop resolves each item to a `youtube.com/watch?v=<id>` URL before it enters the download queue.
+`SEARCH` and `SPOTIFY` items are routed through `youtube_music_search_queue`. The search loop resolves each item to a `youtube.com/watch?v=<id>` URL before it enters the download queue.
 
-`YOUTUBE`, `YOUTUBE_PLAYLIST`, and `DIRECT` correctly bypass the search queue regardless of the flag — they either already have a canonical ID or never will.
-
-### What changes
-
-- Default `enable_youtube_music_search` to `True` in the config schema
-- Consider removing the flag entirely — there is no scenario where disabling it is preferable once it is a documented dependency
-- After this change: every item entering the download queue either already carried a canonical video ID (`YOUTUBE` types) or had one assigned by the search step (`SEARCH`/`SPOTIFY` types). `DIRECT` items remain the one exception — they are arbitrary URLs and require a different cache strategy (URL string as key, not video ID)
+`YOUTUBE`, `YOUTUBE_PLAYLIST`, and `DIRECT` correctly bypass the search queue — they either already have a canonical ID or never will.
 
 ### Invariant this establishes
 

@@ -106,7 +106,6 @@ class MusicDownloadConfig(BaseModel):
     enable_audio_processing: bool = False
     extra_ytdlp_options: dict = Field(default_factory=dict)
     banned_videos_list: list[str] = Field(default_factory=list)
-    enable_youtube_music_search: bool = True
     youtube_wait_period_minimum: int = Field(default=30, ge=1)
     youtube_wait_period_max_variance: int = Field(default=10, ge=1)
     spotify_credentials: Optional[SpotifyCredentialsConfig] = None
@@ -206,9 +205,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.config.download.youtube_api_key:
             self.youtube_client = YoutubeClient(self.config.download.youtube_api_key)
 
-        self.youtube_music_client = None
-        if self.config.download.enable_youtube_music_search:
-            self.youtube_music_client = YoutubeMusicClient()
+        self.youtube_music_client = YoutubeMusicClient()
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -402,8 +399,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher = self.bot.get_cog('MessageDispatcher')
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
-        if self.config.download.enable_youtube_music_search:
-            self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
+        self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
             self._post_play_processing_task = self.bot.loop.create_task(return_loop_runner(self.post_play_processing, self.bot, self.logger)())
 
@@ -1166,8 +1162,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for media_request in entries:
             self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {str(bundle)}')
             # Unless a direct or youtube url, pass into the search queue
-            # Also requires youtube music search is set
-            if self.config.download.enable_youtube_music_search and media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
+            if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
                 try:
                     self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     bundle.add_media_request(media_request)

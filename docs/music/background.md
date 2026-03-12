@@ -121,8 +121,6 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 
 **Queue Type**: `DistributedQueue` (10x larger than download queue due to lightweight operations)
 
-**Conditional**: Only runs if `enable_youtube_music_search` is `True`
-
 **Shutdown Behavior**: Exits immediately when shutdown flag is set
 
 **Why Separate Loop?**:
