@@ -4,7 +4,7 @@ A discord bot framework written in python. Supports starting a bot via a token, 
 
 Includes some pre-written cogs for:
 
-- Playing audio from youtube in voice channels
+- Playing audio from YouTube and other media sites in voice channels
 - Looking up words in Urban Dictionary
 - Auto generating messages from channel history via Markov Chains
 - Auto deletion of messages in specific channels
@@ -133,12 +133,12 @@ The "common" cog with some basic functions will be included by default, the rest
 ---
 general:
   discord_token: blah-blah-blah-discord-token
-include:
-  music: true
-  markov: true
-  urban: true
-  delete_messages: true
-  role: true
+  include:
+    music: true
+    markov: true
+    urban: true
+    delete_messages: true
+    role: true
 ```
 
 ## Running bot

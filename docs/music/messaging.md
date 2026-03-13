@@ -8,9 +8,9 @@ The music messaging system is a multi-layer architecture that manages real-time 
 
 ## Core Components
 
-### 1. **Message Queue System** (`MessageQueue`)
+### 1. **Message Dispatcher** (`MessageDispatcher`)
 
-The `MessageQueue` is the central dispatcher that routes messages through different channels.
+The `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`) is the central dispatcher for all Discord API calls across the entire bot. It replaces the old per-cog `MessageQueue` with a shared, per-guild priority queue.
 
 **Two Message Types**:
 
@@ -18,15 +18,16 @@ The `MessageQueue` is the central dispatcher that routes messages through differ
 2. **`MULTIPLE_MUTABLE`** - Bundles of messages that update in-place via edits
 
 **Processing Flow**:
-- Prioritizes multi-mutable bundles (progress tracking)
-- Falls back to single immutable messages
-- Returns oldest unprocessed bundle based on `last_sent` timestamp
+- One `asyncio.PriorityQueue` per guild; one lazy worker task per active guild
+- Mutable sentinel items (HIGH priority) flush the current bundle display
+- Immutable sends and deletes run at NORMAL priority
+- Background reads (fetch_message, channel history) run at LOW priority
 
 ---
 
 ### 2. **Message Bundle System** (`MessageMutableBundle`)
 
-This manages multiple related Discord messages as a cohesive unit.
+This manages multiple related Discord messages as a cohesive unit. Defined in `discord_bot/cogs/message_dispatcher.py`.
 
 **Key Features**:
 
@@ -221,22 +222,21 @@ Completed processing of "spotify:album:abc123"
 
 ---
 
-## Send Messages Loop
+## MessageDispatcher Worker
 
-The main message dispatcher runs continuously in a background loop.
+There is no dedicated send-messages loop inside the Music cog. Instead, each guild gets a lazy worker task inside `MessageDispatcher` that processes its priority queue. The Music cog calls `self.dispatcher.update_mutable(...)` and `self.dispatcher.send_message(...)` to enqueue work.
 
-**Process**:
-1. Get next message from queue (prioritizes multi-mutable bundles)
-2. For multi-mutable messages:
-   - Get current bundle content via `bundle.print()`
-   - Remove bundle if finished or shutdown
-   - Generate dispatch functions (edit/delete/send) via `update_mutable_bundle_content()`
-   - Execute all operations
+**Process** (per-guild worker):
+1. Dequeue next item from the guild's `asyncio.PriorityQueue`
+2. For **mutable sentinel** (HIGH priority):
+   - Fetch current bundle content and dispatch edit/delete/send operations
    - Update message references for newly sent messages
-3. For single immutable messages:
-   - Execute send function directly
+3. For **immutable send/delete** (NORMAL priority):
+   - Execute the callable directly with retry
+4. For **read/fetch** (LOW priority):
+   - Execute callable, resolve the caller's `asyncio.Future`
 
-**Execution Frequency**: ~10-100ms loop iteration time
+**Worker lifetime**: Started lazily on first message for a guild; exits when the guild's queue drains.
 
 ---
 

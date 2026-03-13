@@ -28,38 +28,17 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 
 ---
 
-## The Six Background Loops
+## Messaging
 
-### 1. **Send Messages Loop** (`send_messages()`)
+All Discord API calls are handled by the `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`), which is loaded before the Music cog and shared across all cogs. It maintains one `asyncio.PriorityQueue` per guild and one lazy worker task per active guild — no dedicated send-messages background loop runs inside the Music cog.
 
-**Purpose**: Dispatch all Discord messages (progress updates, errors, queue displays)
-
-**Key Responsibilities**:
-- Process messages from `MessageQueue`
-- Handle multi-mutable bundles (editable progress messages)
-- Handle single immutable messages (one-off notifications)
-- Execute message edit/delete/send operations
-- Update message references for tracking
-
-**Processing Flow**:
-1. Call `message_queue.get_next_message()`
-2. For **multi-mutable** messages:
-   - Get bundle content via `bundle.print()`
-   - Generate dispatch functions (edit/delete/send)
-   - Execute all operations
-   - Update message references
-3. For **single immutable** messages:
-   - Execute send function directly
-
-**Shutdown Behavior**: Exits when shutdown flag is set AND no messages remain in queue
-
-**Special Handling**:
-- Continues on `DiscordServerError` (temporary Discord API issues)
-- Allows 404 errors for message operations (message already deleted)
+See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispatcher) for details.
 
 ---
 
-### 2. **Download Files Loop** (`download_files()`)
+## The Four Background Loops
+
+### 1. **Download Files Loop** (`download_files()`)
 
 **Purpose**: Download media files from YouTube using yt-dlp
 
@@ -160,42 +139,15 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 
 ---
 
-### 5. **Cache Cleanup Loop** (`cache_cleanup()`)
+### 4. **Post-Play Processing Loop** (`post_play_processing()`)
 
-**Purpose**: Remove old cached files when cache limit is exceeded
-
-**Key Responsibilities**:
-- Mark cache files for deletion (LRU eviction)
-- Check if files are currently in use
-- Delete files not in use
-- Backup files to S3 (if configured)
-- Update cache database
-
-**Processing Flow**:
-1. Call `video_cache.ready_remove()` to mark files for deletion (LRU)
-2. Query database for files marked `delete_ready`
-3. For each file:
-   - Check if file is in `sources_in_transit` (currently being copied)
-   - If not in use, add to delete list
-4. Delete files via `video_cache.remove_video_cache()`
-5. Query database for files without S3 backup
-6. Backup files to S3 via `video_cache.object_storage_backup()`
-
-**Conditional**: Only runs if `enable_cache` is `True`
-
-**Shutdown Behavior**: Exits immediately when shutdown flag is set
-
-**Safety**: Never deletes files currently in use (prevents race conditions)
-
-### 6. **Playlist History Update Loop** (`playlist_history_update()`)
-
-**Purpose**: Track playback history and analytics to database
+**Purpose**: Record playback history/analytics to database and run cache cleanup after each track finishes
 
 **Key Responsibilities**:
-- Record each played video to history playlist
+- Record each played video to the guild's history playlist
 - Update guild analytics (total plays, duration, cache hit rate)
-- Create new playlist items
-- Delete old items when history limit exceeded
+- Evict stale cached files via `MediaBroker.cache_cleanup()`
+- Delete old history items when the playlist limit is exceeded
 
 **Processing Flow**:
 1. Get next `history_item` from `history_playlist_queue.get_nowait()`
@@ -208,6 +160,7 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 4. Get or create history playlist for guild
 5. Add video to playlist via `__playlist_insert_item()`
 6. If history playlist is full, delete oldest item
+7. Call `media_broker.cache_cleanup()` to evict any files now safe to remove
 
 **Queue Type**: Standard `Queue` (FIFO)
 
@@ -228,8 +181,7 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 ### Standard Queue (`Queue`)
 
 **Used By**:
-- `history_playlist_queue` (history updates)
-- `single_immutable_queue` (one-off messages)
+- `history_playlist_queue` (post-play processing)
 
 **Behavior**:
 - FIFO (First In, First Out)
@@ -292,15 +244,15 @@ Download Loop → Download file
     ↓
 Player Queue → Play audio
     ↓
-History Loop → Record to database
+Post-Play Processing Loop → Record to database + cache cleanup
 ```
 
 ### Message Updates
 
 ```
-Download Loop updates bundle → Message Queue notified
+Download Loop updates bundle → MessageDispatcher notified
     ↓
-Send Messages Loop → Edit Discord message
+MessageDispatcher worker (per-guild) → Edit Discord message
 ```
 
 ### Shutdown Coordination
@@ -325,15 +277,13 @@ Tasks cancelled
 
 ## Heartbeat Monitoring
 
-Each loop updates a checkpoint file every iteration:
+Each loop reports a heartbeat via an OpenTelemetry observable gauge every iteration:
 
-**Checkpoint Files**:
-- `send_message_checkfile` - Send messages loop
-- `cleanup_player_checkfile` - Cleanup players loop
-- `cache_cleanup_checkfile` - Cache cleanup loop
-- `download_file_checkfile` - Download files loop
-- `playlist_history_checkfile` - Playlist history loop
-- `youtube_search_checkfile` - YouTube search loop
+**Heartbeat gauges** (all use `MetricNaming.HEARTBEAT`, tagged by `AttributeNaming.BACKGROUND_JOB`):
+- `cleanup_player` - Cleanup players loop
+- `download_file` - Download files loop
+- `youtube_search` - YouTube Music search loop
+- `post_play_processing` - Post-play processing loop (database + cache cleanup)
 
 **Purpose**:
 - Monitor loop health via OpenTelemetry metrics

@@ -63,16 +63,23 @@ discord_bot/
     urban.py                    # UrbanDictionary — !word command
     database_backup.py          # Scheduled S3 database backup
     music_helpers/
-      common.py                 # SearchType enum, StorageOptions enum, URL prefix constants
+      common.py                 # SearchType enum, StorageOptions enum, YouTube URL prefix constants
       database_functions.py     # Shared DB helpers (ensure_guild_video_analytics, etc.)
       download_client.py        # yt-dlp wrapper; DownloadClientException hierarchy
-      history_playlist_item.py  # HistoryPlaylistItem dataclass
       media_broker.py           # MediaBroker — IN_FLIGHT/AVAILABLE/CHECKED_OUT lifecycle
-      media_download.py         # MediaDownload dataclass (id, title, webpage_url, …)
-      media_request.py          # MediaRequest + RetryInformation dataclasses
       music_player.py           # MusicPlayer — playback queue, FFmpegPCMAudio, cleanup_source()
-      search_client.py          # SearchClient — URL parsing, Spotify/YouTube/Twitter patterns
+      search_client.py          # SearchClient — URL parsing, Spotify/YouTube patterns
       video_cache_client.py     # VideoCacheClient — local file cache with S3 backup
+  types/
+    __init__.py
+    catalog.py                  # CatalogItem, CatalogResponse
+    download.py                 # DownloadResult, DownloadStatus
+    history_playlist_item.py    # HistoryPlaylistItem
+    media_download.py           # MediaDownload, media_download_attributes
+    media_request.py            # RetryInformation, MediaRequest, BundledMediaRequest,
+                                #   MediaRequestStateMachine, MultiMediaRequestBundle,
+                                #   media_request_attributes, chunk_list
+    search.py                   # SearchResult, SearchCollection
   utils/
     audio.py                    # edit_audio_file() — audio normalisation via moviepy/numpy
     common.py                   # async_retry_discord_message_command, get_logger,
@@ -441,8 +448,12 @@ The `Music` cog delegates to several `music_helpers/` sub-modules.
 |---|---|
 | `MusicPlayer` (`music_player.py`) | Per-guild playback queue; `cleanup_source()` |
 | `MediaBroker` (`media_broker.py`) | Aggregate lifecycle tracker (IN_FLIGHT → AVAILABLE → CHECKED_OUT) |
-| `MediaRequest` (`media_request.py`) | Per-request user-facing state machine |
-| `MediaDownload` (`media_download.py`) | Immutable yt-dlp metadata (id, title, webpage_url, duration, …) |
+| `MediaRequest` (`types/media_request.py`) | Per-request user-facing state machine |
+| `MediaRequestStateMachine` (`types/media_request.py`) | Drives bundle UI state transitions |
+| `MultiMediaRequestBundle` (`types/media_request.py`) | Tracks progress for multi-track operations |
+| `MediaDownload` (`types/media_download.py`) | Immutable yt-dlp metadata (id, title, webpage_url, duration, …) |
+| `DownloadResult` (`types/download.py`) | Raw result from yt-dlp before broker handoff |
+| `SearchResult` / `SearchCollection` (`types/search.py`) | Parsed search input; single result or multi-track collection |
 | `DownloadClient` (`download_client.py`) | yt-dlp wrapper; exception hierarchy: `DownloadClientException → DownloadTerminalException / RetryableException` |
 | `SearchClient` (`search_client.py`) | URL/string parsing; Spotify / YouTube / direct URL patterns; `SearchException` |
 | `VideoCacheClient` (`video_cache_client.py`) | Local file cache with optional S3 backing |
