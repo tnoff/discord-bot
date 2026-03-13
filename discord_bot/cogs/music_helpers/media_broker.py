@@ -6,6 +6,7 @@ from typing import List
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.cogs.music_helpers.download_client import DownloadResult
 
 
 class Zone(Enum):
@@ -61,6 +62,14 @@ class MediaBroker:
         key = str(media_request.uuid)
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
+
+    def register_download_result(self, result: DownloadResult) -> MediaDownload:
+        '''
+        Create a MediaDownload from a successful DownloadResult and register it.
+        '''
+        media_download = MediaDownload(result.file_name, result.ytdlp_data, result.media_request)
+        self.register_download(media_download)
+        return media_download
 
     def register_download(self, media_download: MediaDownload):
         '''

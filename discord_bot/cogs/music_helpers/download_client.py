@@ -1,3 +1,5 @@
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from shutil import copyfile
@@ -9,14 +11,26 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.utils.otel import otel_span_wrapper
 
-# Re-export under the original names for backwards compatibility
-DownloadStatus = FailureStatus
-DownloadFailureQueue = FailureQueue
+@dataclass
+class DownloadStatus():
+    '''
+    Download Status
+    '''
+    success: bool
+    exception: Exception = None
 
+@dataclass
+class DownloadResult():
+    '''
+    Represent a complete download result from the client
+    '''
+    status: DownloadStatus
+    media_request: MediaRequest
+    ytdlp_data: dict | None
+    file_name: Path | None
+    download_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 class DownloadClientException(Exception):
     '''
@@ -147,44 +161,42 @@ class DownloadClient():
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
-                raise
+                return DownloadResult(DownloadStatus(False, exception=error), media_request, None, None)
             except DownloadError as error:
                 if 'Private video' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise PrivateVideoException('Video is private', user_message='Video is private, cannot download') from error
+                    return DownloadResult(DownloadStatus(False, exception=PrivateVideoException('Video is private', user_message='Video is private, cannot download')), media_request, None, None)
                 if 'This video has been removed for violating' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoViolatedTermsException('Video taken down', user_message='Video is unvailable due to violating terms of service, cannot download') from error
+                    return DownloadResult(DownloadStatus(False, exception=VideoViolatedTermsException('Video taken down', user_message='Video is unvailable due to violating terms of service, cannot download')), media_request, None, None)
                 if 'Video unavailable' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoUnavailableException('Video is unavailable', user_message='Video is unavailable, cannot download') from error
+                    return DownloadResult(DownloadStatus(False, exception=VideoUnavailableException('Video is unavailable', user_message='Video is unavailable, cannot download')), media_request, None, None)
                 if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise VideoAgeRestrictedException('Video Aged restricted', user_message='Video is age restricted, cannot download') from error
+                    return DownloadResult(DownloadStatus(False, exception=VideoAgeRestrictedException('Video Aged restricted', user_message='Video is age restricted, cannot download')), media_request, None, None)
                 if 'Requested format is not available' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    raise InvalidFormatException('Video format not available', user_message='Video is not available in requested format') from error
-                if 'Sign in to confirm you'in str(error) and 'not a bot' in str(error):
+                    return DownloadResult(DownloadStatus(False, exception=InvalidFormatException('Video format not available', user_message='Video is not available in requested format')), media_request, None, None)
+                if 'Sign in to confirm you' in str(error) and 'not a bot' in str(error):
                     span.record_exception(error)
                     if media_request.download_retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
-                        raise RetryLimitExceeded('Retry limit exceeded') from error
+                        return DownloadResult(DownloadStatus(False, exception=RetryLimitExceeded('Retry limit exceeded')), media_request, None, None)
                     span.set_status(StatusCode.OK)
-                    media_request.download_retry_information.retry_count += 1
-                    raise BotDownloadFlagged('Bot flagged download', media_request=media_request) from error
+                    return DownloadResult(DownloadStatus(False, exception=BotDownloadFlagged('Bot flagged download', media_request=media_request)), media_request, None, None)
                 # Fallback
                 span.record_exception(error)
                 if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
-                    raise RetryLimitExceeded('Retry limit exceeded') from error
+                    return DownloadResult(DownloadStatus(False, exception=RetryLimitExceeded('Retry limit exceeded')), media_request, None, None)
                 span.set_status(StatusCode.OK)
-                media_request.download_retry_information.retry_count += 1
-                raise RetryableException('Untracked error message', media_request=media_request) from error
+                return DownloadResult(DownloadStatus(False, exception=RetryableException('Untracked error message', media_request=media_request)), media_request, None, None)
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:
@@ -192,7 +204,7 @@ class DownloadClient():
             except IndexError as error:
                 span.set_status(StatusCode.OK)
                 span.record_exception(error)
-                raise VideoNotFoundException('No videos found', user_message=f'No videos found for search "{str(media_request)}"') from error
+                return DownloadResult(DownloadStatus(False, exception=VideoNotFoundException('No videos found', user_message=f'No videos found for search "{str(media_request)}"')), media_request, None, None)
             # Key Error if a single video is passed
             except KeyError:
                 pass
@@ -215,9 +227,9 @@ class DownloadClient():
                 except FileNotFoundError as e:
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
-                    return None
+                    return DownloadResult(DownloadStatus(False, exception=FileNotFoundError(f'File not found after download: {file_path}')), media_request, None, None)
             span.set_status(StatusCode.OK)
-            return MediaDownload(file_path, data, media_request)
+            return DownloadResult(DownloadStatus(True), media_request, data, file_path)
 
     async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''

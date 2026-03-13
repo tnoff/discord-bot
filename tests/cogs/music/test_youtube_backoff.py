@@ -7,7 +7,8 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.download_client import RetryableException, BotDownloadFlagged, DownloadStatus
+from discord_bot.cogs.music_helpers.download_client import RetryableException, BotDownloadFlagged, DownloadResult, DownloadStatus
+from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_client
@@ -98,25 +99,25 @@ async def test_update_download_timestamp_method(freezer, fake_context, mocker): 
 
 
 def yield_download_client_retryable_exception():
-    """Fake download client that raises RetryableException"""
+    """Fake download client that returns a retryable failure DownloadResult"""
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            raise RetryableException('Test retryable error', media_request=media_request)
+            return DownloadResult(DownloadStatus(False, exception=RetryableException('Test retryable error', media_request=media_request)), media_request, None, None)
 
     return FakeDownloadClient
 
 
 def yield_download_client_bot_flagged():
-    """Fake download client that raises BotDownloadFlagged"""
+    """Fake download client that returns a BotDownloadFlagged failure DownloadResult"""
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            raise BotDownloadFlagged('Bot download flagged', media_request=media_request)
+            return DownloadResult(DownloadStatus(False, exception=BotDownloadFlagged('Bot download flagged', media_request=media_request)), media_request, None, None)
 
     return FakeDownloadClient
 
@@ -160,8 +161,8 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
     # Pre-populate failure queue with 2 failures to test exponential backoff
-    cog.download_failure_queue.add_item(DownloadStatus(success=False, exception_type='RetryableException'))
-    cog.download_failure_queue.add_item(DownloadStatus(success=False, exception_type='RetryableException'))
+    cog.download_failure_queue.add_item(FailureStatus(success=False, exception_type='RetryableException'))
+    cog.download_failure_queue.add_item(FailureStatus(success=False, exception_type='RetryableException'))
     assert cog.download_failure_queue.size == 2
 
     s = fake_source_dict(fake_context)
@@ -221,8 +222,8 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
             freezer.move_to('2025-01-01 12:00:00 UTC')
 
             # Pre-populate failure queue
-            cog.download_failure_queue.add_item(DownloadStatus(success=False, exception_type='RetryableException'))
-            cog.download_failure_queue.add_item(DownloadStatus(success=False, exception_type='RetryableException'))
+            cog.download_failure_queue.add_item(FailureStatus(success=False, exception_type='RetryableException'))
+            cog.download_failure_queue.add_item(FailureStatus(success=False, exception_type='RetryableException'))
             assert cog.download_failure_queue.size == 2
 
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])

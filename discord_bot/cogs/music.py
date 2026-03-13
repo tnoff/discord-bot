@@ -28,7 +28,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryLimitExceeded, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import RetryLimitExceeded, RetryableException, match_generator
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -843,53 +843,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self.youtube_backoff_time()
                 # Update bundle to show in progress
                 media_request.state_machine.mark_in_progress()
-                try:
-                    media_download = await self.download_client.create_source(media_request,
-                                                                              self.config.download.max_download_retries,
-                                                                              self.bot.loop)
-                    self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
-                    self.download_failure_queue.add_item(FailureStatus())
-                    self.update_download_timestamp(media_download=media_download)
-                except DownloadTerminalException as e:
-                    # Terminal error - known permanent failure (age restricted, private, etc.)
-                    # Don't track in failure queue as these aren't transient issues
-                    self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {str(e)}')
-                    self.update_download_timestamp()
-                    await self.__return_bad_video(media_request, e)
-                    span.set_status(StatusCode.OK)
+                result = await self.download_client.create_source(media_request,
+                                                                          self.config.download.max_download_retries,
+                                                                          self.bot.loop)
+                if not result.status.success:
+                    e = result.status.exception
+                    if isinstance(e, RetryLimitExceeded):
+                        self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {str(e)}')
+                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
+                                                                            exception_message=str(e)))
+                        self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
+                        await self.__return_bad_video(media_request, e)
+                        span.set_status(StatusCode.ERROR)
+                        span.record_exception(e)
+                    elif isinstance(e, RetryableException):
+                        result.media_request.download_retry_information.retry_count += 1
+                        self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
+                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
+                                                                            exception_message=str(e)))
+                        self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
+                        # Apply extra backoff for number of failures found
+                        # Do some exponential backoff as well since this tends to be pretty agressive
+                        self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
+                        # Calculate approximate backoff duration for user notification
+                        backoff_seconds = None
+                        if self.youtube_download_wait_timestamp:
+                            backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
+                            backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
+                            self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
+                        self.download_queue.put_nowait(media_request.guild_id, media_request)
+                        media_request.state_machine.mark_retry_download(str(e), backoff_seconds)
+                        span.set_status(StatusCode.OK)
+                        span.record_exception(e)
+                    else:
+                        # Terminal error - known permanent failure (age restricted, private, etc.)
+                        # Don't track in failure queue as these aren't transient issues
+                        self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {str(e)}')
+                        self.update_download_timestamp()
+                        await self.__return_bad_video(media_request, e)
+                        span.set_status(StatusCode.OK)
                     return
-                except RetryLimitExceeded as e:
-                    self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {str(e)}')
-                    self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
-                                                                        exception_message=str(e)))
-                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                    await self.__return_bad_video(media_request, e)
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
-                    return
-                except RetryableException as e:
-                    self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
-                    self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
-                                                                        exception_message=str(e)))
-                    self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
-                    # Apply extra backoff for number of failures found
-                    # Do some exponential backoff as well since this tends to be pretty agressive
-                    self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                    # Calculate approximate backoff duration for user notification
-                    backoff_seconds = None
-                    if self.youtube_download_wait_timestamp:
-                        backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
-                        backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
-                        self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
-                    self.download_queue.put_nowait(media_request.guild_id, media_request)
-                    # Use original exception message if available for more detail
-                    media_request.state_machine.mark_retry_download(
-                        str(e.__cause__) if e.__cause__ is not None else str(e),
-                        backoff_seconds,
-                    )
-                    span.set_status(StatusCode.OK)
-                    span.record_exception(e)
-                    return
+                self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
+                self.download_failure_queue.add_item(FailureStatus())
+                media_download = self.media_broker.register_download_result(result)
+                self.update_download_timestamp(media_download=media_download)
 
             # Final none check in case we couldn't download video
             if not await self.__ensure_video_download_result(media_request, media_download):
