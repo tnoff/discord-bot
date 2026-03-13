@@ -10,7 +10,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchCollection
 
-from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException
+from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException, DownloadResult, DownloadStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
@@ -54,8 +54,18 @@ def yield_fake_download_client(media_download: MediaDownload):
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def create_source(self, *_args, **_kwargs):
-            return media_download
+        async def create_source(self, media_request, *_args, **_kwargs):
+            if media_download is None:
+                return DownloadResult(DownloadStatus(False, exception=DownloadTerminalException('No result', user_message='No result')), media_request, None, None)
+            ytdlp_data = {
+                'id': media_download.id,
+                'title': media_download.title,
+                'webpage_url': media_download.webpage_url,
+                'uploader': media_download.uploader,
+                'duration': media_download.duration,
+                'extractor': media_download.extractor,
+            }
+            return DownloadResult(DownloadStatus(True), media_request, ytdlp_data, media_download.file_path)
 
     return FakeDownloadClient
 
@@ -64,8 +74,8 @@ def yield_download_client_download_exception():
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def create_source(self, *_args, **_kwargs):
-            raise DownloadTerminalException('foo', user_message='whoopsie')
+        async def create_source(self, media_request, *_args, **_kwargs):
+            return DownloadResult(DownloadStatus(False, exception=DownloadTerminalException('foo', user_message='whoopsie')), media_request, None, None)
 
     return FakeDownloadClient
 
@@ -75,7 +85,7 @@ def yield_download_client_download_error():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            raise RetryableException('foo', media_request=media_request)
+            return DownloadResult(DownloadStatus(False, exception=RetryableException('foo', media_request=media_request)), media_request, None, None)
 
     return FakeDownloadClient
 
