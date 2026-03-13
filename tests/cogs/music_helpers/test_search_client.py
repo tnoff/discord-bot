@@ -5,9 +5,10 @@ import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult, check_youtube_video
-from discord_bot.cogs.music_helpers.search_client import SearchCollection
-from discord_bot.utils.integrations.common import CatalogResponse, CatalogItem, YOUTUBE_VIDEO_PREFIX
+from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
+from discord_bot.types.search import SearchResult, SearchCollection
+from discord_bot.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
 
@@ -196,15 +197,6 @@ async def test_youtube_video():
     result = await x.check_source('https://www.youtube.com/watch?v=aaaaaaaaaaa?extra=foo', loop, 5)
     assert result.search_results[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
     assert result.search_results[0].search_type == SearchType.YOUTUBE
-    assert result.collection_name is None
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_fxtwitter():
-    loop = asyncio.get_running_loop()
-    x = SearchClient()
-    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', loop, 5)
-    assert result.search_results[0].raw_search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
-    assert result.search_results[0].search_type == SearchType.DIRECT
     assert result.collection_name is None
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -444,15 +436,6 @@ async def test_https_url_mid_string_is_search():
     loop = asyncio.get_running_loop()
     x = SearchClient()
     result = await x.check_source('see https://soundcloud.com/foo for details', loop, 5)
-    assert result.search_results[0].search_type == SearchType.SEARCH
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_fxtwitter_mid_string_is_search():
-    """An fxtwitter URL embedded in a sentence must not be treated as DIRECT."""
-    loop = asyncio.get_running_loop()
-    x = SearchClient()
-    result = await x.check_source('see https://fxtwitter.com/foo/status/123 in context', loop, 5)
     assert result.search_results[0].search_type == SearchType.SEARCH
 
 

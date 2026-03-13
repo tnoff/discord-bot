@@ -5,9 +5,9 @@ import pytest
 from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import mock_session, fake_source_dict, fake_media_download

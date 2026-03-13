@@ -6,8 +6,9 @@ import pytest
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.download_client import RetryableException, BotDownloadFlagged, DownloadResult, DownloadStatus
+from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.cogs.music_helpers.download_client import RetryableException, BotDownloadFlagged
 from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 

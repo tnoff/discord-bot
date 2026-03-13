@@ -15,8 +15,8 @@ from discord.errors import ClientException
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
+from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner

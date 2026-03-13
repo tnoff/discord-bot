@@ -1,8 +1,8 @@
 import pytest
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest, MediaRequestStateMachine, chunk_list
-from discord_bot.cogs.music_helpers.search_client import SearchResult
+from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest, MediaRequestStateMachine, chunk_list
+from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 

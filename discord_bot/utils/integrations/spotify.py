@@ -7,7 +7,7 @@ from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyClientCredentials
 
-from discord_bot.utils.integrations.common import CatalogResponse, CatalogItem
+from discord_bot.types.catalog import CatalogResponse, CatalogItem
 from discord_bot.utils.otel import otel_span_wrapper, ThirdPartyNaming
 
 class SpotifyClient():

@@ -7,7 +7,7 @@ from discord import TextChannel
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.cogs.music_helpers.search_client import SearchResult
+from discord_bot.types.search import SearchResult
 from discord_bot.utils.discord_utils import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming, AttributeNaming
 

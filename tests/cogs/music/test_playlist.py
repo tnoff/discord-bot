@@ -8,10 +8,10 @@ import pytest
 from discord_bot.database import Playlist, PlaylistItem
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.media_request import MultiMediaRequestBundle
+from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_client, yield_fake_search_client, yield_download_client_download_exception
 from tests.helpers import mock_session, fake_source_dict, fake_media_download

@@ -1,5 +1,3 @@
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 from shutil import copyfile
@@ -10,27 +8,9 @@ from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from discord_bot.cogs.music_helpers.media_request import MediaRequest, media_request_attributes
+from discord_bot.types.media_request import MediaRequest, media_request_attributes
+from discord_bot.types.download import DownloadResult, DownloadStatus
 from discord_bot.utils.otel import otel_span_wrapper
-
-@dataclass
-class DownloadStatus():
-    '''
-    Download Status
-    '''
-    success: bool
-    exception: Exception = None
-
-@dataclass
-class DownloadResult():
-    '''
-    Represent a complete download result from the client
-    '''
-    status: DownloadStatus
-    media_request: MediaRequest
-    ytdlp_data: dict | None
-    file_name: Path | None
-    download_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 class DownloadClientException(Exception):
     '''

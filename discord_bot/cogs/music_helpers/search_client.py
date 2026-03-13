@@ -1,5 +1,4 @@
 from asyncio import AbstractEventLoop
-from dataclasses import dataclass
 from functools import partial
 from itertools import islice
 from re import match
@@ -11,11 +10,11 @@ from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.utils.integrations.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
-from discord_bot.utils.integrations.common import CatalogResponse
+from discord_bot.types.catalog import CatalogResponse
+from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.utils.otel import otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -55,42 +54,6 @@ def check_youtube_video(search: str) -> bool:
     youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
     return youtube_short_match or youtube_video_match
 
-
-@dataclass
-class SearchResult():
-    '''
-    SearchClient search results
-    '''
-    search_type: SearchType
-    # Original search string given before any processing
-    raw_search_string: str
-    # If from an api source where we know a better name for processing
-    proper_name: str = None
-    # Search string after youtube music search, if given
-    youtube_music_search_string: str = None
-
-    def add_youtube_music_result(self, youtube_music_result: str):
-        '''
-        Add result from youtube music
-        '''
-        self.youtube_music_search_string = youtube_music_result
-
-    @property
-    def resolved_search_string(self):
-        '''
-        Either youtube music or original search string
-        '''
-        if self.youtube_music_search_string:
-            return self.youtube_music_search_string
-        return self.raw_search_string
-
-@dataclass
-class SearchCollection():
-    '''
-    Collection of Search Results
-    '''
-    search_results: list[SearchResult]
-    collection_name: str = None
 
 class SearchClient():
     '''
@@ -206,9 +169,6 @@ class SearchClient():
 
             if youtube_video_match:
                 return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)])
-
-            if search.startswith(FXTWITTER_VIDEO_PREFIX):
-                return SearchCollection([SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)])
 
             # If we have https:// in url, assume its a direct
             if search.startswith('https://'):

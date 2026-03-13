@@ -8,13 +8,14 @@ import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchCollection
+from discord_bot.types.search import SearchResult, SearchCollection
+from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
+from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.download import DownloadResult, DownloadStatus
 
-from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException, DownloadResult, DownloadStatus
+from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music import VideoEditing
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
 from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
