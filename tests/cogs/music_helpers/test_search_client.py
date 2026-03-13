@@ -200,15 +200,6 @@ async def test_youtube_video():
     assert result.collection_name is None
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_fxtwitter():
-    loop = asyncio.get_running_loop()
-    x = SearchClient()
-    result = await x.check_source('https://fxtwitter.com/NicoleCahill_/status/1842208144073576615', loop, 5)
-    assert result.search_results[0].raw_search_string == 'https://x.com/NicoleCahill_/status/1842208144073576615'
-    assert result.search_results[0].search_type == SearchType.DIRECT
-    assert result.collection_name is None
-
-@pytest.mark.asyncio(loop_scope="session")
 async def test_basic_search():
     loop = asyncio.get_running_loop()
     x = SearchClient()
@@ -445,15 +436,6 @@ async def test_https_url_mid_string_is_search():
     loop = asyncio.get_running_loop()
     x = SearchClient()
     result = await x.check_source('see https://soundcloud.com/foo for details', loop, 5)
-    assert result.search_results[0].search_type == SearchType.SEARCH
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_fxtwitter_mid_string_is_search():
-    """An fxtwitter URL embedded in a sentence must not be treated as DIRECT."""
-    loop = asyncio.get_running_loop()
-    x = SearchClient()
-    result = await x.check_source('see https://fxtwitter.com/foo/status/123 in context', loop, 5)
     assert result.search_results[0].search_type == SearchType.SEARCH
 
 

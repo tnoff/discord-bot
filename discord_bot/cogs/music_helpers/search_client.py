@@ -10,7 +10,6 @@ from opentelemetry.trace import SpanKind
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.utils.integrations.common import FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX
 from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
@@ -170,9 +169,6 @@ class SearchClient():
 
             if youtube_video_match:
                 return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)])
-
-            if search.startswith(FXTWITTER_VIDEO_PREFIX):
-                return SearchCollection([SearchResult(SearchType.DIRECT, search.replace(FXTWITTER_VIDEO_PREFIX, TWITTER_VIDEO_PREFIX), None)])
 
             # If we have https:// in url, assume its a direct
             if search.startswith('https://'):
