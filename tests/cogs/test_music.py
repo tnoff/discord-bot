@@ -166,10 +166,8 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
-    # Process search queue if YouTube Music search is enabled
-    if cog.config.download.enable_youtube_music_search:
-        await cog.search_youtube_music()
-        await cog.search_youtube_music()
+    await cog.search_youtube_music()
+    await cog.search_youtube_music()
     item0 = cog.download_queue.get_nowait()
     item1 = cog.download_queue.get_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
@@ -193,9 +191,7 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             # Mock current playing
             cog.players[fake_context['guild'].id].current_media_download = sd
@@ -217,9 +213,7 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             await cog.clear(cog, fake_context['context'])
             assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -258,9 +252,7 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             await cog.shuffle_(cog, fake_context['context'])
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -280,9 +272,7 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             await cog.remove_item(cog, fake_context['context'], 1)
             assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -302,9 +292,7 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             await cog.bump_item(cog, fake_context['context'], 1)
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -343,9 +331,7 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
-            # Process search queue if YouTube Music search is enabled
-            if cog.config.download.enable_youtube_music_search:
-                await cog.search_youtube_music()
+            await cog.search_youtube_music()
             await cog.download_files()
             await cog.move_messages_here(cog, fake_context2)
             assert cog.players[fake_context['guild'].id].text_channel.id == fake_channel2.id
@@ -427,7 +413,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = Mock()
-            cog.video_cache.iterate_file(sd)
+            cog.media_broker.register_download(sd)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -485,19 +471,6 @@ def test_music_init_with_youtube_api_key(fake_context):  #pylint:disable=redefin
         cog = Music(fake_context['bot'], config, None)
         mock_youtube.assert_called_once_with('test_api_key')
         assert cog.youtube_client is not None
-
-def test_music_init_with_youtube_music_disabled(fake_context):  #pylint:disable=redefined-outer-name
-    """Test Music initialization with YouTube Music search disabled"""
-    config = {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': False
-            }
-        }
-    } | BASE_MUSIC_CONFIG
-
-    cog = Music(fake_context['bot'], config, None)
-    assert cog.youtube_music_client is None
 
 def test_music_init_server_queue_priority(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with server queue priority configuration"""

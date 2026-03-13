@@ -1,3 +1,4 @@
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
@@ -100,6 +101,37 @@ def test_checkout_transitions_to_checked_out():
             assert entry is not None
             assert entry.zone == Zone.CHECKED_OUT
             assert entry.checked_out_by == guild_id
+
+
+def test_checkout_with_guild_path_copies_file():
+    broker = MediaBroker()
+    mr = _make_request()
+    guild_id = mr.guild_id
+    with TemporaryDirectory() as base_dir:
+        with TemporaryDirectory() as guild_dir:
+            with fake_media_download(base_dir, media_request=mr) as md:
+                original_base = md.base_path
+                broker.register_download(md)
+                broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))
+                # file_path should have been updated to guild copy
+                assert md.file_path != original_base
+                assert md.file_path.parent == Path(guild_dir)
+                assert md.file_path.exists()
+                # base_path still points to original
+                assert md.base_path == original_base
+
+
+def test_checkout_without_guild_path_does_not_copy():
+    broker = MediaBroker()
+    mr = _make_request()
+    guild_id = mr.guild_id
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, media_request=mr) as md:
+            original_path = md.file_path
+            broker.register_download(md)
+            broker.checkout(str(mr.uuid), guild_id)
+            # file_path unchanged when no guild_path given
+            assert md.file_path == original_path
 
 
 def test_checkout_missing_entry_is_noop():
@@ -270,23 +302,25 @@ def test_full_lifecycle():
     assert not broker.can_evict_request(uuid)
 
     with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, media_request=mr) as md:
-            url = md.webpage_url
+        with TemporaryDirectory() as guild_dir:
+            with fake_media_download(tmp_dir, media_request=mr) as md:
+                url = md.webpage_url
 
-            # Step 2: download completes, AVAILABLE
-            broker.register_download(md)
-            assert broker.get_entry(uuid).zone == Zone.AVAILABLE
-            assert broker.can_evict_request(uuid)
-            assert not broker.can_evict_base(url)
+                # Step 2: download completes, AVAILABLE
+                broker.register_download(md)
+                assert broker.get_entry(uuid).zone == Zone.AVAILABLE
+                assert broker.can_evict_request(uuid)
+                assert not broker.can_evict_base(url)
 
-            # Step 3: player dequeues, CHECKED_OUT
-            broker.checkout(uuid, mr.guild_id)
-            assert broker.get_entry(uuid).zone == Zone.CHECKED_OUT
-            assert not broker.can_evict_request(uuid)
-            assert not broker.can_evict_base(url)
+                # Step 3: player dequeues, broker copies to guild dir, CHECKED_OUT
+                broker.checkout(uuid, mr.guild_id, Path(guild_dir))
+                assert broker.get_entry(uuid).zone == Zone.CHECKED_OUT
+                assert not broker.can_evict_request(uuid)
+                assert not broker.can_evict_base(url)
+                assert md.file_path.parent == Path(guild_dir)
 
-            # Step 4: player finishes, entry removed
-            broker.remove(uuid)
-            assert broker.get_entry(uuid) is None
-            assert broker.can_evict_request(uuid)
-            assert broker.can_evict_base(url)
+                # Step 4: player finishes, entry removed
+                broker.remove(uuid)
+                assert broker.get_entry(uuid) is None
+                assert broker.can_evict_request(uuid)
+                assert broker.can_evict_base(url)

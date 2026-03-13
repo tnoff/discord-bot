@@ -47,13 +47,7 @@ def create_test_media_request(test_context, search_string='test search', bundle_
 @pytest.mark.asyncio()
 async def test_search_youtube_music_empty_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test search_youtube_music when queue is empty"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -69,13 +63,7 @@ async def test_search_youtube_music_empty_queue(mocker, fake_context):  #pylint:
 @pytest.mark.asyncio()
 async def test_search_youtube_music_bot_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test search_youtube_music exits early when bot is shutting down"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -91,13 +79,7 @@ async def test_search_youtube_music_bot_shutdown(mocker, fake_context):  #pylint
 @pytest.mark.asyncio()
 async def test_search_youtube_music_successful_search_no_cache(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test successful YouTube Music search with no cache hit"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -115,7 +97,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -138,13 +120,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
 @pytest.mark.asyncio()
 async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test successful YouTube Music search with cache hit"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -165,7 +141,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock player methods
             mock_player = MagicMock()
@@ -187,13 +163,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
 @pytest.mark.asyncio()
 async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search returns no results"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -221,13 +191,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
 @pytest.mark.asyncio()
 async def test_search_youtube_music_download_queue_full(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search when download queue is full"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -245,7 +209,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock download queue full
     mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=QueueFull())
@@ -263,13 +227,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
 @pytest.mark.asyncio()
 async def test_search_youtube_music_download_queue_blocked(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search when download queue puts are blocked"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -286,7 +244,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock download queue blocked
     mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=PutsBlocked())
@@ -300,13 +258,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
 @pytest.mark.asyncio()
 async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search for playlist addition"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -328,7 +280,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
             mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
@@ -360,7 +312,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
@@ -388,7 +340,7 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock player methods
             mock_player = MagicMock()
@@ -424,7 +376,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
             mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
@@ -438,13 +390,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
 @pytest.mark.asyncio()
 async def test_youtube_search_queue_integration_with_enqueue_media_requests(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test integration of YouTube search queue with enqueue_media_requests"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -464,7 +410,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     entries = [search_request, direct_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -495,13 +441,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
 @pytest.mark.asyncio()
 async def test_search_youtube_music_search_client_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search when search client raises exception"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -541,13 +481,7 @@ async def test_search_youtube_music_search_client_exception(mocker, fake_context
 @pytest.mark.asyncio()
 async def test_search_youtube_music_search_client_timeout(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search timeout scenario"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -579,70 +513,9 @@ async def test_search_youtube_music_search_client_timeout(mocker, fake_context):
 
 
 @pytest.mark.asyncio()
-async def test_search_queue_disabled_routing(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    """Test routing when YouTube Music search is disabled"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': False
-            }
-        }
-    }
-
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-
-    cog = Music(fake_context['bot'], config, None)
-
-    # Create a bundle
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    cog.multirequest_bundles[bundle.uuid] = bundle
-
-    # Create search-type media requests (should go directly to download queue when disabled)
-    search_request = create_test_media_request(fake_context, 'search term', bundle.uuid)
-
-    spotify_request = create_test_media_request(fake_context, 'spotify search', bundle.uuid, SearchType.SPOTIFY)
-
-    entries = [search_request, spotify_request]
-
-    # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
-
-    # Mock player
-    mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
-
-    # Mock message queue
-    cog.dispatcher = MagicMock()
-
-    # Call enqueue_media_requests
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, player=mock_player)
-
-    assert result is True
-
-    # Verify both requests went directly to download queue (not search queue)
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 0
-    assert cog.download_queue.size(fake_context['guild'].id) == 2
-
-    # Verify both items are in download queue
-    download_item1 = cog.download_queue.get_nowait()
-    download_item2 = cog.download_queue.get_nowait()
-
-    assert download_item1 in [search_request, spotify_request]
-    assert download_item2 in [search_request, spotify_request]
-    assert download_item1 != download_item2
-
-
-@pytest.mark.asyncio()
 async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test routing with mixed SearchTypes in same batch"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -667,7 +540,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     entries = [search_request, spotify_request, direct_request, youtube_request, youtube_playlist_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -711,13 +584,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
 @pytest.mark.asyncio()
 async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test server-specific priority handling in search queue"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -736,7 +603,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     entries = [media_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -761,13 +628,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
 @pytest.mark.asyncio()
 async def test_bundle_expiration_during_search_processing(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test handling when bundle expires while item is being processed in search queue"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -785,7 +646,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -810,9 +671,6 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
             'player': {
                 'queue_max_size': 2,  # Small download queue
             },
-            'download': {
-                'enable_youtube_music_search': True
-            }
         }
     }
 
@@ -832,7 +690,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
         search_requests.append(request)
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -858,13 +716,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
 @pytest.mark.asyncio()
 async def test_message_queue_update_failure_during_search(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test handling when message queue update fails during search processing"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -882,7 +734,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock dispatcher to raise exception
     failing_dispatcher = MagicMock()
@@ -904,13 +756,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
 @pytest.mark.asyncio()
 async def test_concurrent_bundle_operations_during_search(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test concurrent bundle operations while search queue is processing"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {
-            'download': {
-                'enable_youtube_music_search': True
-            }
-        }
-    }
+    config = BASE_MUSIC_CONFIG
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -937,7 +783,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request2)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -967,9 +813,7 @@ class RateLimitedYoutubeMusicClient:
 @pytest.mark.asyncio()
 async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a 429 re-enqueues the item and sets RETRY_SEARCH lifecycle stage"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True}}
-    }
+    config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
@@ -1002,9 +846,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
 @pytest.mark.freeze_time
 async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a 429 sets the youtube_music_wait_timestamp with exponential backoff"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True}}
-    }
+    config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
@@ -1036,9 +878,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
 @pytest.mark.freeze_time
 async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that repeated 429s grow the backoff exponentially"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True}}
-    }
+    config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
@@ -1073,7 +913,7 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
 async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that hitting max retries marks the request as FAILED instead of re-queuing"""
     config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True, 'max_youtube_music_search_retries': 3}}
+        'music': {'download': {'max_youtube_music_search_retries': 3}}
     }
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1104,9 +944,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
 @pytest.mark.asyncio()
 async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a re-queued item resets from RETRY_SEARCH back to SEARCHING on next attempt"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True}}
-    }
+    config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1145,9 +983,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
 @pytest.mark.asyncio()
 async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a successful search adds a success to the failure queue"""
-    config = BASE_MUSIC_CONFIG | {
-        'music': {'download': {'enable_youtube_music_search': True}}
-    }
+    config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1165,7 +1001,7 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
 
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()

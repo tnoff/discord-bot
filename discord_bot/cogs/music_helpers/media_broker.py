@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import List
 
 from discord_bot.cogs.music_helpers.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 
 class Zone(Enum):
@@ -42,8 +44,10 @@ class MediaBroker:
     evicted while any of those requests are still AVAILABLE or CHECKED_OUT.
     '''
 
-    def __init__(self):
+    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None):
         self._registry: dict[str, BrokerEntry] = {}
+        self.file_dir: Path | None = file_dir
+        self.video_cache: VideoCacheClient | None = video_cache
 
     # ------------------------------------------------------------------
     # Registration
@@ -74,21 +78,62 @@ class MediaBroker:
                 download=media_download,
                 zone=Zone.AVAILABLE,
             )
-            return
-        entry.download = media_download
-        entry.zone = Zone.AVAILABLE
+        else:
+            entry.download = media_download
+            entry.zone = Zone.AVAILABLE
+        if self.video_cache:
+            self.video_cache.iterate_file(media_download)
+
+    def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:
+        '''
+        Look up a completed download in the video cache.
+
+        Returns a MediaDownload if the URL was previously downloaded and is
+        still on disk, or None if the cache is disabled or there is no hit.
+        '''
+        if not self.video_cache:
+            return None
+        return self.video_cache.get_webpage_url_item(media_request)
+
+    def cache_cleanup(self) -> bool:
+        '''
+        Mark old cache entries for deletion and evict those that are no
+        longer referenced by any active player.
+
+        Returns True if at least one file was removed, False otherwise.
+        '''
+        if not self.video_cache:
+            return False
+        self.video_cache.ready_remove()
+        to_delete = [
+            vc.id
+            for vc in self.video_cache.get_deletable_entries()
+            if self.can_evict_base(vc.video_url)
+        ]
+        if to_delete:
+            self.video_cache.remove_video_cache(to_delete)
+        if self.video_cache.object_storage_enabled:
+            for vc in self.video_cache.get_entries_without_backup():
+                self.video_cache.object_storage_backup(vc.id)
+        return bool(to_delete)
 
     # ------------------------------------------------------------------
     # Player lifecycle
     # ------------------------------------------------------------------
 
-    def checkout(self, media_request_uuid: str, guild_id: int):
+    def checkout(self, media_request_uuid: str, guild_id: int, guild_path: Path | None = None):
         '''
         Mark an entry as CHECKED_OUT when a player dequeues it to play.
+
+        If guild_path is given, the broker copies the base file into the
+        guild-specific directory via ready_file() before marking CHECKED_OUT.
+        This is the point at which the broker hands the guild copy to the player.
         '''
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return
+        if guild_path is not None and entry.download is not None:
+            entry.download.ready_file(guild_path)
         entry.zone = Zone.CHECKED_OUT
         entry.checked_out_by = guild_id
 

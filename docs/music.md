@@ -301,15 +301,7 @@ The bot also includes an **adaptive backoff system** that automatically increase
 
 ### Youtube Music Search
 
-By default the bot will search Youtube Music for generic string inputs, filtering by songs. This is to get the best quality of upload possible. This is done via the [ytmusicapi package](https://github.com/sigma67/ytmusicapi).
-
-This can be turned off:
-
-```
-music:
-  download:
-    enable_youtube_music_search: false
-```
+The bot searches Youtube Music for generic string inputs, filtering by songs. This is to get the best quality of upload possible and ensures every queued item has a canonical video ID before downloading. This is done via the [ytmusicapi package](https://github.com/sigma67/ytmusicapi).
 
 ### Backup Storage
 

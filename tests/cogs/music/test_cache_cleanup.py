@@ -31,9 +31,8 @@ async def test_cache_cleanup_no_op(mocker, fake_engine, fake_context):  #pylint:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             cog.players[fake_context['guild'].id].add_to_play_queue(sd)
             cog.video_cache.iterate_file(sd)
-            cog.video_cache.ready_remove()
-            await cog.cache_cleanup()
-            assert cog.video_cache.get_webpage_url_item(sd.media_request)
+            cog.media_broker.cache_cleanup()
+            assert cog.media_broker.check_cache(sd.media_request)
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_uploads_object_storage(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -59,7 +58,7 @@ async def test_cache_cleanup_uploads_object_storage(fake_engine, mocker, fake_co
             cog.players[fake_context['guild'].id].add_to_play_queue(sd)
             mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.upload_file', return_value=True)
             cog.video_cache.iterate_file(sd)
-            await cog.cache_cleanup()
+            cog.media_broker.cache_cleanup()
             with mock_session(fake_engine) as session:
                 assert session.query(VideoCache).count() == 1
                 assert session.query(VideoCacheBackup).count() == 1
@@ -91,6 +90,5 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
                 mocker.patch('discord_bot.cogs.music_helpers.video_cache_client.delete_file', return_value=True)
                 cog.video_cache.iterate_file(sd)
                 cog.video_cache.iterate_file(sd2)
-                cog.video_cache.ready_remove()
-                await cog.cache_cleanup()
-                assert not cog.video_cache.get_webpage_url_item(sd.media_request)
+                cog.media_broker.cache_cleanup()
+                assert not cog.media_broker.check_cache(sd.media_request)
