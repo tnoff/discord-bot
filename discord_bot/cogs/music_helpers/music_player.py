@@ -110,7 +110,7 @@ class MusicPlayer:
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
         if self.broker:
-            self.broker.checkout(str(media_download.media_request.uuid), self.guild.id)
+            self.broker.checkout(str(media_download.media_request.uuid), self.guild.id, self.file_dir)
 
         audio_source = FFmpegPCMAudio(str(media_download.file_path))
         self.current_audio_source = audio_source
@@ -272,7 +272,8 @@ class MusicPlayer:
         '''
         items = self._play_queue.clear()
         for item in items:
-            item.delete()
+            if item.file_path != item.base_path:
+                item.delete()
             if self.broker:
                 self.broker.remove(str(item.media_request.uuid))
         return items
@@ -340,7 +341,8 @@ class MusicPlayer:
             try:
                 media_download = self._play_queue.get_nowait()
                 self.logger.debug(f'Removing item {media_download} from play queue')
-                media_download.delete()
+                if media_download.file_path != media_download.base_path:
+                    media_download.delete()
                 if self.broker:
                     self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:

@@ -71,7 +71,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = MagicMock()
-            cog.video_cache.iterate_file(sd)
+            cog.media_broker.register_download(sd)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
             await cog.download_files()

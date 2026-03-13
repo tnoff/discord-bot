@@ -413,7 +413,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = Mock()
-            cog.video_cache.iterate_file(sd)
+            cog.media_broker.register_download(sd)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             assert cog.players[fake_context['guild'].id].get_queue_items()
 

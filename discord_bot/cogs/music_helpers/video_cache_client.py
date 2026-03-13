@@ -199,6 +199,20 @@ class VideoCacheClient():
                 retry_database_commands(db_session, partial(database_functions.video_cache_mark_deletion, db_session, num_to_remove))
                 return True
 
+    def get_deletable_entries(self) -> list:
+        '''
+        Return VideoCache entries that are marked ready_for_deletion.
+        '''
+        with self.session_generator() as db_session:
+            return retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session))
+
+    def get_entries_without_backup(self) -> list:
+        '''
+        Return VideoCache entries that have no object-storage backup yet.
+        '''
+        with self.session_generator() as db_session:
+            return retry_database_commands(db_session, partial(database_functions.list_video_cache_where_no_backup, db_session))
+
     def object_storage_download(self, video_cache_ids: List[int], delete_without_backup: bool = True) -> bool:
         '''
         Download all video cache files down from object storage

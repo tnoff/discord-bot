@@ -173,7 +173,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise CogMissingRequiredArg('Music not enabled')
 
         self.players = {}
-        self.media_broker = MediaBroker()
         self._cleanup_task = None
         self._download_task = None
         self._post_play_processing_task = None
@@ -243,6 +242,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.config.download.cache.ignore_cleanup_paths
             )
             self.video_cache.verify_cache()
+
+        self.media_broker = MediaBroker(file_dir=self.download_dir, video_cache=self.video_cache)
 
         # Wait until this timestamp to download next video from youtube
         self.youtube_download_wait_timestamp: int | None = None
@@ -550,39 +551,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for guild in guilds:
             await self.cleanup(guild)
 
-    async def cache_cleanup(self):
-        '''
-        Cache cleanup runner
-
-        After cache files marked for deletion, check if they are in use before deleting
-        '''
-        # Check if video_cache is enabled
-        if not self.video_cache:
-            return False
-
-        # Get metric data first
-        delete_videos = []
-        self.video_cache.ready_remove()
-        with self.with_db_session() as db_session:
-            # Then check for deleted videos
-            for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session)):
-                if self.media_broker.can_evict_base(video_cache.video_url):
-                    delete_videos.append(video_cache.id)
-
-            with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cache_cleanup', kind=SpanKind.CONSUMER):
-                if delete_videos:
-                    self.logger.debug(f'Identified cache videos ready for deletion {delete_videos}')
-                    self.video_cache.remove_video_cache(delete_videos)
-
-                # Check for pending backup files, if object storage enabled
-                if self.video_cache.object_storage_enabled:
-                    for video_cache in retry_database_commands(db_session, partial(database_functions.list_video_cache_where_no_backup, db_session)):
-                        self.video_cache.object_storage_backup(video_cache.id)
-        if not delete_videos:
-            return False
-
-        return True
-
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
         Add source to player queue
@@ -596,11 +564,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes):
             bundle = self.multirequest_bundles.get(media_download.media_request.bundle_uuid) if media_download.media_request.bundle_uuid else None
             try:
-                if self.video_cache:
-                    self.logger.info(f'Iterating file on base path {str(media_download.base_path)}')
-                    self.video_cache.iterate_file(media_download)
-                player.file_dir.mkdir(exist_ok=True)
-                media_download.ready_file(guild_path=player.file_dir)
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
@@ -640,13 +603,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
 
-    async def __check_video_cache(self, media_request: MediaRequest):
-        if not self.video_cache:
-            return None
-        return self.video_cache.get_webpage_url_item(media_request)
-
     async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
-        media_download = await self.__check_video_cache(media_request)
+        media_download = self.media_broker.check_cache(media_request)
         if media_download:
             media_download.media_request.state_machine.mark_completed()
             if media_request.add_to_playlist and not media_request.download_file:
@@ -875,7 +833,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.info(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
 
             # If cache enabled and search string with 'https://' given, try to grab this first
-            media_download = await self.__check_video_cache(media_request)
+            media_download = self.media_broker.check_cache(media_request)
             # Else grab from ytdlp
             if not media_download:
                 # Update bundle to show waiting on youtube backoff time
@@ -946,7 +904,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Add sources to players
                 await self.add_source_to_player(media_download, player)
                 # If downloaded file, pass onto player
-                await self.cache_cleanup()
+                self.media_broker.cache_cleanup()
                 return
             return
 
@@ -1440,7 +1398,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Removed item {item.title} from queue',
             delete_after=self.config.general.message_delete_after)
-        item.delete()
+        if item.file_path != item.base_path:
+            item.delete()
+        self.media_broker.remove(str(item.media_request.uuid))
         key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
         self.dispatcher.update_mutable(key, player.guild.id,
             self._get_play_order_content(player.guild.id), player.text_channel.id)

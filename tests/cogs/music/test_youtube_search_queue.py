@@ -97,7 +97,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -141,7 +141,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock player methods
             mock_player = MagicMock()
@@ -209,7 +209,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock download queue full
     mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=QueueFull())
@@ -244,7 +244,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock download queue blocked
     mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=PutsBlocked())
@@ -280,7 +280,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
             mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
@@ -312,7 +312,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
@@ -340,7 +340,7 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock player methods
             mock_player = MagicMock()
@@ -376,7 +376,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
             # Mock cache hit
-            mocker.patch.object(cog, '_Music__check_video_cache', return_value=cached_download)
+            mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
             mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
@@ -410,7 +410,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     entries = [search_request, direct_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -540,7 +540,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     entries = [search_request, spotify_request, direct_request, youtube_request, youtube_playlist_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -603,7 +603,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     entries = [media_request]
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -646,7 +646,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -690,7 +690,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
         search_requests.append(request)
 
     # Mock cache misses
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock player
     mock_player = MagicMock()
@@ -734,7 +734,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock dispatcher to raise exception
     failing_dispatcher = MagicMock()
@@ -783,7 +783,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request2)
 
     # Mock cache miss
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
 
     # Mock message queue
     cog.dispatcher = MagicMock()
@@ -1001,7 +1001,7 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
 
-    mocker.patch.object(cog, '_Music__check_video_cache', return_value=None)
+    mocker.patch.object(cog.media_broker, 'check_cache', return_value=None)
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()
