@@ -5,9 +5,10 @@ import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, SearchResult, check_youtube_video
-from discord_bot.cogs.music_helpers.search_client import SearchCollection
-from discord_bot.utils.integrations.common import CatalogResponse, CatalogItem, YOUTUBE_VIDEO_PREFIX
+from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
+from discord_bot.types.search import SearchResult, SearchCollection
+from discord_bot.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import
 

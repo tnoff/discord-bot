@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 from spotipy.exceptions import SpotifyException
 
-from discord_bot.utils.integrations.common import CatalogResponse
+from discord_bot.types.catalog import CatalogResponse
 from discord_bot.utils.integrations.spotify import SpotifyClient
 
 class MockSpotify():

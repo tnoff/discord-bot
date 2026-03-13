@@ -18,9 +18,9 @@ from sqlalchemy.engine import Engine
 from discord_bot.database import BASE
 from discord_bot.cogs.message_dispatcher import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
-from discord_bot.cogs.music_helpers.search_client import SearchResult
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
+from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.search import SearchResult
+from discord_bot.types.media_download import MediaDownload
 
 class HelperException(Exception):
     '''

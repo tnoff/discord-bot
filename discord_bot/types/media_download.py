@@ -3,7 +3,7 @@ from pathlib import Path
 from shutil import copyfile
 from uuid import uuid4
 
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.otel import MediaRequestNaming, MusicMediaDownloadNaming
 
 @dataclass

@@ -3,10 +3,10 @@ from enum import Enum
 from pathlib import Path
 from typing import List
 
-from discord_bot.cogs.music_helpers.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.media_request import MediaRequest
+from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.download import DownloadResult
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.cogs.music_helpers.download_client import DownloadResult
 
 
 class Zone(Enum):

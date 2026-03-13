@@ -8,7 +8,7 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadTerminalException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
-from discord_bot.cogs.music_helpers.media_request import MultiMediaRequestBundle, MediaRequest
+from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict, fake_media_download, random_string

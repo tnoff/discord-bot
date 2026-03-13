@@ -32,10 +32,11 @@ from discord_bot.cogs.music_helpers.download_client import RetryLimitExceeded, R
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.search_client import SearchResult, SearchClient, SearchException, check_youtube_video
-from discord_bot.cogs.music_helpers.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
-from discord_bot.cogs.music_helpers.media_download import MediaDownload, media_download_attributes
-from discord_bot.cogs.music_helpers.history_playlist_item import HistoryPlaylistItem
+from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
+from discord_bot.types.search import SearchResult
+from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
+from discord_bot.types.media_download import MediaDownload, media_download_attributes
+from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers import database_functions
 
