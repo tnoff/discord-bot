@@ -314,7 +314,7 @@ Store in self.multirequest_bundles[uuid]
     ↓
 Call bundle.set_initial_search(search)
     ↓
-Register bundle with MessageQueue
+Register bundle with MessageDispatcher
 ```
 
 **What This Does**:

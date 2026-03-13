@@ -1,5 +1,59 @@
 # Changelog
 
+## 2.5.2
+
+General:
+- Added healthcheck server endpoint for container health monitoring
+- Consolidated all Discord API calls into a single per-guild `MessageDispatcher` queue to reduce rate-limit contention
+- Simplified message dispatch logic and removed partial function wrappers in dispatch calls
+- Added regex support to the spam filter
+- Set Spotipy token cache to in-memory to avoid writing credentials to disk
+- Added OTel span filter to reduce high-volume trace noise
+- Fixed async retry usage in role cog send messages
+- Fixed cache directory creation for Discord user runtime
+
+Music:
+- Added `MediaBroker` — aggregate in-process lifecycle tracker for all media through three zones: `IN_FLIGHT` → `AVAILABLE` → `CHECKED_OUT`
+- Added `MediaRequestStateMachine` for per-bundle state tracking and message update logic
+- Added `SearchCollection` / `BundledMediaRequest` classes to better handle multi-track search inputs
+- Separated `DownloadResult` from `DownloadClient` methods for a cleaner handoff to `MediaBroker`
+- Moved most cache lookup/eviction operations into `MediaBroker`
+- Made YouTube Music search the default path, removing conditional logic around it
+- Fixed 429 throttling from YouTube Music API with retry and backoff
+- Fixed race condition in music player cleanup
+- Fixed bug in media request bundles when all items were already cached
+- Fixed search bundle flow for multi-track inputs
+- Fixed single message processing in dispatcher
+- Fixed backoff minimum calculation bug and updated backoff multiplier
+- Improved retry message display: show full error cause and retry count to users
+- Removed older yt-dlp match generator (superseded by YouTube Music pre-check)
+- Added better return validation for third-party search results
+- Cleaned up YouTube Music search queue logic
+- Updated post-processing function naming
+
+Code Quality:
+- Extracted all dataclasses into a dedicated `discord_bot/types/` package (`search`, `download`, `catalog`, `media_request`, `media_download`, `history_playlist_item`)
+- Removed Twitter/fxtwitter URL handling (no longer supported)
+- Simplified logging logic and fixed logging levels
+- Added additional OTel spans for high-volume operations; limited trace length
+
+Dependencies:
+- Bumped discord.py from 2.6.4 to 2.7.1
+- Bumped yt-dlp to 2026.3.3 (nightly build)
+- Bumped dappertable to 1.0.0
+- Bumped opentelemetry-sdk from 1.39.1 to 1.40.0
+- Bumped spotipy from 2.25.2 to 2.26.0
+- Bumped ytmusicapi from 1.11.4 to 1.11.5
+- Bumped pytz from 2025.2 to 2026.1.post1
+- Bumped sqlalchemy from 2.0.45 to 2.0.48
+- Bumped alembic from 1.17.2 to 1.18.4
+- Bumped google-api-python-client to 2.192.0
+- Bumped psutil from 7.2.1 to 7.2.2
+- Bumped pylint from 4.0.4 to 4.0.5
+- Bumped boto3 to 1.42.67
+- Bumped setuptools to 82.0.1
+- Bumped tox to 4.49.1
+
 ## 2.5.1
 
 General:

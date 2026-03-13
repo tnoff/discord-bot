@@ -21,7 +21,7 @@ This document defines all key components, types, and concepts used throughout th
 - Has a unique UUID for tracking through the pipeline
 - Can be linked to a `MultiMediaRequestBundle` via `bundle_uuid`
 - Tracks retry attempts via `retry_count` field (initialized to 0)
-- Located in `discord_bot/cogs/music_helpers/media_request.py`
+- Located in `discord_bot/types/media_request.py`
 
 ### **`MediaDownload`**
 - Represents a successfully downloaded audio file
@@ -29,7 +29,7 @@ This document defines all key components, types, and concepts used throughout th
 - Created after yt-dlp downloads complete
 - Added to `MusicPlayer._play_queue` for playback
 - Deleted from disk after track finishes playing
-- Located in `discord_bot/cogs/music_helpers/media_download.py`
+- Located in `discord_bot/types/media_download.py`
 
 ### **`MultiMediaRequestBundle`**
 - Tracks progress for multi-track operations (playlists, albums)
@@ -37,21 +37,21 @@ This document defines all key components, types, and concepts used throughout th
 - Uses `DapperTable` for paginated progress display
 - Maintains counters: total, completed, failed, discarded
 - Has frozen pagination after `all_requests_added()` is called
-- Located in `discord_bot/cogs/music_helpers/media_request.py`
+- Located in `discord_bot/types/media_request.py`
 
-### **`MessageQueue`**
-- Central dispatcher for all Discord messages
+### **`MessageDispatcher`**
+- Central per-guild priority queue for all Discord API calls
 - Routes messages to appropriate handlers (mutable vs immutable)
 - Manages `MessageMutableBundle` instances for editable messages
 - Handles single immutable messages (one-off notifications)
-- Located in `discord_bot/cogs/music_helpers/message_queue.py`
+- Located in `discord_bot/cogs/message_dispatcher.py`
 
 ### **`MessageMutableBundle`**
 - Collection of related Discord messages that can be edited in-place
 - Manages multiple `MessageContext` objects
 - Implements smart diffing to minimize API calls (edits instead of delete+send)
 - Supports "sticky" mode to keep messages at bottom of channel
-- Located in `discord_bot/cogs/music_helpers/message_context.py`
+- Located in `discord_bot/cogs/message_dispatcher.py`
 
 ### **`SearchClient`**
 - Parses and resolves search inputs
@@ -112,7 +112,7 @@ This document defines all key components, types, and concepts used throughout th
 
 ### **`SearchType.DIRECT`**
 - Direct media URL (non-YouTube)
-- Example: Twitter video, SoundCloud, direct MP3 link
+- Example: SoundCloud link, direct MP3 URL
 - Passed directly to yt-dlp for downloading
 
 ### **`SearchType.SEARCH`**
@@ -203,7 +203,7 @@ All loops run continuously in the background and are managed by the Discord bot'
 
 ### **Send Messages Loop**
 - **Purpose**: Dispatch all Discord messages (progress updates, errors, queue displays)
-- **Processes**: `MessageQueue` items
+- **Processes**: `MessageDispatcher` queue items
 
 ### **Download Files Loop**
 - **Purpose**: Download media files via yt-dlp
