@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field, InitVar
 from pathlib import Path
-from shutil import copyfile
 from uuid import uuid4
 
 from discord_bot.types.media_request import MediaRequest
@@ -49,30 +48,6 @@ class MediaDownload():
 
         # Set base_path to file_path initially
         self.base_path = self.file_path
-
-    def ready_file(self, guild_path: Path = None):
-        '''
-        Ready file for server
-
-        Copy file as symlink
-
-        file_dir : Relocate to specific file dir
-        move_file : Move file instead of a symlink
-        '''
-        guild_path = guild_path or self.file_path.parent / f'{self.media_request.guild_id}'
-        guild_path.mkdir(exist_ok=True)
-        if self.base_path:
-            # The modified time of download videos can be the time when it was actually uploaded to youtube
-            # Touch here to update the modified time, so that the cleanup check works as intendend
-            # Rename file to a random uuid name, that way we can have diff videos with same/similar names
-            uuid_path = guild_path / f'{self.media_request.uuid}{"".join(i for i in self.file_path.suffixes)}'
-            # We should copy the file here, instead of symlink
-            # That way we can handle a case in which the original download was removed from cache
-            if not self.base_path.exists():
-                # Usually happened if you stopped bot while downloading
-                raise FileNotFoundError('Unable to locate base path')
-            copyfile(str(self.base_path), str(uuid_path))
-            self.file_path = uuid_path
 
     def delete(self):
         '''

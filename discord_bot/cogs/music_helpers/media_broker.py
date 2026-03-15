@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from shutil import copyfile
 from typing import List
 
 from discord_bot.types.media_download import MediaDownload
@@ -142,7 +143,15 @@ class MediaBroker:
         if entry is None:
             return
         if guild_path is not None and entry.download is not None:
-            entry.download.ready_file(guild_path)
+            download = entry.download
+            guild_path = guild_path or download.file_path.parent / f'{download.media_request.guild_id}'
+            guild_path.mkdir(exist_ok=True)
+            if download.base_path:
+                if not download.base_path.exists():
+                    raise FileNotFoundError('Unable to locate base path')
+                uuid_path = guild_path / f'{download.media_request.uuid}{"".join(i for i in download.file_path.suffixes)}'
+                copyfile(str(download.base_path), str(uuid_path))
+                download.file_path = uuid_path
         entry.zone = Zone.CHECKED_OUT
         entry.checked_out_by = guild_id
 
