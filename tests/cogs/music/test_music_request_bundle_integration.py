@@ -9,6 +9,7 @@ from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadTerminalException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
 from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
+from discord_bot.types.search import SearchResult
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict, fake_media_download, random_string
@@ -697,7 +698,7 @@ def test_bundle_uuid_string_format_validation(fake_context):  #pylint:disable=re
     assert len(bundle.uuid) > len('request.bundle.')
 
     # Verify it's consistent with MediaRequest UUID format
-    req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
     assert req.uuid.startswith('request.')
     assert not req.uuid.startswith('request.bundle.')
 

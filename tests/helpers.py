@@ -16,7 +16,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from discord_bot.database import BASE
-from discord_bot.cogs.message_dispatcher import MessageContext
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
@@ -74,13 +73,11 @@ def fake_source_dict(fakes: dict[str, Any], download_file: bool = True, is_direc
     '''
     search_type = SearchType.SEARCH
     search_string = random_string()
-    message_context = MessageContext(fakes['guild'].id, fakes['channel'].id)
     if is_direct_search:
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
     search_result = SearchResult(search_type=search_type, raw_search_string=search_string)
-    mr = MediaRequest(fakes['guild'].id, fakes['channel'].id, fakes['author'].display_name, fakes['author'].id, search_result, download_file=download_file)
-    mr.message_context = message_context
+    mr = MediaRequest(guild_id=fakes['guild'].id, channel_id=fakes['channel'].id, requester_name=fakes['author'].display_name, requester_id=fakes['author'].id, search_result=search_result, download_file=download_file)
     return mr
 
 @contextmanager

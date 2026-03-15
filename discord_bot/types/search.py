@@ -1,10 +1,9 @@
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 from discord_bot.cogs.music_helpers.common import SearchType
 
 
-@dataclass
-class SearchResult():
+class SearchResult(BaseModel):
     '''
     SearchClient search results
     '''
@@ -12,9 +11,9 @@ class SearchResult():
     # Original search string given before any processing
     raw_search_string: str
     # If from an api source where we know a better name for processing
-    proper_name: str = None
+    proper_name: str | None = None
     # Search string after youtube music search, if given
-    youtube_music_search_string: str = None
+    youtube_music_search_string: str | None = None
 
     def add_youtube_music_result(self, youtube_music_result: str):
         '''
@@ -31,10 +30,9 @@ class SearchResult():
             return self.youtube_music_search_string
         return self.raw_search_string
 
-@dataclass
-class SearchCollection():
+class SearchCollection(BaseModel):
     '''
     Collection of Search Results
     '''
     search_results: list[SearchResult]
-    collection_name: str = None
+    collection_name: str | None = None

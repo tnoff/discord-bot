@@ -33,11 +33,11 @@ class MockYoutubeMusicClient:
 def create_test_media_request(test_context, search_string='test search', bundle_uuid=None, search_type=SearchType.SEARCH):
     """Helper to create test media requests"""
     request = MediaRequest(
-        test_context['guild'].id,
-        test_context['channel'].id,
-        test_context['author'].display_name,
-        test_context['author'].id,
-        SearchResult(search_type, search_string)
+        guild_id=test_context['guild'].id,
+        channel_id=test_context['channel'].id,
+        requester_name=test_context['author'].display_name,
+        requester_id=test_context['author'].id,
+        search_result=SearchResult(search_type=search_type, raw_search_string=search_string)
     )
     if bundle_uuid:
         request.bundle_uuid = bundle_uuid

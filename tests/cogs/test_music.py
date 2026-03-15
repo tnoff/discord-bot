@@ -41,11 +41,11 @@ def yield_fake_search_client(media_request: MediaRequest = None):
             if media_request:
                 # Convert MediaRequest to SearchResult
                 search_result = SearchResult(
-                    media_request.search_result.search_type,
-                    media_request.search_result.raw_search_string
+                    search_type=media_request.search_result.search_type,
+                    raw_search_string=media_request.search_result.raw_search_string
                 )
-                return SearchCollection([search_result])
-            return SearchCollection([])
+                return SearchCollection(search_results=[search_result])
+            return SearchCollection(search_results=[])
 
     return FakeSearchClient
 
@@ -100,11 +100,11 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
             search_results = []
             for media_request in source_dict_list:
                 search_result = SearchResult(
-                    media_request.search_result.search_type,
-                    media_request.search_result.raw_search_string
+                    search_type=media_request.search_result.search_type,
+                    raw_search_string=media_request.search_result.raw_search_string
                 )
                 search_results.append(search_result)
-            return SearchCollection(search_results)
+            return SearchCollection(search_results=search_results)
 
     return FakeSearchClient
 
@@ -862,7 +862,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_result=SearchResult(SearchType.SEARCH, 'test song')
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
     )
 
     # Set up search banner (required for single-item bundles)
@@ -909,7 +909,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_result=SearchResult(SearchType.SEARCH, 'test song')
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
     )
 
     bundle.add_media_request(media_request)

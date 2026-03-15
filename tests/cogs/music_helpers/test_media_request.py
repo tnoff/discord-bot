@@ -263,11 +263,11 @@ def test_media_request_bundle_finished_property_all_completed(media_request_bund
     """Test finished property when all items are completed"""
     # Add a media request
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.SEARCH, 'test search')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test search')
     )
     media_request_bundle.add_media_request(media_request)
 
@@ -283,11 +283,11 @@ def test_media_request_bundle_finished_property_mixed_status(media_request_bundl
     # Add multiple media requests
     for i in range(3):
         media_request = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'test search {i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'test search {i}')
         )
         media_request_bundle.add_media_request(media_request)
 
@@ -312,11 +312,11 @@ def test_media_request_bundle_print_shutdown(media_request_bundle):  #pylint:dis
 def test_media_request_bundle_print_single_item(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test print method with single item (no top message)"""
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.SEARCH, 'single test')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='single test')
     )
     media_request_bundle.set_initial_search('single test')
     media_request_bundle.add_media_request(media_request)
@@ -334,11 +334,11 @@ def test_media_request_bundle_print_multiple_items_with_status(media_request_bun
     # Add multiple requests
     for i in range(3):
         media_request = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'test {i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'test {i}')
         )
         media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
@@ -365,11 +365,11 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
     media_requests = []
     for i, (status, expected_text) in enumerate(statuses_to_test):
         media_request = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'request {i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'request {i}')
         )
         media_request_bundle.add_media_request(media_request)
         media_requests.append(media_request)
@@ -400,11 +400,11 @@ def test_media_request_bundle_print_with_different_statuses(media_request_bundle
 def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test print method shows failure message but NOT the failure reason (kept separate)"""
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.SEARCH, 'failed request')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='failed request')
     )
     media_request_bundle.set_initial_search('failed request')
     media_request_bundle.add_media_request(media_request)
@@ -432,11 +432,11 @@ def test_media_request_bundle_print_with_failure_reason(media_request_bundle, fa
 def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test that URLs are properly formatted with angle brackets"""
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.DIRECT, 'https://example.com/video')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.com/video')
     )
     media_request_bundle.set_initial_search('https://example.com/video')
     media_request_bundle.add_media_request(media_request)
@@ -452,11 +452,11 @@ def test_media_request_bundle_print_url_formatting(media_request_bundle, fake_co
 def test_media_request_bundle_print_with_backoff_status(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test that BACKOFF status shows appropriate message"""
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.SEARCH, 'test search string')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test search string')
     )
     media_request_bundle.set_initial_search('test search string')
     media_request_bundle.add_media_request(media_request)
@@ -487,11 +487,11 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
     media_request_bundle.set_multi_input_request('test playlist')
     for i, stage in enumerate(lifecycle_stages):
         media_request = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'test search {i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'test search {i}')
         )
         media_request_bundle.add_media_request(media_request)
     media_request_bundle.all_requests_added()
@@ -516,11 +516,11 @@ def test_media_request_bundle_print_with_all_lifecycle_stages(media_request_bund
 def test_media_request_bundle_finished_property_with_backoff(media_request_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test that BACKOFF status doesn't mark bundle as finished"""
     media_request = MediaRequest(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-        'test_user',
-        123456,
-        SearchResult(SearchType.SEARCH, 'test search')
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name='test_user',
+        requester_id=123456,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test search')
     )
     media_request_bundle.add_media_request(media_request)
 
@@ -597,7 +597,7 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add request that will be completed (shouldn't appear in messages)
-    req = MediaRequest(123, 456, "user", 1, SearchResult(SearchType.SEARCH, "search"), download_file=True)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"), download_file=True)
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -613,7 +613,7 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add single failed request
-    req = MediaRequest(123, 456, "user", 1, SearchResult(SearchType.SEARCH, "search"), download_file=True)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"), download_file=True)
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -808,11 +808,11 @@ def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint
     # Add multiple requests with medium-length strings
     for i in range(5):
         req = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'test search item with some length {i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'test search item with some length {i}')
         )
         bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -843,11 +843,11 @@ def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disa
     requests = []
     for i in range(4):
         req = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'item{i}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'item{i}')
         )
         bundle.add_media_request(req)
         requests.append(req)
@@ -890,11 +890,11 @@ def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:di
     requests = []
     for i in range(8):
         req = MediaRequest(
-            fake_context['guild'].id,
-            fake_context['channel'].id,
-            'test_user',
-            123456,
-            SearchResult(SearchType.SEARCH, f'media_request_item_{i:02d}')
+            guild_id=fake_context['guild'].id,
+            channel_id=fake_context['channel'].id,
+            requester_name='test_user',
+            requester_id=123456,
+            search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string=f'media_request_item_{i:02d}')
         )
         bundle.add_media_request(req)
         requests.append(req)

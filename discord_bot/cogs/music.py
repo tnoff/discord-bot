@@ -1216,8 +1216,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         media_requests = []
         for search_result in collection.search_results:
-            mr = MediaRequest(ctx.guild.id, ctx.channel.id, ctx.author.display_name, ctx.author.id,
-                              search_result)
+            mr = MediaRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
+                              search_result=search_result)
             mr.state_machine.set_on_change(self._on_request_state_change)
             self.media_broker.register_request(mr)
             if add_to_playlist:
@@ -1970,13 +1970,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 playlist_name = PLAYHISTORY_NAME
             playlist_items = []
             for item in retry_database_commands(db_session, partial(database_functions.list_playlist_items, db_session, playlist_id)):
-                search_result = SearchResult(SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                             item.video_url, proper_name=item.title)
-                media_request = MediaRequest(ctx.guild.id,
-                                             ctx.channel.id,
-                                             ctx.author.display_name,
-                                             ctx.author.id,
-                                             search_result,
+                search_result = SearchResult(search_type=SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
+                                             raw_search_string=item.video_url, proper_name=item.title)
+                media_request = MediaRequest(guild_id=ctx.guild.id,
+                                             channel_id=ctx.channel.id,
+                                             requester_name=ctx.author.display_name,
+                                             requester_id=ctx.author.id,
+                                             search_result=search_result,
                                              added_from_history=is_history,
                                              history_playlist_item_id=item.id)
                 media_request.state_machine.set_on_change(self._on_request_state_change)
