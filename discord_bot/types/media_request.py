@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 from dappertable import DapperTable, PaginationLength, shorten_string
 from discord import TextChannel
+from pydantic import BaseModel, Field, PrivateAttr
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
@@ -12,25 +14,17 @@ from discord_bot.utils.discord_utils import discord_format_string_embed
 from discord_bot.utils.otel import MediaRequestNaming, AttributeNaming
 
 
-@dataclass
-class RetryInformation:
+class RetryInformation(BaseModel):
     '''
     Retry information for media requests
     '''
     retry_reason: str | None = None
-    retry_count: int = field(init=False)
-    retry_backoff_seconds: int  = None
+    retry_count: int = 0
+    retry_backoff_seconds: int = 0
     retry_reason_sent: bool = False
 
-    def __post_init__(self):
-        '''
-        Set retry count to 0 and dont allow override
-        '''
-        self.retry_count = 0
-        self.retry_backoff_seconds = 0
 
-@dataclass
-class MediaRequest():
+class MediaRequest(BaseModel):
     '''
     Original source of play request
 
@@ -39,7 +33,6 @@ class MediaRequest():
     requester_name: Display name of original requester
     requester_id : User id of original requester
     search_result : Search result
-    search_type : Type of search it was
     added_from_history : Whether or not this was added from history
     download_file : Download file eventually
     add_to_playlist : Set to add to playlist after download
@@ -55,26 +48,52 @@ class MediaRequest():
     # Optional values
     added_from_history: bool = False
     download_file: bool = True
-    add_to_playlist: int = None
-    history_playlist_item_id: int = None
+    add_to_playlist: int | None = None
+    history_playlist_item_id: int | None = None
     # Generated fields
-    uuid: str = field(default_factory=lambda: f'request.{uuid4()}')
+    uuid: str = Field(default_factory=lambda: f'request.{uuid4()}')
     # Track bundle uuid later on
-    bundle_uuid: str = None
+    bundle_uuid: str | None = None
 
     # Track lifecycle stage
     lifecycle_stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
     # Retry info tracker — separate counters for each phase
-    download_retry_information: RetryInformation = field(default_factory=RetryInformation)
-    youtube_music_retry_information: RetryInformation = field(default_factory=RetryInformation)
+    download_retry_information: RetryInformation = Field(default_factory=RetryInformation)
+    youtube_music_retry_information: RetryInformation = Field(default_factory=RetryInformation)
     # Failure reason tracking
     failure_reason: str | None = None
 
-    def __post_init__(self):
+    _state_machine: Any = PrivateAttr(default=None)
+
+    def model_post_init(self, __context: Any) -> None:  # pylint: disable=arguments-differ
+        '''Attach state machine after Pydantic initializes all fields.'''
+        self._state_machine = MediaRequestStateMachine(self)
+
+    @property
+    def state_machine(self) -> 'MediaRequestStateMachine':
+        '''State machine managing lifecycle transitions for this request.'''
+        return self._state_machine
+
+    def serialize(self) -> str:
         '''
-        Attach state machine after dataclass fields are set
+        Serialize to a JSON string for external queue storage (e.g. Redis).
+
+        The state_machine is a PrivateAttr and is excluded automatically.
+        A fresh one is attached by model_post_init on deserialization.
+        The on_change callback must be re-attached by the caller if needed.
         '''
-        self.state_machine: 'MediaRequestStateMachine' = MediaRequestStateMachine(self)
+        return self.model_dump_json()
+
+    @classmethod
+    def deserialize(cls, data: str) -> 'MediaRequest':
+        '''
+        Deserialize from a JSON string produced by serialize().
+
+        A fresh MediaRequestStateMachine is attached by model_post_init.
+        The on_change callback is not restored — re-attach it via
+        media_request.state_machine.set_on_change(...) if needed.
+        '''
+        return cls.model_validate_json(data)
 
     def __str__(self):
         '''

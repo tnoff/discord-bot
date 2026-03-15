@@ -6,9 +6,9 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 
 from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.download_client import DownloadClientException, DownloadTerminalException
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
 from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
+from discord_bot.types.search import SearchResult
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict, fake_media_download, random_string
@@ -592,12 +592,9 @@ async def test_bundle_error_handling_bad_video(fake_context):  #pylint:disable=r
     req = fake_source_dict(fake_context)
     req.bundle_uuid = "nonexistent-bundle-uuid"
 
-    # Create a mock exception
-    exception = DownloadClientException("Test error", user_message="User-friendly error")
-
     # Test __return_bad_video with missing bundle
     # Should handle gracefully without crashing
-    await cog._Music__return_bad_video(req, exception)  #pylint:disable=protected-access
+    await cog._Music__return_bad_video(req, 'User-friendly error')  #pylint:disable=protected-access
 
     # If we reach here without exception, the error handling worked
 
@@ -697,7 +694,7 @@ def test_bundle_uuid_string_format_validation(fake_context):  #pylint:disable=re
     assert len(bundle.uuid) > len('request.bundle.')
 
     # Verify it's consistent with MediaRequest UUID format
-    req = MediaRequest(123, 456, "user", 1, "search", "search", SearchType.SEARCH)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
     assert req.uuid.startswith('request.')
     assert not req.uuid.startswith('request.bundle.')
 
@@ -1343,8 +1340,7 @@ async def test_single_request_terminal_failure_cleanup_via_on_change(mocker, fak
 
     # Terminal exception path: __return_bad_video → mark_failed → _on_request_state_change
     # → _get_bundle_content → multirequest_bundles.pop() (synchronous)
-    exc = DownloadTerminalException('Video Too Long', user_message='Video Too Long')
-    await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
+    await cog._Music__return_bad_video(req, 'Video Too Long')  #pylint:disable=protected-access
 
     assert bundle.finished
     assert bundle.uuid not in cog.multirequest_bundles
@@ -1409,8 +1405,7 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
 
     assert len(cog.multirequest_bundles) == 1
 
-    exc = DownloadTerminalException('Age Restricted', user_message='Age Restricted')
-    await cog._Music__return_bad_video(req, exc)  #pylint:disable=protected-access
+    await cog._Music__return_bad_video(req, 'Age Restricted')  #pylint:disable=protected-access
 
     assert len(cog.multirequest_bundles) == 0
 

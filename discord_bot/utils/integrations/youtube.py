@@ -41,10 +41,10 @@ class YoutubeClient():
                 }
                 req = self.client.playlistItems().list(**data_inputs).execute() #pylint:disable=no-member
                 for item in req['items']:
-                    items.append(CatalogItem(f'{YOUTUBE_VIDEO_PREFIX}{item["snippet"]["resourceId"]["videoId"]}', item['snippet']['title']))
+                    items.append(CatalogItem(search_string=f'{YOUTUBE_VIDEO_PREFIX}{item["snippet"]["resourceId"]["videoId"]}', title=item['snippet']['title']))
                 try:
                     if req['nextPageToken'] is None:
-                        return CatalogResponse(items, playlist_title)
+                        return CatalogResponse(items=items, collection_name=playlist_title)
                     page_token = req['nextPageToken']
                 except KeyError:
-                    return CatalogResponse(items, playlist_title)
+                    return CatalogResponse(items=items, collection_name=playlist_title)

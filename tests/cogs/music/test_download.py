@@ -1,4 +1,3 @@
-from functools import partial
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
@@ -6,13 +5,12 @@ import pytest
 
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.download_client import BotDownloadFlagged
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_download_client_download_exception, yield_fake_download_client, yield_download_client_download_error
 from tests.helpers import fake_source_dict, fake_media_download
@@ -20,8 +18,8 @@ from tests.helpers import fake_engine, fake_context #pylint:disable=unused-impor
 
 @pytest.mark.asyncio()
 async def test_download_queue_no_download(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    s = MediaRequest(fake_context['guild'].id, fake_context['channel'].id, fake_context['author'].display_name, fake_context['author'].id,
-                   SearchResult(SearchType.DIRECT, 'https://foo.example.com/title'), download_file=False)
+    s = MediaRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id, requester_name=fake_context['author'].display_name, requester_id=fake_context['author'].id,
+                   search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://foo.example.com/title'), download_file=False)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example.com/title'}, s)
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
@@ -84,7 +82,7 @@ def yield_download_client_bot_flagged():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=BotDownloadFlagged('foo', media_request=media_request)), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='foo'), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 
@@ -102,7 +100,7 @@ async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disabl
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    async def bump_value():
+    async def _bump_value():
         return True
 
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -111,7 +109,6 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     s = fake_source_dict(fake_context)
-    s.video_non_exist_callback_functions = [partial(bump_value)]
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
@@ -119,7 +116,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    async def bump_value():
+    async def _bump_value():
         return True
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -127,7 +124,6 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_error())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     s = fake_source_dict(fake_context)
-    s.video_non_exist_callback_functions = [partial[bump_value]]
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()

@@ -18,13 +18,13 @@ class MockSpotifyClient():
         pass
 
     def album_get(self, _album_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Album Name')
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')], collection_name='Mock Album Name')
 
     def playlist_get(self, _playlist_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Playlist Name')
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')], collection_name='Mock Playlist Name')
 
     def track_get(self, _track_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')])
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')])
 
 class MockSpotifyRaise():
     def __init__(self):
@@ -45,7 +45,7 @@ class MockYoutubeClient():
         pass
 
     def playlist_get(self, _playlist_id):
-        return CatalogResponse([CatalogItem(f'{YOUTUBE_VIDEO_PREFIX}aaaaaaaaaaaaaa', 'foo title')], 'Mock YouTube Playlist')
+        return CatalogResponse(items=[CatalogItem(search_string=f'{YOUTUBE_VIDEO_PREFIX}aaaaaaaaaaaaaa', title='foo title')], collection_name='Mock YouTube Playlist')
 
 class MockResponse():
     def __init__(self):
@@ -233,7 +233,7 @@ async def test_basic_search_with_youtube_music_skips_direct():
 # Tests for SearchResult class functionality
 def test_search_result_creation():
     """Test SearchResult object creation"""
-    result = SearchResult(SearchType.SEARCH, 'test search')
+    result = SearchResult(search_type=SearchType.SEARCH, raw_search_string='test search')
     assert result.search_type == SearchType.SEARCH
     assert result.raw_search_string == 'test search'
     assert result.youtube_music_search_string is None
@@ -242,8 +242,8 @@ def test_search_result_creation():
 
 def test_search_collection_creation():
     """Test SearchCollection separates collection name from individual results"""
-    result = SearchResult(SearchType.SPOTIFY, 'track search')
-    collection = SearchCollection([result], 'My Album')
+    result = SearchResult(search_type=SearchType.SPOTIFY, raw_search_string='track search')
+    collection = SearchCollection(search_results=[result], collection_name='My Album')
     assert collection.collection_name == 'My Album'
     assert collection.search_results[0].search_type == SearchType.SPOTIFY
     assert collection.search_results[0].raw_search_string == 'track search'
@@ -251,7 +251,7 @@ def test_search_collection_creation():
 
 def test_search_result_add_youtube_music_result():
     """Test adding YouTube music result to SearchResult"""
-    result = SearchResult(SearchType.SEARCH, 'foo bar', None)
+    result = SearchResult(search_type=SearchType.SEARCH, raw_search_string='foo bar')
     assert result.resolved_search_string == 'foo bar'
 
     result.add_youtube_music_result('https://www.youtube.com/watch?v=vid123')
@@ -262,14 +262,14 @@ def test_search_result_add_youtube_music_result():
 
 def test_search_result_resolved_search_string_fallback():
     """Test that resolved_search_string falls back to raw_search_string when no YouTube music result"""
-    result = SearchResult(SearchType.DIRECT, 'https://example.com', None)
+    result = SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.com')
     assert result.resolved_search_string == 'https://example.com'
     assert result.youtube_music_search_string is None
 
 
 def test_search_result_resolved_search_string_with_youtube_music():
     """Test that resolved_search_string prefers YouTube music result when available"""
-    result = SearchResult(SearchType.SEARCH, 'original search', None)
+    result = SearchResult(search_type=SearchType.SEARCH, raw_search_string='original search')
     result.add_youtube_music_result('youtube result')
     assert result.resolved_search_string == 'youtube result'
     assert result.raw_search_string == 'original search'

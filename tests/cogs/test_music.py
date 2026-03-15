@@ -11,9 +11,7 @@ from discord_bot.cogs.music import Music
 from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadResult, DownloadStatus
-
-from discord_bot.cogs.music_helpers.download_client import DownloadTerminalException, RetryableException
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music import VideoEditing
@@ -41,11 +39,11 @@ def yield_fake_search_client(media_request: MediaRequest = None):
             if media_request:
                 # Convert MediaRequest to SearchResult
                 search_result = SearchResult(
-                    media_request.search_result.search_type,
-                    media_request.search_result.raw_search_string
+                    search_type=media_request.search_result.search_type,
+                    raw_search_string=media_request.search_result.raw_search_string
                 )
-                return SearchCollection([search_result])
-            return SearchCollection([])
+                return SearchCollection(search_results=[search_result])
+            return SearchCollection(search_results=[])
 
     return FakeSearchClient
 
@@ -57,7 +55,7 @@ def yield_fake_download_client(media_download: MediaDownload):
 
         async def create_source(self, media_request, *_args, **_kwargs):
             if media_download is None:
-                return DownloadResult(DownloadStatus(False, exception=DownloadTerminalException('No result', user_message='No result')), media_request, None, None)
+                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='No result'), media_request=media_request, ytdlp_data=None, file_name=None)
             ytdlp_data = {
                 'id': media_download.id,
                 'title': media_download.title,
@@ -66,7 +64,7 @@ def yield_fake_download_client(media_download: MediaDownload):
                 'duration': media_download.duration,
                 'extractor': media_download.extractor,
             }
-            return DownloadResult(DownloadStatus(True), media_request, ytdlp_data, media_download.file_path)
+            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=ytdlp_data, file_name=media_download.file_path)
 
     return FakeDownloadClient
 
@@ -76,7 +74,7 @@ def yield_download_client_download_exception():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=DownloadTerminalException('foo', user_message='whoopsie')), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 
@@ -86,7 +84,7 @@ def yield_download_client_download_error():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=RetryableException('foo', media_request=media_request)), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 
@@ -100,11 +98,11 @@ def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
             search_results = []
             for media_request in source_dict_list:
                 search_result = SearchResult(
-                    media_request.search_result.search_type,
-                    media_request.search_result.raw_search_string
+                    search_type=media_request.search_result.search_type,
+                    raw_search_string=media_request.search_result.raw_search_string
                 )
                 search_results.append(search_result)
-            return SearchCollection(search_results)
+            return SearchCollection(search_results=search_results)
 
     return FakeSearchClient
 
@@ -862,7 +860,7 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_result=SearchResult(SearchType.SEARCH, 'test song')
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
     )
 
     # Set up search banner (required for single-item bundles)
@@ -909,7 +907,7 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
         channel_id=fake_context['channel'].id,
         requester_name='test_user',
         requester_id=123456,
-        search_result=SearchResult(SearchType.SEARCH, 'test song')
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
     )
 
     bundle.add_media_request(media_request)

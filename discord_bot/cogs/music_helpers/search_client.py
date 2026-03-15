@@ -142,8 +142,8 @@ class SearchClient():
                 collection_name = catalog_result.collection_name or search.replace(' shuffle', '')
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(SearchType.SPOTIFY, item.search_string, item.title))
-                return SearchCollection(results, collection_name)
+                    results.append(SearchResult(search_type=SearchType.SPOTIFY, raw_search_string=item.search_string, proper_name=item.title))
+                return SearchCollection(search_results=results, collection_name=collection_name)
 
             if youtube_playlist_matcher:
                 if not self.youtube_client:
@@ -161,21 +161,21 @@ class SearchClient():
                     random.shuffle(catalog_result.items)
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(SearchType.YOUTUBE_PLAYLIST, item.search_string, item.title))
-                return SearchCollection(results, catalog_result.collection_name)
+                    results.append(SearchResult(search_type=SearchType.YOUTUBE_PLAYLIST, raw_search_string=item.search_string, proper_name=item.title))
+                return SearchCollection(search_results=results, collection_name=catalog_result.collection_name)
 
             if youtube_short_match:
-                return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}', None)])
+                return SearchCollection(search_results=[SearchResult(search_type=SearchType.YOUTUBE, raw_search_string=f'{YOUTUBE_SHORT_PREFIX}{youtube_short_match.group("video_id")}')])
 
             if youtube_video_match:
-                return SearchCollection([SearchResult(SearchType.YOUTUBE, f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}', None)])
+                return SearchCollection(search_results=[SearchResult(search_type=SearchType.YOUTUBE, raw_search_string=f'{YOUTUBE_VIDEO_PREFIX}{youtube_video_match.group("video_id")}')])
 
             # If we have https:// in url, assume its a direct
             if search.startswith('https://'):
-                return SearchCollection([SearchResult(SearchType.DIRECT, search, None)])
+                return SearchCollection(search_results=[SearchResult(search_type=SearchType.DIRECT, raw_search_string=search)])
 
             # Else assume this was a search message to put into youtube music
-            return SearchCollection([SearchResult(SearchType.SEARCH, search, None)])
+            return SearchCollection(search_results=[SearchResult(search_type=SearchType.SEARCH, raw_search_string=search)])
 
     async def check_source(self, search: str, loop: AbstractEventLoop,
                            max_results: int) -> SearchCollection:

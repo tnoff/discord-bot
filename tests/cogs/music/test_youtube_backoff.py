@@ -7,8 +7,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadResult, DownloadStatus
-from discord_bot.cogs.music_helpers.download_client import RetryableException, BotDownloadFlagged
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
@@ -106,7 +105,7 @@ def yield_download_client_retryable_exception():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=RetryableException('Test retryable error', media_request=media_request)), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='Test retryable error'), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 
@@ -118,7 +117,7 @@ def yield_download_client_bot_flagged():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=BotDownloadFlagged('Bot download flagged', media_request=media_request)), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='Bot download flagged'), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 

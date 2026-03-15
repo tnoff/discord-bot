@@ -1,3 +1,6 @@
+[MASTER]
+load-plugins=pylint_pydantic
+
 [MESSAGES CONTROL]
 
 # Enable the message, report, category or checker with the given id(s). You can
