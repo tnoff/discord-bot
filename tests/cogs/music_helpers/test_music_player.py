@@ -298,41 +298,28 @@ def test_voice_channel_active_only_bots(fake_context): #pylint:disable=redefined
 
 # Tests for cleanup_source function and audio source cleanup
 def test_cleanup_source_success(fake_context): #pylint:disable=redefined-outer-name
-    """Test cleanup_source successfully cleans up audio source and media download"""
+    """Test cleanup_source cleans up audio source"""
     with with_music_player(fake_context) as player:
-        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            # Mock FFmpegPCMAudio
+        with fake_media_download(player.file_dir, fake_context=fake_context): #pylint:disable=unused-variable
             mock_audio_source = Mock()
             mock_audio_source.cleanup = Mock()
 
-            # Mock the delete method
-            media_download.delete = Mock()
+            cleanup_source(mock_audio_source)
 
-            # Call cleanup_source
-            cleanup_source(media_download, mock_audio_source)
-
-            # Verify cleanup was called
             mock_audio_source.cleanup.assert_called_once()
-            media_download.delete.assert_called_once()
 
 
 def test_cleanup_source_handles_value_error(fake_context): #pylint:disable=redefined-outer-name
     """Test cleanup_source handles ValueError when audio source is already cleaned"""
     with with_music_player(fake_context) as player:
-        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            # Mock FFmpegPCMAudio that raises ValueError
+        with fake_media_download(player.file_dir, fake_context=fake_context): #pylint:disable=unused-variable
             mock_audio_source = Mock()
             mock_audio_source.cleanup = Mock(side_effect=ValueError("File already closed"))
 
-            # Mock the delete method
-            media_download.delete = Mock()
-
             # Should not raise exception
-            cleanup_source(media_download, mock_audio_source)
+            cleanup_source(mock_audio_source)
 
-            # Verify cleanup was attempted and delete was still called
             mock_audio_source.cleanup.assert_called_once()
-            media_download.delete.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -396,10 +383,8 @@ async def test_music_player_cleanup_calls_audio_cleanup(fake_context): #pylint:d
 
 
 def test_cleanup_source_with_none_values(fake_context): #pylint:disable=redefined-outer-name,unused-argument
-    """Test cleanup_source handles None values gracefully"""
-    # Should not crash when called with None
-    cleanup_source(None, None)
-    # If we get here, it handled None gracefully
+    """Test cleanup_source handles None gracefully"""
+    cleanup_source(None)
 
 
 @pytest.mark.asyncio
@@ -430,11 +415,9 @@ async def test_player_cleanup_with_active_source(fake_context): #pylint:disable=
                 # Manually set current source (simulating mid-playback)
                 player.current_media_download = media_download
                 player.current_audio_source = mock_audio_source
-                media_download.delete = Mock()
 
                 # Call cleanup
                 await player.cleanup()
 
                 # Verify audio source was cleaned up
                 mock_audio_source.cleanup.assert_called_once()
-                media_download.delete.assert_called_once()

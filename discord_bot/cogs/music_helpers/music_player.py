@@ -21,9 +21,9 @@ from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 
-def cleanup_source(media_download: MediaDownload, audio_source: FFmpegPCMAudio):
+def cleanup_source(audio_source: FFmpegPCMAudio):
     '''
-    Cleanup sources
+    Cleanup audio source
     '''
     if audio_source:
         try:
@@ -31,9 +31,6 @@ def cleanup_source(media_download: MediaDownload, audio_source: FFmpegPCMAudio):
         except ValueError:
             # Check if file is closed
             pass
-    # Cleanup source files, if cache not enabled delete base/original as well
-    if media_download:
-        media_download.delete()
 
 class MusicPlayer:
     '''
@@ -109,10 +106,11 @@ class MusicPlayer:
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
+        guild_file_path = None
         if self.broker:
-            self.broker.checkout(str(media_download.media_request.uuid), self.guild.id, self.file_dir)
+            guild_file_path = self.broker.checkout(str(media_download.media_request.uuid), self.guild.id, self.file_dir)
 
-        audio_source = FFmpegPCMAudio(str(media_download.file_path))
+        audio_source = FFmpegPCMAudio(str(guild_file_path or media_download.file_path))
         self.current_audio_source = audio_source
         self.video_skipped = False
         audio_source.volume = 1
@@ -121,9 +119,9 @@ class MusicPlayer:
         except (AttributeError, ClientException) as e:
             self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
-            cleanup_source(media_download, audio_source)
+            cleanup_source(audio_source)
             if self.broker:
-                self.broker.remove(str(media_download.media_request.uuid))
+                self.broker.release(str(media_download.media_request.uuid))
             if not self.shutdown_called:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
@@ -137,9 +135,9 @@ class MusicPlayer:
 
         await self.next.wait()
         self.np_message = ''
-        cleanup_source(media_download, audio_source)
+        cleanup_source(audio_source)
         if self.broker:
-            self.broker.remove(str(media_download.media_request.uuid))
+            self.broker.release(str(media_download.media_request.uuid))
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
@@ -272,8 +270,6 @@ class MusicPlayer:
         '''
         items = self._play_queue.clear()
         for item in items:
-            if item.file_path != item.base_path:
-                item.delete()
             if self.broker:
                 self.broker.remove(str(item.media_request.uuid))
         return items
@@ -321,9 +317,9 @@ class MusicPlayer:
         '''
         items = []
         if self.current_media_download:
-            items.append(self.current_media_download.base_path)
+            items.append(self.current_media_download.file_path)
         for item in self._play_queue.items():
-            items.append(item.base_path)
+            items.append(item.file_path)
         return items
 
     async def cleanup(self):
@@ -332,17 +328,15 @@ class MusicPlayer:
         '''
         self.logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
-        cleanup_source(self.current_media_download, self.current_audio_source)
+        cleanup_source(self.current_audio_source)
         if self.broker and self.current_media_download:
-            self.broker.remove(str(self.current_media_download.media_request.uuid))
+            self.broker.release(str(self.current_media_download.media_request.uuid))
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
             try:
                 media_download = self._play_queue.get_nowait()
                 self.logger.debug(f'Removing item {media_download} from play queue')
-                if media_download.file_path != media_download.base_path:
-                    media_download.delete()
                 if self.broker:
                     self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:

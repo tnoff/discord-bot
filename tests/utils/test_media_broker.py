@@ -110,15 +110,15 @@ def test_checkout_with_guild_path_copies_file():
     with TemporaryDirectory() as base_dir:
         with TemporaryDirectory() as guild_dir:
             with fake_media_download(base_dir, media_request=mr) as md:
-                original_base = md.base_path
+                original_file_path = md.file_path
                 broker.register_download(md)
-                broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))
-                # file_path should have been updated to guild copy
-                assert md.file_path != original_base
-                assert md.file_path.parent == Path(guild_dir)
-                assert md.file_path.exists()
-                # base_path still points to original
-                assert md.base_path == original_base
+                guild_file_path = broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))
+                # guild_file_path should be in the guild directory
+                assert guild_file_path is not None
+                assert guild_file_path.parent == Path(guild_dir)
+                assert guild_file_path.exists()
+                # file_path (base) is unchanged
+                assert md.file_path == original_file_path
 
 
 def test_checkout_without_guild_path_does_not_copy():
@@ -313,11 +313,14 @@ def test_full_lifecycle():
                 assert not broker.can_evict_base(url)
 
                 # Step 3: player dequeues, broker copies to guild dir, CHECKED_OUT
-                broker.checkout(uuid, mr.guild_id, Path(guild_dir))
+                guild_file_path = broker.checkout(uuid, mr.guild_id, Path(guild_dir))
                 assert broker.get_entry(uuid).zone == Zone.CHECKED_OUT
                 assert not broker.can_evict_request(uuid)
                 assert not broker.can_evict_base(url)
-                assert md.file_path.parent == Path(guild_dir)
+                assert guild_file_path is not None
+                assert guild_file_path.parent == Path(guild_dir)
+                # base file_path unchanged
+                assert md.file_path.parent == Path(tmp_dir)
 
                 # Step 4: player finishes, entry removed
                 broker.remove(uuid)

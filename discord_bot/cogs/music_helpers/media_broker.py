@@ -28,6 +28,7 @@ class BrokerEntry:
     download: MediaDownload | None = None
     zone: Zone = Zone.IN_FLIGHT
     checked_out_by: int | None = None  # guild_id
+    guild_file_path: Path | None = None
 
 
 class MediaBroker:
@@ -131,39 +132,61 @@ class MediaBroker:
     # Player lifecycle
     # ------------------------------------------------------------------
 
-    def checkout(self, media_request_uuid: str, guild_id: int, guild_path: Path | None = None):
+    def checkout(self, media_request_uuid: str, guild_id: int, guild_path: Path | None = None) -> Path | None:
         '''
         Mark an entry as CHECKED_OUT when a player dequeues it to play.
 
-        If guild_path is given, the broker copies the base file into the
-        guild-specific directory via ready_file() before marking CHECKED_OUT.
-        This is the point at which the broker hands the guild copy to the player.
+        If guild_path is given, copies the base file into the guild-specific
+        directory and stores the resulting path in entry.guild_file_path.
+
+        Returns the guild-specific file path, or None if no copy was made.
         '''
         entry = self._registry.get(media_request_uuid)
         if entry is None:
-            return
-        if guild_path is not None and entry.download is not None:
-            download = entry.download
-            guild_path = guild_path or download.file_path.parent / f'{download.media_request.guild_id}'
+            return None
+        if guild_path is not None and entry.download is not None and entry.download.file_path:
             guild_path.mkdir(exist_ok=True)
-            if download.base_path:
-                if not download.base_path.exists():
-                    raise FileNotFoundError('Unable to locate base path')
-                uuid_path = guild_path / f'{download.media_request.uuid}{"".join(i for i in download.file_path.suffixes)}'
-                copyfile(str(download.base_path), str(uuid_path))
-                download.file_path = uuid_path
+            if not entry.download.file_path.exists():
+                raise FileNotFoundError('Unable to locate base path')
+            uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
+            copyfile(str(entry.download.file_path), str(uuid_path))
+            entry.guild_file_path = uuid_path
         entry.zone = Zone.CHECKED_OUT
         entry.checked_out_by = guild_id
+        return entry.guild_file_path
 
     def remove(self, media_request_uuid: str):
         '''
-        Remove an entry from the registry.
+        Remove an entry from the registry without touching any files.
 
-        Called when a player finishes with a file (guild copy deleted)
-        or when a request reaches a terminal stage with no file
-        (FAILED, DISCARDED).
+        Use for AVAILABLE entries (not yet checked out) where the base
+        file lifecycle is managed by the video cache or a later discard.
         '''
         self._registry.pop(media_request_uuid, None)
+
+    def release(self, media_request_uuid: str):
+        '''
+        Release a CHECKED_OUT entry: delete the guild-specific copy and
+        remove from the registry.
+
+        Called when a player finishes with or abandons a file after checkout.
+        '''
+        entry = self._registry.pop(media_request_uuid, None)
+        if entry and entry.guild_file_path:
+            entry.guild_file_path.unlink(missing_ok=True)
+
+    def discard(self, media_request_uuid: str):
+        '''
+        Remove an entry that was registered but could not be enqueued.
+
+        If no video cache is configured the base file is also deleted,
+        since nothing else will manage its lifecycle. With a cache the
+        file is kept as a valid cache entry.
+        '''
+        entry = self._registry.pop(media_request_uuid, None)
+        if entry and entry.download and not self.video_cache:
+            if entry.download.file_path:
+                entry.download.file_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Eviction queries

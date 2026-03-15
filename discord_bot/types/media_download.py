@@ -31,7 +31,6 @@ class MediaDownload():
 
     # Other fields
     uuid: str = field(init=False)
-    base_path: Path | None = field(init=False, default=None)
 
     def __post_init__(self, ytdl_data: dict):
         '''
@@ -45,16 +44,6 @@ class MediaDownload():
         self.uploader = ytdl_data.get('uploader')
         self.duration = ytdl_data.get('duration')
         self.extractor = ytdl_data.get('extractor')
-
-        # Set base_path to file_path initially
-        self.base_path = self.file_path
-
-    def delete(self):
-        '''
-        Delete file
-
-        '''
-        self.file_path.unlink(missing_ok=True)
 
     def __str__(self):
         '''

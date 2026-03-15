@@ -580,13 +580,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if bundle:
                     media_download.media_request.failure_reason = f'Cannot add item "{media_download.title}" to play queue, play queue is full'
                 media_download.media_request.state_machine.mark_failed()
-                media_download.delete()
+                self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
                 self.logger.warning(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
                 media_download.media_request.state_machine.mark_discarded()
-                media_download.delete()
+                self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
 
     # Take both source dict and media download
@@ -1395,8 +1395,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Removed item {item.title} from queue',
             delete_after=self.config.general.message_delete_after)
-        if item.file_path != item.base_path:
-            item.delete()
         self.media_broker.remove(str(item.media_request.uuid))
         key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
         self.dispatcher.update_mutable(key, player.guild.id,

@@ -122,7 +122,7 @@ class VideoCacheClient():
                     extractor=media_download.extractor,
                     last_iterated_at=now,
                     created_at=now,
-                    base_path=str(media_download.base_path),
+                    base_path=str(media_download.file_path),
                     count=1,
                     ready_for_deletion=False,
                 )
