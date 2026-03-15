@@ -12,8 +12,6 @@ from tests.helpers import fake_context #pylint:disable=unused-import
 @pytest.mark.asyncio
 async def test_media_request_basics(fake_context): #pylint:disable=redefined-outer-name
     x = fake_source_dict(fake_context)
-    assert x.download_file is True
-
     assert str(x) == x.search_result.resolved_search_string
     x_direct = fake_source_dict(fake_context, is_direct_search=True)
     assert str(x_direct) == f'<{x_direct.search_result.raw_search_string}>'
@@ -597,7 +595,7 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add request that will be completed (shouldn't appear in messages)
-    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"), download_file=True)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()
@@ -613,7 +611,7 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
     bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
 
     # Add single failed request
-    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"), download_file=True)
+    req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
     bundle.set_initial_search("search")
     bundle.add_media_request(req)
     bundle.all_requests_added()

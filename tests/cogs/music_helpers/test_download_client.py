@@ -13,6 +13,9 @@ from discord_bot.cogs.music_helpers.download_client import (
 from discord_bot.types.download import DownloadErrorType
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.types.search import SearchResult
+from discord_bot.cogs.music_helpers.common import SearchType
 from tests.helpers import fake_source_dict, generate_fake_context
 
 class MockYTDLP():
@@ -83,7 +86,10 @@ async def test_prepare_source_no_download():
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
     x = DownloadClient(MockYTDLP(), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = PlaylistAddRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id,
+                           requester_name=fake_context['author'].display_name, requester_id=fake_context['author'].id,
+                           search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.foo.com'),
+                           playlist_id=1)
     result = await x.create_source(y, 3, loop)
     assert result.status.success
     assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
@@ -94,35 +100,35 @@ async def test_prepare_source_errors():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error('Sign in to confirm your age. This video may be inappropriate for some users'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.AGE_RESTRICTED
     assert 'Video is age restricted, cannot download' in result.status.user_message
 
     x = DownloadClient(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.TERMS_VIOLATION
     assert 'Video is unvailable due to violating terms of service, cannot download' in result.status.user_message
 
     x = DownloadClient(yield_dlp_error('Video unavailable'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.UNAVAILABLE
     assert 'Video is unavailable, cannot download' in result.status.user_message
 
     x = DownloadClient(yield_dlp_error('Private video'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.PRIVATE_VIDEO
     assert 'Video is private, cannot download' in result.status.user_message
 
     x = DownloadClient(yield_dlp_error("Sign in to confirm you're not a bot"), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.BOT_FLAGGED
@@ -130,14 +136,14 @@ async def test_prepare_source_errors():
     assert result.media_request.download_retry_information.retry_count == 0
 
     x = DownloadClient(yield_dlp_error('Requested format is not available'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.INVALID_FORMAT
     assert 'Video is not available in requested format' in result.status.user_message
 
     x = DownloadClient(MockYTDLPNoData(), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.NOT_FOUND
@@ -189,7 +195,7 @@ async def test_retryable_exception_on_timeout():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error('Read timed out.'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
 
     result = await x.create_source(y, 3, loop)
 
@@ -204,7 +210,7 @@ async def test_retryable_exception_increments_retry_count():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error('Read timed out.'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
 
     assert y.download_retry_information.retry_count == 0
 
@@ -230,7 +236,7 @@ async def test_all_unknown_errors_are_retryable():
 
     for error_message in test_errors:
         x = DownloadClient(yield_dlp_error(error_message), None)
-        y = fake_source_dict(fake_context, download_file=False)
+        y = fake_source_dict(fake_context)
 
         result = await x.create_source(y, 3, loop)
 
@@ -363,7 +369,7 @@ async def test_retry_limit_exceeded_on_bot_flagged():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error("Sign in to confirm you're not a bot"), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
 
     # Set retry count to max_retries - 1, so next attempt hits the limit
     y.download_retry_information.retry_count = 2
@@ -382,7 +388,7 @@ async def test_retry_limit_exceeded_on_unknown_error():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error('Some random unknown error'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
 
     # Set retry count to max_retries - 1
     y.download_retry_information.retry_count = 2
@@ -400,7 +406,7 @@ async def test_retry_limit_exceeded_with_max_retries_one():
     fake_context = generate_fake_context()
 
     x = DownloadClient(yield_dlp_error('Read timed out.'), None)
-    y = fake_source_dict(fake_context, download_file=False)
+    y = fake_source_dict(fake_context)
 
     # With max_retries=1 and retry_count=0, 0+1 >= 1 is True
     result = await x.create_source(y, 1, loop)

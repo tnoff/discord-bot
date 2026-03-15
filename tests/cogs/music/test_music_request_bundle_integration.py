@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch, MagicMock
 
 import pytest
@@ -8,10 +7,12 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
 from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.search import SearchResult
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_source_dict, fake_media_download, random_string
+from tests.helpers import fake_source_dict, random_string
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
@@ -1071,9 +1072,15 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
     cog.multirequest_bundles[bundle.uuid] = bundle
 
-    # Add a media request, registering the on_change callback so transitions trigger updates
-    req = fake_source_dict(fake_context)
-    req.add_to_playlist = 123  # Simulate playlist add request
+    # Add a PlaylistAddRequest, registering the on_change callback so transitions trigger updates
+    req = PlaylistAddRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name=fake_context['author'].display_name,
+        requester_id=fake_context['author'].id,
+        search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.com/v'),
+        playlist_id=123,
+    )
     req.bundle_uuid = bundle.uuid
     req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access
     bundle.add_media_request(req)
@@ -1083,21 +1090,18 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
         # Mock successful playlist add
         mock_db.return_value = 456  # playlist_item_id
 
-        # Create a fake media download that would trigger playlist add
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
-                media_download.media_request = req
+        playlist_result = PlaylistAddResult(webpage_url='https://example.com/v', title='Test Title', uploader='Test Uploader')
 
-                # Test the playlist add private method (music.py:1833)
-                # pylint: disable=protected-access
-                await cog._Music__add_playlist_item_function(123, media_download)
+        # Test the __add_playlist_item private method
+        # pylint: disable=protected-access
+        await cog._Music__add_playlist_item(req, playlist_result)
 
-                # Verify text_channel parameter was used (not None) - music.py:1833
-                cog.dispatcher.update_mutable.assert_called()
-                call_args = cog.dispatcher.update_mutable.call_args
-                assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
-                assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
-                assert call_args[1].get('sticky') is False
+        # Verify text_channel parameter was used (not None)
+        cog.dispatcher.update_mutable.assert_called()
+        call_args = cog.dispatcher.update_mutable.call_args
+        assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
+        assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
+        assert call_args[1].get('sticky') is False
 
 
 

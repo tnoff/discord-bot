@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from dappertable import DapperTable, PaginationLength, shorten_string
@@ -34,8 +34,6 @@ class MediaRequest(BaseModel):
     requester_id : User id of original requester
     search_result : Search result
     added_from_history : Whether or not this was added from history
-    download_file : Download file eventually
-    add_to_playlist : Set to add to playlist after download
     history_playlist_item_id : Delete playlist item from history playlist, pass in database id
     '''
     # Required fields
@@ -47,9 +45,8 @@ class MediaRequest(BaseModel):
 
     # Optional values
     added_from_history: bool = False
-    download_file: bool = True
-    add_to_playlist: int | None = None
     history_playlist_item_id: int | None = None
+    download_file: Literal[True] = True
     # Generated fields
     uuid: str = Field(default_factory=lambda: f'request.{uuid4()}')
     # Track bundle uuid later on

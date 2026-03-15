@@ -10,6 +10,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.utils.failure_queue import FailureStatus
@@ -38,6 +39,21 @@ def create_test_media_request(test_context, search_string='test search', bundle_
         requester_name=test_context['author'].display_name,
         requester_id=test_context['author'].id,
         search_result=SearchResult(search_type=search_type, raw_search_string=search_string)
+    )
+    if bundle_uuid:
+        request.bundle_uuid = bundle_uuid
+    return request
+
+
+def create_test_playlist_add_request(test_context, playlist_id, search_string='test search', bundle_uuid=None, search_type=SearchType.SEARCH):
+    """Helper to create test PlaylistAddRequest objects"""
+    request = PlaylistAddRequest(
+        guild_id=test_context['guild'].id,
+        channel_id=test_context['channel'].id,
+        requester_name=test_context['author'].display_name,
+        requester_id=test_context['author'].id,
+        search_result=SearchResult(search_type=search_type, raw_search_string=search_string),
+        playlist_id=playlist_id,
     )
     if bundle_uuid:
         request.bundle_uuid = bundle_uuid
@@ -266,11 +282,9 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
-    # Create a bundle and media request for playlist addition
+    # Create a bundle and playlist add request
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
-    media_request.add_to_playlist = 123  # Playlist ID
-    media_request.download_file = False
+    media_request = create_test_playlist_add_request(fake_context, playlist_id=123, search_string='test search', bundle_uuid=bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add to search queue
@@ -283,12 +297,17 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
             mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
-            mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
+            mocker.patch.object(cog, '_Music__add_playlist_item', return_value=None)
 
             await cog.search_youtube_music()
 
-            # Verify playlist addition was called
-            cog._Music__add_playlist_item_function.assert_called_once_with(123, cached_download) #pylint:disable=protected-access
+            # Verify playlist addition was called with the right request and result
+            cog._Music__add_playlist_item.assert_called_once() #pylint:disable=protected-access
+            call_request, call_result = cog._Music__add_playlist_item.call_args[0] #pylint:disable=protected-access
+            assert call_request.playlist_id == 123
+            assert call_result.webpage_url == cached_download.webpage_url
+            assert call_result.title == cached_download.title
+            assert call_result.uploader == cached_download.uploader
 
             # Verify download queue is empty (playlist addition, no player queue needed)
             assert cog.download_queue.size(fake_context['guild'].id) == 0
@@ -363,9 +382,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
 
     cog = Music(fake_context['bot'], config, None)
 
-    media_request = create_test_media_request(fake_context)
-    media_request.add_to_playlist = 456
-    media_request.download_file = False
+    media_request = create_test_playlist_add_request(fake_context, playlist_id=456)
 
     # Create bundle for the request
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
@@ -379,12 +396,17 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
             mocker.patch.object(cog.media_broker, 'check_cache', return_value=cached_download)
 
             # Mock playlist addition
-            mocker.patch.object(cog, '_Music__add_playlist_item_function', return_value=None)
+            mocker.patch.object(cog, '_Music__add_playlist_item', return_value=None)
 
             result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
 
             assert result is True
-            cog._Music__add_playlist_item_function.assert_called_once_with(456, cached_download) #pylint:disable=protected-access
+            cog._Music__add_playlist_item.assert_called_once() #pylint:disable=protected-access
+            call_request, call_result = cog._Music__add_playlist_item.call_args[0] #pylint:disable=protected-access
+            assert call_request.playlist_id == 456
+            assert call_result.webpage_url == cached_download.webpage_url
+            assert call_result.title == cached_download.title
+            assert call_result.uploader == cached_download.uploader
 
 
 @pytest.mark.asyncio()

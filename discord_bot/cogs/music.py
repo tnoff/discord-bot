@@ -28,6 +28,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, match_generator
+from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import DownloadErrorType
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
@@ -35,6 +36,8 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle, media_request_attributes
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
@@ -413,21 +416,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug('Calling shutdown on Music')
 
             self.bot_shutdown_event.set()
-            for guild_id, player in self.players.items():
-                self.logger.info(f'Calling shutdown on player in guild {guild_id}')
-                player.destroy()
 
-            self.logger.info('Waiting for full shutdown on players before cancelling tasks')
-            timeout_counter = 0
-            max_timeout = 30  # 30 seconds max wait
-            while self.players and timeout_counter < max_timeout:  # 10 iterations per second
-                await sleep(1)
-                timeout_counter += 1
-
-            if self.players:
-                self.logger.warning(f'Timeout waiting for player shutdown, {len(self.players)} players still active')
-            else:
-                self.logger.info('All players shutdown successfully')
+            # Cleanup all active guilds: terminates state machines, drops queues,
+            # sends shutdown message, and cancels player tasks
+            for guild in [player.guild for player in self.players.values()]:
+                await self.cleanup(guild, reason=CleanupReason.BOT_SHUTDOWN)
 
             self.logger.info('Cancelling main tasks')
             if self._cleanup_task:
@@ -538,19 +531,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         guilds = []
         for _guild_id, player in self.players.items():
             if player.shutdown_called:
-                self.logger.debug(f'Identified guild where music player shutdown called {player.guild.id}, sending to cleanup')
-                guilds.append(player.guild)
+                reason = player.shutdown_reason or CleanupReason.QUEUE_TIMEOUT
+                self.logger.debug(f'Identified guild where music player shutdown called {player.guild.id}, reason: {reason.value}, sending to cleanup')
+                guilds.append((player.guild, reason))
                 continue
             if player.voice_channel_inactive_timeout(timeout_seconds=self.config.player.inactive_voice_channel_timeout):
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                     'No one active in voice channel, shutting myself down',
                     delete_after=self.config.general.message_delete_after)
                 self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
-                guilds.append(player.guild)
+                guilds.append((player.guild, CleanupReason.VOICE_INACTIVE))
         # Run in separate loop since the cleanup function removes items form self.players
         # And you might hit issues where dict size changes during iteration
-        for guild in guilds:
-            await self.cleanup(guild)
+        for guild, reason in guilds:
+            await self.cleanup(guild, reason=reason)
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
@@ -607,9 +601,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
         media_download = self.media_broker.check_cache(media_request)
         if media_download:
+            # Mark the original cached request (media_download.media_request) complete —
+            # this is a different object from media_request (the current request).
             media_download.media_request.state_machine.mark_completed()
-            if media_request.add_to_playlist and not media_request.download_file:
-                await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
+            if isinstance(media_request, PlaylistAddRequest):
+                playlist_result = PlaylistAddResult(
+                    webpage_url=media_download.webpage_url or '',
+                    title=media_download.title,
+                    uploader=media_download.uploader,
+                )
+                await self.__add_playlist_item(media_request, playlist_result)
                 return True
             if not player:
                 player = await self.get_player(media_request.guild_id, create_player=False)
@@ -723,8 +724,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Fired automatically by MediaRequestStateMachine after every lifecycle transition.
         Triggers a bundle UI refresh so the user sees the updated status.
         Removes terminal requests from the media broker. FAILED and DISCARDED have no file to
-        track. COMPLETED requests with download_file=False (e.g. playlist item-add) never call
-        register_download so their IN_FLIGHT entry must be cleaned up here too.
+        track. PlaylistAddRequest reaches COMPLETED without going through add_source_to_player,
+        so register_download is never called and the broker entry must be cleaned up here.
         '''
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
         if bundle:
@@ -735,9 +736,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
             self.media_broker.remove(str(media_request.uuid))
         elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
-            # playlist item-add and similar paths reach COMPLETED without ever going through
-            # add_source_to_player, so register_download is never called and the broker entry
-            # would otherwise stay IN_FLIGHT permanently
             self.media_broker.remove(str(media_request.uuid))
 
     def update_download_timestamp(self, media_download: MediaDownload = None,
@@ -815,12 +813,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except QueueEmpty:
             return
 
+        is_playlist_add = isinstance(media_request, PlaylistAddRequest)
+
         attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.download_files', kind=SpanKind.CONSUMER, attributes=attributes) as span:
-            # If not meant to download, dont check for player
-            # Check for player, if doesn't exist return
+            # PlaylistAddRequest does not need a player — it only writes to the database
             player = None
-            if media_request.download_file:
+            if not is_playlist_add:
                 player = await self.get_player(media_request.guild_id, create_player=False)
                 if not player:
                     media_request.state_machine.mark_discarded()
@@ -842,6 +841,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Make sure we wait for next video download
                 # Dont spam the video client
                 await self.youtube_backoff_time()
+                # Re-check player after backoff: guild may have disconnected while we were waiting
+                if not is_playlist_add and (not player or player not in self.players.values()):
+                    self.logger.info(f'Player gone after backoff for guild {media_request.guild_id}, discarding "{str(media_request)}"')
+                    media_request.state_machine.mark_discarded()
+                    return
                 # Update bundle to show in progress
                 media_request.state_machine.mark_in_progress()
                 result = await self.download_client.create_source(media_request,
@@ -883,27 +887,45 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         await self.__return_bad_video(media_request, result.status.user_message)
                         span.set_status(StatusCode.OK)
                     return
-                self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')
+                self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
                 self.download_failure_queue.add_item(FailureStatus())
+                if isinstance(media_request, PlaylistAddRequest):
+                    data = result.ytdlp_data
+                    if not data:
+                        media_request.state_machine.mark_failed(f'No metadata returned for "{str(media_request)}"')
+                        span.set_status(StatusCode.ERROR)
+                        return
+                    playlist_result = PlaylistAddResult(
+                        webpage_url=data.get('webpage_url', ''),
+                        title=data.get('title', ''),
+                        uploader=data.get('uploader', ''),
+                    )
+                    self.update_download_timestamp()
+                    span.set_status(StatusCode.OK)
+                    await self.__add_playlist_item(media_request, playlist_result)
+                    return
                 media_download = self.media_broker.register_download_result(result)
                 self.update_download_timestamp(media_download=media_download)
+
+            # Cache hit path for playlist add: media_download came from check_cache above;
+            # download path for playlist add returns early before reaching here.
+            if isinstance(media_request, PlaylistAddRequest):
+                playlist_result = PlaylistAddResult(
+                    webpage_url=media_download.webpage_url or '',
+                    title=media_download.title,
+                    uploader=media_download.uploader,
+                )
+                span.set_status(StatusCode.OK)
+                await self.__add_playlist_item(media_request, playlist_result)
+                return
 
             # Final none check in case we couldn't download video
             if not await self.__ensure_video_download_result(media_request, media_download):
                 span.set_status(StatusCode.ERROR)
                 return
             span.set_status(StatusCode.OK)
-            # Check if we need to add to a playlist
-            if media_request.add_to_playlist:
-                await self.__add_playlist_item_function(media_request.add_to_playlist, media_download)
-
-            if media_request.download_file and player:
-                # Add sources to players
-                await self.add_source_to_player(media_download, player)
-                # If downloaded file, pass onto player
-                self.media_broker.cache_cleanup()
-                return
-            return
+            await self.add_source_to_player(media_download, player)
+            self.media_broker.cache_cleanup()
 
     def __get_history_playlist(self, guild_id: int):
         '''
@@ -926,20 +948,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             retry_database_commands(db_session, partial(run_commit, db_session))
             return history_playlist.id
 
-    async def cleanup(self, guild, external_shutdown_called=False):
+    async def cleanup(self, guild, reason: CleanupReason = CleanupReason.QUEUE_TIMEOUT):
         '''
         Cleanup guild player
 
-        guild : Guild object
-        external_shutdown_called: Whether called by something other than a user
+        guild  : Guild object
+        reason : CleanupReason describing why cleanup was triggered
         '''
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.CONSUMER, attributes={DiscordContextNaming.GUILD.value: guild.id}):
-            self.logger.info(f'Starting cleanup on guild {guild.id}')
+            self.logger.info(f'Starting cleanup on guild {guild.id}, reason: {reason.value}')
             player = await self.get_player(guild.id, create_player=False)
-            # Set external shutdown so this doesnt happen twice
-            if external_shutdown_called and player:
+            if reason == CleanupReason.BOT_SHUTDOWN and player:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
-                    'External shutdown called on bot, please contact admin for details',
+                    'Bot is shutting down',
                     delete_after=self.config.general.message_delete_after)
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
@@ -958,6 +979,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug(f'Started disconnect task for guild {guild.id}')
 
             # Block download queue for later
+            # Clear queues before blocking: clear_queue restores preserved items via
+            # put_nowait, which would fail if the queue is already blocked.
+            # No await between clear_queue and block() so no race condition.
+            preserve_predicate = None if reason == CleanupReason.BOT_SHUTDOWN else (lambda r: not r.download_file)
+            dropped = self.download_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
+            self.logger.debug(f'Cleanup found {len(dropped)} existing download items')
+            for item in dropped:
+                item.state_machine.mark_discarded()
+
+            dropped = self.youtube_music_search_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
+            self.logger.debug(f'Cleanup found {len(dropped)} existing search queue items')
+            for item in dropped:
+                item.state_machine.mark_discarded()
+
             self.download_queue.block(guild.id)
             self.youtube_music_search_queue.block(guild.id)
 
@@ -971,38 +1006,50 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if player:
                 self.logger.info(f'Calling cleanup on player {guild.id}')
                 await player.cleanup()
-                # Cleanup queue messages if they still exist
-                self.logger.info(f'Clearing queue message for guild {guild.id}')
-                key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
-                self.dispatcher.update_mutable(key, guild.id,
-                    self._get_play_order_content(guild.id), player.text_channel.id)
-
-            pending_items = self.download_queue.clear_queue(guild.id)
-            self.logger.debug(f'Cleanup found {len(pending_items)} existing download items')
-
-            pending_items = self.youtube_music_search_queue.clear_queue(guild.id)
-            self.logger.debug(f'Cleanup found {len(pending_items)} existing search queue items')
+                if reason != CleanupReason.BOT_SHUTDOWN:
+                    # Cleanup queue messages if they still exist
+                    self.logger.info(f'Clearing queue message for guild {guild.id}')
+                    key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
+                    self.dispatcher.update_mutable(key, guild.id,
+                        self._get_play_order_content(guild.id), player.text_channel.id)
 
             # Clear all bundles
+            _terminal_stages = frozenset({
+                MediaRequestLifecycleStage.COMPLETED,
+                MediaRequestLifecycleStage.FAILED,
+                MediaRequestLifecycleStage.DISCARDED,
+            })
             for uuid, item in list(self.multirequest_bundles.items()):
                 if int(item.guild_id) != int(guild.id):
                     continue
+                # Skip bundles that still have active PlaylistAddRequest items —
+                # those were preserved in the download queue and will be processed
+                # after this cleanup finishes. Don't touch their mutable message.
+                if reason != CleanupReason.BOT_SHUTDOWN and any(
+                    not req.media_request.download_file
+                    and req.media_request.lifecycle_stage not in _terminal_stages
+                    for req in item.bundled_requests
+                ):
+                    self.logger.debug(f'Skipping shutdown of bundle {uuid} — has active playlist-add requests')
+                    continue
                 self.logger.debug(f'Calling shutdown on media request bundle {uuid}, was associated with guild {guild.id}')
                 item.shutdown()
-                key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}'
-                content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.text_channel)
-                self.dispatcher.update_mutable(key, item.guild_id, content, item.text_channel.id,
-                                               sticky=False, delete_after=delete_after)
+                if reason != CleanupReason.BOT_SHUTDOWN:
+                    key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}'
+                    content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.text_channel)
+                    self.dispatcher.update_mutable(key, item.guild_id, content, item.text_channel.id,
+                                                   sticky=False, delete_after=delete_after)
 
-            self.logger.debug(f'Deleting download dir for guild {guild.id}')
-            guild_path = self.download_dir / f'{guild.id}'
-            if guild_path.exists():
-                rm_tree(guild_path)
+            if reason != CleanupReason.BOT_SHUTDOWN:
+                self.logger.debug(f'Deleting download dir for guild {guild.id}')
+                guild_path = self.download_dir / f'{guild.id}'
+                if guild_path.exists():
+                    rm_tree(guild_path)
 
             # Wait for voice disconnect to complete
-            # Do not wait on external shutdown as we should assume thats called from cog_cleanup
-            # And we dont really care as much about preserving resources on full pod/app shutdown
-            if disconnect_task and not external_shutdown_called:
+            # Skip on BOT_SHUTDOWN — cog_unload handles directory teardown and
+            # we don't need to block on graceful disconnect when the process is ending
+            if disconnect_task and reason != CleanupReason.BOT_SHUTDOWN:
                 await disconnect_task
                 self.logger.debug(f'Disconnected voice client for guild {guild.id}')
 
@@ -1215,13 +1262,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         media_requests = []
         for search_result in collection.search_results:
-            mr = MediaRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
-                              search_result=search_result)
+            if add_to_playlist:
+                mr = PlaylistAddRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
+                                        search_result=search_result, playlist_id=add_to_playlist)
+            else:
+                mr = MediaRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
+                                  search_result=search_result)
             mr.state_machine.set_on_change(self._on_request_state_change)
             self.media_broker.register_request(mr)
-            if add_to_playlist:
-                mr.download_file = False
-                mr.add_to_playlist = add_to_playlist
             media_requests.append(mr)
         await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
 
@@ -1454,7 +1502,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not player:
             return
         self.logger.info(f'Stop command called for guild {ctx.guild.id}')
-        player.destroy()
+        player.destroy(reason=CleanupReason.USER_STOP)
 
     @command(name='move-messages')
     @command_wrapper
@@ -1669,27 +1717,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             retry_database_commands(db_session, partial(run_commit, db_session))
             return playlist_item.id
 
-    async def __add_playlist_item_function(self, playlist_id: int, media_download: MediaDownload):
+    async def __add_playlist_item(self, request: PlaylistAddRequest, result: PlaylistAddResult):
         '''
-        Call this when the media download eventually completes
-        media_download : Media Download from download client
+        Insert a playlist item using the lightweight PlaylistAddResult metadata.
+
+        request : PlaylistAddRequest carrying playlist_id and state machine
+        result : PlaylistAddResult with webpage_url, title, uploader
         '''
-        if media_download is None:
-            media_download.media_request.state_machine.mark_failed(f'Issue generating video source "{media_download.media_request}"')
-            return
-        self.logger.info(f'Adding video_url "{media_download.webpage_url}" to playlist "{playlist_id}" '
-                         f' in guild {media_download.media_request.guild_id}')
+        self.logger.info(f'Adding video_url "{result.webpage_url}" to playlist "{request.playlist_id}"'
+                         f' in guild {request.guild_id}')
         try:
-            playlist_item_id = self.__playlist_insert_item(playlist_id, media_download.webpage_url, media_download.title, media_download.uploader)
+            playlist_item_id = self.__playlist_insert_item(request.playlist_id, result.webpage_url, result.title, result.uploader)
         except PlaylistMaxLength:
-            media_download.media_request.state_machine.mark_failed('Unable to add item to playlist, playlist too long')
+            request.state_machine.mark_failed('Unable to add item to playlist, playlist too long')
             return
-        playlist_public_view_id = await self.__get_playlist_public_view(playlist_id, media_download.media_request.guild_id)
+        playlist_public_view_id = await self.__get_playlist_public_view(request.playlist_id, request.guild_id)
         if playlist_item_id:
-            media_download.media_request.state_machine.mark_completed()
+            request.state_machine.mark_completed()
             return
-        media_download.media_request.state_machine.mark_failed(f'Item "{media_download.title}" already exists in playlist {playlist_public_view_id}')
-        return
+        request.state_machine.mark_failed(f'Item "{result.title}" already exists in playlist {playlist_public_view_id}')
 
     @playlist.command(name='item-add')
     @command_wrapper

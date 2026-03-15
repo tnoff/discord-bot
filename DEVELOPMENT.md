@@ -4,6 +4,20 @@ The tests use the `pytest` framework, and there is linting through `pylint`. The
 
 Use `tox` to instrument the entire test suite.
 
+## System Dependencies
+
+`ffmpeg` must be installed and on `PATH` for music-related tests and the music cog to function.
+
+```
+# Debian/Ubuntu
+$ apt install ffmpeg
+
+# macOS
+$ brew install ffmpeg
+```
+
+`deno` is required for local development. See the [installation guide](https://docs.deno.com/runtime/getting_started/installation/) for instructions.
+
 ## Installation
 
 Install the deps

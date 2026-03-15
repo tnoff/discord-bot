@@ -15,6 +15,7 @@ from discord.errors import ClientException
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
@@ -80,6 +81,7 @@ class MusicPlayer:
         self.queue_messages: list[str] = [] # Show current queue
         # Shutdown called externally
         self.shutdown_called: bool = False
+        self.shutdown_reason: CleanupReason | None = None
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
         self.broker: MediaBroker | None = broker
@@ -354,9 +356,12 @@ class MusicPlayer:
             self._player_task = None
         return True
 
-    def destroy(self):
+    def destroy(self, reason: CleanupReason = CleanupReason.QUEUE_TIMEOUT):
         '''
         Disconnect and cleanup the player.
+
+        reason : CleanupReason describing why playback is ending
         '''
-        self.logger.info(f'Calling shutdown on music player for guild {self.guild.id}')
+        self.logger.info(f'Calling shutdown on music player for guild {self.guild.id}, reason: {reason.value}')
         self.shutdown_called = True
+        self.shutdown_reason = reason
