@@ -1,14 +1,12 @@
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class CatalogItem:
+class CatalogItem(BaseModel):
     '''Individual Item'''
     search_string: str
-    title: str = None
+    title: str | None = None
 
-@dataclass
-class CatalogResponse:
+class CatalogResponse(BaseModel):
     '''Response from 3rd Party Catalog'''
-    items: list[CatalogItem] = field(default_factory=list)
-    collection_name: str = None
+    items: list[CatalogItem] = Field(default_factory=list)
+    collection_name: str | None = None

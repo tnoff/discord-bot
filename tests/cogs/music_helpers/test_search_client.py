@@ -18,13 +18,13 @@ class MockSpotifyClient():
         pass
 
     def album_get(self, _album_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Album Name')
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')], collection_name='Mock Album Name')
 
     def playlist_get(self, _playlist_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')], 'Mock Playlist Name')
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')], collection_name='Mock Playlist Name')
 
     def track_get(self, _track_id):
-        return CatalogResponse([CatalogItem('foo track foo artists', 'foo track')])
+        return CatalogResponse(items=[CatalogItem(search_string='foo track foo artists', title='foo track')])
 
 class MockSpotifyRaise():
     def __init__(self):
@@ -45,7 +45,7 @@ class MockYoutubeClient():
         pass
 
     def playlist_get(self, _playlist_id):
-        return CatalogResponse([CatalogItem(f'{YOUTUBE_VIDEO_PREFIX}aaaaaaaaaaaaaa', 'foo title')], 'Mock YouTube Playlist')
+        return CatalogResponse(items=[CatalogItem(search_string=f'{YOUTUBE_VIDEO_PREFIX}aaaaaaaaaaaaaa', title='foo title')], collection_name='Mock YouTube Playlist')
 
 class MockResponse():
     def __init__(self):

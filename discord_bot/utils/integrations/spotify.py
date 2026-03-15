@@ -35,7 +35,7 @@ class SpotifyClient():
             except KeyError:
                 track = item
 
-            items.append(CatalogItem(f'{track["name"]} {" ".join(i["name"] for i in track["artists"])}', track['name']))
+            items.append(CatalogItem(search_string=f'{track["name"]} {" ".join(i["name"] for i in track["artists"])}', title=track['name']))
         return items
 
 
@@ -68,9 +68,9 @@ class SpotifyClient():
                 items += self.__get_response_items(resp['items'])
                 try:
                     if not resp['next']:
-                        return CatalogResponse(items, playlist_name)
+                        return CatalogResponse(items=items, collection_name=playlist_name)
                 except KeyError:
-                    return CatalogResponse(items, playlist_name)
+                    return CatalogResponse(items=items, collection_name=playlist_name)
                 offset += pagination_limit
 
     def album_get(self, album_id: str,
@@ -100,7 +100,7 @@ class SpotifyClient():
                     raise exc
                 items += self.__get_response_items(resp['items'])
                 if not resp['next']:
-                    return CatalogResponse(items, album_name)
+                    return CatalogResponse(items=items, collection_name=album_name)
                 offset += pagination_limit
 
     def track_get(self, track_id: str) -> CatalogResponse:
@@ -112,4 +112,4 @@ class SpotifyClient():
         with otel_span_wrapper('spotify.track_get', attributes={ThirdPartyNaming.SPOTIFY_TRACK.value: track_id}, kind=SpanKind.CLIENT):
             resp = self.client.track(track_id)
             item =  self.__get_response_items([resp])
-            return CatalogResponse(item)
+            return CatalogResponse(items=item)
