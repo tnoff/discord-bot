@@ -27,8 +27,8 @@ from yt_dlp.postprocessor import PostProcessor
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, DownloadClientException
-from discord_bot.cogs.music_helpers.download_client import RetryLimitExceeded, RetryableException, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadClient, match_generator
+from discord_bot.types.download import DownloadErrorType
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -597,9 +597,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return False
         return True
 
-    async def __return_bad_video(self, media_request: MediaRequest, exception: DownloadClientException,
+    async def __return_bad_video(self, media_request: MediaRequest, user_message: str | None,
                                  skip_callback_functions: bool=False):
-        media_request.state_machine.mark_failed(exception.user_message)
+        media_request.state_machine.mark_failed(user_message)
         if not skip_callback_functions and media_request.history_playlist_item_id:
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
@@ -848,20 +848,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                                           self.config.download.max_download_retries,
                                                                           self.bot.loop)
                 if not result.status.success:
-                    e = result.status.exception
-                    if isinstance(e, RetryLimitExceeded):
-                        self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {str(e)}')
-                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
-                                                                            exception_message=str(e)))
+                    error_type = result.status.error_type
+                    error_detail = result.status.error_detail or ''
+                    if error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED:
+                        self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {error_detail}')
+                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
+                                                                            exception_message=error_detail))
                         self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                        await self.__return_bad_video(media_request, e)
+                        await self.__return_bad_video(media_request, result.status.user_message)
                         span.set_status(StatusCode.ERROR)
-                        span.record_exception(e)
-                    elif isinstance(e, RetryableException):
+                    elif error_type in {DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
                         result.media_request.download_retry_information.retry_count += 1
-                        self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{str(e)}"')
-                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__,
-                                                                            exception_message=str(e)))
+                        self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{error_detail}"')
+                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
+                                                                            exception_message=error_detail))
                         self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
                         # Apply extra backoff for number of failures found
                         # Do some exponential backoff as well since this tends to be pretty agressive
@@ -873,15 +873,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                             backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
                             self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
                         self.download_queue.put_nowait(media_request.guild_id, media_request)
-                        media_request.state_machine.mark_retry_download(str(e), backoff_seconds)
+                        media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
                         span.set_status(StatusCode.OK)
-                        span.record_exception(e)
                     else:
                         # Terminal error - known permanent failure (age restricted, private, etc.)
                         # Don't track in failure queue as these aren't transient issues
-                        self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {str(e)}')
+                        self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {error_detail}')
                         self.update_download_timestamp()
-                        await self.__return_bad_video(media_request, e)
+                        await self.__return_bad_video(media_request, result.status.user_message)
                         span.set_status(StatusCode.OK)
                     return
                 self.logger.info(f'Successfully downloaded media request "{str(media_request)}" in guild "{media_request.guild_id}"')

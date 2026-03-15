@@ -5,13 +5,12 @@ import pytest
 
 from discord_bot.cogs.music import Music
 
-from discord_bot.cogs.music_helpers.download_client import BotDownloadFlagged
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_download_client_download_exception, yield_fake_download_client, yield_download_client_download_error
 from tests.helpers import fake_source_dict, fake_media_download
@@ -83,7 +82,7 @@ def yield_download_client_bot_flagged():
             pass
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(DownloadStatus(False, exception=BotDownloadFlagged('foo', media_request=media_request)), media_request, None, None)
+            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='foo'), media_request=media_request, ytdlp_data=None, file_name=None)
 
     return FakeDownloadClient
 
