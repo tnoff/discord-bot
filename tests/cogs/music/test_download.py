@@ -6,29 +6,11 @@ import pytest
 from discord_bot.cogs.music import Music
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.types.media_request import MediaRequest
-from discord_bot.types.search import SearchResult
-from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_download_client_download_exception, yield_fake_download_client, yield_download_client_download_error
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
-
-@pytest.mark.asyncio()
-async def test_download_queue_no_download(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    s = MediaRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id, requester_name=fake_context['author'].display_name, requester_id=fake_context['author'].id,
-                   search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://foo.example.com/title'), download_file=False)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example.com/title'}, s)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
-    await cog.download_files()
-    assert sd.file_path is None
 
 @pytest.mark.asyncio()
 async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name

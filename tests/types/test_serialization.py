@@ -68,12 +68,10 @@ def test_media_request_roundtrip_basic(fake_context):  # noqa: F811  #pylint:dis
     assert result.channel_id == mr.channel_id
     assert result.requester_name == mr.requester_name
     assert result.requester_id == mr.requester_id
-    assert result.download_file == mr.download_file
     assert result.added_from_history == mr.added_from_history
     assert result.lifecycle_stage == mr.lifecycle_stage
     assert result.failure_reason == mr.failure_reason
     assert result.bundle_uuid == mr.bundle_uuid
-    assert result.add_to_playlist == mr.add_to_playlist
     assert result.history_playlist_item_id == mr.history_playlist_item_id
 
 def test_media_request_roundtrip_search_result_preserved(fake_context):  # noqa: F811  #pylint:disable=redefined-outer-name
@@ -111,13 +109,11 @@ def test_media_request_roundtrip_lifecycle_stage_preserved(fake_context):  # noq
 def test_media_request_roundtrip_optional_fields(fake_context):  # noqa: F811  #pylint:disable=redefined-outer-name
     mr = fake_source_dict(fake_context)
     mr.bundle_uuid = 'request.bundle.some-uuid'
-    mr.add_to_playlist = 42
     mr.history_playlist_item_id = 7
     mr.failure_reason = 'Video unavailable'
     result = MediaRequest.deserialize(mr.serialize())
 
     assert result.bundle_uuid == 'request.bundle.some-uuid'
-    assert result.add_to_playlist == 42
     assert result.history_playlist_item_id == 7
     assert result.failure_reason == 'Video unavailable'
 

@@ -1,7 +1,7 @@
 from asyncio import QueueEmpty
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Generic, TypeVar
+from typing import Callable, Generic, TypeVar
 
 from discord_bot.utils.queue import Queue
 
@@ -109,17 +109,37 @@ class DistributedQueue(Generic[T]):
             self.queues.pop(check_guild_id, None)
         return result
 
-    def clear_queue(self, guild_id: int) -> list[T]:
+    def clear_queue(self, guild_id: int, preserve_predicate: Callable[[T], bool] | None = None) -> list[T]:
         '''
-        Clear queue for guild
+        Clear queue for guild, returning removed items.
+        If preserve_predicate given, items for which it returns True are kept in the queue
+        and excluded from the return value.
         '''
-        # Clear and return items
-        guild_info = self.queues.pop(guild_id, None)
+        guild_info = self.queues.get(guild_id)
         if not guild_info:
             return []
-        items: list[T] = []
+        if preserve_predicate is None:
+            self.queues.pop(guild_id, None)
+            items: list[T] = []
+            while True:
+                try:
+                    items.append(guild_info.queue.get_nowait())
+                except QueueEmpty:
+                    return items
+        dropped: list[T] = []
+        kept: list[T] = []
         while True:
             try:
-                items.append(guild_info.queue.get_nowait())
+                item = guild_info.queue.get_nowait()
+                if preserve_predicate(item):
+                    kept.append(item)
+                else:
+                    dropped.append(item)
             except QueueEmpty:
-                return items
+                break
+        if kept:
+            for item in kept:
+                guild_info.queue.put_nowait(item)
+        else:
+            self.queues.pop(guild_id, None)
+        return dropped

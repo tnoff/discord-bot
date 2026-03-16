@@ -8,6 +8,7 @@ import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
+from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
@@ -126,7 +127,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
-            await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
+            await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
             assert fake_context['guild'].id not in cog.players
             assert fake_context['guild'].id not in cog.download_queue.queues
 
@@ -139,7 +140,7 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     s = fake_source_dict(fake_context)
     cog.download_queue.put_nowait(fake_context['guild'].id, s)
-    await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
     assert fake_context['guild'].id not in cog.download_queue.queues
 
 
@@ -921,79 +922,53 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
 
 # Memory leak fix tests
 @pytest.mark.asyncio
-async def test_shutdown_timeout_with_hanging_players(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that shutdown doesn't hang forever if players don't shutdown"""
+async def test_shutdown_calls_cleanup_per_guild(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cog_unload calls cleanup(BOT_SHUTDOWN) for each active guild"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Mock the sleep function to speed up the test
-    mock_sleep = mocker.patch('discord_bot.cogs.music.sleep')
-
-    # Create mock players that never get removed from the dict
     mock_player1 = Mock()
-    mock_player1.destroy = Mock()
+    mock_player1.guild = mocker.MagicMock()
     mock_player2 = Mock()
-    mock_player2.destroy = Mock()
+    mock_player2.guild = mocker.MagicMock()
 
     cog.players[123] = mock_player1
     cog.players[456] = mock_player2
 
-    # Mock other cleanup methods to avoid side effects
-    mocker.patch('pathlib.Path.unlink')
+    cleanup_mock = mocker.patch.object(cog, 'cleanup')
     mocker.patch('pathlib.Path.exists', return_value=False)
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
-    # Set tasks to None to avoid cancellation issues  #pylint:disable=protected-access
-    cog._cleanup_task = None
-    cog._download_task = None
-    cog._post_play_processing_task = None
-    cog._youtube_search_task = None
+    cog._cleanup_task = None  #pylint:disable=protected-access
+    cog._download_task = None  #pylint:disable=protected-access
+    cog._post_play_processing_task = None  #pylint:disable=protected-access
+    cog._youtube_search_task = None  #pylint:disable=protected-access
 
     await cog.cog_unload()
 
-    # Verify that both players were told to shutdown
-    mock_player1.destroy.assert_called_once()
-    mock_player2.destroy.assert_called_once()
+    # Verify cleanup was called once per guild with BOT_SHUTDOWN
+    assert cleanup_mock.call_count == 2
+    for call in cleanup_mock.call_args_list:
+        assert call.kwargs['reason'] == CleanupReason.BOT_SHUTDOWN
 
-    # Verify that sleep was called (indicating timeout loop ran)
-    assert mock_sleep.call_count >= 1
-
-    # Verify bot_shutdown event is set
     assert cog.bot_shutdown_event.is_set()
 
 @pytest.mark.asyncio
-async def test_shutdown_success_no_timeout(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that shutdown completes quickly when players remove themselves"""
+async def test_shutdown_no_players(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cog_unload works cleanly with no active players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Mock the sleep function
-    mocker.patch('discord_bot.cogs.music.sleep')  # Don't need return value
-
-    # Create mock player that gets removed after destroy
-    mock_player = Mock()
-    mock_player.destroy = Mock()
-    cog.players[123] = mock_player
-
-    # Don't remove player during iteration - just mark destroyed
-    # The actual removal happens later during cleanup_players
-    mock_player.destroy = Mock()
-
-    # Mock other cleanup methods
-    mocker.patch('pathlib.Path.unlink')
+    cleanup_mock = mocker.patch.object(cog, 'cleanup')
     mocker.patch('pathlib.Path.exists', return_value=False)
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
-    # Set tasks to None  #pylint:disable=protected-access
-    cog._cleanup_task = None
-    cog._download_task = None
-    cog._post_play_processing_task = None
-    cog._youtube_search_task = None
+    cog._cleanup_task = None  #pylint:disable=protected-access
+    cog._download_task = None  #pylint:disable=protected-access
+    cog._post_play_processing_task = None  #pylint:disable=protected-access
+    cog._youtube_search_task = None  #pylint:disable=protected-access
 
     await cog.cog_unload()
 
-    # Verify player was destroyed
-    mock_player.destroy.assert_called_once()
-
-    # Verify bot_shutdown event is set
+    cleanup_mock.assert_not_called()
     assert cog.bot_shutdown_event.is_set()
 
 @pytest.mark.asyncio
@@ -1066,6 +1041,7 @@ async def test_cleanup_players_shutdown_called(fake_context, mocker):  #pylint:d
     # Create a mock player with shutdown_called=True
     mock_player = mocker.Mock()
     mock_player.shutdown_called = True
+    mock_player.shutdown_reason = CleanupReason.USER_STOP
     mock_player.guild = fake_context['guild']
     cog.players[fake_context['guild'].id] = mock_player
 
@@ -1074,8 +1050,8 @@ async def test_cleanup_players_shutdown_called(fake_context, mocker):  #pylint:d
 
     await cog.cleanup_players()
 
-    # Verify cleanup was called for the shutdown player
-    cleanup_mock.assert_called_once_with(fake_context['guild'])
+    # Verify cleanup was called for the shutdown player with the player's reason
+    cleanup_mock.assert_called_once_with(fake_context['guild'], reason=CleanupReason.USER_STOP)
 
 @pytest.mark.asyncio
 async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  #pylint:disable=redefined-outer-name
@@ -1105,8 +1081,8 @@ async def test_cleanup_players_inactive_timeout_message(fake_context, mocker):  
     # Check that the message content contains expected text
     assert 'No one active in voice channel' in str(cog.dispatcher.send_message.call_args[0][2])
 
-    # Verify cleanup was called
-    cleanup_mock.assert_called_once_with(fake_context['guild'])
+    # Verify cleanup was called with VOICE_INACTIVE reason
+    cleanup_mock.assert_called_once_with(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
 @pytest.mark.asyncio
 async def test_voice_client_cleanup_called_before_disconnect(fake_context, mocker):  #pylint:disable=redefined-outer-name
@@ -1163,8 +1139,8 @@ async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint
     assert fake_context['guild'].id not in cog.players
 
 @pytest.mark.asyncio
-async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup handles external_shutdown_called=True correctly"""
+async def test_voice_client_cleanup_with_bot_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup handles CleanupReason.BOT_SHUTDOWN correctly"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1181,14 +1157,14 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'cleanup', return_value=None)
 
-    # Call cleanup with external_shutdown_called=True
-    await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
+    # Call cleanup with BOT_SHUTDOWN
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
     # Verify cleanup and disconnect were called
     mock_voice_client.cleanup.assert_called_once()
     mock_voice_client.disconnect.assert_called_once()
 
-    # Verify the external shutdown message was sent via dispatcher
+    # Verify the bot shutdown message was sent via dispatcher
     cog.dispatcher.send_message.assert_called_once()
     assert cog.dispatcher.send_message.call_args[0][0] == player.guild.id
 
@@ -1196,8 +1172,8 @@ async def test_voice_client_cleanup_with_external_shutdown(fake_context, mocker)
     assert fake_context['guild'].id not in cog.players
 
 @pytest.mark.asyncio
-async def test_voice_client_cleanup_without_external_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup with external_shutdown_called=False does not send message"""
+async def test_voice_client_cleanup_without_bot_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that cleanup with a non-BOT_SHUTDOWN reason does not send a message"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1214,8 +1190,8 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'cleanup', return_value=None)
 
-    # Call cleanup with external_shutdown_called=False (default)
-    await cog.cleanup(fake_context['guild'], external_shutdown_called=False)
+    # Default reason (QUEUE_TIMEOUT) — no message sent
+    await cog.cleanup(fake_context['guild'])
 
     # Verify cleanup and disconnect were called
     mock_voice_client.cleanup.assert_called_once()
@@ -1228,8 +1204,8 @@ async def test_voice_client_cleanup_without_external_shutdown(fake_context, mock
     assert fake_context['guild'].id not in cog.players
 
 @pytest.mark.asyncio
-async def test_voice_client_cleanup_external_shutdown_skips_disconnect_wait(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that external shutdown does not wait for disconnect to complete"""
+async def test_voice_client_cleanup_bot_shutdown_skips_disconnect_wait(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Test that BOT_SHUTDOWN does not wait for disconnect to complete"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1252,9 +1228,8 @@ async def test_voice_client_cleanup_external_shutdown_skips_disconnect_wait(fake
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'cleanup', return_value=None)
 
-    # Call cleanup with external_shutdown_called=True
-    # This should complete quickly without waiting for disconnect
-    await cog.cleanup(fake_context['guild'], external_shutdown_called=True)
+    # BOT_SHUTDOWN — should complete quickly without waiting for disconnect
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
     # Verify cleanup was called
     mock_voice_client.cleanup.assert_called_once()

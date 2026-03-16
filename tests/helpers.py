@@ -67,7 +67,7 @@ def generate_fake_context(bot: Optional[Any] = None) -> dict[str, Any]:
         'context': context,
     }
 
-def fake_source_dict(fakes: dict[str, Any], download_file: bool = True, is_direct_search: bool = False) -> MediaRequest:
+def fake_source_dict(fakes: dict[str, Any], is_direct_search: bool = False) -> MediaRequest:
     '''
     Assumes fakes from fake_context
     '''
@@ -77,18 +77,18 @@ def fake_source_dict(fakes: dict[str, Any], download_file: bool = True, is_direc
         search_type = SearchType.DIRECT
         search_string = f'https://foo.example/{random_string()}'
     search_result = SearchResult(search_type=search_type, raw_search_string=search_string)
-    mr = MediaRequest(guild_id=fakes['guild'].id, channel_id=fakes['channel'].id, requester_name=fakes['author'].display_name, requester_id=fakes['author'].id, search_result=search_result, download_file=download_file)
+    mr = MediaRequest(guild_id=fakes['guild'].id, channel_id=fakes['channel'].id, requester_name=fakes['author'].display_name, requester_id=fakes['author'].id, search_result=search_result)
     return mr
 
 @contextmanager
-def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = None, fake_context: Optional[dict[str, Any]] = None, extractor: str = 'youtube', download_file: bool = True, is_direct_search: bool = False) -> Generator[MediaDownload, None, None]:  #pylint:disable=redefined-outer-name
+def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = None, fake_context: Optional[dict[str, Any]] = None, extractor: str = 'youtube', is_direct_search: bool = False) -> Generator[MediaDownload, None, None]:  #pylint:disable=redefined-outer-name
     '''
     Assumes you pass it a random file path for now
     '''
     if media_request is None and fake_context is None:
         raise HelperException('Source dict or fake context must be provided')
     if media_request is None:
-        media_request = fake_source_dict(fake_context, download_file=download_file, is_direct_search=is_direct_search)
+        media_request = fake_source_dict(fake_context, is_direct_search=is_direct_search)
     with NamedTemporaryFile(dir=file_dir, suffix='.mp3', delete=False) as tmp_file:
         file_path = Path(tmp_file.name)
         file_path.write_text('testing', encoding='utf-8')
