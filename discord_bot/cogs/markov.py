@@ -141,7 +141,7 @@ class Markov(CogHelper):
         '''
         def ensure_word(word):
             if len(word) >= 255:
-                self.logger.warning(f'Markov :: Cannot add word "{word}", is too long')
+                self.logger.debug(f'Markov :: Cannot add word "{word}", is too long')
                 return None
             return word
 
@@ -222,8 +222,8 @@ class Markov(CogHelper):
                                 after_message_id=markov_channel.last_message_id,
                             )
                         except NotFound:
-                            self.logger.warning(f'Unable to find message {markov_channel.last_message_id}'
-                                                f' in channel {markov_channel.id}')
+                            self.logger.info(f'Unable to find message {markov_channel.last_message_id}'
+                                             f' in channel {markov_channel.id}')
                             # Last message on record not found
                             # If this happens, wipe the channel clean and restart
                             self.delete_channel_relations(db_session, markov_channel.id)

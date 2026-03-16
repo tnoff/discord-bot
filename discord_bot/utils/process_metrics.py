@@ -81,7 +81,7 @@ class ProcessMetricsProfiler:
 
             return metrics
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            self.logger.error(f"Error getting process metrics: {e}")
+            self.logger.warning(f"Error getting process metrics: {e}")
             return None
 
     def get_metrics_summary(self):
@@ -155,14 +155,14 @@ class ProcessMetricsProfiler:
                 self.logger.info(f"Process metrics:\n{summary}")
 
             except Exception as e:
-                self.logger.error(f"Error in process metrics loop: {e}", exc_info=True)
+                self.logger.warning(f"Error in process metrics loop: {e}", exc_info=True)
 
             time.sleep(self.interval_seconds)
 
     def start(self):
         """Start the background profiling thread"""
         if self._running:
-            self.logger.warning("Process metrics profiler already running")
+            self.logger.debug("Process metrics profiler already running")
             return
 
         self._running = True
