@@ -539,7 +539,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                     'No one active in voice channel, shutting myself down',
                     delete_after=self.config.general.message_delete_after)
-                self.logger.warning(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
+                self.logger.info(f'No members connected to voice channel {player.guild.id} , sending to cleanup')
                 guilds.append((player.guild, CleanupReason.VOICE_INACTIVE))
         # Run in separate loop since the cleanup function removes items form self.players
         # And you might hit issues where dict size changes during iteration
@@ -570,7 +570,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
                 return True
             except QueueFull:
-                self.logger.warning(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
+                self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
                 if bundle:
                     media_download.media_request.failure_reason = f'Cannot add item "{media_download.title}" to play queue, play queue is full'
                 media_download.media_request.state_machine.mark_failed()
@@ -578,7 +578,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
-                self.logger.warning(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
+                self.logger.info(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
                 media_download.media_request.state_machine.mark_discarded()
                 self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
@@ -644,16 +644,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.youtube_music_failure_queue.add_item(FailureStatus())
         except YoutubeMusicRetryException as e:
             self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
-            self.logger.warning(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
+            self.logger.info(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
             self.update_youtube_music_timestamp(backoff_multiplier=2 ** self.youtube_music_failure_queue.size)
             backoff_seconds = None
             if self.youtube_music_wait_timestamp:
                 backoff_seconds = int(self.youtube_music_wait_timestamp - datetime.now(timezone.utc).timestamp())
                 backoff_seconds = max(0, backoff_seconds)
-                self.logger.warning(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
+                self.logger.info(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
             media_request.youtube_music_retry_information.retry_count += 1
             if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
-                self.logger.error(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
+                self.logger.warning(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
                 media_request.state_machine.mark_failed('Youtube music search rate limit exceeded after max retries')
             else:
                 self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
@@ -673,11 +673,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
             self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
         except PutsBlocked:
-            self.logger.warning(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
+            self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
             media_request.state_machine.mark_discarded()
             return False
         except QueueFull:
-            self.logger.warning(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
+            self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
             media_request.state_machine.mark_discarded()
         return True
 
@@ -748,7 +748,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         '''
         if media_download and media_download.extractor != 'youtube':
-            self.logger.warning(f'Media Download does not exist of does not have youtube media, download: "{str(media_download)}"')
+            self.logger.info(f'Media Download does not exist of does not have youtube media, download: "{str(media_download)}"')
             return False
         new_timestamp = int(datetime.now(timezone.utc).timestamp())
         new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
@@ -827,7 +827,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
                 # Check if queue in shutdown, if so return
                 if player.shutdown_called:
-                    self.logger.warning(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
+                    self.logger.info(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
                     media_request.state_machine.mark_discarded()
                     return
             self.logger.info(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
@@ -855,7 +855,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     error_type = result.status.error_type
                     error_detail = result.status.error_detail or ''
                     if error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED:
-                        self.logger.error(f'Hit retry limit on media request "{str(media_request)}", {error_detail}')
+                        self.logger.warning(f'Hit retry limit on media request "{str(media_request)}", {error_detail}')
                         self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
                                                                             exception_message=error_detail))
                         self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
@@ -863,10 +863,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         span.set_status(StatusCode.ERROR)
                     elif error_type in {DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
                         result.media_request.download_retry_information.retry_count += 1
-                        self.logger.warning(f'Retryable exception hit on media request "{str(media_request)}", error: "{error_detail}"')
+                        self.logger.info(f'Retryable exception hit on media request "{str(media_request)}", error: "{error_detail}"')
                         self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
                                                                             exception_message=error_detail))
-                        self.logger.warning(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
+                        self.logger.info(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
                         # Apply extra backoff for number of failures found
                         # Do some exponential backoff as well since this tends to be pretty agressive
                         self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
@@ -875,14 +875,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         if self.youtube_download_wait_timestamp:
                             backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
                             backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
-                            self.logger.warning(f'Waiting {backoff_seconds} seconds for next download')
+                            self.logger.info(f'Waiting {backoff_seconds} seconds for next download')
                         self.download_queue.put_nowait(media_request.guild_id, media_request)
                         media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
                         span.set_status(StatusCode.OK)
                     else:
                         # Terminal error - known permanent failure (age restricted, private, etc.)
                         # Don't track in failure queue as these aren't transient issues
-                        self.logger.warning(f'Terminal error while downloading video "{str(media_request)}", {error_detail}')
+                        self.logger.info(f'Terminal error while downloading video "{str(media_request)}", {error_detail}')
                         self.update_download_timestamp()
                         await self.__return_bad_video(media_request, result.status.user_message)
                         span.set_status(StatusCode.OK)
@@ -1128,7 +1128,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             try:
                 return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
             except async_timeout as e:
-                self.logger.error(f'Reached async timeout error on bot joining channel, {str(e)}')
+                self.logger.warning(f'Reached async timeout error on bot joining channel, {str(e)}')
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                     f'Bot cannot join channel {channel}',
                     delete_after=self.config.general.message_delete_after)
@@ -1169,12 +1169,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     bundle.add_media_request(media_request)
                 except PutsBlocked:
-                    self.logger.warning(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    self.logger.info(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                     # Call bundle shutdown just in case
                     bundle.shutdown()
                     return False
                 except QueueFull:
-                    self.logger.warning(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                    self.logger.info(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
                     media_request.state_machine.mark_discarded()
                     bundle.add_media_request(media_request)
                     break
@@ -1192,10 +1192,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except PutsBlocked:
                 # Call bundle shutdown just in case
                 bundle.shutdown()
-                self.logger.warning(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                self.logger.info(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                 return False
             except QueueFull:
-                self.logger.warning(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                self.logger.info(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
                 media_request.state_machine.mark_discarded()
                 bundle.add_media_request(media_request)
                 break
@@ -1233,7 +1233,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             collection = await self.search_client.check_source(search, self.bot.loop,
                                                                    self.config.player.queue_max_size)
         except SearchException as exc:
-            self.logger.warning(f'Received download client exception for search "{search}", {str(exc)}')
+            self.logger.info(f'Received download client exception for search "{search}", {str(exc)}')
             # Delete the old bundle, send one off message
             bundle.shutdown()
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
@@ -1995,7 +1995,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return
 
     async def __delete_non_existing_item(self, item_id: int):
-        self.logger.warning(f'Unable to find playlist item {item_id} from history playlist, deleting')
+        self.logger.info(f'Unable to find playlist item {item_id} from history playlist, deleting')
         with self.with_db_session() as db_session:
             item = db_session.get(PlaylistItem, item_id)
             db_session.delete(item)

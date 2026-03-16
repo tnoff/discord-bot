@@ -344,7 +344,7 @@ class MessageDispatcher(CogHelper):
         # Ensure bundle entry exists (create lazily)
         if key not in self._bundles:
             if channel_id is None:
-                self.logger.warning(f'MessageDispatcher :: cannot create bundle "{key}" without channel')
+                self.logger.info(f'MessageDispatcher :: cannot create bundle "{key}" without channel')
                 return
             self._create_bundle(key, guild_id, channel_id, sticky)
 
@@ -445,7 +445,7 @@ class MessageDispatcher(CogHelper):
         async def send_function(**kwargs):
             channel = self.bot.get_channel(channel_id)
             if channel is None:
-                self.logger.warning(f'MessageDispatcher :: channel {channel_id} not found for mutable send')
+                self.logger.info(f'MessageDispatcher :: channel {channel_id} not found for mutable send')
                 return None
             return await async_retry_discord_message_command(partial(channel.send, **kwargs))
 
@@ -522,7 +522,7 @@ class MessageDispatcher(CogHelper):
         elif isinstance(item, _SendItem):
             channel = self.bot.get_channel(item.channel_id)
             if channel is None:
-                self.logger.warning(f'MessageDispatcher :: channel {item.channel_id} not found for send')
+                self.logger.info(f'MessageDispatcher :: channel {item.channel_id} not found for send')
                 return
             self.logger.debug(f'MessageDispatcher :: sending to channel {item.channel_id} guild {guild_id}')
             with otel_span_wrapper('message_dispatcher.send',
@@ -575,7 +575,7 @@ class MessageDispatcher(CogHelper):
             if hasattr(func, 'keywords') and 'content' in func.keywords:
                 content_val = func.keywords['content']
                 if len(content_val) > 2000:
-                    self.logger.warning(
+                    self.logger.info(
                         f'MessageDispatcher :: truncating message over 2000 chars for bundle "{key}"'
                     )
                     new_kwargs = func.keywords.copy()

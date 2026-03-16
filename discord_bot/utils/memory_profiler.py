@@ -118,14 +118,14 @@ class MemoryProfiler:
                 self.logger.info(f"Memory snapshot:\n{summary}")
 
             except Exception as e:
-                self.logger.error(f"Error in memory profiling loop: {e}", exc_info=True)
+                self.logger.warning(f"Error in memory profiling loop: {e}", exc_info=True)
 
             time.sleep(self.interval_seconds)
 
     def start(self):
         """Start the background profiling thread and tracemalloc"""
         if self._running:
-            self.logger.warning("Memory profiler already running")
+            self.logger.debug("Memory profiler already running")
             return
 
         # Start tracemalloc if not already running

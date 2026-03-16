@@ -157,7 +157,7 @@ class DatabaseBackupClient:
                 if table_name == '_metadata':
                     continue
                 if table_name not in table_metadata:
-                    self.logger.warning(f'Table {table_name} not found in current schema, skipping')
+                    self.logger.info(f'Table {table_name} not found in current schema, skipping')
                     continue
 
                 self.logger.info(f'Restoring table: {table_name}')
@@ -188,7 +188,7 @@ class DatabaseBackupClient:
                 try:
                     connection.execute(text(f'DELETE FROM {table_name}'))
                 except Exception as e:  # pylint: disable=broad-except
-                    self.logger.warning(f'Failed to truncate {table_name}: {str(e)}')
+                    self.logger.debug(f'Failed to truncate {table_name}: {str(e)}')
 
         # Re-enable foreign key constraints
         try:
