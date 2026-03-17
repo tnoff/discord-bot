@@ -10,21 +10,25 @@ from tests.helpers import fake_context #pylint: disable=unused-import
 from tests.helpers import FakeMessage
 
 
+def _make_send_func(fake_context):  # pylint: disable=redefined-outer-name
+    async def send_func(content: str, delete_after: int = None):  # pylint: disable=unused-argument
+        return await fake_context['channel'].send(content)
+    return send_func
+
+
+def _make_check_func(fake_context):  # pylint: disable=redefined-outer-name
+    async def check_func(count: int):
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+    return check_func
+
+
 @pytest.fixture
 def non_sticky_bundle(fake_context):  #pylint:disable=redefined-outer-name
     """Create a non-sticky MessageMutableBundle for testing"""
-    async def check_last_messages(count):
-        messages = [m async for m in fake_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  #pylint:disable=unused-argument
-        return await fake_context['channel'].send(content)
-
     return MessageMutableBundle(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
         sticky_messages=False
     )
 
@@ -32,18 +36,9 @@ def non_sticky_bundle(fake_context):  #pylint:disable=redefined-outer-name
 @pytest.fixture
 def sticky_bundle(fake_context):  #pylint:disable=redefined-outer-name
     """Create a sticky MessageMutableBundle for testing"""
-    async def check_last_messages(count):
-        messages = [m async for m in fake_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  #pylint:disable=unused-argument
-        return await fake_context['channel'].send(content)
-
     return MessageMutableBundle(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
         sticky_messages=True
     )
 
@@ -54,7 +49,7 @@ def test_non_sticky_bundle_empty_to_multiple_messages(non_sticky_bundle):  #pyli
     content = ["Message 1", "Message 2", "Message 3"]
 
     # Should not raise exception
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(content, AsyncMock())
     assert len(dispatch_functions) == 3
 
 
@@ -62,14 +57,14 @@ def test_non_sticky_bundle_exceed_existing_count_fallback_behavior(non_sticky_bu
     """Test that non-sticky bundles allow exceeding existing count by adding new messages"""
     # First, create some initial messages
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content, AsyncMock())
     assert len(dispatch_functions) == 2
 
     # Now exceed the existing count - should add additional messages
     excess_content = ["Message 1", "Message 2", "Message 3"]
 
     # Should NOT raise error, instead should return dispatch functions for the additional content
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(excess_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(excess_content, AsyncMock())
 
     # Should have at least one function for the additional message
     assert len(dispatch_functions) >= 1
@@ -89,12 +84,12 @@ def test_non_sticky_bundle_same_count_allowed(non_sticky_bundle):  #pylint:disab
     """Test that non-sticky bundles allow same number of messages"""
     # First, create initial messages
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content, AsyncMock())
     assert len(dispatch_functions) == 2
 
     # Same count should work
     same_content = ["Updated 1", "Updated 2"]
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(same_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(same_content, AsyncMock())
     assert len(dispatch_functions) == 2
 
 
@@ -102,7 +97,7 @@ def test_non_sticky_bundle_fewer_messages_allowed(non_sticky_bundle):  #pylint:d
     """Test that non-sticky bundles allow fewer messages"""
     # First, create initial messages
     initial_content = ["Message 1", "Message 2", "Message 3"]
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(initial_content, AsyncMock())
     assert len(dispatch_functions) == 3
 
     fake1 = MessageContext(123, 123)
@@ -118,7 +113,7 @@ def test_non_sticky_bundle_fewer_messages_allowed(non_sticky_bundle):  #pylint:d
 
     # Fewer messages should work
     fewer_content = ["Updated 1", "Updated 2"]
-    dispatch_functions = non_sticky_bundle.get_message_dispatch(fewer_content)
+    dispatch_functions = non_sticky_bundle.get_message_dispatch(fewer_content, AsyncMock())
     # Should include delete operations for extra messages
     assert len(dispatch_functions) >= 2
 
@@ -127,12 +122,12 @@ def test_sticky_bundle_allows_any_count(sticky_bundle):  #pylint:disable=redefin
     """Test that sticky bundles allow any number of messages"""
     # Start with some messages
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content, AsyncMock())
     assert len(dispatch_functions) == 2
 
     # Should be able to exceed count with sticky messages
     more_content = ["Updated 1", "Updated 2", "Message 3", "Message 4"]
-    dispatch_functions = sticky_bundle.get_message_dispatch(more_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(more_content, AsyncMock())
     # Should have 2 edit functions for existing messages + 2 send functions for new messages
     # But since messages don't exist yet, all 4 will be send functions
     assert len(dispatch_functions) == 4
@@ -165,8 +160,6 @@ def test_non_sticky_fallback_with_none_contexts():
     test_bundle = MessageMutableBundle(
         guild_id=12345,
         channel_id=67890,
-        check_last_message_func=AsyncMock(),
-        send_function=AsyncMock(),
         sticky_messages=False
     )
 
@@ -175,7 +168,7 @@ def test_non_sticky_fallback_with_none_contexts():
 
     # Try to exceed - should fall back to sticky behavior and handle None contexts
     try:
-        dispatch_functions = test_bundle.get_message_dispatch(["A", "B", "C"])
+        dispatch_functions = test_bundle.get_message_dispatch(["A", "B", "C"], AsyncMock())
         # Should return dispatch functions, not raise error
         assert isinstance(dispatch_functions, list)
         assert len(dispatch_functions) == 3  # Should create 3 new messages
@@ -185,11 +178,11 @@ def test_non_sticky_fallback_with_none_contexts():
 
 
 @pytest.mark.asyncio
-async def test_clear_existing_behavior(sticky_bundle):  #pylint:disable=redefined-outer-name
+async def test_clear_existing_behavior(sticky_bundle, fake_context):  #pylint:disable=redefined-outer-name
     """Test clear_existing parameter behavior"""
     # Create initial messages
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     # Execute functions to create message contexts
     for func in dispatch_functions:
@@ -197,7 +190,9 @@ async def test_clear_existing_behavior(sticky_bundle):  #pylint:disable=redefine
 
     # Now test clear_existing behavior
     new_content = ["New Message 1"]
-    dispatch_functions = sticky_bundle.get_message_dispatch(new_content, clear_existing=True)
+    dispatch_functions = sticky_bundle.get_message_dispatch(
+        new_content, _make_send_func(fake_context), clear_existing=True
+    )
 
     # Should include delete operations for old messages plus new send operations
     # Exact count depends on implementation details
@@ -211,6 +206,7 @@ def test_delete_after_parameter_handling(sticky_bundle):  #pylint:disable=redefi
 
     dispatch_functions = sticky_bundle.get_message_dispatch(
         content,
+        AsyncMock(),
         delete_after=delete_after_value
     )
 
@@ -224,7 +220,7 @@ def test_empty_message_content_handling(sticky_bundle):  #pylint:disable=redefin
     empty_content = []
 
     # Should handle empty content gracefully
-    dispatch_functions = sticky_bundle.get_message_dispatch(empty_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(empty_content, AsyncMock())
 
     # Should return empty list or handle appropriately
     assert isinstance(dispatch_functions, list)
@@ -235,7 +231,7 @@ def test_whitespace_only_message_content(sticky_bundle):  #pylint:disable=redefi
     whitespace_content = ["   ", "\t\n", ""]
 
     # Should handle whitespace content without crashing
-    dispatch_functions = sticky_bundle.get_message_dispatch(whitespace_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(whitespace_content, AsyncMock())
 
     assert isinstance(dispatch_functions, list)
     assert len(dispatch_functions) == len(whitespace_content)
@@ -248,7 +244,7 @@ def test_very_long_message_content(sticky_bundle):  #pylint:disable=redefined-ou
     content = [long_message]
 
     # Should handle long messages (may truncate or split)
-    dispatch_functions = sticky_bundle.get_message_dispatch(content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(content, AsyncMock())
 
     assert isinstance(dispatch_functions, list)
     assert len(dispatch_functions) >= 1
@@ -265,7 +261,7 @@ def test_unicode_message_content(sticky_bundle):  #pylint:disable=redefined-oute
     ]
 
     # Should handle Unicode content without issues
-    dispatch_functions = sticky_bundle.get_message_dispatch(unicode_content)
+    dispatch_functions = sticky_bundle.get_message_dispatch(unicode_content, AsyncMock())
 
     assert isinstance(dispatch_functions, list)
     assert len(dispatch_functions) == len(unicode_content)

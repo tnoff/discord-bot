@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
 from discord_bot.cogs.message_dispatcher import MessageMutableBundle
@@ -12,24 +14,26 @@ def update_message_references(bundle, messages):
             bundle.message_contexts[i].set_message(message)
 
 
+def _make_send_func(fake_context):  # pylint: disable=redefined-outer-name
+    async def send_func(content: str, delete_after: int = None):  # pylint: disable=unused-argument
+        return await fake_context['channel'].send(content)
+    return send_func
+
+
+def _make_check_func(fake_context):  # pylint: disable=redefined-outer-name
+    async def check_func(count: int):
+        messages = [m async for m in fake_context['channel'].history(limit=count)]
+        return list(reversed(messages))
+    return check_func
+
+
 @pytest.fixture
 def message_bundle(fake_context):  #pylint: disable=redefined-outer-name
     """Fixture providing a MessageMutableBundle instance"""
-    async def check_last_messages(count):
-        messages = [m async for m in fake_context['channel'].history(limit=count)]
-        return list(reversed(messages))  # Return newest first like Discord
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await fake_context['channel'].send(content)
-
-    bundle = MessageMutableBundle(
+    return MessageMutableBundle(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
-        # delete_after=None
     )
-    return bundle
 
 
 @pytest.mark.asyncio
@@ -44,7 +48,7 @@ async def test_message_bundle_first_send(message_bundle, fake_context):  #pylint
     """Test sending initial messages"""
     content = ["Message 1", "Message 2", "Message 3"]
 
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
 
     # Should return send functions for all messages
     assert len(dispatch_functions) == 3
@@ -72,7 +76,7 @@ async def test_message_bundle_no_op_same_content(message_bundle, fake_context): 
     content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -80,7 +84,7 @@ async def test_message_bundle_no_op_same_content(message_bundle, fake_context): 
     update_message_references(message_bundle, results)
 
     # Second dispatch with same content
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
 
     # Should return empty list (no-op)
     assert len(dispatch_functions) == 0
@@ -95,7 +99,7 @@ async def test_message_bundle_edit_existing_content(message_bundle, fake_context
     initial_content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -104,7 +108,7 @@ async def test_message_bundle_edit_existing_content(message_bundle, fake_context
 
     # Modified content
     modified_content = ["Modified Message 1", "Message 2"]
-    dispatch_functions = message_bundle.get_message_dispatch(modified_content)
+    dispatch_functions = message_bundle.get_message_dispatch(modified_content, _make_send_func(fake_context))
 
     # Should return one edit function for the changed message
     assert len(dispatch_functions) == 1
@@ -123,7 +127,7 @@ async def test_message_bundle_delete_extra_messages(message_bundle, fake_context
     initial_content = ["Message 1", "Message 2", "Message 3"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -132,7 +136,7 @@ async def test_message_bundle_delete_extra_messages(message_bundle, fake_context
 
     # Reduced content
     reduced_content = ["Message 1", "Modified Message 2"]
-    dispatch_functions = message_bundle.get_message_dispatch(reduced_content)
+    dispatch_functions = message_bundle.get_message_dispatch(reduced_content, _make_send_func(fake_context))
 
     # Should return edit function for modified message and delete function for extra
     assert len(dispatch_functions) == 2  # One edit, one delete
@@ -151,7 +155,7 @@ async def test_message_bundle_add_new_messages(message_bundle, fake_context):  #
     initial_content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -160,7 +164,7 @@ async def test_message_bundle_add_new_messages(message_bundle, fake_context):  #
 
     # Expanded content
     expanded_content = ["Message 1", "Message 2", "Message 3", "Message 4"]
-    dispatch_functions = message_bundle.get_message_dispatch(expanded_content)
+    dispatch_functions = message_bundle.get_message_dispatch(expanded_content, _make_send_func(fake_context))
 
     # Should return send functions for new messages
     assert len(dispatch_functions) == 2  # Two new messages
@@ -187,7 +191,7 @@ async def test_message_bundle_complex_update(message_bundle, fake_context):  #py
     initial_content = ["Keep", "Edit", "Delete", "Also Delete"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -196,7 +200,7 @@ async def test_message_bundle_complex_update(message_bundle, fake_context):  #py
 
     # Complex update: keep first, edit second, delete last two, add new ones
     updated_content = ["Keep", "Edited", "New 1", "New 2"]
-    dispatch_functions = message_bundle.get_message_dispatch(updated_content)
+    dispatch_functions = message_bundle.get_message_dispatch(updated_content, _make_send_func(fake_context))
 
     # Should have edit function for second message, delete functions for extras,
     # and send functions for new messages
@@ -218,7 +222,7 @@ async def test_message_bundle_clear_all_messages(message_bundle, fake_context): 
     content = ["Message 1", "Message 2", "Message 3"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -246,7 +250,7 @@ async def test_message_bundle_sticky_check_same_order(message_bundle, fake_conte
     content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -254,7 +258,7 @@ async def test_message_bundle_sticky_check_same_order(message_bundle, fake_conte
     update_message_references(message_bundle, results)
 
     # Check if messages should be cleared (they shouldn't)
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(_make_check_func(fake_context))
     assert not should_clear
 
 
@@ -264,7 +268,7 @@ async def test_message_bundle_sticky_check_different_order(message_bundle, fake_
     content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -275,7 +279,7 @@ async def test_message_bundle_sticky_check_different_order(message_bundle, fake_
     await fake_context['channel'].send("Interrupting message")
 
     # Check if messages should be cleared (they should)
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(_make_check_func(fake_context))
     assert should_clear
 
 
@@ -283,7 +287,7 @@ async def test_message_bundle_sticky_check_different_order(message_bundle, fake_
 async def test_message_bundle_empty_content_list(message_bundle):  #pylint: disable=redefined-outer-name
     """Test handling empty content list"""
     # Empty content should return empty dispatch list
-    dispatch_functions = message_bundle.get_message_dispatch([])
+    dispatch_functions = message_bundle.get_message_dispatch([], AsyncMock())
     assert len(dispatch_functions) == 0
     assert len(message_bundle.message_contexts) == 0
 
@@ -293,7 +297,7 @@ async def test_message_bundle_update_message_references(message_bundle, fake_con
     """Test updating message references after operations"""
     content = ["Message 1", "Message 2"]
 
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -317,7 +321,7 @@ async def test_message_bundle_partial_results_handling(message_bundle, fake_cont
     """Test handling partial results (some operations succeed, others fail)"""
     content = ["Message 1", "Message 2", "Message 3"]
 
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
 
     # Simulate partial success (first succeeds, second fails, third succeeds)
     results = [
@@ -338,22 +342,11 @@ async def test_message_bundle_partial_results_handling(message_bundle, fake_cont
 @pytest.fixture
 def non_sticky_message_bundle(fake_context):  #pylint: disable=redefined-outer-name
     """Fixture providing a MessageMutableBundle instance with sticky_messages=False"""
-    async def check_last_messages(count):
-        messages = [m async for m in fake_context['channel'].history(limit=count)]
-        return list(reversed(messages))  # Return newest first like Discord
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await fake_context['channel'].send(content)
-
-    bundle = MessageMutableBundle(
+    return MessageMutableBundle(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
-        # delete_after=None,
         sticky_messages=False
     )
-    return bundle
 
 
 @pytest.mark.asyncio
@@ -362,7 +355,7 @@ async def test_sticky_messages_enabled_behavior(message_bundle, fake_context):  
     content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = message_bundle.get_message_dispatch(content)
+    dispatch_functions = message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -370,14 +363,14 @@ async def test_sticky_messages_enabled_behavior(message_bundle, fake_context):  
     update_message_references(message_bundle, results)
 
     # When messages are at the end of channel, should not clear
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(_make_check_func(fake_context))
     assert not should_clear
 
     # Add an interrupting message to displace our messages
     await fake_context['channel'].send("Interrupting message")
 
     # Now our messages are no longer at the end, should clear
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(_make_check_func(fake_context))
     assert should_clear
 
 
@@ -387,7 +380,7 @@ async def test_sticky_messages_disabled_behavior(non_sticky_message_bundle, fake
     content = ["Message 1", "Message 2"]
 
     # First dispatch
-    dispatch_functions = non_sticky_message_bundle.get_message_dispatch(content)
+    dispatch_functions = non_sticky_message_bundle.get_message_dispatch(content, _make_send_func(fake_context))
     results = []
     for func in dispatch_functions:
         result = await func()
@@ -395,14 +388,14 @@ async def test_sticky_messages_disabled_behavior(non_sticky_message_bundle, fake
     update_message_references(non_sticky_message_bundle, results)
 
     # Even when messages are at the end of channel, should not clear (sticky disabled)
-    should_clear = await non_sticky_message_bundle.should_clear_messages()
+    should_clear = await non_sticky_message_bundle.should_clear_messages(AsyncMock())
     assert not should_clear
 
     # Add an interrupting message to displace our messages
     await fake_context['channel'].send("Interrupting message")
 
     # Even when messages are no longer at the end, should still not clear (sticky disabled)
-    should_clear = await non_sticky_message_bundle.should_clear_messages()
+    should_clear = await non_sticky_message_bundle.should_clear_messages(AsyncMock())
     assert not should_clear
 
 
@@ -410,7 +403,7 @@ async def test_sticky_messages_disabled_behavior(non_sticky_message_bundle, fake
 async def test_sticky_messages_empty_contexts(message_bundle):  #pylint: disable=redefined-outer-name
     """Test that empty message contexts always return False regardless of sticky_messages setting"""
     # With no message contexts, should always return False
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(AsyncMock())
     assert not should_clear
 
 
@@ -418,7 +411,7 @@ async def test_sticky_messages_empty_contexts(message_bundle):  #pylint: disable
 async def test_sticky_messages_empty_contexts_non_sticky(non_sticky_message_bundle):  #pylint: disable=redefined-outer-name
     """Test that empty message contexts always return False with sticky_messages=False"""
     # With no message contexts, should always return False
-    should_clear = await non_sticky_message_bundle.should_clear_messages()
+    should_clear = await non_sticky_message_bundle.should_clear_messages(AsyncMock())
     assert not should_clear
 
 
@@ -427,20 +420,10 @@ async def test_sticky_messages_initialization_defaults():
     """Test that MessageMutableBundle defaults to sticky_messages=True"""
     test_context = generate_fake_context()
 
-    async def check_last_messages(count):
-        messages = [m async for m in test_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await test_context['channel'].send(content)
-
     # Create bundle without specifying sticky_messages parameter
     bundle = MessageMutableBundle(
         guild_id=test_context['guild'].id,
         channel_id=test_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
-        # delete_after=None
     )
 
     # Should default to True
@@ -452,20 +435,10 @@ async def test_sticky_messages_explicit_false():
     """Test that MessageMutableBundle respects sticky_messages=False when explicitly set"""
     test_context = generate_fake_context()
 
-    async def check_last_messages(count):
-        messages = [m async for m in test_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await test_context['channel'].send(content)
-
     # Create bundle with sticky_messages=False
     bundle = MessageMutableBundle(
         guild_id=test_context['guild'].id,
         channel_id=test_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
-        # delete_after=None,
         sticky_messages=False
     )
 
@@ -478,20 +451,10 @@ async def test_sticky_messages_explicit_true():
     """Test that MessageMutableBundle respects sticky_messages=True when explicitly set"""
     test_context = generate_fake_context()
 
-    async def check_last_messages(count):
-        messages = [m async for m in test_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-
-    async def send_function_wrapper(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await test_context['channel'].send(content)
-
     # Create bundle with sticky_messages=True
     bundle = MessageMutableBundle(
         guild_id=test_context['guild'].id,
         channel_id=test_context['channel'].id,
-        check_last_message_func=check_last_messages,
-        send_function=send_function_wrapper,
-        # delete_after=None,
         sticky_messages=True
     )
 
@@ -504,7 +467,7 @@ async def test_sticky_messages_deletion_before_new_content(message_bundle, fake_
     """Test that sticky messages are properly deleted before new content is sent"""
     # Send initial content
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -522,12 +485,14 @@ async def test_sticky_messages_deletion_before_new_content(message_bundle, fake_
     assert len(fake_context['channel'].messages) == 3
 
     # Verify sticky check returns True (messages should be cleared)
-    should_clear = await message_bundle.should_clear_messages()
+    should_clear = await message_bundle.should_clear_messages(_make_check_func(fake_context))
     assert should_clear
 
     # Send new content with clear_existing=True - this should delete old messages and send new ones
     new_content = ["New Message 1", "New Message 2"]
-    new_dispatch_functions = message_bundle.get_message_dispatch(new_content, clear_existing=True)
+    new_dispatch_functions = message_bundle.get_message_dispatch(
+        new_content, _make_send_func(fake_context), clear_existing=True
+    )
 
     # The dispatch functions should include delete functions first, then send functions
     # Before executing any dispatch functions, our original messages should still exist
@@ -580,7 +545,7 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
     """
     # Setup initial messages: [A, B, C, D]
     initial_content = ["A", "B", "C", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -594,7 +559,7 @@ async def test_content_aware_diffing_optimization_scenario(message_bundle, fake_
 
     # Update to new content: [A, B, D] (removing C)
     new_content = ["A", "B", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Analyze what operations are planned
     delete_operations = []
@@ -658,7 +623,7 @@ async def test_content_aware_diffing_edit_plus_removal(message_bundle, fake_cont
     """
     # Setup initial messages: [A, B, C, D]
     initial_content = ["A", "B", "C", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -668,7 +633,7 @@ async def test_content_aware_diffing_edit_plus_removal(message_bundle, fake_cont
 
     # Update to: [A', B, D] (edit A, remove C)
     new_content = ["A'", "B", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Categorize operations
     delete_operations = []
@@ -710,7 +675,7 @@ async def test_content_aware_diffing_multiple_removals(message_bundle, fake_cont
     """
     # Setup initial messages: [A, B, C, D, E, F]
     initial_content = ["A", "B", "C", "D", "E", "F"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -720,7 +685,7 @@ async def test_content_aware_diffing_multiple_removals(message_bundle, fake_cont
 
     # Update to: [A, B, F] (remove C, D, E)
     new_content = ["A", "B", "F"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Categorize operations
     delete_operations = []
@@ -771,7 +736,7 @@ async def test_content_aware_diffing_multiple_edits_plus_keep_last(message_bundl
     """
     # Setup initial messages: [A, B, C, D]
     initial_content = ["A", "B", "C", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -784,7 +749,7 @@ async def test_content_aware_diffing_multiple_edits_plus_keep_last(message_bundl
 
     # Update to: [A', B', C', D] (edit first three, keep D)
     new_content = ["A'", "B'", "C'", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Categorize operations
     delete_operations = []
@@ -833,7 +798,7 @@ async def test_content_aware_diffing_duplicate_content_matching(message_bundle, 
     """
     # Setup initial messages: [A, B, B, C] (duplicate B content)
     initial_content = ["A", "B", "B", "C"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -847,7 +812,7 @@ async def test_content_aware_diffing_duplicate_content_matching(message_bundle, 
 
     # Update to: [A, B, C] (remove one B)
     new_content = ["A", "B", "C"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Categorize operations
     delete_operations = []
@@ -903,7 +868,7 @@ async def test_content_aware_diffing_duplicate_content_middle_removal(message_bu
     """
     # Setup initial messages: [A, B, C, B, D]
     initial_content = ["A", "B", "C", "B", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(initial_content)
+    dispatch_functions = message_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context))
 
     results = []
     for func in dispatch_functions:
@@ -919,7 +884,7 @@ async def test_content_aware_diffing_duplicate_content_middle_removal(message_bu
 
     # Update to: [A, B, C, D] (remove the second B)
     new_content = ["A", "B", "C", "D"]
-    dispatch_functions = message_bundle.get_message_dispatch(new_content)
+    dispatch_functions = message_bundle.get_message_dispatch(new_content, _make_send_func(fake_context))
 
     # Categorize operations
     delete_operations = []

@@ -67,23 +67,20 @@ class MessageContext:
 class MessageMutableBundle:
     '''Collection of multiple mutable Discord messages.'''
 
-    def __init__(self, guild_id: int, channel_id: int, check_last_message_func: Callable,
-                 send_function: Callable, sticky_messages: bool = True):
+    def __init__(self, guild_id: int, channel_id: int, sticky_messages: bool = True):
         self.guild_id = guild_id
         self.channel_id = channel_id
-        self.check_last_message_func = check_last_message_func
-        self.send_function = send_function
         self.sticky_messages = sticky_messages
         self.message_contexts: List[MessageContext] = []
 
-    async def should_clear_messages(self) -> bool:
+    async def should_clear_messages(self, check_last_message_func: Callable) -> bool:
         '''Check if messages should be cleared (sticky check).'''
         if not self.message_contexts:
             return False
         if not self.sticky_messages:
             return False
         history_messages = await async_retry_discord_message_command(
-            partial(self.check_last_message_func, len(self.message_contexts))
+            partial(check_last_message_func, len(self.message_contexts))
         )
         for count, hist_message in enumerate(history_messages):
             index = len(self.message_contexts) - 1 - count
@@ -104,7 +101,8 @@ class MessageMutableBundle:
                     break
         return mapping
 
-    def get_message_dispatch(self, message_content: List[str], clear_existing: bool = False,
+    def get_message_dispatch(self, message_content: List[str], send_function: Callable,
+                             clear_existing: bool = False,
                              delete_after: int = None) -> List[Callable]:
         '''Return list of callables to sync Discord messages with new content.'''
         dispatch_functions = []
@@ -120,7 +118,7 @@ class MessageMutableBundle:
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
                 mc.delete_after = delete_after
-                send_func = partial(self.send_function, content=content, delete_after=delete_after)
+                send_func = partial(send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
@@ -171,7 +169,7 @@ class MessageMutableBundle:
                 mc = MessageContext(self.guild_id, self.channel_id)
                 mc.message_content = content
                 mc.delete_after = delete_after
-                send_func = partial(self.send_function, content=content, delete_after=delete_after)
+                send_func = partial(send_function, content=content, delete_after=delete_after)
                 mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
@@ -187,15 +185,11 @@ class MessageMutableBundle:
         self.message_contexts = []
         return delete_functions
 
-    def update_text_channel(self, new_guild_id: int, new_channel_id: int,
-                            check_last_message_func: Callable,
-                            send_function: Callable) -> List[Callable]:
+    def update_text_channel(self, new_guild_id: int, new_channel_id: int) -> List[Callable]:
         '''Move this bundle to a different channel; returns delete funcs for old messages.'''
         dispatch_functions = list(self.clear_all_messages())
         self.guild_id = new_guild_id
         self.channel_id = new_channel_id
-        self.check_last_message_func = check_last_message_func
-        self.send_function = send_function
         return dispatch_functions
 
 
@@ -414,8 +408,7 @@ class MessageDispatcher(CogHelper):
         if not bundle:
             return
 
-        check_func, send_func = self._make_channel_funcs(new_channel_id)
-        delete_funcs = bundle.update_text_channel(guild_id, new_channel_id, check_func, send_func)
+        delete_funcs = bundle.update_text_channel(guild_id, new_channel_id)
         loop = asyncio.get_event_loop()
         loop.create_task(self._execute_funcs(delete_funcs))
 
@@ -452,14 +445,7 @@ class MessageDispatcher(CogHelper):
         return check_last_message_func, send_function
 
     def _create_bundle(self, key: str, guild_id: int, channel_id: int, sticky: bool) -> MessageMutableBundle:
-        check_last_message_func, send_function = self._make_channel_funcs(channel_id)
-        bundle = MessageMutableBundle(
-            guild_id=guild_id,
-            channel_id=channel_id,
-            check_last_message_func=check_last_message_func,
-            send_function=send_function,
-            sticky_messages=sticky,
-        )
+        bundle = MessageMutableBundle(guild_id=guild_id, channel_id=channel_id, sticky_messages=sticky)
         self._bundles[key] = bundle
         return bundle
 
@@ -546,14 +532,13 @@ class MessageDispatcher(CogHelper):
             self.logger.debug(f'MessageDispatcher :: bundle "{key}" removed while sentinel in flight, skipping')
             return
 
-        # If the channel changed in the pending update, rebuild the bundle functions
+        # If the channel changed in the pending update, clear old messages
         if bundle.channel_id != pending.channel_id:
             self.logger.debug(f'MessageDispatcher :: channel changed for "{key}": {bundle.channel_id} -> {pending.channel_id}')
-            check_func, send_func = self._make_channel_funcs(pending.channel_id)
-            delete_funcs = bundle.update_text_channel(
-                pending.guild_id, pending.channel_id, check_func, send_func
-            )
+            delete_funcs = bundle.update_text_channel(pending.guild_id, pending.channel_id)
             await self._execute_funcs(delete_funcs)
+
+        check_func, send_func = self._make_channel_funcs(bundle.channel_id)
 
         content = pending.content
         delete_after = pending.delete_after
@@ -562,10 +547,10 @@ class MessageDispatcher(CogHelper):
         should_clear = False
         if bundle.sticky_messages or len(content) <= len(bundle.message_contexts):
             should_clear = await async_retry_discord_message_command(
-                partial(bundle.should_clear_messages)
+                partial(bundle.should_clear_messages, check_func)
             )
 
-        funcs = bundle.get_message_dispatch(content, clear_existing=should_clear,
+        funcs = bundle.get_message_dispatch(content, send_func, clear_existing=should_clear,
                                             delete_after=delete_after)
 
         # Execute and collect new Message objects
