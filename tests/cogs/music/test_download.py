@@ -61,10 +61,17 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
 def yield_download_client_bot_flagged():
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.backoff_seconds_remaining = None
+            self.failure_summary = '0 failures in queue'
 
         async def create_source(self, media_request, *_args, **_kwargs):
             return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='foo'), media_request=media_request, ytdlp_data=None, file_name=None)
+
+        def update_tracking(self, _result):
+            pass
+
+        async def backoff_wait(self, _shutdown_event):
+            pass
 
     return FakeDownloadClient
 

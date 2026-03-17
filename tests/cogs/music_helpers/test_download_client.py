@@ -2,15 +2,17 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unittest.mock import patch
 
 import pytest
 from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.music_helpers.download_client import (
-    DownloadClient, VideoTooLong, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
+    DownloadClient, VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
     DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator
 )
-from discord_bot.types.download import DownloadErrorType
+from discord_bot.exceptions import ExitEarlyException
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus as DlStatus
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -57,7 +59,7 @@ def yield_dlp_error(message):
         def __init__(self):
             pass
 
-        def extract_info(self, _search_string, **kwargs):
+        def extract_info(self, _search_string, **_kwargs):
             raise DownloadError(message)
     return MockYTDLPError()
 
@@ -80,6 +82,62 @@ async def test_prepare_source():
             result = await x.create_source(y, 3, loop)
             assert result.status.success
             assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_empty_requested_downloads():
+    """requested_downloads list is empty — should return FILE_NOT_FOUND, not crash."""
+    loop = asyncio.get_running_loop()
+
+    class MockYTDLPEmptyDownloads():
+        def extract_info(self, _search_string, **_kwargs):
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
+                                 'requested_downloads': []}]}
+
+    with TemporaryDirectory() as tmp_dir:
+        fake_context = generate_fake_context()
+        x = DownloadClient(MockYTDLPEmptyDownloads(), Path(tmp_dir))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3, loop)
+        assert not result.status.success
+        assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_filepath_does_not_exist():
+    """filepath returned by yt-dlp does not exist on disk — should return FILE_NOT_FOUND."""
+    loop = asyncio.get_running_loop()
+
+    class MockYTDLPMissingFile():
+        def extract_info(self, _search_string, **_kwargs):
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
+                                 'requested_downloads': [{'filepath': '/nonexistent/no/such/file.mp3'}]}]}
+
+    with TemporaryDirectory() as tmp_dir:
+        fake_context = generate_fake_context()
+        x = DownloadClient(MockYTDLPMissingFile(), Path(tmp_dir))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3, loop)
+        assert not result.status.success
+        assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_copyfile_raises_file_not_found():
+    """copyfile raises FileNotFoundError (file removed between check and copy) — should return FILE_NOT_FOUND."""
+    loop = asyncio.get_running_loop()
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(delete=False) as tmp_file:
+            fake_context = generate_fake_context()
+            x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir))
+            y = fake_source_dict(fake_context)
+            with patch('discord_bot.cogs.music_helpers.download_client.copyfile', side_effect=FileNotFoundError('file gone')):
+                result = await x.create_source(y, 3, loop)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
+    assert 'File not found after download' in result.status.error_detail
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_download():
@@ -148,6 +206,37 @@ async def test_prepare_source_errors():
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.NOT_FOUND
     assert 'No videos found' in result.status.user_message
+
+def yield_metadata_check_error(exception):
+    class MockYTDLPMetadataError():
+        def extract_info(self, _search_string, **_kwargs):
+            raise exception
+    return MockYTDLPMetadataError()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_video_too_long():
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+    x = DownloadClient(yield_metadata_check_error(VideoTooLong('Video Too Long', user_message='too long message')), None)
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.TOO_LONG
+    assert result.status.user_message == 'too long message'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_video_banned():
+    loop = asyncio.get_running_loop()
+    fake_context = generate_fake_context()
+    x = DownloadClient(yield_metadata_check_error(VideoBanned('Video Banned', user_message='banned message')), None)
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.BANNED
+    assert result.status.user_message == 'banned message'
+
 
 def test_match_generator_video_too_long_improved_message():
     """Test improved error message for VideoTooLong exception via match_generator"""
@@ -521,3 +610,162 @@ def test_failure_queue_status_summary_after_success_clears_item():
     queue.add_item(DownloadStatus(success=True))
 
     assert "2 failures in queue" in queue.get_status_summary()
+
+
+# ========== DownloadClient.update_tracking Tests ==========
+
+
+def _make_result(success, error_type=None, extractor='youtube', error_detail=None, ytdlp_data=None):
+    """Helper to build a DownloadResult for update_tracking tests."""
+    if ytdlp_data is None and success:
+        ytdlp_data = {'extractor': extractor}
+    status = DlStatus(success=success, error_type=error_type, error_detail=error_detail)
+    fake_context = generate_fake_context()
+    media_request = fake_source_dict(fake_context)
+    return DownloadResult(status=status, media_request=media_request, ytdlp_data=ytdlp_data, file_name=None)
+
+
+def test_update_tracking_success_youtube_sets_timestamp():
+    """Success with youtube extractor adds success item and sets backoff timestamp."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=True, extractor='youtube')
+
+    client.update_tracking(result)
+
+    assert queue.size == 0  # success removes one item (queue was empty, stays 0)
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_update_tracking_success_non_youtube_no_timestamp():
+    """Success with non-youtube extractor adds success item but does NOT set timestamp."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=True, extractor='spotify')
+
+    client.update_tracking(result)
+
+    assert client._wait_timestamp is None  # pylint: disable=protected-access
+
+
+def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
+    """RETRYABLE error adds failure item and sets backoff timestamp."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='timeout')
+
+    client.update_tracking(result)
+
+    assert queue.size == 1
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
+    """BOT_FLAGGED error adds failure item and sets backoff timestamp."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='bot check')
+
+    client.update_tracking(result)
+
+    assert queue.size == 1
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
+    """RETRY_LIMIT_EXCEEDED adds failure item and sets backoff timestamp."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail='too many')
+
+    client.update_tracking(result)
+
+    assert queue.size == 1
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_update_tracking_terminal_error_sets_timestamp_no_failure():
+    """Terminal errors (AGE_RESTRICTED etc.) set timestamp but do not add failure item."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=False, error_type=DownloadErrorType.AGE_RESTRICTED)
+
+    client.update_tracking(result)
+
+    assert queue.size == 0
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_update_tracking_no_failure_queue():
+    """update_tracking works when failure_queue is None."""
+    client = DownloadClient(None, None, failure_queue=None, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE)
+
+    client.update_tracking(result)  # Should not raise
+    assert client._wait_timestamp is not None  # pylint: disable=protected-access
+
+
+def test_backoff_seconds_remaining_none_when_no_timestamp():
+    """backoff_seconds_remaining is None when no timestamp has been set."""
+    client = DownloadClient(None, None)
+    assert client.backoff_seconds_remaining is None
+
+
+def test_backoff_seconds_remaining_after_tracking():
+    """backoff_seconds_remaining returns a non-negative int after update_tracking."""
+    client = DownloadClient(None, None, wait_period_minimum=30, wait_period_max_variance=10)
+    result = _make_result(success=True, extractor='youtube')
+
+    client.update_tracking(result)
+
+    remaining = client.backoff_seconds_remaining
+    assert remaining is not None
+    assert remaining >= 0
+
+
+def test_failure_summary_no_queue():
+    """failure_summary returns '0 failures in queue' when failure_queue is None."""
+    client = DownloadClient(None, None)
+    assert client.failure_summary == '0 failures in queue'
+
+
+def test_failure_summary_with_queue():
+    """failure_summary delegates to failure_queue.get_status_summary()."""
+    queue = DownloadFailureQueue(max_size=10)
+    client = DownloadClient(None, None, failure_queue=queue)
+    assert client.failure_summary == '0 failures in queue'
+
+    queue.add_item(DownloadStatus(success=False, exception_type='Err', exception_message='oops'))
+    assert '1 failures in queue' in client.failure_summary
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_backoff_wait_returns_immediately_when_no_timestamp():
+    """backoff_wait returns immediately when no timestamp is set."""
+    shutdown = asyncio.Event()
+    client = DownloadClient(None, None)
+    await client.backoff_wait(shutdown)  # Should not raise or block
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_backoff_wait_raises_on_shutdown():
+    """backoff_wait raises ExitEarlyException when shutdown_event is already set."""
+    shutdown = asyncio.Event()
+    shutdown.set()
+    client = DownloadClient(None, None, wait_period_minimum=60, wait_period_max_variance=10)
+    # Set a future timestamp so there's something to wait for
+    client._wait_timestamp = datetime.now(timezone.utc).timestamp() + 120  # pylint: disable=protected-access
+
+    with pytest.raises(ExitEarlyException):
+        await client.backoff_wait(shutdown)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_backoff_wait_returns_when_elapsed():
+    """backoff_wait returns normally when backoff period has already elapsed."""
+    shutdown = asyncio.Event()
+    client = DownloadClient(None, None, wait_period_minimum=1, wait_period_max_variance=1)
+    # Set timestamp in the past
+    client._wait_timestamp = datetime.now(timezone.utc).timestamp() - 10  # pylint: disable=protected-access
+
+    await client.backoff_wait(shutdown)  # Should return immediately, not raise
