@@ -137,7 +137,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
     # Create a media request
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
 
     # Verify failure queue is empty before
     assert cog.download_failure_queue.size == 0
@@ -167,7 +167,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
 
     await cog.download_files()
 
@@ -193,7 +193,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
 
     # Verify timestamp not set before
     assert cog.youtube_download_wait_timestamp is None
@@ -227,7 +227,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
             assert cog.download_failure_queue.size == 2
 
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
+            await cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
 
             await cog.download_files()
 

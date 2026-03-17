@@ -31,7 +31,7 @@ async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disab
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
+            await cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
             await cog.download_files()
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -54,7 +54,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             cog.dispatcher = MagicMock()
             cog.media_broker.register_download(sd)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
+            await cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
             await cog.download_files()
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -76,7 +76,7 @@ async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disabl
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -92,7 +92,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -107,7 +107,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -119,7 +119,7 @@ async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(None))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -130,7 +130,7 @@ async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:di
     s = fake_source_dict(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     cog.players[fake_context['guild'].id].shutdown_called = True
     await cog.download_files()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -141,6 +141,6 @@ async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:di
     mocker.patch.object(MusicPlayer, 'start_tasks')
     s = fake_source_dict(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.download_files()
     assert fake_context['guild'].id not in cog.players

@@ -139,7 +139,7 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     s = fake_source_dict(fake_context)
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
     assert fake_context['guild'].id not in cog.download_queue.queues
 
@@ -178,8 +178,8 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     await cog.play_(cog, fake_context['context'], search='foo bar')
     await cog.search_youtube_music()
     await cog.search_youtube_music()
-    item0 = cog.download_queue.get_nowait()
-    item1 = cog.download_queue.get_nowait()
+    item0 = await cog.download_queue.get_nowait()
+    item1 = await cog.download_queue.get_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
     assert item0.search_result.raw_search_string == s.search_result.raw_search_string
     assert item0.search_result.search_type == s.search_result.search_type
@@ -356,8 +356,8 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     # Put source dict so we can a download queue to block
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
-    cog.download_queue.block(fake_context['guild'].id)
+    await cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    await cog.download_queue.block(fake_context['guild'].id)
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
 @pytest.mark.asyncio()

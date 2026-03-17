@@ -34,6 +34,7 @@ setuptools.setup(
     entry_points={
         'console_scripts' : [
             'discord-bot = discord_bot.cli:main',
+            'discord-download-worker = discord_bot.workers.download_worker:main',
         ]
     },
     packages=setuptools.find_packages(exclude=['tests', 'docs']),

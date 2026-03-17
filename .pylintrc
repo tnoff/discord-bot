@@ -10,6 +10,7 @@
 # multiple time (only on the command line, not in the configuration file where
 # it should appear only once).
 disable=logging-fstring-interpolation,
+        duplicate-code,
         unnecessary-pass,
         missing-module-docstring,
         too-many-instance-attributes,

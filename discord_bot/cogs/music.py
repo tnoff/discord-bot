@@ -49,6 +49,8 @@ from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, ru
 from discord_bot.utils.audio import edit_audio_file
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
+from discord_bot.utils.download_queue import InProcessDownloadQueue, RedisDownloadQueue
+from discord_bot.utils.broker_http_server import BrokerHTTPServer, BrokerResult
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
@@ -124,12 +126,21 @@ class MusicDownloadConfig(BaseModel):
     # Recommended to be at least an hour
     failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
 
+class MusicHAConfig(BaseModel):
+    '''HA (high-availability) download worker configuration'''
+    enabled: bool = False
+    redis_url: str = 'redis://localhost:6379'
+    broker_host: str = '0.0.0.0'
+    broker_port: int = 8765
+    worker_consumer_group: str = 'music_workers'
+
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
     player: MusicPlayerConfig = Field(default_factory=MusicPlayerConfig)
     playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
+    ha: MusicHAConfig = Field(default_factory=MusicHAConfig)
 
 #
 # Exceptions
@@ -181,6 +192,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
+        self._broker_task = None
+        self._ha_result_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
@@ -193,7 +206,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.history_playlist_queue = Queue()
 
         # Queues for download and youtube music search
-        self.download_queue: DistributedQueue[MediaRequest] = DistributedQueue(self.config.player.queue_max_size)
+        self.ha_config = self.config.ha
+        if self.ha_config.enabled:
+            self.download_queue: InProcessDownloadQueue | RedisDownloadQueue = RedisDownloadQueue(
+                redis_url=self.ha_config.redis_url,
+                max_size=self.config.player.queue_max_size,
+                consumer_group=self.ha_config.worker_consumer_group,
+            )
+            self._broker_result_queue: asyncio.Queue[BrokerResult] = asyncio.Queue()
+            # BrokerHTTPServer is initialized after self.download_dir is set (below)
+            self._broker_server = None
+        else:
+            self.download_queue = InProcessDownloadQueue(self.config.player.queue_max_size)
         # Search queue can be larger since search requests are lightweight
         self.youtube_music_search_queue: DistributedQueue[tuple[MediaRequest, TextChannel]] = DistributedQueue(self.config.player.queue_max_size * 2)
 
@@ -226,6 +250,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Tempdir used in downloads
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
         self.temp_download_dir.mkdir(exist_ok=True)
+
+        # Now that download_dir is set, create the broker HTTP server for HA mode
+        if self.ha_config.enabled:
+            self._broker_server = BrokerHTTPServer(
+                host=self.ha_config.broker_host,
+                port=self.ha_config.broker_port,
+                download_dir=self.download_dir,
+                result_queue=self._broker_result_queue,
+            )
 
         # Tempdir for players
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -403,7 +436,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.dispatcher = self.bot.get_cog('MessageDispatcher')
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
+        if self.ha_config.enabled:
+            await self._broker_server.start()
+            self._ha_result_task = self.bot.loop.create_task(return_loop_runner(self.ha_download_result_loop, self.bot, self.logger)())
+        else:
+            self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
             self._post_play_processing_task = self.bot.loop.create_task(return_loop_runner(self.post_play_processing, self.bot, self.logger)())
@@ -427,10 +464,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._cleanup_task.cancel()
             if self._download_task:
                 self._download_task.cancel()
+            if self._ha_result_task:
+                self._ha_result_task.cancel()
+            if self._broker_task:
+                self._broker_task.cancel()
             if self._post_play_processing_task:
                 self._post_play_processing_task.cancel()
             if self._youtube_search_task:
                 self._youtube_search_task.cancel()
+
+            if self.ha_config.enabled and self._broker_server:
+                await self._broker_server.stop()
+            if self.ha_config.enabled and isinstance(self.download_queue, RedisDownloadQueue):
+                await self.download_queue.close()
 
             self.logger.info('Removing directories')
             if self.download_dir.exists() and not self.config.download.cache.enable_cache_files:
@@ -671,7 +717,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         try:
             self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
-            self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+            await self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
         except PutsBlocked:
             self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
             media_request.state_machine.mark_discarded()
@@ -809,7 +855,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         try:
-            media_request = self.download_queue.get_nowait()
+            media_request = await self.download_queue.get_nowait()
         except QueueEmpty:
             return
 
@@ -876,7 +922,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                             backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
                             backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
                             self.logger.info(f'Waiting {backoff_seconds} seconds for next download')
-                        self.download_queue.put_nowait(media_request.guild_id, media_request)
+                        await self.download_queue.put_nowait(media_request.guild_id, media_request)
                         media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
                         span.set_status(StatusCode.OK)
                     else:
@@ -926,6 +972,57 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             span.set_status(StatusCode.OK)
             await self.add_source_to_player(media_download, player)
             self.media_broker.cache_cleanup()
+
+    async def ha_download_result_loop(self):
+        '''
+        HA mode replacement for download_files.
+
+        Drains BrokerResult items from _broker_result_queue and registers
+        completed downloads with the MediaBroker, mirroring what download_files
+        does after a successful DownloadClient.create_source() call.
+        '''
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Bot shutdown called, exiting early')
+
+        await sleep(.01)
+        try:
+            result: BrokerResult = self._broker_result_queue.get_nowait()
+        except QueueEmpty:
+            return
+
+        # Look up the original MediaRequest (with live state machine) from _pending
+        media_request = self.download_queue.pop_pending(str(result.media_request_uuid))
+        if not media_request:
+            self.logger.info(f'No pending request for uuid {result.media_request_uuid}, may have been discarded')
+            return
+
+        # Worker reported an error
+        if result.error_message:
+            await self.__return_bad_video(media_request, result.error_message)
+            return
+
+        # Ensure a player still exists for this guild
+        player = await self.get_player(media_request.guild_id, create_player=False)
+        if not player:
+            media_request.state_machine.mark_discarded()
+            return
+        if player.shutdown_called:
+            self.logger.info(f'Play queue in shutdown for guild {media_request.guild_id}, discarding HA result')
+            media_request.state_machine.mark_discarded()
+            return
+
+        # Build MediaDownload from the broker-delivered file
+        if not result.file_path or not result.file_path.exists():
+            await self.__return_bad_video(media_request, f'File not found after HA download: {result.file_path}')
+            return
+
+        media_download = MediaDownload(result.file_path, result.ytdlp_data or {}, media_request)
+
+        if not await self.__ensure_video_download_result(media_request, media_download):
+            return
+
+        await self.add_source_to_player(media_download, player)
+        self.media_broker.cache_cleanup()
 
     def __get_history_playlist(self, guild_id: int):
         '''
@@ -981,9 +1078,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Block download queue for later
             # Clear queues before blocking: clear_queue restores preserved items via
             # put_nowait, which would fail if the queue is already blocked.
-            # No await between clear_queue and block() so no race condition.
+            # For InProcessDownloadQueue the awaits have no yield points, preserving atomicity.
             preserve_predicate = None if reason == CleanupReason.BOT_SHUTDOWN else (lambda r: not r.download_file)
-            dropped = self.download_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
+            dropped = await self.download_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
             self.logger.debug(f'Cleanup found {len(dropped)} existing download items')
             for item in dropped:
                 item.state_machine.mark_discarded()
@@ -993,7 +1090,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in dropped:
                 item.state_machine.mark_discarded()
 
-            self.download_queue.block(guild.id)
+            await self.download_queue.block(guild.id)
             self.youtube_music_search_queue.block(guild.id)
 
             player = None
@@ -1186,7 +1283,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 bundle.add_media_request(media_request)
                 continue
             try:
-                self.download_queue.put_nowait(media_request.guild_id, media_request)
+                await self.download_queue.put_nowait(media_request.guild_id, media_request)
                 media_request.state_machine.mark_queued()
                 bundle.add_media_request(media_request)
             except PutsBlocked:
