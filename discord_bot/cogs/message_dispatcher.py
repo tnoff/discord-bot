@@ -36,30 +36,34 @@ class MessageContext:
     guild_id: int
     channel_id: int
     message_id: int | None = None
-    message: Message | None = None
     message_content: str | None = None
     delete_after: int | None = None
 
     def set_message(self, message: Message):
-        '''Set the Discord message object after it has been sent.'''
-        self.message = message
+        '''Set the message ID after a message has been sent.'''
         self.message_id = message.id if message else None
 
-    async def delete_message(self):
-        '''Delete the message if it exists.'''
-        if not self.message:
+    async def delete_message(self, get_channel: Callable) -> bool:
+        '''Delete the message via a PartialMessage looked up from get_channel.'''
+        if self.message_id is None:
+            return False
+        channel = get_channel(self.channel_id)
+        if channel is None:
             return False
         try:
-            await self.message.delete()
+            await channel.get_partial_message(self.message_id).delete()
         except NotFound:
             return True
         return True
 
-    async def edit_message(self, **kwargs):
-        '''Edit the message contents.'''
-        if not self.message:
+    async def edit_message(self, get_channel: Callable, **kwargs) -> bool:
+        '''Edit the message via a PartialMessage looked up from get_channel.'''
+        if self.message_id is None:
             return False
-        await self.message.edit(**kwargs)
+        channel = get_channel(self.channel_id)
+        if channel is None:
+            return False
+        await channel.get_partial_message(self.message_id).edit(**kwargs)
         return True
 
 
@@ -86,7 +90,7 @@ class MessageMutableBundle:
             if index < 0:
                 break
             context = self.message_contexts[index]
-            if not context.message or context.message.id != hist_message.id:
+            if context.message_id is None or context.message_id != hist_message.id:
                 return True
         return False
 
@@ -101,6 +105,7 @@ class MessageMutableBundle:
         return mapping
 
     def get_message_dispatch(self, message_content: List[str], send_function: Callable,
+                             get_channel: Callable,
                              clear_existing: bool = False,
                              delete_after: int = None) -> List[Callable]:
         '''Return list of callables to sync Discord messages with new content.'''
@@ -108,15 +113,13 @@ class MessageMutableBundle:
 
         if clear_existing and self.message_contexts:
             for context in self.message_contexts:
-                if context.message:
-                    dispatch_functions.append(partial(context.delete_message))
+                if context.message_id is not None:
+                    dispatch_functions.append(partial(context.delete_message, get_channel))
             self.message_contexts = []
 
         if not self.message_contexts:
             for content in message_content:
-                mc = MessageContext(self.guild_id, self.channel_id)
-                mc.message_content = content
-                mc.delete_after = delete_after
+                mc = MessageContext(self.guild_id, self.channel_id, message_content=content, delete_after=delete_after)
                 send_func = partial(send_function, content=content, delete_after=delete_after)
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
@@ -135,10 +138,10 @@ class MessageMutableBundle:
                     new_contexts.insert(0, item)
                     continue
                 if delete_count < expected_delete_count:
-                    dispatch_functions.append(partial(item.delete_message))
+                    dispatch_functions.append(partial(item.delete_message, get_channel))
                     delete_count += 1
                     continue
-                edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
+                edit_func = partial(item.edit_message, get_channel, content=message_content[index], delete_after=delete_after)
                 item.delete_after = delete_after
                 item.message_content = message_content[index]
                 dispatch_functions.append(edit_func)
@@ -152,7 +155,7 @@ class MessageMutableBundle:
             if existing_mapping.get(index, None) == index:
                 new_contexts.append(item)
                 continue
-            edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
+            edit_func = partial(item.edit_message, get_channel, content=message_content[index], delete_after=delete_after)
             item.delete_after = delete_after
             item.message_content = message_content[index]
             dispatch_functions.append(edit_func)
@@ -162,27 +165,25 @@ class MessageMutableBundle:
         if new_count > existing_count:
             for i in range(existing_count, new_count):
                 content = message_content[i]
-                mc = MessageContext(self.guild_id, self.channel_id)
-                mc.message_content = content
-                mc.delete_after = delete_after
+                mc = MessageContext(self.guild_id, self.channel_id, message_content=content, delete_after=delete_after)
                 send_func = partial(send_function, content=content, delete_after=delete_after)
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
 
         return dispatch_functions
 
-    def clear_all_messages(self) -> List[Callable]:
+    def clear_all_messages(self, get_channel: Callable) -> List[Callable]:
         '''Return callables to delete all managed messages and clear contexts.'''
         delete_functions = []
         for context in self.message_contexts:
-            if context.message:
-                delete_functions.append(partial(context.delete_message))
+            if context.message_id is not None:
+                delete_functions.append(partial(context.delete_message, get_channel))
         self.message_contexts = []
         return delete_functions
 
-    def update_text_channel(self, new_guild_id: int, new_channel_id: int) -> List[Callable]:
+    def update_text_channel(self, new_guild_id: int, new_channel_id: int, get_channel: Callable) -> List[Callable]:
         '''Move this bundle to a different channel; returns delete funcs for old messages.'''
-        dispatch_functions = list(self.clear_all_messages())
+        dispatch_functions = list(self.clear_all_messages(get_channel))
         self.guild_id = new_guild_id
         self.channel_id = new_channel_id
         return dispatch_functions
@@ -351,7 +352,7 @@ class MessageDispatcher(CogHelper):
         '''
         bundle = self._bundles.pop(key, None)
         if bundle:
-            delete_funcs = bundle.clear_all_messages()
+            delete_funcs = bundle.clear_all_messages(self.bot.get_channel)
             # Fire-and-forget: schedule the deletions as a task
             loop = asyncio.get_event_loop()
             loop.create_task(self._execute_funcs(delete_funcs))
@@ -403,7 +404,7 @@ class MessageDispatcher(CogHelper):
         if not bundle:
             return
 
-        delete_funcs = bundle.update_text_channel(guild_id, new_channel_id)
+        delete_funcs = bundle.update_text_channel(guild_id, new_channel_id, self.bot.get_channel)
         loop = asyncio.get_event_loop()
         loop.create_task(self._execute_funcs(delete_funcs))
 
@@ -530,7 +531,7 @@ class MessageDispatcher(CogHelper):
         # If the channel changed in the pending update, clear old messages
         if bundle.channel_id != pending.channel_id:
             self.logger.debug(f'MessageDispatcher :: channel changed for "{key}": {bundle.channel_id} -> {pending.channel_id}')
-            delete_funcs = bundle.update_text_channel(pending.guild_id, pending.channel_id)
+            delete_funcs = bundle.update_text_channel(pending.guild_id, pending.channel_id, self.bot.get_channel)
             await self._execute_funcs(delete_funcs)
 
         check_func, send_func = self._make_channel_funcs(bundle.channel_id)
@@ -545,8 +546,8 @@ class MessageDispatcher(CogHelper):
                 partial(bundle.should_clear_messages, check_func)
             )
 
-        funcs = bundle.get_message_dispatch(content, send_func, clear_existing=should_clear,
-                                            delete_after=delete_after)
+        funcs = bundle.get_message_dispatch(content, send_func, self.bot.get_channel,
+                                            clear_existing=should_clear, delete_after=delete_after)
 
         # Execute and collect new Message objects
         results = []
@@ -566,7 +567,7 @@ class MessageDispatcher(CogHelper):
                 results.append(result)
 
         # Update message references for newly sent messages
-        contexts_needing_refs = [ctx for ctx in bundle.message_contexts if not ctx.message]
+        contexts_needing_refs = [ctx for ctx in bundle.message_contexts if ctx.message_id is None]
         for i, message in enumerate(results):
             if i < len(contexts_needing_refs):
                 contexts_needing_refs[i].set_message(message)

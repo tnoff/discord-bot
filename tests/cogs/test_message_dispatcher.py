@@ -482,3 +482,183 @@ async def test_fetch_object_with_allow_404(fake_context):  # pylint: disable=red
     # End-to-end: fetch_object with allow_404
     result = await dispatcher.fetch_object(guild_id, noop, allow_404=True)
     assert result == 'ok'
+
+
+# ---------------------------------------------------------------------------
+# cog_load
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_load():
+    """cog_load is a no-op but must not raise."""
+    dispatcher = make_dispatcher()
+    await dispatcher.cog_load()
+
+
+# ---------------------------------------------------------------------------
+# __queue_depth_callback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_queue_depth_callback(fake_context):  # pylint: disable=redefined-outer-name
+    """Queue depth callback returns the sum of all pending items across guilds."""
+    dispatcher = make_dispatcher()
+    guild_id = fake_context['guild'].id
+    channel = fake_context['channel']
+
+    # Enqueue two items so depth is 2
+    dispatcher.send_message(guild_id, channel.id, 'a')
+    dispatcher.send_message(guild_id, channel.id, 'b')
+
+    result = dispatcher._MessageDispatcher__queue_depth_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 2
+
+
+# ---------------------------------------------------------------------------
+# _DeleteItem dispatch: NotFound is silently ignored
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_delete_item_not_found_silently_ignored(fake_context):  # pylint: disable=redefined-outer-name
+    """Deleting a message that is already gone (404) does not crash the worker."""
+    from unittest.mock import AsyncMock, MagicMock  # pylint: disable=import-outside-toplevel
+    from discord.errors import NotFound  # pylint: disable=import-outside-toplevel
+    from tests.helpers import FakeResponse  # pylint: disable=import-outside-toplevel
+
+    guild_id = fake_context['guild'].id
+    channel = fake_context['channel']
+
+    # Build a channel stub whose partial message raises NotFound on delete
+    mock_msg = AsyncMock()
+    mock_msg.delete.side_effect = NotFound(FakeResponse(), 'unknown message')
+    mock_channel = MagicMock()
+    mock_channel.id = channel.id
+    mock_channel.get_partial_message.return_value = mock_msg
+
+    dispatcher = make_dispatcher(channels=[mock_channel])
+    dispatcher.delete_message(guild_id, channel.id, 99999)
+    await drain_dispatcher(dispatcher, guild_id)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_mutable: bundle removed while sentinel in flight
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_mutable_bundle_removed_during_flight(fake_context):  # pylint: disable=redefined-outer-name
+    """If the bundle is popped between sentinel enqueue and processing, skip silently."""
+    dispatcher = make_dispatcher()
+    guild_id = fake_context['guild'].id
+    channel = fake_context['channel']
+    key = f'removed-bundle-{guild_id}'
+
+    dispatcher.update_mutable(key, guild_id, ['content'], channel.id)
+    # Remove the bundle (but leave pending) before the sentinel is processed
+    dispatcher._bundles.pop(key)  # pylint: disable=protected-access
+
+    await drain_dispatcher(dispatcher, guild_id)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_mutable: channel changed between enqueue and processing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_mutable_channel_changed(fake_context):  # pylint: disable=redefined-outer-name
+    """When pending channel_id differs from bundle's, old messages are cleared and new channel is used."""
+    channel_a = fake_context['channel']
+    channel_b = FakeChannel(guild=channel_a.guild)
+    guild_id = fake_context['guild'].id
+    key = f'channel-change-{guild_id}'
+
+    dispatcher = make_dispatcher(channels=[channel_a, channel_b])
+
+    # First call creates bundle for channel_a and queues the sentinel
+    dispatcher.update_mutable(key, guild_id, ['hello'], channel_a.id, sticky=False)
+    # Second call updates pending to channel_b — no new sentinel because one is already queued
+    dispatcher.update_mutable(key, guild_id, ['hello'], channel_b.id, sticky=False)
+
+    await drain_dispatcher(dispatcher, guild_id)
+
+    # Bundle should have migrated to channel_b, message sent there
+    assert dispatcher._bundles[key].channel_id == channel_b.id  # pylint: disable=protected-access
+    assert len(channel_b.messages) == 1
+
+
+# ---------------------------------------------------------------------------
+# remove_mutable with live messages: _execute_funcs body is exercised
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_remove_mutable_deletes_tracked_messages(fake_context):  # pylint: disable=redefined-outer-name
+    """remove_mutable schedules deletion of all messages the bundle has sent."""
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'remove-msgs-{guild_id}'
+
+    dispatcher = make_dispatcher(channels=[channel])
+
+    dispatcher.update_mutable(key, guild_id, ['tracked message'], channel.id, sticky=False)
+    await drain_dispatcher(dispatcher, guild_id)
+
+    assert len(channel.messages) == 1
+
+    dispatcher.remove_mutable(key)
+    # Give the fire-and-forget delete task time to run
+    await asyncio.sleep(0.05)
+
+    assert len(channel.messages) == 0
+
+
+# ---------------------------------------------------------------------------
+# _make_channel_funcs: sticky check exercised end-to-end (check_last_message_func)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_mutable_sticky_check_edits_in_place(fake_context):  # pylint: disable=redefined-outer-name
+    """Second dispatch on a sticky bundle calls check_last_message_func and edits in place."""
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'sticky-e2e-{guild_id}'
+
+    dispatcher = make_dispatcher(channels=[channel])
+
+    # First dispatch sends the initial message
+    dispatcher.update_mutable(key, guild_id, ['first'], channel.id, sticky=True)
+    await drain_dispatcher(dispatcher, guild_id)
+    assert channel.messages[0].content == 'first'
+
+    # Second dispatch: bundle has one existing context so sticky check runs,
+    # our message is still at the end → edit in place rather than re-send
+    dispatcher.update_mutable(key, guild_id, ['second'], channel.id, sticky=True)
+    await drain_dispatcher(dispatcher, guild_id)
+
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'second'
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_check_func_channel_not_found(fake_context):  # pylint: disable=redefined-outer-name
+    """check_last_message_func returns [] gracefully when the channel is not in the bot cache."""
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'check-no-channel-{guild_id}'
+
+    # Dispatcher knows about the channel for sending, then we'll swap it out
+    dispatcher = make_dispatcher(channels=[channel])
+
+    # First dispatch establishes a tracked message context
+    dispatcher.update_mutable(key, guild_id, ['hello'], channel.id, sticky=True)
+    await drain_dispatcher(dispatcher, guild_id)
+    assert len(channel.messages) == 1
+
+    # Remove the channel from the bot so check_last_message_func gets None
+    dispatcher.bot.channels = []  # pylint: disable=protected-access
+
+    # Second dispatch: sticky check runs, check_last_message_func returns [] → no clear
+    dispatcher.update_mutable(key, guild_id, ['world'], channel.id, sticky=True)
+    await drain_dispatcher(dispatcher, guild_id)
+    # send_function also got None channel, so no new message sent; existing edit also failed
+    # The important thing is no crash
+    assert key in dispatcher._bundles  # pylint: disable=protected-access
