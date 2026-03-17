@@ -1,6 +1,10 @@
+import asyncio
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
+import random
 from shutil import copyfile
+from time import time
 from typing import List
 
 from opentelemetry.trace.status import StatusCode
@@ -10,6 +14,7 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.otel import otel_span_wrapper
 
 class DownloadClientException(Exception):
@@ -117,15 +122,123 @@ class DownloadClient():
     '''
     Download Client using yt-dlp
     '''
-    def __init__(self, ytdl: YoutubeDL, download_dir: Path):
+    def __init__(
+        self,
+        ytdl: YoutubeDL,
+        download_dir: Path,
+        failure_queue: FailureQueue | None = None,
+        wait_period_minimum: int = 30,
+        wait_period_max_variance: int = 10,
+    ):
         '''
         Init download client
 
         ytdl : YoutubeDL Client
         download_dir : Directory to place after tempfile download
+        failure_queue : Optional FailureQueue for tracking download failures
+        wait_period_minimum : Minimum backoff wait time in seconds
+        wait_period_max_variance : Maximum extra random variance in seconds
         '''
         self.ytdl: YoutubeDL = ytdl
         self.download_dir: Path = download_dir
+        self.failure_queue: FailureQueue | None = failure_queue
+        self._wait_period_minimum = wait_period_minimum
+        self._wait_period_max_variance = wait_period_max_variance
+        self._wait_timestamp: float | None = None
+
+    def _set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
+        '''
+        Set the next download wait timestamp with optional backoff multiplier.
+        '''
+        new_timestamp = int(datetime.now(timezone.utc).timestamp())
+        new_timestamp = new_timestamp + (self._wait_period_minimum * backoff_multiplier)
+        random.seed(time())
+        new_timestamp = new_timestamp + (random.randint(1000, self._wait_period_max_variance * 1000) / 1000)
+        self._wait_timestamp = new_timestamp
+
+    def update_tracking(self, result: DownloadResult) -> int | None:
+        '''
+        Update failure queue and backoff timestamp based on a DownloadResult.
+        Returns backoff_seconds_remaining so callers need not re-query.
+        '''
+        error_type = result.status.error_type
+
+        if result.status.success:
+            if self.failure_queue is not None:
+                self.failure_queue.add_item(FailureStatus())
+            # Only set backoff timestamp for youtube (or unknown extractor)
+            extractor = (result.ytdlp_data or {}).get('extractor')
+            if extractor is None or extractor == 'youtube':
+                self._set_wait_timestamp()
+            return self.backoff_seconds_remaining
+
+        if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED, DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
+            if self.failure_queue is not None:
+                self.failure_queue.add_item(FailureStatus(
+                    success=False,
+                    exception_type=error_type.value,
+                    exception_message=result.status.error_detail or '',
+                ))
+                multiplier = 2 ** self.failure_queue.size
+            else:
+                multiplier = 1
+            self._set_wait_timestamp(backoff_multiplier=multiplier)
+            return self.backoff_seconds_remaining
+
+        # Terminal error — minimum wait, no failure item
+        self._set_wait_timestamp()
+        return self.backoff_seconds_remaining
+
+    @property
+    def backoff_seconds_remaining(self) -> int | None:
+        '''
+        Seconds remaining in the current backoff period, or None if no timestamp set.
+        '''
+        if self._wait_timestamp is None:
+            return None
+        return max(0, int(self._wait_timestamp - datetime.now(timezone.utc).timestamp()))
+
+    @property
+    def failure_summary(self) -> str:
+        '''
+        Human-readable summary of the failure queue.
+        '''
+        if self.failure_queue is None:
+            return '0 failures in queue'
+        return self.failure_queue.get_status_summary()
+
+    async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
+        '''
+        Wait until the backoff timestamp elapses or the shutdown event fires.
+
+        Raises ExitEarlyException (imported by caller) if shutdown is signalled.
+        Instead of importing ExitEarlyException here, we re-raise via the caller
+        after returning — callers check shutdown_event themselves after this returns.
+        Actually, we mirror the existing youtube_backoff_time logic: raise on shutdown.
+        We import lazily to avoid circular imports.
+        '''
+        if self._wait_timestamp is None:
+            return
+
+        now = datetime.now(timezone.utc).timestamp()
+        sleep_duration = max(0, self._wait_timestamp - now)
+
+        if shutdown_event.is_set():
+            from discord_bot.exceptions import ExitEarlyException  # pylint:disable=import-outside-toplevel
+            raise ExitEarlyException('Exiting bot wait loop')
+
+        if sleep_duration == 0:
+            return
+
+        try:
+            await asyncio.wait_for(
+                shutdown_event.wait(),
+                timeout=sleep_duration,
+            )
+            from discord_bot.exceptions import ExitEarlyException  # pylint:disable=import-outside-toplevel
+            raise ExitEarlyException('Exiting bot wait loop')
+        except asyncio.TimeoutError:
+            return
 
     def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
         '''
@@ -198,6 +311,9 @@ class DownloadClient():
                         file_path = None
                 except (KeyError, IndexError):
                     file_path = None
+                if file_path is None:
+                    span.set_status(StatusCode.ERROR)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail='No file path returned from download'), media_request=media_request, ytdlp_data=None, file_name=None)
                 # Move file to download dir after finished
                 new_path = self.download_dir / file_path.name
                 # Rename might not work if file on diff filesystem
@@ -214,7 +330,9 @@ class DownloadClient():
 
     async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''
-        Download data from youtube search
+        Download data from youtube search. Automatically calls update_tracking on the result.
         '''
         to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
-        return await loop.run_in_executor(None, to_run)
+        result = await loop.run_in_executor(None, to_run)
+        self.update_tracking(result)
+        return result

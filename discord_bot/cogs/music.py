@@ -29,7 +29,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient, match_generator
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.download import DownloadErrorType
+from discord_bot.types.download import DownloadErrorType, DownloadResult
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -249,9 +249,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.media_broker = MediaBroker(file_dir=self.download_dir, video_cache=self.video_cache)
 
-        # Wait until this timestamp to download next video from youtube
-        self.youtube_download_wait_timestamp: int | None = None
-
         # Multi Request bundles
         self.multirequest_bundles = {}
 
@@ -276,10 +273,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.config.download.enable_audio_processing:
             ytdl.add_post_processor(VideoEditing(), when='post_process')
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
-        self.download_client = DownloadClient(ytdl, self.download_dir)
-        self.download_failure_queue = FailureQueue(
+        failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+        )
+        self.download_client = DownloadClient(
+            ytdl, self.download_dir,
+            failure_queue=failure_queue,
+            wait_period_minimum=self.config.download.youtube_wait_period_minimum,
+            wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -681,44 +683,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             media_request.state_machine.mark_discarded()
         return True
 
-    async def youtube_backoff_time(self):
-        '''
-        Wait for next youtube download time
-        Wait for minimum time plus a random interval, where max is set by max variance
-
-        minimum_wait_time : Wait at least this amount of time
-        max_variance : Max variance to add from random value
-        '''
-        if self.youtube_download_wait_timestamp is None:
-            self.logger.debug('Music:: No youtube backoff timestamp found, continuing')
-            # If no timestamp exists, assume we dont need to wait
-            return True
-
-
-        # Calculate how long to wait
-        now = datetime.now(timezone.utc).timestamp()
-        sleep_duration = max(0, self.youtube_download_wait_timestamp - now)
-
-        # Check if bot is already shutting down before waiting
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Exiting bot wait loop')
-
-        # If backoff period already elapsed, return immediately
-        if sleep_duration == 0:
-            return True
-
-        # Wait for either bot shutdown event OR timeout
-        try:
-            await asyncio.wait_for(
-                self.bot_shutdown_event.wait(),
-                timeout=sleep_duration
-            )
-            # If we get here, the event was set (bot is shutting down)
-            raise ExitEarlyException('Exiting bot wait loop')
-        except asyncio.TimeoutError:
-            # Timeout expired normally - backoff period complete
-            return True
-
     def _on_request_state_change(self, media_request: MediaRequest, _new_stage: MediaRequestLifecycleStage):
         '''
         Fired automatically by MediaRequestStateMachine after every lifecycle transition.
@@ -737,29 +701,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.media_broker.remove(str(media_request.uuid))
         elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
             self.media_broker.remove(str(media_request.uuid))
-
-    def update_download_timestamp(self, media_download: MediaDownload = None,
-                                  backoff_multiplier: int = 1) -> bool:
-        '''
-        Update the download lockfile
-
-        media_download : Media Download
-        backoff_multiplier: Multiply backoff time by factor
-
-        '''
-        if media_download and media_download.extractor != 'youtube':
-            self.logger.info(f'Media Download does not exist of does not have youtube media, download: "{str(media_download)}"')
-            return False
-        new_timestamp = int(datetime.now(timezone.utc).timestamp())
-        new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
-        # Use millisecond variance to add some extra randomness
-        # https://stackoverflow.com/a/51295230
-        # Use timestamp to set a bit more random variance
-        random.seed(time())
-        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
-        self.logger.info(f'Waiting on backoff in youtube, waiting until {new_timestamp}')
-        self.youtube_download_wait_timestamp = new_timestamp
-        return True
 
     def update_youtube_music_timestamp(self, backoff_multiplier: int = 1) -> bool:
         '''
@@ -799,6 +740,39 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             raise ExitEarlyException('Exiting bot wait loop')
         except asyncio.TimeoutError:
             return True
+
+    async def _handle_download_failure(
+        self,
+        result: DownloadResult,
+        media_request: MediaRequest,
+    ) -> bool:
+        '''
+        Route a non-success DownloadResult: update tracking, retry or permanently fail.
+        Returns False if the error should be marked as a span error, True otherwise.
+        '''
+        error_type = result.status.error_type
+        error_detail = result.status.error_detail or ''
+
+        if error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED:
+            self.logger.warning(f'Hit retry limit on "{str(media_request)}", {error_detail}')
+            await self.__return_bad_video(media_request, result.status.user_message)
+            return False
+
+        if error_type in {DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
+            result.media_request.download_retry_information.retry_count += 1
+            backoff_seconds = self.download_client.backoff_seconds_remaining
+            self.logger.info(f'Retryable error on "{str(media_request)}": "{error_detail}"')
+            self.logger.info(f'Failure queue: {self.download_client.failure_summary}')
+            if backoff_seconds:
+                self.logger.info(f'Waiting {backoff_seconds}s for next download')
+            self.download_queue.put_nowait(media_request.guild_id, media_request)
+            media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
+            return True
+
+        # Terminal error
+        self.logger.info(f'Terminal error on "{str(media_request)}": {error_detail}')
+        await self.__return_bad_video(media_request, result.status.user_message)
+        return True
 
     async def download_files(self): #pylint:disable=too-many-statements
         '''
@@ -840,7 +814,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 media_request.state_machine.mark_backoff()
                 # Make sure we wait for next video download
                 # Dont spam the video client
-                await self.youtube_backoff_time()
+                await self.download_client.backoff_wait(self.bot_shutdown_event)
                 # Re-check player after backoff: guild may have disconnected while we were waiting
                 if not is_playlist_add and (not player or player not in self.players.values()):
                     self.logger.info(f'Player gone after backoff for guild {media_request.guild_id}, discarding "{str(media_request)}"')
@@ -849,46 +823,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Update bundle to show in progress
                 media_request.state_machine.mark_in_progress()
                 result = await self.download_client.create_source(media_request,
-                                                                          self.config.download.max_download_retries,
-                                                                          self.bot.loop)
+                                                                  self.config.download.max_download_retries,
+                                                                  self.bot.loop)
                 if not result.status.success:
-                    error_type = result.status.error_type
-                    error_detail = result.status.error_detail or ''
-                    if error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED:
-                        self.logger.warning(f'Hit retry limit on media request "{str(media_request)}", {error_detail}')
-                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
-                                                                            exception_message=error_detail))
-                        self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                        await self.__return_bad_video(media_request, result.status.user_message)
-                        span.set_status(StatusCode.ERROR)
-                    elif error_type in {DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
-                        result.media_request.download_retry_information.retry_count += 1
-                        self.logger.info(f'Retryable exception hit on media request "{str(media_request)}", error: "{error_detail}"')
-                        self.download_failure_queue.add_item(FailureStatus(success=False, exception_type=error_type.value,
-                                                                            exception_message=error_detail))
-                        self.logger.info(f'Download failure queue status: {self.download_failure_queue.get_status_summary()}')
-                        # Apply extra backoff for number of failures found
-                        # Do some exponential backoff as well since this tends to be pretty agressive
-                        self.update_download_timestamp(backoff_multiplier=2 ** self.download_failure_queue.size)
-                        # Calculate approximate backoff duration for user notification
-                        backoff_seconds = None
-                        if self.youtube_download_wait_timestamp:
-                            backoff_seconds = int(self.youtube_download_wait_timestamp - datetime.now(timezone.utc).timestamp())
-                            backoff_seconds = max(0, backoff_seconds)  # Don't show negative values
-                            self.logger.info(f'Waiting {backoff_seconds} seconds for next download')
-                        self.download_queue.put_nowait(media_request.guild_id, media_request)
-                        media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
-                        span.set_status(StatusCode.OK)
-                    else:
-                        # Terminal error - known permanent failure (age restricted, private, etc.)
-                        # Don't track in failure queue as these aren't transient issues
-                        self.logger.info(f'Terminal error while downloading video "{str(media_request)}", {error_detail}')
-                        self.update_download_timestamp()
-                        await self.__return_bad_video(media_request, result.status.user_message)
-                        span.set_status(StatusCode.OK)
+                    failure_result = await self._handle_download_failure(result, media_request)
+                    span.set_status(StatusCode.ERROR if not failure_result else StatusCode.OK)
                     return
                 self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
-                self.download_failure_queue.add_item(FailureStatus())
                 if isinstance(media_request, PlaylistAddRequest):
                     data = result.ytdlp_data
                     if not data:
@@ -900,12 +841,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         title=data.get('title', ''),
                         uploader=data.get('uploader', ''),
                     )
-                    self.update_download_timestamp()
                     span.set_status(StatusCode.OK)
                     await self.__add_playlist_item(media_request, playlist_result)
                     return
                 media_download = self.media_broker.register_download_result(result)
-                self.update_download_timestamp(media_download=media_download)
 
             # Cache hit path for playlist add: media_download came from check_cache above;
             # download path for playlist add returns early before reaching here.

@@ -13,6 +13,7 @@ from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music import VideoEditing
@@ -50,42 +51,64 @@ def yield_fake_search_client(media_request: MediaRequest = None):
 
 def yield_fake_download_client(media_download: MediaDownload):
 
-    class FakeDownloadClient():
-        def __init__(self, *_args, **_kwargs):
-            pass
+    class FakeDownloadClient(DownloadClient):
+        def __init__(self, *_args, **kwargs):
+            super().__init__(
+                None, None,
+                failure_queue=kwargs.get('failure_queue'),
+                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
+                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+            )
 
         async def create_source(self, media_request, *_args, **_kwargs):
             if media_download is None:
-                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='No result'), media_request=media_request, ytdlp_data=None, file_name=None)
-            ytdlp_data = {
-                'id': media_download.id,
-                'title': media_download.title,
-                'webpage_url': media_download.webpage_url,
-                'uploader': media_download.uploader,
-                'duration': media_download.duration,
-                'extractor': media_download.extractor,
-            }
-            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=ytdlp_data, file_name=media_download.file_path)
+                result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='No result'), media_request=media_request, ytdlp_data=None, file_name=None)
+            else:
+                ytdlp_data = {
+                    'id': media_download.id,
+                    'title': media_download.title,
+                    'webpage_url': media_download.webpage_url,
+                    'uploader': media_download.uploader,
+                    'duration': media_download.duration,
+                    'extractor': media_download.extractor,
+                }
+                result = DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=ytdlp_data, file_name=media_download.file_path)
+            self.update_tracking(result)
+            return result
 
     return FakeDownloadClient
 
 def yield_download_client_download_exception():
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.backoff_seconds_remaining = None
+            self.failure_summary = '0 failures in queue'
 
         async def create_source(self, media_request, *_args, **_kwargs):
             return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
+
+        def update_tracking(self, _result):
+            pass
+
+        async def backoff_wait(self, _shutdown_event):
+            pass
 
     return FakeDownloadClient
 
 def yield_download_client_download_error():
     class FakeDownloadClient():
         def __init__(self, *_args, **_kwargs):
-            pass
+            self.backoff_seconds_remaining = None
+            self.failure_summary = '0 failures in queue'
 
         async def create_source(self, media_request, *_args, **_kwargs):
             return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
+
+        def update_tracking(self, _result):
+            pass
+
+        async def backoff_wait(self, _shutdown_event):
+            pass
 
     return FakeDownloadClient
 
