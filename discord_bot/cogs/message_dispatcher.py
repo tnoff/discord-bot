@@ -39,7 +39,6 @@ class MessageContext:
     message: Message | None = None
     message_content: str | None = None
     delete_after: int | None = None
-    function: Callable | None = None
 
     def set_message(self, message: Message):
         '''Set the Discord message object after it has been sent.'''
@@ -119,7 +118,6 @@ class MessageMutableBundle:
                 mc.message_content = content
                 mc.delete_after = delete_after
                 send_func = partial(send_function, content=content, delete_after=delete_after)
-                mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
             return dispatch_functions
@@ -141,7 +139,6 @@ class MessageMutableBundle:
                     delete_count += 1
                     continue
                 edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
-                item.function = edit_func
                 item.delete_after = delete_after
                 item.message_content = message_content[index]
                 dispatch_functions.append(edit_func)
@@ -156,7 +153,6 @@ class MessageMutableBundle:
                 new_contexts.append(item)
                 continue
             edit_func = partial(item.edit_message, content=message_content[index], delete_after=delete_after)
-            item.function = edit_func
             item.delete_after = delete_after
             item.message_content = message_content[index]
             dispatch_functions.append(edit_func)
@@ -170,7 +166,6 @@ class MessageMutableBundle:
                 mc.message_content = content
                 mc.delete_after = delete_after
                 send_func = partial(send_function, content=content, delete_after=delete_after)
-                mc.function = send_func
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
 
