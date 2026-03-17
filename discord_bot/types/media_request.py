@@ -4,7 +4,6 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from dappertable import DapperTable, PaginationLength, shorten_string
-from discord import TextChannel
 from pydantic import BaseModel, Field, PrivateAttr
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
@@ -222,10 +221,9 @@ class MultiMediaRequestBundle():
     '''
     Bundle of multiple media requests
     '''
-    def __init__(self, guild_id: int, channel_id: int, text_channel: TextChannel, pagination_length: int = DISCORD_MAX_MESSAGE_LENGTH):
+    def __init__(self, guild_id: int, channel_id: int, pagination_length: int = DISCORD_MAX_MESSAGE_LENGTH):
         self.guild_id: int = guild_id
         self.channel_id: int = channel_id
-        self.text_channel: TextChannel = text_channel
         self.uuid: str = f'request.bundle.{uuid4()}'
         self.pagination_length: int = pagination_length
 

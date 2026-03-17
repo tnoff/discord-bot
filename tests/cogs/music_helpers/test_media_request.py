@@ -31,7 +31,7 @@ def test_media_request_display_name_used_in_bundle_rows(fake_context):  #pylint:
     """proper_name is shown in bundle table rows instead of raw search string"""
     x = fake_source_dict(fake_context)
     x.search_result.proper_name = 'Override Title'
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_initial_search('playlist')
     b.add_media_request(x)
     b.all_requests_added()
@@ -62,7 +62,7 @@ async def test_media_request_retry_count_increments(fake_context): #pylint:disab
 @pytest.mark.asyncio
 async def test_media_request_bundle_single(fake_context): #pylint:disable=redefined-outer-name
     x = fake_source_dict(fake_context)
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_initial_search(x.search_result.raw_search_string)
     b.add_media_request(x)
     b.all_requests_added()
@@ -81,7 +81,7 @@ async def test_media_request_bundle(fake_context): #pylint:disable=redefined-out
     y = fake_source_dict(fake_context)
     z = fake_source_dict(fake_context)
 
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_multi_input_request(multi_input_string)
     b.add_media_request(x)
     b.add_media_request(y)
@@ -138,7 +138,7 @@ async def test_media_request_bundle_retry_lifecycle(fake_context): #pylint:disab
     y = fake_source_dict(fake_context)
     z = fake_source_dict(fake_context)
 
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_multi_input_request('https://foo.example.com/playlist')
     b.add_media_request(x)
     b.add_media_request(y)
@@ -185,7 +185,7 @@ async def test_media_request_bundle_shutdown(fake_context): #pylint:disable=rede
     x = fake_source_dict(fake_context)
     y = fake_source_dict(fake_context)
 
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_initial_search("test search")
     b.add_media_request(x)
     b.add_media_request(y)
@@ -209,7 +209,7 @@ async def test_media_request_bundle_shutdown_single_item(fake_context): #pylint:
     """Test shutdown behavior with single item bundle"""
     x = fake_source_dict(fake_context)
 
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     b.set_initial_search(x.search_result.raw_search_string)
     b.add_media_request(x)
     b.all_requests_added()
@@ -225,7 +225,7 @@ async def test_media_request_bundle_shutdown_single_item(fake_context): #pylint:
 @pytest.mark.asyncio
 async def test_media_request_bundle_shutdown_initialization(fake_context): #pylint:disable=redefined-outer-name
     """Test that bundle starts with shutdown=False"""
-    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    b = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Should start as not shutdown
     assert b.is_shutdown is False
@@ -244,7 +244,6 @@ def media_request_bundle(fake_context):  #pylint:disable=redefined-outer-name
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel']
     )
     # Set the enqueued flag directly - no table rows exist, so all_requests_added() would fail
     bundle.all_requests_enqueued = True
@@ -566,7 +565,7 @@ def test_chunk_list_edge_cases():
 
 def test_bundle_override_message_functionality(fake_context):  #pylint:disable=redefined-outer-name
     """Test FAILED status shows 'Media request failed download' row, failure_reason via get_failure_summary()"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Add request
     req = fake_source_dict(fake_context)
@@ -590,9 +589,9 @@ def test_bundle_override_message_functionality(fake_context):  #pylint:disable=r
     assert "Original failure" in '\n'.join(summary)
 
 
-def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-outer-name
+def test_bundle_empty_message_list():
     """Test bundle when all items are completed/discarded (empty message list)"""
-    bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(123, 456)
 
     # Add request that will be completed (shouldn't appear in messages)
     req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
@@ -606,9 +605,9 @@ def test_bundle_empty_message_list(fake_context):  #pylint:disable=redefined-out
     assert not messages
 
 
-def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=redefined-outer-name
+def test_bundle_single_item_no_status_header():
     """Test that single-item bundles don't include status header"""
-    bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(123, 456)
 
     # Add single failed request
     req = MediaRequest(guild_id=123, channel_id=456, requester_name="user", requester_id=1, search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string="search"))
@@ -633,7 +632,7 @@ def test_bundle_single_item_no_status_header(fake_context):  #pylint:disable=red
 
 def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:disable=redefined-outer-name
     """Test that multi-item bundles include status header"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.set_multi_input_request("test-playlist")
 
     # Add multiple requests
@@ -659,7 +658,7 @@ def test_bundle_multiple_items_includes_status_header(fake_context):  #pylint:di
 
 def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=redefined-outer-name
     """Test the new finished_successfully property behavior"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Empty bundle is considered "finished successfully" (0 == 0)
     assert bundle.finished_successfully
@@ -691,7 +690,7 @@ def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=r
     assert not bundle.finished_successfully
 
     # Test scenario where all are completed or discarded (no failures)
-    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     req4 = fake_source_dict(fake_context)
     req5 = fake_source_dict(fake_context)
     bundle2.add_media_request(req4)
@@ -705,19 +704,15 @@ def test_bundle_finished_successfully_property(fake_context):  #pylint:disable=r
     assert bundle2.finished_successfully
 
 
-def test_bundle_text_channel_parameter_storage(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that text_channel parameter is properly stored in bundle"""
-    test_channel = fake_context['channel']
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, test_channel)
-
-    # Verify text_channel is stored
-    assert bundle.text_channel == test_channel
-    assert bundle.text_channel.id == fake_context['channel'].id
+def test_bundle_channel_id_stored(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that channel_id is stored on the bundle."""
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    assert bundle.channel_id == fake_context['channel'].id
 
 
 def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefined-outer-name
     """Test new completion messaging in bundle print method"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.set_multi_input_request("test-playlist")
 
     # Add multiple requests to trigger multi-item messaging
@@ -747,7 +742,7 @@ def test_bundle_print_completion_messages(fake_context):  #pylint:disable=redefi
 
 def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefined-outer-name
     """Test URL formatting with angle brackets in bundle print"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Test URL gets wrapped in angle brackets
     bundle.set_initial_search("https://example.com/playlist")
@@ -755,7 +750,7 @@ def test_bundle_url_formatting_in_print(fake_context):  #pylint:disable=redefine
     full_message = "\n".join(messages)
     assert "<https://example.com/playlist>" in full_message
 
-    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle2.set_multi_input_request('My Playlist')
     req1 = fake_source_dict(fake_context)
     req2 = fake_source_dict(fake_context)
@@ -776,7 +771,6 @@ def test_bundle_pagination_length_parameter(fake_context):  #pylint:disable=rede
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
         pagination_length=custom_length
     )
 
@@ -786,8 +780,7 @@ def test_bundle_pagination_length_parameter(fake_context):  #pylint:disable=rede
     # Verify default value
     default_bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
     assert default_bundle.pagination_length == DISCORD_MAX_MESSAGE_LENGTH
 
@@ -798,7 +791,6 @@ def test_bundle_pagination_length_creates_multiple_pages(fake_context):  #pylint
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
         pagination_length=100  # Very short to trigger pagination
     )
     bundle.set_multi_input_request("test-playlist")
@@ -832,7 +824,6 @@ def test_bundle_completed_items_removed_from_output(fake_context):  #pylint:disa
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
         pagination_length=150  # Short enough to create pagination
     )
     bundle.set_initial_search("test-playlist")
@@ -879,7 +870,6 @@ def test_bundle_pagination_stability_with_completions(fake_context):  #pylint:di
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
         pagination_length=200  # Create multiple pages
     )
     bundle.set_initial_search("test-playlist")
@@ -918,8 +908,7 @@ def test_bundle_ready_for_print_during_search_phase(fake_context):  #pylint:disa
     """Test that bundle is ready_for_print during search phase before any media requests are added"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     # Initially, bundle has no search and no requests
@@ -957,8 +946,7 @@ def test_media_request_bundle_failure_reason_not_in_row(fake_context):  #pylint:
     """Test that failure reasons are not included in the table row to keep messages short"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1120,8 +1108,7 @@ def test_media_request_bundle_get_failure_summary(fake_context):  #pylint:disabl
     """Test that get_failure_summary returns error details"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     # Add multiple requests
@@ -1161,8 +1148,7 @@ def test_media_request_bundle_get_failure_summary_no_duplicates(fake_context):  
     """Test that get_failure_summary only returns each failure once"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1189,8 +1175,7 @@ def test_media_request_bundle_get_failure_summary_none_when_no_failures(fake_con
     """Test that get_failure_summary returns None when there are no failures"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1211,8 +1196,7 @@ def test_media_request_bundle_failure_summary_incremental(fake_context):  #pylin
     """Test that get_failure_summary can be called multiple times as failures accumulate"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1247,8 +1231,7 @@ def test_media_request_bundle_get_failure_summary_with_none_reason(fake_context)
     """Test that get_failure_summary ignores failed requests with None failure_reason"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1278,8 +1261,7 @@ def test_media_request_bundle_get_failure_summary_with_empty_reason(fake_context
     """Test that get_failure_summary ignores failed requests with empty string failure_reason"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1309,8 +1291,7 @@ def test_media_request_bundle_get_failure_summary_all_failures_without_reasons(f
     """Test that get_failure_summary returns None when all failures lack reasons"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1336,8 +1317,7 @@ def test_media_request_bundle_get_failure_summary_empty_bundle(fake_context):  #
     """Test that get_failure_summary returns None for an empty bundle"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     bundle.set_initial_search('test search')
@@ -1355,8 +1335,7 @@ def test_media_request_bundle_get_retry_summary_basic(fake_context):  #pylint:di
     """Test basic get_retry_summary functionality"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1384,8 +1363,7 @@ def test_media_request_bundle_get_retry_summary_with_backoff(fake_context):  #py
     """Test get_retry_summary includes backoff time"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1409,8 +1387,7 @@ def test_media_request_bundle_get_retry_summary_backoff_seconds(fake_context):  
     """Test get_retry_summary shows seconds for short backoff"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1434,8 +1411,7 @@ def test_media_request_bundle_get_retry_summary_backoff_singular_minute(fake_con
     """Test get_retry_summary uses singular 'minute' for 1 minute"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1460,8 +1436,7 @@ def test_media_request_bundle_get_retry_summary_no_duplicates(fake_context):  #p
     """Test that get_retry_summary only returns each retry once"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1488,8 +1463,7 @@ def test_media_request_bundle_get_retry_summary_none_when_no_retries(fake_contex
     """Test that get_retry_summary returns None when there are no retries"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1510,8 +1484,7 @@ def test_media_request_bundle_get_retry_summary_multiple_retries(fake_context): 
     """Test get_retry_summary with multiple retrying requests"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1548,8 +1521,7 @@ def test_media_request_bundle_get_retry_summary_with_none_reason(fake_context): 
     """Test that get_retry_summary ignores retries with None retry_reason"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1579,8 +1551,7 @@ def test_media_request_bundle_get_retry_summary_empty_bundle(fake_context):  #py
     """Test that get_retry_summary returns None for an empty bundle"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     bundle.set_initial_search('test search')
@@ -1595,8 +1566,7 @@ def test_media_request_bundle_get_retry_summary_truncates_long_reason(fake_conte
     """Test that get_retry_summary truncates very long error messages"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     media_request = fake_source_dict(fake_context)
@@ -1625,8 +1595,7 @@ def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pyl
     """Test that get_retry_summary can be called multiple times as retries accumulate"""
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
-        fake_context['channel'].id,
-        fake_context['channel']
+        fake_context['channel'].id
     )
 
     req1 = fake_source_dict(fake_context)
@@ -1656,3 +1625,47 @@ def test_media_request_bundle_get_retry_summary_incremental(fake_context):  #pyl
     # Should only contain the new retry
     assert 'Error 1' not in summary2[0]
     assert 'Error 2' in summary2[0]
+
+
+def test_edit_search_banner_no_op_when_no_banner(fake_context):  #pylint:disable=redefined-outer-name
+    """_edit_search_banner returns early when has_search_banner is False"""
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    assert not bundle.has_search_banner
+    # Should return without raising or modifying anything
+    bundle._edit_search_banner('updated message')  #pylint:disable=protected-access
+    assert not bundle.has_search_banner
+
+
+def test_update_request_status_retry_search(fake_context):  #pylint:disable=redefined-outer-name
+    """update_request_status handles RETRY_SEARCH stage and edits the row"""
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    req = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    req.lifecycle_stage = MediaRequestLifecycleStage.RETRY_SEARCH
+    bundle.update_request_status()
+
+    result = bundle.print()
+    assert any('will retry' in page for page in result)
+
+
+def test_get_retry_summary_retry_search(fake_context):  #pylint:disable=redefined-outer-name
+    """get_retry_summary uses youtube_music_retry_information for RETRY_SEARCH requests"""
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    req = fake_source_dict(fake_context)
+    bundle.set_initial_search('test search')
+    bundle.add_media_request(req)
+    bundle.all_requests_added()
+
+    req.lifecycle_stage = MediaRequestLifecycleStage.RETRY_SEARCH
+    req.youtube_music_retry_information.retry_reason = '429 rate limit'
+    req.youtube_music_retry_information.retry_count = 1
+
+    summary = bundle.get_retry_summary(download_max_retries=3, search_max_retries=5)
+
+    assert summary is not None
+    assert len(summary) == 1
+    assert '429 rate limit' in summary[0]
+    assert 'attempt 1/5' in summary[0]
