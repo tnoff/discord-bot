@@ -223,6 +223,17 @@ music:
       max_cache_files: 2048
 ```
 
+You can also set a total disk size budget (in megabytes). When the cache exceeds this size, the oldest entries are evicted first until the total is within budget.
+
+```
+music:
+  download:
+    cache:
+      max_cache_size_mb: 10240
+```
+
+Both limits can be used together; each evicts independently and the effects compose.
+
 Here is a diagram of how the layers of caching interact with each other:
 
 

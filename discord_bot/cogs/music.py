@@ -96,6 +96,7 @@ class MusicCacheConfig(BaseModel):
     '''Music cache configuration'''
     enable_cache_files: bool = False
     max_cache_files: int = Field(default=2048, ge=1)
+    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
@@ -242,6 +243,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.video_cache = VideoCacheClient(
                 self.config.download.cache.max_cache_files,
                 partial(self.with_db_session),
+                max_cache_size_bytes=(
+                    self.config.download.cache.max_cache_size_mb * 1024 * 1024
+                    if self.config.download.cache.max_cache_size_mb else None
+                ),
             )
 
         self.media_broker = MediaBroker(

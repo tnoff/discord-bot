@@ -331,6 +331,7 @@ class DownloadClient():
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail=f'File not found after download: {file_path}'), media_request=media_request, ytdlp_data=None, file_name=None)
+                file_size_bytes = file_path.stat().st_size
                 # Upload to S3 immediately when configured; local staging file is deleted
                 # and file_name in the result becomes the S3 object key
                 if self.bucket_name:
@@ -339,7 +340,7 @@ class DownloadClient():
                     file_path.unlink()
                     file_path = Path(s3_key)
             span.set_status(StatusCode.OK)
-            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path)
+            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None)
 
     async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''

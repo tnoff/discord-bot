@@ -31,6 +31,7 @@ class MediaDownload():
 
     # Other fields
     uuid: str = field(init=False)
+    file_size_bytes: int | None = field(default=None)
 
     def __post_init__(self, ytdl_data: dict):
         '''

@@ -89,6 +89,7 @@ class VideoCache(BASE):
     created_at = Column(DateTime)
     count = Column(Integer)
     ready_for_deletion = Column(Boolean)
+    file_size_bytes = Column(Integer, nullable=True)
     # File paths
     base_path = Column(String(2048))
 

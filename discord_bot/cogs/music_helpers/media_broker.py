@@ -78,6 +78,7 @@ class MediaBroker:
         Create a MediaDownload from a successful DownloadResult and register it.
         '''
         media_download = MediaDownload(result.file_name, result.ytdlp_data, result.media_request)
+        media_download.file_size_bytes = result.file_size_bytes
         self.register_download(media_download)
         return media_download
 

@@ -25,9 +25,10 @@ class VideoCacheClient():
     policy). VideoCache.base_path holds the S3 object key. All S3 file
     operations are handled by MediaBroker.
     '''
-    def __init__(self, max_cache_files: int, session_generator: Callable):
+    def __init__(self, max_cache_files: int, session_generator: Callable, max_cache_size_bytes: int | None = None):
         self.max_cache_files: int = max_cache_files
         self.session_generator: Callable = session_generator
+        self.max_cache_size_bytes: int | None = max_cache_size_bytes
 
     def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
@@ -56,6 +57,7 @@ class VideoCacheClient():
                     base_path=str(media_download.file_path),
                     count=1,
                     ready_for_deletion=False,
+                    file_size_bytes=media_download.file_size_bytes,
                 )
                 db_session.add(cache_item)
                 retry_database_commands(db_session, partial(run_commit, db_session))
@@ -70,7 +72,9 @@ class VideoCacheClient():
             'extractor': video_cache.extractor,
             'webpage_url': video_cache.video_url,
         }
-        return MediaDownload(Path(str(video_cache.base_path)), ytdlp_data, media_request, cache_hit=True)
+        md = MediaDownload(Path(str(video_cache.base_path)), ytdlp_data, media_request, cache_hit=True)
+        md.file_size_bytes = video_cache.file_size_bytes
+        return md
 
     def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
         '''
@@ -115,10 +119,15 @@ class VideoCacheClient():
             with self.session_generator() as db_session:
                 cache_count = retry_database_commands(db_session, partial(database_functions.count_video_cache, db_session))
                 num_to_remove = cache_count - self.max_cache_files
-                if num_to_remove < 1:
-                    return True
-                retry_database_commands(db_session, partial(database_functions.video_cache_mark_deletion, db_session, num_to_remove))
-                return True
+                if num_to_remove >= 1:
+                    retry_database_commands(db_session, partial(database_functions.video_cache_mark_deletion, db_session, num_to_remove))
+            if self.max_cache_size_bytes is not None:
+                with self.session_generator() as db_session:
+                    retry_database_commands(db_session, partial(
+                        database_functions.video_cache_mark_deletion_for_size,
+                        db_session, self.max_cache_size_bytes
+                    ))
+            return True
 
     def get_deletable_entries(self) -> list:
         '''
