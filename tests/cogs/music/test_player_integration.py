@@ -1,3 +1,4 @@
+from asyncio import QueueFull
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
@@ -147,3 +148,74 @@ async def test_player_queue_management(mocker, fake_context):  # pylint: disable
             # Check that the source is retrievable
             queue_items = player.get_queue_items()
             assert queue_items[0].webpage_url == media_download.webpage_url  # pylint: disable=no-member
+
+
+@pytest.mark.asyncio
+async def test_add_source_to_player_queue_full(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """add_source_to_player returns False when the play queue is full."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'add_to_play_queue', side_effect=QueueFull())
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
+            result = await cog.add_source_to_player(media_download, player)
+            assert result is False
+
+
+@pytest.mark.asyncio
+async def test_cog_load_creates_background_tasks(fake_context):  # pylint: disable=redefined-outer-name
+    """cog_load sets up the dispatcher and creates background loop tasks."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    # Provide a real (or mock) event loop so create_task doesn't fail
+    loop_mock = MagicMock()
+    loop_mock.create_task = MagicMock(return_value=MagicMock())
+    fake_context['bot'].loop = loop_mock
+    # get_cog returns a fake dispatcher
+    fake_context['bot'].get_cog = MagicMock(return_value=MagicMock())
+
+    await cog.cog_load()
+
+    assert loop_mock.create_task.call_count >= 3  # cleanup, download, youtube_search
+
+
+@pytest.mark.asyncio
+async def test_cog_load_with_db_engine_creates_post_play_task(fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+    """cog_load creates the post_play_processing task when db_engine is set."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    loop_mock = MagicMock()
+    loop_mock.create_task = MagicMock(return_value=MagicMock())
+    fake_context['bot'].loop = loop_mock
+    fake_context['bot'].get_cog = MagicMock(return_value=MagicMock())
+
+    await cog.cog_load()
+
+    # With db_engine set, 4 tasks: cleanup, download, youtube_search, post_play_processing
+    assert loop_mock.create_task.call_count >= 4
+
+
+@pytest.mark.asyncio
+async def test_add_source_to_player_queue_full_with_bundle(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """add_source_to_player sets failure_reason on the bundle when queue is full."""
+    from discord_bot.types.media_request import MultiMediaRequestBundle  # pylint: disable=import-outside-toplevel
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    mocker.patch.object(player, 'add_to_play_queue', side_effect=QueueFull())
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
+            # Register a bundle and link it to the media request
+            bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+            bundle.set_initial_search('test')
+            cog.multirequest_bundles[bundle.uuid] = bundle
+            bundle.add_media_request(media_download.media_request)
+            # bundle_uuid is now set on the media_request
+            result = await cog.add_source_to_player(media_download, player)
+            assert result is False
+            assert media_download.media_request.failure_reason is not None

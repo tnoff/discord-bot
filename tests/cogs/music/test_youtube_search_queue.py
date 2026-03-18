@@ -1,5 +1,6 @@
 import asyncio
 from asyncio import QueueFull
+from datetime import datetime, timezone
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
@@ -1030,3 +1031,56 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
 
     # Successful search should remove one failure from the queue
     assert cog.youtube_music_failure_queue.size == 1
+
+
+# ---------------------------------------------------------------------------
+# youtube_music_backoff_time
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_youtube_backoff_time_expired_returns_true(fake_context):  # pylint: disable=redefined-outer-name
+    """youtube_music_backoff_time returns True immediately when timestamp is in the past."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    # Set timestamp to the past (now - 100 seconds)
+    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() - 100
+    result = await cog.youtube_music_backoff_time()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_youtube_backoff_time_shutdown_raises(fake_context):  # pylint: disable=redefined-outer-name
+    """youtube_music_backoff_time raises ExitEarlyException when shutdown is set."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    # Set timestamp to the future
+    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+    cog.bot_shutdown_event.set()
+    with pytest.raises(ExitEarlyException):
+        await cog.youtube_music_backoff_time()
+
+
+@pytest.mark.asyncio
+async def test_youtube_backoff_time_waits_until_timeout(fake_context):  # pylint: disable=redefined-outer-name
+    """youtube_music_backoff_time waits for the event and returns True when it times out."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    # Set timestamp to just slightly in the future (tiny wait)
+    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 0.05
+    # bot_shutdown NOT set → wait_for will time out → returns True
+    result = await cog.youtube_music_backoff_time()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_youtube_backoff_time_raises_when_event_set_during_wait(fake_context):  # pylint: disable=redefined-outer-name
+    """youtube_music_backoff_time raises ExitEarlyException when shutdown is set during wait."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    # Set timestamp far in the future so wait_for won't time out before the event fires
+    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+
+    async def _set_event_soon():
+        await asyncio.sleep(0.02)
+        cog.bot_shutdown_event.set()
+
+    asyncio.ensure_future(_set_event_soon())
+
+    with pytest.raises(ExitEarlyException):
+        await cog.youtube_music_backoff_time()

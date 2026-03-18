@@ -4,6 +4,7 @@ import pytest
 
 from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
 from discord_bot.cogs.music import Music
+from discord_bot.exceptions import ExitEarlyException
 
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
@@ -76,3 +77,42 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
                 assert analytics is not None
                 assert analytics.total_plays == 2
                 assert analytics.total_duration_seconds == sd.duration + sd2.duration #pylint:disable=no-member
+
+
+@pytest.mark.asyncio
+async def test_post_play_processing_empty_queue_returns_early(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+    """post_play_processing returns early when queue is empty and bot is not shutting down."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    # Empty queue, no shutdown → should just return at line 459
+    await cog.post_play_processing()
+
+
+@pytest.mark.asyncio
+async def test_post_play_processing_empty_queue_bot_shutdown(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+    """post_play_processing raises ExitEarlyException when queue is empty and shutdown is set."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    cog.bot_shutdown_event.set()
+    with pytest.raises(ExitEarlyException):
+        await cog.post_play_processing()
+
+
+@pytest.mark.asyncio
+async def test_post_play_processing_added_from_history(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+    """post_play_processing skips history DB insert when added_from_history is True."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
+            # Mark the request as added_from_history
+            sd.media_request.added_from_history = True
+            cog.history_playlist_queue.put_nowait(
+                HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd)
+            )
+            await cog.post_play_processing()
+            # No playlist item should have been created
+            with mock_session(fake_engine) as session:
+                assert session.query(PlaylistItem).count() == 0
