@@ -1196,3 +1196,569 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
 
                 # Message should mention "Channel History" not the database playlist name
                 # This is set by the special is_history logic
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_playlist_group_no_subcommand(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist group fires 'Invalid sub command' when invoked without a subcommand"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    fake_context['context'].invoked_subcommand = None
+    await cog.playlist.callback(cog, fake_context['context'])
+    assert 'Invalid sub command' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_create_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_create returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='test')
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_list_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_list returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_list.callback(cog, fake_context['context'])
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_list_no_playlists(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_list sends 'No playlists in database' when DB is empty"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_list.callback(cog, fake_context['context'])
+    assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_list_with_last_queued(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_list formats last_queued date when set on a playlist"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='dated-playlist')
+    with mock_session(fake_engine) as db_session:
+        p = db_session.query(Playlist).filter_by(is_history=False).first()
+        p.last_queued = datetime(2024, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+        db_session.commit()
+    cog.dispatcher.reset_mock()
+    await cog.playlist_list.callback(cog, fake_context['context'])
+    output = cog.dispatcher.send_message.call_args[0][2]
+    assert '2024-06-15 12:00:00' in output
+
+
+@pytest.mark.asyncio
+async def test_get_history_playlist_existing(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__get_history_playlist returns existing id on second call without creating a new one"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    # pylint: disable=protected-access
+    playlist_id1 = cog._Music__get_history_playlist(fake_context['guild'].id)
+    playlist_id2 = cog._Music__get_history_playlist(fake_context['guild'].id)
+    assert playlist_id1 == playlist_id2
+    with mock_session(fake_engine) as db_session:
+        assert db_session.query(Playlist).filter_by(is_history=True).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_get_playlist_invalid_string_index(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__get_playlist sends error message and returns (None, False) for non-numeric index"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    # pylint: disable=protected-access
+    result = await cog._Music__get_playlist('abc', fake_context['context'])
+    assert result == (None, False)
+    assert 'Invalid playlist index abc' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_get_playlist_no_playlists_in_database(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__get_playlist sends 'No playlists in database' when index>0 and DB is empty"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    # pylint: disable=protected-access
+    result = await cog._Music__get_playlist(1, fake_context['context'])
+    assert result == (None, False)
+    assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_get_playlist_history_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__get_playlist sends 'Invalid playlist index 0' when index=0 and no history playlist"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    # pylint: disable=protected-access
+    result = await cog._Music__get_playlist(0, fake_context['context'])
+    assert result == (None, False)
+    assert 'Invalid playlist index 0' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_remove_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_remove returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_remove_playlist_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_remove returns when __get_playlist returns None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
+    # __get_playlist sends "No playlists in database"; item_remove returns without further message
+    assert cog.dispatcher.send_message.call_count == 1
+    assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_remove_invalid_video_index(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_remove sends error when video_index cannot be cast to int"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 'abc')
+    assert 'Invalid item index abc' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_remove_negative_video_index(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_remove sends error when video_index < 1"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 0)
+    assert 'Invalid item index 0' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_remove_item_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_remove sends 'Unable to find item' when no item at that index"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
+    assert 'Unable to find item 1' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_show_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_show returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_show.callback(cog, fake_context['context'], 1)
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_show_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_show returns when __get_playlist returns None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_show.callback(cog, fake_context['context'], 1)
+    assert cog.dispatcher.send_message.call_count == 1
+    assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_delete_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_delete returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_delete.callback(cog, fake_context['context'], 1)
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_delete_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_delete sends explicit 'Cannot delete' message when playlist not found"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_delete.callback(cog, fake_context['context'], 1)
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('Cannot delete playlist' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_rename_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_rename returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_rename.callback(cog, fake_context['context'], 1, playlist_name='new')
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_rename_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_rename returns None when playlist_id not found and not history"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_rename.callback(cog, fake_context['context'], 1, playlist_name='new')
+    # __get_playlist sends "No playlists in database", rename itself returns None
+    assert cog.dispatcher.send_message.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_playlist_rename_invalid_name(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_rename rejects names containing PLAYHISTORY_PREFIX"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='my-playlist')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_rename.callback(cog, fake_context['context'], 1, playlist_name='__playhistory__bad')
+    assert 'cannot contain' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_save_create_fails(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue_save returns early when __playlist_create returns None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    # name with PLAYHISTORY_PREFIX causes __playlist_create to return None
+    await cog.playlist_queue_save.callback(cog, fake_context['context'], name='__playhistory__invalid')
+    # Only __playlist_create's rejection message should be sent
+    assert cog.dispatcher.send_message.call_count == 1
+    assert 'cannot contain' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_save_no_player(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue_save sends 'No player connected' when no player exists"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_queue_save.callback(cog, fake_context['context'], name='save-test')
+    assert any('No player connected' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_save_empty_queue(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue_save sends 'no videos' message when player queue is empty"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mock_player = MagicMock()
+    mock_player.get_queue_items.return_value = []
+    with patch.object(cog, 'get_player', return_value=mock_player):
+        await cog.playlist_queue_save.callback(cog, fake_context['context'], name='save-empty')
+    assert any('no videos' in call[0][2].lower() for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_save_max_length(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue_save stops adding items and sends message when playlist is full"""
+    config = {'music': {'playlist': {'server_playlist_max_size': 1}}} | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_engine)
+    cog.dispatcher = MagicMock()
+    item1 = MagicMock(webpage_url='https://ex.com/1', title='title1', uploader='up1')
+    item2 = MagicMock(webpage_url='https://ex.com/2', title='title2', uploader='up2')
+    mock_player = MagicMock()
+    mock_player.get_queue_items.return_value = [item1, item2]
+    with patch.object(cog, 'get_player', return_value=mock_player):
+        await cog.playlist_queue_save.callback(cog, fake_context['context'], name='full-test')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('Cannot add more items' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_save_duplicate(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue_save sends 'likely already exists' for duplicate items"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    item1 = MagicMock(webpage_url='https://ex.com/same', title='title1', uploader='up1')
+    item2 = MagicMock(webpage_url='https://ex.com/same', title='title1', uploader='up1')
+    mock_player = MagicMock()
+    mock_player.get_queue_items.return_value = [item1, item2]
+    with patch.object(cog, 'get_player', return_value=mock_player):
+        await cog.playlist_queue_save.callback(cog, fake_context['context'], name='dup-test')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('likely already exists' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_internal_shuffle(fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue shuffles items when shuffle=True"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mock_items = [
+        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
+        for i in range(3)
+    ]
+    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+        mock_db.side_effect = ['Playlist', mock_items, None]
+        with patch.object(cog, 'enqueue_media_requests', return_value=True):
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, True, 0, False)
+    # No exception means shuffle path executed
+    assert cog.dispatcher.send_message.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_internal_max_num_negative(fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue sends error and returns when max_num < 0"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mock_items = [MagicMock(id=1, video_url='https://ex.com/1', title='t1')]
+    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+        mock_db.side_effect = ['Playlist', mock_items]
+        with patch.object(cog, 'enqueue_media_requests', return_value=True):
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, -1, False)
+    assert any('Invalid number of videos' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue truncates items to max_num when max_num < len(items)"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mock_items = [
+        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
+        for i in range(5)
+    ]
+    captured = []
+
+    async def capture_enqueue(_ctx, items, *_args, **_kwargs):
+        captured.extend(items)
+        return True
+
+    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+        mock_db.side_effect = ['Playlist', mock_items, None]
+        with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 2, False)
+    assert len(captured) == 2
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_internal_max_num_larger_than_list(fake_context):  #pylint:disable=redefined-outer-name
+    """__playlist_queue uses full list when max_num >= len(items)"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mock_items = [
+        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
+        for i in range(2)
+    ]
+    captured = []
+
+    async def capture_enqueue(_ctx, items, *_args, **_kwargs):
+        captured.extend(items)
+        return True
+
+    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+        mock_db.side_effect = ['Playlist', mock_items, None]
+        with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 5, False)
+    assert len(captured) == 2
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_no_voice(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_queue returns early when author is not in a voice channel"""
+    # author.voice is None by default — triggers AttributeError in __check_author_voice_chat
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_queue.callback(cog, fake_context['context'], 1)
+    assert any('not in voice chat' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_no_db_check(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_queue returns early when db_engine is None (after voice check passes)"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_queue.callback(cog, fake_context['context'], 1)
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_player_fails(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_queue returns early when __ensure_player returns None"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch.object(cog, '_Music__ensure_player', return_value=None)
+    await cog.playlist_queue.callback(cog, fake_context['context'], 1)
+    # __check_database_session and __ensure_player (None) → function returns
+    assert cog.dispatcher.send_message.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_playlist_not_found_cmd(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_queue returns None when __get_playlist returns no playlist_id"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    # index=1 on empty DB → "No playlists in database" → returns None
+    await cog.playlist_queue.callback(cog, fake_context['context'], 1)
+    assert any('No playlists in database' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_merge_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_merge returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_merge_p1_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_merge sends 'Cannot find playlist' for p1 when not found"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('Cannot find playlist' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_merge_p2_not_found(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_merge sends 'Cannot find playlist' for p2 when only p1 exists"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    # Patch __get_playlist so p1 is found but p2 is not
+    from unittest.mock import AsyncMock  #pylint:disable=import-outside-toplevel
+    mocker.patch.object(cog, '_Music__get_playlist', new_callable=AsyncMock,
+                        side_effect=[(42, False), (None, False)])
+    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('Cannot find playlist' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_merge_max_length(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_merge stops and sends 'already max size' when PlaylistMaxLength raised"""
+    config = {'music': {'playlist': {'server_playlist_max_size': 1}}} | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p1')
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
+    with mock_session(fake_engine) as db_session:
+        playlists = db_session.query(Playlist).filter_by(is_history=False).all()
+        p1_id = playlists[0].id
+        p2_id = playlists[1].id
+    # pylint: disable=protected-access
+    cog._Music__playlist_insert_item(p1_id, 'https://ex.com/a', 'A', 'up')
+    cog._Music__playlist_insert_item(p2_id, 'https://ex.com/b', 'B', 'up')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('already max size' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_merge_duplicate(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_merge sends 'likely already exists' for duplicate item across playlists"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p1')
+    await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
+    # pylint: disable=protected-access
+    cog._Music__playlist_insert_item(1, 'https://ex.com/same', 'Same', 'up')
+    cog._Music__playlist_insert_item(2, 'https://ex.com/same', 'Same', 'up')
+    cog.dispatcher.reset_mock()
+    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
+    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
+    assert any('likely already exists' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_playlist_random_play_no_voice(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_random_play returns early when author is not in a voice channel"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_random_play.callback(cog, fake_context['context'])
+    assert any('not in voice chat' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_random_play_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_random_play returns early when db_engine is None"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_random_play.callback(cog, fake_context['context'])
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_random_play_player_fails(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_random_play returns early when __ensure_player returns None"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch.object(cog, '_Music__ensure_player', return_value=None)
+    await cog.playlist_random_play.callback(cog, fake_context['context'])
+    assert cog.dispatcher.send_message.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_playlist_random_play_no_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_random_play returns None when no history playlist exists"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    await cog.playlist_random_play.callback(cog, fake_context['context'])
+    assert any('Invalid playlist index 0' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_add_no_db(fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_add returns early when db_engine is None"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='test')
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_item_add_not_found(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_item_add returns None when __get_playlist returns no playlist_id"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='test')
+    assert cog.dispatcher.send_message.call_count == 1
+    assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
+
+
+@pytest.mark.asyncio
+async def test_playlist_random_play_success(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """playlist_random_play calls __playlist_queue when all prerequisites are met"""
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = MagicMock()
+    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    # pylint: disable=protected-access
+    cog._Music__get_history_playlist(fake_context['guild'].id)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    await cog.playlist_random_play.callback(cog, fake_context['context'])
+    playlist_queue_mock.assert_called_once()
+    _args, kwargs = playlist_queue_mock.call_args
+    assert kwargs.get('shuffle') is True
+    assert kwargs.get('max_num') == 32
+    assert kwargs.get('is_history') is True
