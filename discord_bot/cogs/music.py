@@ -19,7 +19,7 @@ from discord import VoiceChannel, TextChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.engine.base import Engine
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -94,17 +94,17 @@ class ServerQueuePriorityConfig(BaseModel):
 
 class MusicCacheConfig(BaseModel):
     '''Music cache configuration'''
-    download_dir_path: Optional[str] = None
     enable_cache_files: bool = False
     max_cache_files: int = Field(default=2048, ge=1)
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
-    backend: str
     bucket_name: str
+    prefetch_limit: int = Field(default=5, ge=0)
 
 class MusicDownloadConfig(BaseModel):
     '''Music download configuration'''
+    download_dir_path: Optional[str] = None
     max_video_length: int = Field(default=900, ge=1)
     enable_audio_processing: bool = False
     extra_ytdlp_options: dict = Field(default_factory=dict)
@@ -122,6 +122,13 @@ class MusicDownloadConfig(BaseModel):
     failure_tracking_max_size: int = Field(default=100, ge=1)
     # Recommended to be at least an hour
     failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
+
+    @model_validator(mode='after')
+    def validate_cache_requires_storage(self) -> 'MusicDownloadConfig':
+        '''Require storage when enable_cache_files is set.'''
+        if self.cache.enable_cache_files and self.storage is None:  #pylint:disable=no-member
+            raise ValueError('enable_cache_files requires storage to be configured')
+        return self
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -215,8 +222,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
         # Setup rest of client
-        if self.config.download.cache.download_dir_path is not None:
-            self.download_dir = Path(self.config.download.cache.download_dir_path)
+        if self.config.download.download_dir_path is not None:
+            self.download_dir = Path(self.config.download.download_dir_path)
             if not self.download_dir.exists():
                 self.download_dir.mkdir(exist_ok=True, parents=True)
         else:
@@ -560,6 +567,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
                 self.media_broker.register_download(media_download)
+                self._trigger_prefetch(player)
                 media_download.media_request.state_machine.mark_completed()
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
                 self.dispatcher.update_mutable(key, player.guild.id,
@@ -579,6 +587,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 media_download.media_request.state_machine.mark_discarded()
                 self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
+
+    def _trigger_prefetch(self, player: MusicPlayer):
+        if player.prefetch_limit > 0:
+            self.media_broker.prefetch(
+                player.get_queue_items(),
+                player.guild.id,
+                player.file_dir,
+                player.prefetch_limit,
+            )
 
     # Take both source dict and media download
     # Since media download might be none
@@ -1021,7 +1038,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
-                                     broker=self.media_broker)
+                                     broker=self.media_broker,
+                                     prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:

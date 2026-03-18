@@ -210,3 +210,83 @@ def test_get_checked_out_by():
             entries = broker.get_checked_out_by(42)
             assert len(entries) == 1
             assert broker.get_checked_out_by(99) == []
+
+
+# ---------------------------------------------------------------------------
+# checkout guard — skip re-staging when already CHECKED_OUT
+# ---------------------------------------------------------------------------
+
+def test_checkout_skips_restage_if_already_checked_out(mocker):
+    '''checkout returns existing guild_file_path without calling get_file again if already staged'''
+    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    fake_context = generate_fake_context()
+    md = _make_s3_media_download(fake_context)
+    with TemporaryDirectory() as guild_dir:
+        broker = MediaBroker(bucket_name='my-bucket')
+        broker.register_download(md)
+        # First checkout — stages the file
+        guild_path = Path(guild_dir)
+        result1 = broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)
+        assert get_mock.call_count == 1
+        # Manually create the staged file so exists() returns True
+        result1.touch()
+        # Second checkout — should skip re-staging
+        result2 = broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)
+        assert get_mock.call_count == 1  # not called again
+        assert result2 == result1
+
+
+# ---------------------------------------------------------------------------
+# prefetch
+# ---------------------------------------------------------------------------
+
+def test_prefetch_noop_in_local_mode():
+    '''prefetch is a no-op when bucket_name is not set (local mode)'''
+    fake_context = generate_fake_context()
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker.register_download(md)
+            # Should not raise and should not change zone
+            broker.prefetch([md], 123, Path(tmp_dir), limit=5)
+            entry = broker.get_entry(str(md.media_request.uuid))
+            assert entry.zone == Zone.AVAILABLE
+
+
+def test_prefetch_stages_available_items(mocker):
+    '''prefetch calls checkout for AVAILABLE items up to limit'''
+    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    fake_context = generate_fake_context()
+    md1 = _make_s3_media_download(fake_context)
+    md2 = _make_s3_media_download(generate_fake_context())
+    md3 = _make_s3_media_download(generate_fake_context())
+    with TemporaryDirectory() as guild_dir:
+        broker = MediaBroker(bucket_name='my-bucket')
+        broker.register_download(md1)
+        broker.register_download(md2)
+        broker.register_download(md3)
+        broker.prefetch([md1, md2, md3], 123, Path(guild_dir), limit=2)
+        # Only 2 of the 3 items should have been staged
+        assert get_mock.call_count == 2
+        assert broker.get_entry(str(md1.media_request.uuid)).zone == Zone.CHECKED_OUT
+        assert broker.get_entry(str(md2.media_request.uuid)).zone == Zone.CHECKED_OUT
+        assert broker.get_entry(str(md3.media_request.uuid)).zone == Zone.AVAILABLE
+
+
+def test_prefetch_skips_already_checked_out(mocker):
+    '''prefetch counts CHECKED_OUT items toward the limit without re-staging'''
+    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    fake_context = generate_fake_context()
+    md1 = _make_s3_media_download(fake_context)
+    md2 = _make_s3_media_download(generate_fake_context())
+    with TemporaryDirectory() as guild_dir:
+        broker = MediaBroker(bucket_name='my-bucket')
+        broker.register_download(md1)
+        broker.register_download(md2)
+        # Manually put md1 into CHECKED_OUT without staging a file
+        broker.checkout(str(md1.media_request.uuid), 123, guild_path=Path(guild_dir))
+        assert get_mock.call_count == 1
+        # prefetch with limit=1 — md1 already checked out fills the slot
+        broker.prefetch([md1, md2], 123, Path(guild_dir), limit=1)
+        assert get_mock.call_count == 1  # md2 not staged
+        assert broker.get_entry(str(md2.media_request.uuid)).zone == Zone.AVAILABLE

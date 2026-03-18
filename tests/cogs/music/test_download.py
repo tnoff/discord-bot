@@ -18,15 +18,7 @@ from tests.helpers import fake_engine, fake_context, random_string #pylint:disab
 
 @pytest.mark.asyncio()
 async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    config = {
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                }
-            }
-        }
-    } | BASE_MUSIC_CONFIG
+    config = BASE_MUSIC_CONFIG
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -48,7 +40,6 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
                     'enable_cache_files': True,
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'test-bucket',
                 }
             }
@@ -58,6 +49,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
+            mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = MagicMock()
             cog.media_broker.register_download(sd)
@@ -278,7 +270,6 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
                     'enable_cache_files': True,
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'test-bucket',
                 }
             }

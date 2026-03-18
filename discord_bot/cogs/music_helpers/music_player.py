@@ -48,7 +48,8 @@ class MusicPlayer:
                  dispatcher,
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
-                 broker: MediaBroker | None = None):
+                 broker: MediaBroker | None = None,
+                 prefetch_limit: int = 5):
         '''
         file_dir : Files for guild stored here
         '''
@@ -85,6 +86,7 @@ class MusicPlayer:
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
         self.broker: MediaBroker | None = broker
+        self.prefetch_limit: int = prefetch_limit
 
     async def start_tasks(self):
         '''
@@ -140,6 +142,12 @@ class MusicPlayer:
         cleanup_source(audio_source)
         if self.broker:
             self.broker.release(str(media_download.media_request.uuid))
+            self.broker.prefetch(
+                self.get_queue_items(),
+                self.guild.id,
+                self.file_dir,
+                self.prefetch_limit,
+            )
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well

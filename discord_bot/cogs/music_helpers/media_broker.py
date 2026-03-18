@@ -156,6 +156,8 @@ class MediaBroker:
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return None
+        if entry.zone == Zone.CHECKED_OUT and entry.guild_file_path and entry.guild_file_path.exists():
+            return entry.guild_file_path
         if guild_path is not None and entry.download is not None and entry.download.file_path:
             guild_path.mkdir(exist_ok=True)
             uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
@@ -206,6 +208,26 @@ class MediaBroker:
                     delete_file(self.bucket_name, str(entry.download.file_path))
                 else:
                     entry.download.file_path.unlink(missing_ok=True)
+
+    def prefetch(self, queue_items: list, guild_id: int, guild_path: 'Path | None', limit: int):
+        '''
+        Pre-stage the next `limit` AVAILABLE items from the queue to local disk.
+        Already-staged (CHECKED_OUT) items count toward the limit.
+        '''
+        if not guild_path or not self.bucket_name:
+            return  # local mode: no-op (copyfile is fast, no benefit)
+        staged = 0
+        for item in queue_items:
+            if staged >= limit:
+                break
+            entry = self._registry.get(str(item.media_request.uuid))
+            if entry is None:
+                continue
+            if entry.zone == Zone.CHECKED_OUT:
+                staged += 1
+            elif entry.zone == Zone.AVAILABLE:
+                self.checkout(str(item.media_request.uuid), guild_id, guild_path)
+                staged += 1
 
     # ------------------------------------------------------------------
     # Eviction queries

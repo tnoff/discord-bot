@@ -435,7 +435,6 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
                     'enable_cache_files': True,
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'test-bucket',
                 }
             }
@@ -448,6 +447,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
+            mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = Mock()
             cog.media_broker.register_download(sd)
@@ -533,9 +533,7 @@ def test_music_init_creates_download_directory(fake_context):  #pylint:disable=r
         config = {
             'music': {
                 'download': {
-                    'cache': {
-                        'download_dir_path': str(download_path)
-                    }
+                    'download_dir_path': str(download_path)
                 }
             }
         } | BASE_MUSIC_CONFIG
@@ -621,7 +619,6 @@ def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disa
                     'max_cache_files': 100
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'test-bucket',
                 }
             }
@@ -756,7 +753,6 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
         'music': {
             'download': {
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'test-bucket'
                 }
             }
@@ -764,7 +760,6 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
     }
 
     cog = Music(fake_context['bot'], config, None)
-    assert cog.config.download.storage.backend == 's3'
     assert cog.config.download.storage.bucket_name == 'test-bucket'
 
 def test_video_editing_post_processor_success():

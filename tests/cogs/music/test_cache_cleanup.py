@@ -13,9 +13,9 @@ from tests.helpers import mock_session, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
-@pytest.mark.asyncio
-async def test_cache_cleanup_no_op_without_s3(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''Without S3 storage, video_cache is None and cache_cleanup is always a no-op'''
+def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pylint:disable=redefined-outer-name
+    '''enable_cache_files without storage raises CogMissingRequiredArg at construction time'''
+    from discord_bot.exceptions import CogMissingRequiredArg  #pylint:disable=import-outside-toplevel
     config = {
         'music': {
             'download': {
@@ -25,10 +25,8 @@ async def test_cache_cleanup_no_op_without_s3(mocker, fake_engine, fake_context)
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
-    assert cog.video_cache is None
-    assert cog.media_broker.cache_cleanup() is False
-    assert cog.media_broker.check_cache(mocker.MagicMock()) is None
+    with pytest.raises(CogMissingRequiredArg, match='enable_cache_files requires storage'):
+        Music(fake_context['bot'], config, fake_context['bot'])
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -41,7 +39,6 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
                     'enable_cache_files': True,
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'foo',
                 }
             }
@@ -76,7 +73,6 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
                     'max_cache_files': 1,
                 },
                 'storage': {
-                    'backend': 's3',
                     'bucket_name': 'foo',
                 }
             }
