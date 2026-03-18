@@ -175,8 +175,7 @@ All videos are downloaded by the bot via [yt-dlp](https://github.com/yt-dlp/yt-d
 ```
 music:
   download:
-    cache:
-      download_dir: /tmp/discord
+    download_dir_path: /tmp/discord
 ```
 
 Specifically when videos are downloaded, they go to the base directory of the download dir. A subdirectory is then created matching the server id, and a symlink is created between the video file and the server subdirectory, with the symlink endpoint given a random UUID. When a video is deleted, the symlink is deleted, and when the bot has not actively being used in any server, the download directory is cleared.
@@ -202,13 +201,15 @@ music:
 
 You can enable caching so that videos are not deleted automatically when all players are stopped on the server. The bot then has logic to use the previous download when the same video is then downloaded again. There can be a max cache number given that limits the number of videos downloaded at a time, which older/less played videos will be deleted.
 
+Caching requires `storage` to be configured (see [Backup Storage](#backup-storage) below). `enable_cache_files: true` without a `storage` block is a configuration error.
 
 ```
 music:
   download:
     cache:
-      download_dir: /tmp/discord
       enable_cache_files: true
+    storage:
+      bucket_name: my-music-bucket
 ```
 
 The videos downloaded will be stored in a `VideoCache` table within the database. The database will also store the relevant video metadata (such as title and duration) used by the bot later. The video is identified by the full URL of the download, and should be used with all extractors.
@@ -305,17 +306,26 @@ The bot searches Youtube Music for generic string inputs, filtering by songs. Th
 
 ### Backup Storage
 
-Add backup storage to the cache to backup files in object storage as well as local cache. If local files somehow deleted it will try to re-download on startup.
+Add S3 storage to upload downloaded files to object storage. When enabled, files are stored in S3 rather than kept on local disk long-term — the local copy is only staged briefly while the player is using it.
 
 ```
 music:
   download:
     storage:
-      backend: s3
-      bucket_name: foo
+      bucket_name: my-music-bucket
 ```
 
-Note that only s3 storage is supported at present. The client assumes you have environment variables set in the bot to handle all of the authentication.
+The client assumes AWS credentials are available via environment variables or instance role — no credentials are configured in the bot config itself.
+
+You can also configure how many songs are pre-staged from S3 to local disk ahead of the player (the prefetch window). This keeps up to N songs ready on disk so there is no S3 download latency when a track starts. Set to `0` to disable prefetching entirely.
+
+```
+music:
+  download:
+    storage:
+      bucket_name: my-music-bucket
+      prefetch_limit: 5  # default: 5; 0 = fully lazy
+```
 
 ### Additonal Reads
 
