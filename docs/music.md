@@ -328,7 +328,7 @@ music:
 
 The client assumes AWS credentials are available via environment variables or instance role — no credentials are configured in the bot config itself.
 
-You can also configure how many songs are pre-staged from S3 to local disk ahead of the player (the prefetch window). This keeps up to N songs ready on disk so there is no S3 download latency when a track starts. Set to `0` to disable prefetching entirely.
+You can also configure how many songs are pre-staged from S3 to local disk ahead of the player (the prefetch window). Prefetching runs as a background task during playback, so up to N upcoming songs are already on disk by the time each one starts — eliminating S3 download latency between tracks. Set to `0` to disable prefetching entirely.
 
 ```
 music:
