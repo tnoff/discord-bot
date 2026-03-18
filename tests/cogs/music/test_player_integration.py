@@ -62,12 +62,16 @@ async def test_get_player_check_voice_client_active(mocker, fake_context):  # py
 
 @pytest.mark.asyncio
 async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """Test adding source to player with caching enabled"""
+    """Test adding source to player with S3 caching enabled"""
     config = {
         'music': {
             'download': {
                 'cache': {
                     'enable_cache_files': True,
+                },
+                'storage': {
+                    'backend': 's3',
+                    'bucket_name': 'test-bucket',
                 }
             }
         }

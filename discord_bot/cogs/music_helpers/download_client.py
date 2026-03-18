@@ -15,6 +15,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
+from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.otel import otel_span_wrapper
 
 class DownloadClientException(Exception):
@@ -129,6 +130,7 @@ class DownloadClient():
         failure_queue: FailureQueue | None = None,
         wait_period_minimum: int = 30,
         wait_period_max_variance: int = 10,
+        bucket_name: str | None = None,
     ):
         '''
         Init download client
@@ -138,6 +140,9 @@ class DownloadClient():
         failure_queue : Optional FailureQueue for tracking download failures
         wait_period_minimum : Minimum backoff wait time in seconds
         wait_period_max_variance : Maximum extra random variance in seconds
+        bucket_name : S3 bucket to upload to immediately after download;
+                      when set the local file is deleted and DownloadResult.file_name
+                      holds the S3 object key instead of a local path
         '''
         self.ytdl: YoutubeDL = ytdl
         self.download_dir: Path = download_dir
@@ -145,6 +150,7 @@ class DownloadClient():
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
         self._wait_timestamp: float | None = None
+        self.bucket_name: str | None = bucket_name
 
     def _set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''
@@ -325,6 +331,13 @@ class DownloadClient():
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(e)
                     return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail=f'File not found after download: {file_path}'), media_request=media_request, ytdlp_data=None, file_name=None)
+                # Upload to S3 immediately when configured; local staging file is deleted
+                # and file_name in the result becomes the S3 object key
+                if self.bucket_name:
+                    s3_key = f'cache/{media_request.uuid}{"".join(file_path.suffixes)}'
+                    upload_file(self.bucket_name, file_path, s3_key)
+                    file_path.unlink()
+                    file_path = Path(s3_key)
             span.set_status(StatusCode.OK)
             return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path)
 

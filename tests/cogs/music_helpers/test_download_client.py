@@ -84,6 +84,28 @@ async def test_prepare_source():
             assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_s3_mode():
+    '''In S3 mode, upload_file is called, local file deleted, result.file_name is S3 key'''
+    loop = asyncio.get_running_loop()
+    with TemporaryDirectory() as tmp_dir:
+        with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+            fake_context = generate_fake_context()
+            x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir),
+                               bucket_name='test-bucket')
+            y = fake_source_dict(fake_context)
+            with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
+                result = await x.create_source(y, 3, loop)
+            assert result.status.success
+            upload_mock.assert_called_once()
+            call_args = upload_mock.call_args[0]
+            assert call_args[0] == 'test-bucket'
+            assert str(call_args[2]).startswith('cache/')
+            assert str(call_args[2]).endswith('.mp3')
+            # local file gone, result carries the S3 key
+            assert not call_args[1].exists()
+            assert str(result.file_name).startswith('cache/')
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_empty_requested_downloads():
     """requested_downloads list is empty — should return FILE_NOT_FOUND, not crash."""
     loop = asyncio.get_running_loop()

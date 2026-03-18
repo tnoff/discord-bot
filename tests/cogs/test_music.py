@@ -433,6 +433,10 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             'download': {
                 'cache': {
                     'enable_cache_files': True,
+                },
+                'storage': {
+                    'backend': 's3',
+                    'bucket_name': 'test-bucket',
                 }
             }
         }
@@ -603,7 +607,7 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
     assert result[0].value == 0
 
 def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test Music initialization with cache enabled"""
+    """Test Music initialization with cache enabled — requires S3 storage"""
     config = {
         'general': {
             'include': {
@@ -615,6 +619,10 @@ def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disa
                 'cache': {
                     'enable_cache_files': True,
                     'max_cache_files': 100
+                },
+                'storage': {
+                    'backend': 's3',
+                    'bucket_name': 'test-bucket',
                 }
             }
         }
@@ -624,7 +632,7 @@ def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disa
 
         cog = Music(fake_context['bot'], config, fake_engine)
 
-        # Verify cache client was created
+        # Verify cache client was created (only when bucket_name is set)
         assert mock_video_cache.called
         assert cog.video_cache is not None
 

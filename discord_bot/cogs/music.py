@@ -97,7 +97,6 @@ class MusicCacheConfig(BaseModel):
     download_dir_path: Optional[str] = None
     enable_cache_files: bool = False
     max_cache_files: int = Field(default=2048, ge=1)
-    ignore_cleanup_paths: list[str] = Field(default_factory=list)
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
@@ -231,23 +230,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         self.video_cache = None
-        if self.config.download.cache.enable_cache_files and self.db_engine:
-            # Use music-specific storage if specified, otherwise fall back to general storage config
-            general_storage_config = self.settings.get('general', {}).get('storage', {})
-            storage_backend = self.config.download.storage.backend if self.config.download.storage else general_storage_config.get('backend', None)
-            storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
-
+        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
+        if self.config.download.cache.enable_cache_files and self.db_engine and storage_bucket_name:
             self.video_cache = VideoCacheClient(
-                self.download_dir,
                 self.config.download.cache.max_cache_files,
                 partial(self.with_db_session),
-                storage_backend,
-                storage_bucket_name,
-                self.config.download.cache.ignore_cleanup_paths
             )
-            self.video_cache.verify_cache()
 
-        self.media_broker = MediaBroker(file_dir=self.download_dir, video_cache=self.video_cache)
+        self.media_broker = MediaBroker(
+            file_dir=self.download_dir,
+            video_cache=self.video_cache,
+            bucket_name=storage_bucket_name,
+        )
 
         # Multi Request bundles
         self.multirequest_bundles = {}
@@ -282,6 +276,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             failure_queue=failure_queue,
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
+            bucket_name=storage_bucket_name,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,

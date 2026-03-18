@@ -8,6 +8,7 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.download import DownloadResult
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.utils.integrations.s3 import get_file, delete_file
 
 
 class Zone(Enum):
@@ -45,12 +46,19 @@ class MediaBroker:
     The base-file check is separate because multiple requests for the
     same URL share the same underlying base_path; the file must not be
     evicted while any of those requests are still AVAILABLE or CHECKED_OUT.
+
+    When bucket_name is set (S3 mode), DownloadClient has already uploaded
+    the file and set file_path to the S3 object key before register_download
+    is called. MediaBroker uses bucket_name for checkout (get_file) and
+    eviction (delete_file). Without bucket_name local-disk behaviour is used.
     '''
 
-    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None):
+    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None,
+                 bucket_name: str | None = None):
         self._registry: dict[str, BrokerEntry] = {}
         self.file_dir: Path | None = file_dir
         self.video_cache: VideoCacheClient | None = video_cache
+        self.bucket_name: str | None = bucket_name
 
     # ------------------------------------------------------------------
     # Registration
@@ -100,7 +108,7 @@ class MediaBroker:
         Look up a completed download in the video cache.
 
         Returns a MediaDownload if the URL was previously downloaded and is
-        still on disk, or None if the cache is disabled or there is no hit.
+        still available, or None if the cache is disabled or there is no hit.
         '''
         if not self.video_cache:
             return None
@@ -111,22 +119,25 @@ class MediaBroker:
         Mark old cache entries for deletion and evict those that are no
         longer referenced by any active player.
 
+        In S3 mode deletes the S3 object; in local-disk mode deletes the
+        local file. In both cases the DB record is removed.
+
         Returns True if at least one file was removed, False otherwise.
         '''
         if not self.video_cache:
             return False
         self.video_cache.ready_remove()
         to_delete = [
-            vc.id
+            vc
             for vc in self.video_cache.get_deletable_entries()
             if self.can_evict_base(vc.video_url)
         ]
-        if to_delete:
-            self.video_cache.remove_video_cache(to_delete)
-        if self.video_cache.object_storage_enabled:
-            for vc in self.video_cache.get_entries_without_backup():
-                self.video_cache.object_storage_backup(vc.id)
-        return bool(to_delete)
+        if not to_delete:
+            return False
+        for vc in to_delete:
+            delete_file(self.bucket_name, str(vc.base_path))
+        self.video_cache.remove_video_cache([vc.id for vc in to_delete])
+        return True
 
     # ------------------------------------------------------------------
     # Player lifecycle
@@ -136,8 +147,9 @@ class MediaBroker:
         '''
         Mark an entry as CHECKED_OUT when a player dequeues it to play.
 
-        If guild_path is given, copies the base file into the guild-specific
-        directory and stores the resulting path in entry.guild_file_path.
+        If guild_path is given, stages the file into the guild-specific
+        directory (copying from local disk or downloading from S3) and
+        stores the resulting path in entry.guild_file_path.
 
         Returns the guild-specific file path, or None if no copy was made.
         '''
@@ -146,10 +158,13 @@ class MediaBroker:
             return None
         if guild_path is not None and entry.download is not None and entry.download.file_path:
             guild_path.mkdir(exist_ok=True)
-            if not entry.download.file_path.exists():
-                raise FileNotFoundError('Unable to locate base path')
             uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
-            copyfile(str(entry.download.file_path), str(uuid_path))
+            if self.bucket_name:
+                get_file(self.bucket_name, str(entry.download.file_path), uuid_path)
+            else:
+                if not entry.download.file_path.exists():
+                    raise FileNotFoundError('Unable to locate base path')
+                copyfile(str(entry.download.file_path), str(uuid_path))
             entry.guild_file_path = uuid_path
         entry.zone = Zone.CHECKED_OUT
         entry.checked_out_by = guild_id
@@ -179,14 +194,18 @@ class MediaBroker:
         '''
         Remove an entry that was registered but could not be enqueued.
 
-        If no video cache is configured the base file is also deleted,
-        since nothing else will manage its lifecycle. With a cache the
-        file is kept as a valid cache entry.
+        If no video cache is configured the base file is also deleted from
+        the appropriate store (S3 or local disk), since nothing else will
+        manage its lifecycle. With a cache the file is kept as a valid
+        cache entry.
         '''
         entry = self._registry.pop(media_request_uuid, None)
         if entry and entry.download and not self.video_cache:
             if entry.download.file_path:
-                entry.download.file_path.unlink(missing_ok=True)
+                if self.bucket_name:
+                    delete_file(self.bucket_name, str(entry.download.file_path))
+                else:
+                    entry.download.file_path.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Eviction queries

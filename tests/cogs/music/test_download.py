@@ -46,6 +46,10 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             'download': {
                 'cache': {
                     'enable_cache_files': True,
+                },
+                'storage': {
+                    'backend': 's3',
+                    'bucket_name': 'test-bucket',
                 }
             }
         }
@@ -272,6 +276,10 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
             'download': {
                 'cache': {
                     'enable_cache_files': True,
+                },
+                'storage': {
+                    'backend': 's3',
+                    'bucket_name': 'test-bucket',
                 }
             }
         }
@@ -282,9 +290,8 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
 
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            # Register the media download in the broker so check_cache returns it
+            # Bypass DownloadClient: register directly (no S3 upload in this path)
             cog.media_broker.register_download(sd)
-            cog.video_cache.iterate_file(sd)
 
             # Create a PlaylistAddRequest for the same URL as the cached download
             search_result = SearchResult(
