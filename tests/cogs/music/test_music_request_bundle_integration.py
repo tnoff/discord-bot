@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 
 import pytest
 
@@ -9,7 +9,8 @@ from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequ
 from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
-from discord_bot.types.search import SearchResult
+from discord_bot.types.search import SearchResult, SearchCollection
+from discord_bot.utils.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict, random_string
@@ -1432,3 +1433,123 @@ async def test_enqueue_media_requests_all_cache_hits_counted_in_bundle(mocker, f
     assert bundle.total == 3
     assert bundle.completed == 3
     assert bundle.finished is True
+
+
+@pytest.mark.asyncio
+async def test_enqueue_media_requests_puts_blocked_search_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """enqueue_media_requests returns False when the search queue is blocked."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+
+    # Use a SEARCH-type request (non-direct) so it routes through the search queue
+    request = fake_source_dict(fake_context)  # SearchType.SEARCH by default
+
+    # Mock put_nowait to raise PutsBlocked (simulates a blocked queue)
+    mocker.patch.object(cog.youtube_music_search_queue, 'put_nowait', side_effect=PutsBlocked('blocked'))
+
+    result = await cog.enqueue_media_requests(fake_context['context'], [request], bundle)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_enqueue_media_requests_puts_blocked_download_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """enqueue_media_requests returns False when the download queue is blocked."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+
+    # Use a DIRECT request so it skips the search queue and goes to the download queue
+    request = fake_source_dict(fake_context, is_direct_search=True)
+
+    # No cache hit
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=False)
+    # Mock put_nowait to raise PutsBlocked (simulates a blocked queue)
+    mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=PutsBlocked('blocked'))
+
+    result = await cog.enqueue_media_requests(fake_context['context'], [request], bundle)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_enqueue_media_requests_queue_full_download_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """enqueue_media_requests breaks and returns True when download queue is full."""
+    from asyncio import QueueFull  # pylint: disable=import-outside-toplevel
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_initial_search('https://example.com/video')
+
+    request = fake_source_dict(fake_context, is_direct_search=True)
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=False)
+    mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=QueueFull())
+
+    # QueueFull on download queue → request marked discarded, loop breaks, returns True
+    result = await cog.enqueue_media_requests(fake_context['context'], [request], bundle)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_multirequest_bundles_callback(fake_context):  # pylint: disable=redefined-outer-name
+    """__multirequest_bundles_callback returns one Observation per active bundle."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+
+    # Call the name-mangled private callback directly
+    result = cog._Music__multirequest_bundles_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_get_bundle_content_sends_retry_summary(fake_context):  # pylint: disable=redefined-outer-name
+    """_get_bundle_content dispatches retry summary messages when requests are in retry state."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.set_initial_search('https://example.com/video')
+
+    request = fake_source_dict(fake_context, is_direct_search=True)
+    bundle.add_media_request(request)
+
+    # Put request in RETRY_DOWNLOAD state with an unsent retry reason
+    request.state_machine.mark_retry_download('ytdlp error', 30)
+
+    # Call _get_bundle_content — the retry summary path (line 512) should fire
+    cog._get_bundle_content(bundle.uuid, fake_context['guild'].id, fake_context['channel'].id)  # pylint: disable=protected-access
+
+    # Verify a retry message was dispatched
+    sent_messages = [c[0][2] for c in cog.dispatcher.send_message.call_args_list]
+    assert any('ytdlp error' in m or 'retry' in m.lower() or 'Retry' in m for m in sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_generate_media_requests_collection_name(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """_generate_media_requests_from_search handles a collection with a collection_name."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+
+    # Search client returns a collection with collection_name set (e.g. a YouTube playlist)
+    collection = SearchCollection(
+        search_results=[
+            SearchResult(search_type=SearchType.YOUTUBE, raw_search_string='https://yt.example/watch?v=abc')
+        ],
+        collection_name='My Playlist',
+    )
+    mocker.patch.object(cog.search_client, 'check_source', new=AsyncMock(return_value=collection))
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=True)
+
+    await cog._generate_media_requests_from_search(fake_context['context'], 'https://yt.example/playlist?list=xyz')  # pylint: disable=protected-access
+
+    # Should have called update_mutable at least twice (initial bundle + collection_name new bundle)
+    assert cog.dispatcher.update_mutable.call_count >= 2
