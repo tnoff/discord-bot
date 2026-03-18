@@ -876,7 +876,6 @@ def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylin
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel']
     )
 
     media_request = MediaRequest(
@@ -923,7 +922,6 @@ def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefin
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel']
     )
 
     media_request = MediaRequest(
@@ -1307,7 +1305,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     mock_bundle = mocker.MagicMock()
     mock_bundle.guild_id = fake_context['guild'].id
     mock_bundle.uuid = 'test-bundle-uuid'
-    mock_bundle.text_channel = fake_context['channel']
+    mock_bundle.channel_id = fake_context['channel'].id
     mock_bundle.shutdown = mocker.MagicMock()
 
     # Add bundle to multirequest_bundles
@@ -1323,17 +1321,17 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     mock_bundle.shutdown.assert_called_once()
 
     # Verify dispatcher update_mutable was called
-    # This verifies the bug fix where we use item.text_channel instead of player.text_channel
+    # This verifies the bug fix where we use item.channel_id instead of player.text_channel.id
     # (if we used player.text_channel, it would raise AttributeError since player is None)
     cog.dispatcher.update_mutable.assert_called()
 
-    # Verify the bundle-specific call used item.text_channel
+    # Verify the bundle-specific call used item.channel_id
     # Look for calls with the bundle UUID
     bundle_calls = [call for call in cog.dispatcher.update_mutable.call_args_list
                    if mock_bundle.uuid in str(call)]
     if bundle_calls:
-        # Verify it used item.text_channel.id (4th positional argument, index 3)
-        assert bundle_calls[0][0][3] == mock_bundle.text_channel.id
+        # Verify it used item.channel_id (4th positional argument, index 3)
+        assert bundle_calls[0][0][3] == mock_bundle.channel_id
 
     # Verify voice client cleanup and disconnect were still called
     mock_voice_client.cleanup.assert_called_once()

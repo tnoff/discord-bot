@@ -28,7 +28,7 @@ async def test_request_bundle_integration_creation_and_registration(fake_context
         media_requests.append(req)
 
     # Create bundle (simulating Music.add_multiple_media_requests logic)
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up the search lifecycle (required for input_string to be set)
@@ -56,7 +56,7 @@ async def test_request_bundle_integration_status_updates(fake_context):  #pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle with test requests
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add search request and finish it to get to download phase
@@ -117,7 +117,7 @@ async def test_request_bundle_integration_uuid_extraction(fake_context):  #pylin
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle_uuid = bundle.uuid
     cog.multirequest_bundles[bundle_uuid] = bundle
 
@@ -163,7 +163,7 @@ async def test_request_bundle_integration_concurrent_bundles(fake_context):  #py
     # Create multiple bundles
     bundles = []
     for i in range(3):
-        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
         cog.multirequest_bundles[bundle.uuid] = bundle
 
         # Setup search state
@@ -211,7 +211,6 @@ async def test_request_bundle_integration_pagination_length(fake_context):  #pyl
     bundle = MultiMediaRequestBundle(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        fake_context['channel'],
         pagination_length=200  # Short to trigger pagination
     )
 
@@ -247,7 +246,7 @@ async def test_request_bundle_integration_shutdown_functionality(fake_context): 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle with test requests
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Setup search state
@@ -327,7 +326,7 @@ async def test_race_condition_fix_bundle_cleanup(fake_context):  #pylint:disable
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle with single request so it finishes immediately
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
@@ -371,7 +370,7 @@ def test_memory_leak_fix_guild_cleanup(fake_context):  #pylint:disable=redefined
     # Create multiple bundles
     bundles = []
     for _ in range(5):
-        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
         cog.multirequest_bundles[bundle.uuid] = bundle
         bundles.append(bundle)
 
@@ -441,7 +440,7 @@ def test_bundle_cleanup_thread_safety_with_fix(fake_context):  #pylint:disable=r
     # Create multiple finished bundles
     bundles = []
     for i in range(10):
-        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
         cog.multirequest_bundles[bundle.uuid] = bundle
 
         # Set up search lifecycle so bundle can be finished
@@ -487,7 +486,7 @@ def test_comprehensive_error_resilience_with_fixes(fake_context):  #pylint:disab
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Test scenario combining all fixes
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
@@ -528,7 +527,7 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle and add requests
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
@@ -611,7 +610,7 @@ def test_bundle_cleanup_memory_leak_prevention(fake_context):  #pylint:disable=r
 
     bundles = []
     for i, guild_id in enumerate([guild1_id, guild2_id, guild3_id]):
-        bundle = MultiMediaRequestBundle(guild_id, 456 + i, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(guild_id, 456 + i)
         cog.multirequest_bundles[bundle.uuid] = bundle
         bundles.append(bundle)
 
@@ -647,7 +646,7 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Test case 1: Finished bundle
-    finished_bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    finished_bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     finished_bundle.set_initial_search('test search')
     req1 = fake_source_dict(fake_context)
     finished_bundle.add_media_request(req1)
@@ -659,7 +658,7 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     cog.multirequest_bundles[finished_bundle.uuid] = finished_bundle
 
     # Test case 2: Shutdown bundle (with content so it's not automatically finished)
-    shutdown_bundle = MultiMediaRequestBundle(12346, 457, fake_context['channel'])
+    shutdown_bundle = MultiMediaRequestBundle(12346, 457)
     req2 = fake_source_dict(fake_context)
     shutdown_bundle.add_media_request(req2)  # Add content so it's not automatically finished
     shutdown_bundle.shutdown()
@@ -686,9 +685,9 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
         assert bundle_uuid not in cog.multirequest_bundles
 
 
-def test_bundle_uuid_string_format_validation(fake_context):  #pylint:disable=redefined-outer-name
+def test_bundle_uuid_string_format_validation():
     """Test that bundle UUIDs follow expected format"""
-    bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(123, 456)
 
     # Verify UUID format
     assert bundle.uuid.startswith('request.bundle.')
@@ -702,7 +701,7 @@ def test_bundle_uuid_string_format_validation(fake_context):  #pylint:disable=re
 
 def test_bundle_lifecycle_stage_transitions(fake_context):  #pylint:disable=redefined-outer-name
     """Test all possible lifecycle stage transitions"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
 
@@ -734,7 +733,7 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create bundle with single request so it finishes immediately
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Set up search lifecycle so bundle can be finished
@@ -773,15 +772,12 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
 def test_bundle_invalid_parameters(fake_context):  #pylint:disable=redefined-outer-name,unused-argument
     """Test MultiMediaRequestBundle with invalid parameters"""
 
-    # Mock channel for testing
-    mock_channel = Mock()
-
     # Current implementation doesn't validate negative IDs - this shows the vulnerability
     # These should raise errors but currently don't:
-    bundle1 = MultiMediaRequestBundle(-1, 123, mock_channel)  # Accepts negative guild_id
+    bundle1 = MultiMediaRequestBundle(-1, 123)  # Accepts negative guild_id
     assert bundle1.guild_id == -1  # Vulnerability: negative ID accepted
 
-    bundle2 = MultiMediaRequestBundle(123, -1, mock_channel)  # Accepts negative channel_id
+    bundle2 = MultiMediaRequestBundle(123, -1)  # Accepts negative channel_id
     assert bundle2.channel_id == -1  # Vulnerability: negative ID accepted
 
 
@@ -792,7 +788,7 @@ def test_guild_cleanup_memory_leak(fake_context):  #pylint:disable=redefined-out
     # Create multiple bundles
     bundles = []
     for _ in range(5):
-        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
         cog.multirequest_bundles[bundle.uuid] = bundle
         bundles.append(bundle)
 
@@ -822,7 +818,7 @@ def test_guild_cleanup_memory_leak(fake_context):  #pylint:disable=redefined-out
 @pytest.mark.asyncio
 async def test_concurrent_bundle_status_updates(fake_context):  #pylint:disable=redefined-outer-name
     """Test concurrent status updates don't corrupt bundle state"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Mark search as finished so bundle can report finished status
     bundle.search_finished = True
@@ -866,7 +862,7 @@ async def test_concurrent_bundle_status_updates(fake_context):  #pylint:disable=
 
 def test_bundle_print_after_shutdown(fake_context):  #pylint:disable=redefined-outer-name
     """Test bundle print() method after shutdown returns empty list"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     # Add search request to create proper bundle structure
     bundle.set_initial_search('test-playlist')
@@ -886,14 +882,14 @@ def test_bundle_print_after_shutdown(fake_context):  #pylint:disable=redefined-o
     assert len(shutdown_print) == 0
 
 
-def test_bundle_uuid_uniqueness(fake_context):  #pylint:disable=redefined-outer-name
+def test_bundle_uuid_uniqueness():
     """Test that bundle UUIDs are unique"""
     bundles = []
     uuids = set()
 
     # Create many bundles and verify UUID uniqueness
     for _ in range(1000):
-        bundle = MultiMediaRequestBundle(123, 456, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(123, 456)
         bundles.append(bundle)
         assert bundle.uuid not in uuids, f"Duplicate UUID found: {bundle.uuid}"
         uuids.add(bundle.uuid)
@@ -903,7 +899,7 @@ def test_bundle_uuid_uniqueness(fake_context):  #pylint:disable=redefined-outer-
 
 def test_bundle_finished_property_edge_cases(fake_context):  #pylint:disable=redefined-outer-name
     """Test bundle finished property with edge cases"""
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.all_requests_enqueued = True
     # Empty bundle is considered finished (0 processed out of 0 total)
     assert bundle.finished is True
@@ -975,7 +971,7 @@ def test_bundle_cleanup_thread_safety_simulation(fake_context):  #pylint:disable
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create a finished bundle - set flag directly since no table rows exist
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.all_requests_enqueued = True
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -1000,7 +996,7 @@ def test_music_cog_bundle_cleanup_on_shutdown(fake_context):  #pylint:disable=re
 
     # Add some bundles
     for i in range(3):
-        bundle = MultiMediaRequestBundle(123 + i, 456 + i, fake_context['channel'])
+        bundle = MultiMediaRequestBundle(123 + i, 456 + i)
         cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Verify bundles exist
@@ -1036,12 +1032,12 @@ def test_bundle_string_parsing_safety():
 
 
 @pytest.mark.asyncio
-async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that bundle message queue updates use bundle.text_channel instead of None"""
+async def test_bundle_message_queue_updates_use_channel_id(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that bundle message queue updates use bundle.channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Create bundle with text_channel
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    # Create bundle with channel_id
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add a media request, registering the on_change callback so transitions trigger updates
@@ -1055,7 +1051,7 @@ async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #py
     # pylint: disable=protected-access
     await cog._Music__ensure_video_download_result(req, None)
 
-    # Verify text_channel parameter was used (not None)
+    # Verify channel_id was used
     cog.dispatcher.update_mutable.assert_called()
     call_args = cog.dispatcher.update_mutable.call_args
     assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
@@ -1064,12 +1060,12 @@ async def test_bundle_message_queue_updates_use_text_channel(fake_context):  #py
 
 
 @pytest.mark.asyncio
-async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that playlist add operations use bundle.text_channel"""
+async def test_playlist_add_message_updates_use_channel_id(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """Test that playlist add operations use bundle.channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
-    # Create bundle with text_channel
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    # Create bundle with channel_id
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add a PlaylistAddRequest, registering the on_change callback so transitions trigger updates
@@ -1096,7 +1092,7 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
         # pylint: disable=protected-access
         await cog._Music__add_playlist_item(req, playlist_result)
 
-        # Verify text_channel parameter was used (not None)
+        # Verify channel_id was used
         cog.dispatcher.update_mutable.assert_called()
         call_args = cog.dispatcher.update_mutable.call_args
         assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
@@ -1107,7 +1103,7 @@ async def test_playlist_add_message_updates_use_text_channel(fake_engine, fake_c
 
 @pytest.mark.asyncio
 async def test_bundle_constructor_integration_with_music_cog(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that Music cog creates bundles with proper text_channel parameter"""
+    """Test that Music cog creates bundles with proper channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
 
@@ -1120,7 +1116,7 @@ async def test_bundle_constructor_integration_with_music_cog(fake_context):  #py
     mock_player.text_channel = fake_context['channel']
 
     # Create a bundle for the test
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.search_finished = True  # Mark search as finished without search banner
 
@@ -1131,9 +1127,8 @@ async def test_bundle_constructor_integration_with_music_cog(fake_context):  #py
     assert result is True
     assert len(cog.multirequest_bundles) == 1
 
-    # Verify bundle has correct text_channel
+    # Verify bundle has correct channel_id
     bundle = list(cog.multirequest_bundles.values())[0]
-    assert bundle.text_channel == fake_context['channel']
     assert bundle.guild_id == fake_context['guild'].id
     assert bundle.channel_id == fake_context['channel'].id
 
@@ -1162,16 +1157,16 @@ def test_bundle_safe_access_pattern_prevents_keyerror(fake_context):  #pylint:di
 
 
 @pytest.mark.asyncio
-async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that bundle cleanup operations preserve text_channel references"""
+async def test_bundle_cleanup_preserves_channel_id(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that bundle cleanup operations preserve channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     # Create multiple bundles for the same guild
-    bundle1 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle1 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle1.search_finished = True  # Mark search as finished without search banner
-    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle2.search_finished = True  # Mark search as finished without search banner
-    bundle3 = MultiMediaRequestBundle(999, 888, fake_context['channel'])  # Different guild
+    bundle3 = MultiMediaRequestBundle(999, 888)  # Different guild
     bundle3.search_finished = True  # Mark search as finished without search banner
 
     cog.multirequest_bundles[bundle1.uuid] = bundle1
@@ -1198,9 +1193,8 @@ async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #
     for bundle_uuid, bundle in cog.multirequest_bundles.items():
         if bundle.guild_id == test_guild_id and bundle.finished:
             bundles_to_remove.append(bundle_uuid)
-            # Verify text_channel is still accessible during cleanup
-            assert bundle.text_channel is not None
-            assert bundle.text_channel == fake_context['channel']
+            # Verify channel_id is still accessible during cleanup
+            assert bundle.channel_id == fake_context['channel'].id
 
     # Remove bundles for the test guild
     for bundle_uuid in bundles_to_remove:
@@ -1211,9 +1205,9 @@ async def test_bundle_cleanup_preserves_text_channel_reference(fake_context):  #
     assert bundle1.uuid not in cog.multirequest_bundles
     assert bundle2.uuid not in cog.multirequest_bundles
 
-    # Remaining bundle should still have valid text_channel
+    # Remaining bundle should still have valid channel_id
     remaining_bundle = cog.multirequest_bundles[bundle3.uuid]
-    assert remaining_bundle.text_channel == fake_context['channel']
+    assert remaining_bundle.channel_id == 888
 
 
 # ---------------------------------------------------------------------------
@@ -1226,7 +1220,7 @@ def test_single_request_state_after_terminal_failure(fake_context):  #pylint:dis
     failed == 1 and print() should reflect the failure message.
     Mirrors the state changes made by __return_bad_video.
     """
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     # Replicate _generate_media_requests_from_search: set_initial_search, then enqueue_media_requests
     bundle.set_initial_search(random_string())
     req = fake_source_dict(fake_context)
@@ -1258,7 +1252,7 @@ def test_single_request_print_content_through_lifecycle(fake_context):  #pylint:
     single-request play_() lifecycle.
     """
     search_input = random_string()
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.set_initial_search(search_input)
 
     # Before any requests added: shows initial search
@@ -1295,7 +1289,7 @@ def test_single_request_failure_summary_contains_reason(fake_context):  #pylint:
     Unit test: get_failure_summary() should include the terminal error reason
     so it can be sent as a separate Discord message.
     """
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     bundle.set_initial_search(random_string())
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
@@ -1325,7 +1319,7 @@ async def test_single_request_terminal_failure_cleanup_via_on_change(mocker, fak
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # Replicate _generate_media_requests_from_search
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
 
@@ -1361,7 +1355,7 @@ async def test_single_request_full_lifecycle_play_successful(mocker, fake_contex
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # _generate_media_requests_from_search: create bundle, set initial search
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
 
@@ -1384,7 +1378,7 @@ async def test_single_request_full_lifecycle_play_successful(mocker, fake_contex
     assert bundle.finished
 
     # _get_bundle_content removes the bundle when finished
-    cog._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.text_channel)  #pylint:disable=protected-access
+    cog._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.channel_id)  #pylint:disable=protected-access
     assert bundle.uuid not in cog.multirequest_bundles
 
 
@@ -1398,7 +1392,7 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_initial_search(random_string())
 
@@ -1423,7 +1417,7 @@ async def test_enqueue_media_requests_all_cache_hits_counted_in_bundle(mocker, f
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.set_multi_input_request('Layla And Other Assorted Love Songs')
 

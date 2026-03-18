@@ -491,7 +491,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         player = self.players.get(guild_id)
         return player.get_queue_order_messages() if player else []
 
-    def _get_bundle_content(self, bundle_uuid: str, guild_id: int, channel) -> tuple:
+    def _get_bundle_content(self, bundle_uuid: str, guild_id: int, channel_id: int) -> tuple:
         '''
         Get mutable message content for a MultiMediaRequestBundle.
         Sends failure/retry summaries as separate one-off messages.
@@ -504,12 +504,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         content = bundle.print()
 
         for failure_msg in (bundle.get_failure_summary() or []):
-            self.dispatcher.send_message(guild_id, channel.id, failure_msg,
+            self.dispatcher.send_message(guild_id, channel_id, failure_msg,
                 delete_after=self.config.general.message_delete_after)
 
         for msg in (bundle.get_retry_summary(self.config.download.max_download_retries,
                                               self.config.download.max_youtube_music_search_retries) or []):
-            self.dispatcher.send_message(guild_id, channel.id, msg,
+            self.dispatcher.send_message(guild_id, channel_id, msg,
                 delete_after=self.config.general.message_delete_after)
 
         delete_after = None
@@ -694,8 +694,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
         if bundle:
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-            content, delete_after = self._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.text_channel)
-            self.dispatcher.update_mutable(key, bundle.guild_id, content, bundle.text_channel.id,
+            content, delete_after = self._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.channel_id)
+            self.dispatcher.update_mutable(key, bundle.guild_id, content, bundle.channel_id,
                                            sticky=False, delete_after=delete_after)
         if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
             self.media_broker.remove(str(media_request.uuid))
@@ -975,8 +975,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 item.shutdown()
                 if reason != CleanupReason.BOT_SHUTDOWN:
                     key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}'
-                    content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.text_channel)
-                    self.dispatcher.update_mutable(key, item.guild_id, content, item.text_channel.id,
+                    content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.channel_id)
+                    self.dispatcher.update_mutable(key, item.guild_id, content, item.channel_id,
                                                    sticky=False, delete_after=delete_after)
 
             if reason != CleanupReason.BOT_SHUTDOWN:
@@ -1144,7 +1144,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if bundle:
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
             self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
         return True
@@ -1160,11 +1160,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         add_to_playlist: If came from playlist_item_add, pass it here
         '''
         # Setup bundle, show search has started for raw input
-        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+        bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id)
         self.multirequest_bundles[bundle.uuid] = bundle
         bundle.set_initial_search(search)
         key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-        content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+        content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
         self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                        sticky=False, delete_after=delete_after)
 
@@ -1176,7 +1176,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Delete the old bundle, send one off message
             bundle.shutdown()
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
             self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
@@ -1188,14 +1188,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if collection.collection_name:
             bundle.shutdown()
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
             self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
-            bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+            bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id)
             self.multirequest_bundles[bundle.uuid] = bundle
             bundle.set_multi_input_request(collection.collection_name)
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel)
+            content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
             self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
 
@@ -1989,7 +1989,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     max_num = 0
 
 
-            bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id, ctx.channel)
+            bundle = MultiMediaRequestBundle(ctx.guild.id, ctx.channel.id)
             self.multirequest_bundles[bundle.uuid] = bundle
             # Start/finish bundle to get input_string
             bundle.set_multi_input_request(playlist_name)

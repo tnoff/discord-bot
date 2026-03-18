@@ -104,7 +104,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -145,7 +145,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -188,7 +188,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     cog.youtube_music_client = MockYoutubeMusicClient(None)  # No result
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -216,7 +216,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -252,7 +252,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -283,7 +283,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and playlist add request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_playlist_add_request(fake_context, playlist_id=123, search_string='test search', bundle_uuid=bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -326,7 +326,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     media_request = create_test_media_request(fake_context)
 
     # Create bundle for the request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request.bundle_uuid = bundle.uuid
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -351,7 +351,7 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
     media_request = create_test_media_request(fake_context)
 
     # Create bundle for the request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request.bundle_uuid = bundle.uuid
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -385,7 +385,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
     media_request = create_test_playlist_add_request(fake_context, playlist_id=456)
 
     # Create bundle for the request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request.bundle_uuid = bundle.uuid
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -420,7 +420,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     cog = Music(fake_context['bot'], config, None)
 
     # Create a bundle
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Create search-type media requests (should go to search queue)
@@ -479,7 +479,7 @@ async def test_search_youtube_music_search_client_exception(mocker, fake_context
     cog.youtube_music_client = FailingYoutubeMusicClient()
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -519,7 +519,7 @@ async def test_search_youtube_music_search_client_timeout(mocker, fake_context):
     cog.youtube_music_client = TimeoutYoutubeMusicClient()
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -545,7 +545,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     cog = Music(fake_context['bot'], config, None)
 
     # Create a bundle
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Create requests of different types
@@ -618,7 +618,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     cog.server_queue_priority[fake_context['guild'].id] = test_priority
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
@@ -659,7 +659,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -702,7 +702,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
     cog = Music(fake_context['bot'], config, None)
 
     # Create enough items to fill beyond download queue size but within search queue size
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Add more items than download queue can handle
@@ -747,7 +747,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create a bundle and media request
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -787,8 +787,8 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
 
     # Create multiple bundles
-    bundle1 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
-    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle1 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle2 = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
 
     cog.multirequest_bundles[bundle1.uuid] = bundle1
     cog.multirequest_bundles[bundle2.uuid] = bundle2
@@ -843,7 +843,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     cog = Music(fake_context['bot'], config, None)
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -877,7 +877,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
     cog.dispatcher = MagicMock()
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -914,7 +914,7 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
     cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
     assert cog.youtube_music_failure_queue.size == 2
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -945,7 +945,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     cog.youtube_music_client = RateLimitedYoutubeMusicClient()
     cog.dispatcher = MagicMock()
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     # Simulate already at retry limit
     media_request.youtube_music_retry_information.retry_count = 2
@@ -984,7 +984,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
     cog.youtube_music_client = SucceedOnSecondCallClient()
     cog.dispatcher = MagicMock()
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)
@@ -1018,7 +1018,7 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
     cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
     assert cog.youtube_music_failure_queue.size == 2
 
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
     cog.multirequest_bundles[bundle.uuid] = bundle
     bundle.add_media_request(media_request)

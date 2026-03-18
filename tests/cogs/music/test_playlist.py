@@ -1135,8 +1135,8 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
 
 
 @pytest.mark.asyncio
-async def test_playlist_queue_bundle_creation_with_text_channel(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that enqueue_media_requests creates bundles with proper text_channel parameter"""
+async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #pylint:disable=redefined-outer-name
+    """Test that enqueue_media_requests creates bundles with proper channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
 
@@ -1149,20 +1149,19 @@ async def test_playlist_queue_bundle_creation_with_text_channel(fake_context):  
     mock_player.text_channel = fake_context['channel']
 
     # Create a bundle for the test
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id, fake_context['channel'])
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     # Register the bundle manually since we're creating it outside the cog
     cog.multirequest_bundles[bundle.uuid] = bundle
 
     # Call enqueue_media_requests directly to test bundle creation
     result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, mock_player)
 
-    # Verify bundle was created with correct text_channel
+    # Verify bundle was created correctly
     assert result is True
     assert len(cog.multirequest_bundles) == 1
 
-    # Verify bundle has correct text_channel
+    # Verify bundle has correct channel_id
     bundle = list(cog.multirequest_bundles.values())[0]
-    assert bundle.text_channel == fake_context['channel']
     assert bundle.guild_id == fake_context['guild'].id
     assert bundle.channel_id == fake_context['channel'].id
 
