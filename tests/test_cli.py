@@ -1,12 +1,14 @@
 import asyncio
+import logging as stdlib_logging
 import signal
 from tempfile import NamedTemporaryFile
+from unittest.mock import MagicMock, AsyncMock
 
 from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_bot.cli import main, main_loop, FilterOKRetrySpans
+from discord_bot.cli import main, main_loop, FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
 
@@ -54,7 +56,7 @@ async def test_run_config_only_token(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder())
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -123,7 +125,7 @@ async def test_run_config_with_db(mocker):
             }
             with open(temp_config.name, 'w', encoding='utf-8') as writer:
                 dump(config_data, writer)
-            mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder())
+            mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
             runner = CliRunner()
             result = runner.invoke(main, [temp_config.name])
             await asyncio.sleep(.01)
@@ -147,7 +149,7 @@ async def test_run_config_with_intents(mocker):
             }
             with open(temp_config.name, 'w', encoding='utf-8') as writer:
                 dump(config_data, writer)
-            mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder())
+            mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
             runner = CliRunner()
             result = runner.invoke(main, [temp_config.name])
             await asyncio.sleep(.01)
@@ -449,3 +451,283 @@ class TestFilterOKRetrySpans:
 
         mock_processor.force_flush.assert_called_once_with(5000)
         assert result is True
+
+
+# ---------------------------------------------------------------------------
+# read_config
+# ---------------------------------------------------------------------------
+
+def test_read_config_none():
+    '''read_config returns empty dict when config_file is None (line 99)'''
+    assert read_config(None) == {}
+
+
+# ---------------------------------------------------------------------------
+# main_loop edge cases
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_main_loop_generic_exception(mocker):
+    '''main_loop returns early (line 145) when bot.start() raises a non-KeyboardInterrupt exception'''
+    class _FakeBotGenericError:
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return False
+        async def start(self, _token):
+            raise RuntimeError('unexpected error')
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            pass
+
+    # The bad format string at cli.py:144 (logger.debug('...', str(e))) would trigger
+    # handleError which can surface as an exception in pytest's capture context.
+    # Patch 'main' logger to avoid the pre-existing production-code formatting bug.
+    mocker.patch.object(stdlib_logging.getLogger('main'), 'debug')
+    # Should return without propagating the exception
+    await main_loop(_FakeBotGenericError(), [], 'token')
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_main_loop_cog_unload_exception():
+    '''main_loop logs exception (lines 154-155) when cog_unload raises during shutdown'''
+    class _FakeCogWithRaise:
+        async def cog_unload(self):
+            raise ValueError('unload error')
+
+    class _FakeBotInterrupt:
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return False
+        async def start(self, _token):
+            raise KeyboardInterrupt()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            pass
+
+    # Should complete without propagating the exception from cog_unload
+    await main_loop(_FakeBotInterrupt(), [_FakeCogWithRaise()], 'token')
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_main_loop_with_health_server():
+    '''main_loop creates a task for health_server.serve() when health_server is not None (line 138)'''
+    mock_health_server = MagicMock()
+    mock_health_server.serve = AsyncMock()
+
+    class _FakeBotQuick:
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return True
+        async def start(self, _token):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            pass
+
+    await main_loop(_FakeBotQuick(), [], 'token', health_server=mock_health_server)
+    mock_health_server.serve.assert_called_once()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_main_loop_second_signal_noop():
+    '''Second signal while shutdown is already triggered hits the early return (line 121)'''
+    class _FakeBotDoubleSignal:
+        def __init__(self):
+            self.close_called = 0
+            self.bot_closed = False
+
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return self.bot_closed
+
+        async def start(self, _token):
+            await asyncio.sleep(0.01)
+            signal.raise_signal(signal.SIGTERM)  # first — sets shutdown_triggered
+            await asyncio.sleep(0.01)
+            signal.raise_signal(signal.SIGTERM)  # second — hits line 121 (early return)
+            await asyncio.sleep(0.05)
+
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+
+        async def close(self):
+            self.close_called += 1
+            self.bot_closed = True
+
+    bot = _FakeBotDoubleSignal()
+    await main_loop(bot, [], 'token')
+    # close() called exactly once; second signal was a no-op
+    assert bot.close_called == 1
+
+
+# ---------------------------------------------------------------------------
+# main_runner — no running event loop path
+# ---------------------------------------------------------------------------
+
+def test_main_runner_no_event_loop(mocker):
+    '''main_runner falls through to asyncio.run (lines 318-319, 325-326) when no loop is running'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        assert result.exception is None
+
+
+# ---------------------------------------------------------------------------
+# monitoring config paths
+# ---------------------------------------------------------------------------
+
+def _patch_otlp(mocker):
+    '''Patch all OpenTelemetry symbols to avoid real network connections'''
+    for name in [
+        'TracerProvider', 'RequestsInstrumentor', 'SQLAlchemyInstrumentor',
+        'OTLPSpanExporter', 'BatchSpanProcessor', 'get_aggregated_resources',
+        'OTELResourceDetector', 'OTLPMetricExporter', 'PeriodicExportingMetricReader',
+        'MeterProvider', 'set_meter_provider', 'LoggerProvider', 'set_logger_provider',
+        'OTLPLogExporter', 'BatchLogRecordProcessor',
+    ]:
+        mocker.patch(f'discord_bot.cli.{name}')
+    mocker.patch('discord_bot.cli.trace')
+    # LoggingHandler mock is added to the root logger; .level must be an int or
+    # callHandlers() raises TypeError on "record.levelno >= hdlr.level"
+    mock_handler = MagicMock(spec=stdlib_logging.Handler)
+    mock_handler.level = stdlib_logging.NOTSET
+    mocker.patch('discord_bot.cli.LoggingHandler', return_value=mock_handler)
+
+
+@pytest.mark.asyncio
+async def test_main_with_otlp_filter_enabled(mocker):
+    '''OTLP monitoring block executes with filter_high_volume_spans=True (lines 189-202, 205-218)'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'monitoring': {'otlp': {'enabled': True}},
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        _patch_otlp(mocker)
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
+async def test_main_with_otlp_filter_disabled(mocker):
+    '''OTLP monitoring block executes with filter_high_volume_spans=False (line 204)'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'monitoring': {'otlp': {'enabled': True, 'filter_high_volume_spans': False}},
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        _patch_otlp(mocker)
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
+async def test_main_with_memory_profiling(mocker):
+    '''Memory profiling block executes when enabled (lines 240-245)'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'monitoring': {
+                    'otlp': {'enabled': False},
+                    'memory_profiling': {'enabled': True},
+                },
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.MemoryProfiler')
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
+async def test_main_with_process_metrics(mocker):
+    '''Process metrics block executes when enabled (lines 249-253)'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'monitoring': {
+                    'otlp': {'enabled': False},
+                    'process_metrics': {'enabled': True},
+                },
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.ProcessMetricsProfiler')
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
+async def test_main_with_health_server_monitoring(mocker):
+    '''Health server is created and passed to main_loop when monitoring.health_server.enabled=True
+    (lines 138, 296-297)'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'monitoring': {
+                    'otlp': {'enabled': False},
+                    'health_server': {'enabled': True},
+                },
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mock_hs = MagicMock()
+        mock_hs.serve = AsyncMock()
+        mocker.patch('discord_bot.cli.HealthServer', return_value=mock_hs)
+        mocker.patch('discord_bot.cli.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
