@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
 import logging
@@ -73,6 +74,7 @@ class MusicPlayer:
 
         # Tasks
         self._player_task: Task | None = None
+        self._prefetch_task: Task | None = None
 
         # Random things to store
         self.current_media_download: MediaDownload | None = None
@@ -112,7 +114,9 @@ class MusicPlayer:
         self.current_media_download = media_download
         guild_file_path = None
         if self.broker:
-            guild_file_path = self.broker.checkout(str(media_download.media_request.uuid), self.guild.id, self.file_dir)
+            guild_file_path = await asyncio.to_thread(
+                self.broker.checkout, str(media_download.media_request.uuid), self.guild.id, self.file_dir
+            )
 
         audio_source = FFmpegPCMAudio(str(guild_file_path or media_download.file_path))
         self.current_audio_source = audio_source
@@ -129,6 +133,11 @@ class MusicPlayer:
             if not self.shutdown_called:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
+        if self.broker:
+            self._prefetch_task = asyncio.create_task(asyncio.to_thread(
+                self.broker.prefetch,
+                self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
+            ))
         self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{media_download.webpage_url}"')
@@ -142,12 +151,6 @@ class MusicPlayer:
         cleanup_source(audio_source)
         if self.broker:
             self.broker.release(str(media_download.media_request.uuid))
-            self.broker.prefetch(
-                self.get_queue_items(),
-                self.guild.id,
-                self.file_dir,
-                self.prefetch_limit,
-            )
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
@@ -359,6 +362,9 @@ class MusicPlayer:
         # Clear any messages in the current queue
         self.np_message = ''
 
+        if self._prefetch_task and not self._prefetch_task.done():
+            self._prefetch_task.cancel()
+            self._prefetch_task = None
         if self._player_task:
             self._player_task.cancel()
             self._player_task = None
