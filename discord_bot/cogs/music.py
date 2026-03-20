@@ -247,6 +247,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     self.config.download.cache.max_cache_size_mb * 1024 * 1024
                     if self.config.download.cache.max_cache_size_mb else None
                 ),
+                storage_type='s3',
             )
 
         self.media_broker = MediaBroker(

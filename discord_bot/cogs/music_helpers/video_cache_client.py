@@ -19,16 +19,19 @@ OTEL_SPAN_PREFIX = 'music.video_cache'
 
 class VideoCacheClient():
     '''
-    DB catalog for the S3 video cache.
+    DB catalog for the video cache.
 
     Stores and queries VideoCache records (metadata, play counts, eviction
-    policy). VideoCache.base_path holds the S3 object key. All S3 file
-    operations are handled by MediaBroker.
+    policy). VideoCache.base_path holds either a local file path or an S3
+    object key depending on storage_type. All file operations are handled
+    by MediaBroker.
     '''
-    def __init__(self, max_cache_files: int, session_generator: Callable, max_cache_size_bytes: int | None = None):
+    def __init__(self, max_cache_files: int, session_generator: Callable,
+                 max_cache_size_bytes: int | None = None, storage_type: str = 'local'):
         self.max_cache_files: int = max_cache_files
         self.session_generator: Callable = session_generator
         self.max_cache_size_bytes: int | None = max_cache_size_bytes
+        self.storage_type: str = storage_type
 
     def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
@@ -40,6 +43,11 @@ class VideoCacheClient():
             with self.session_generator() as db_session:
                 video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_download.webpage_url))
                 if video_cache:
+                    if video_cache.storage_type != self.storage_type:
+                        # Storage type changed (or entry pre-dates this column): update
+                        # base_path and storage_type to match the freshly downloaded file.
+                        video_cache.base_path = str(media_download.file_path)
+                        video_cache.storage_type = self.storage_type
                     video_cache.count += 1
                     video_cache.last_iterated_at = now
                     video_cache.ready_for_deletion = False
@@ -55,6 +63,7 @@ class VideoCacheClient():
                     last_iterated_at=now,
                     created_at=now,
                     base_path=str(media_download.file_path),
+                    storage_type=self.storage_type,
                     count=1,
                     ready_for_deletion=False,
                     file_size_bytes=media_download.file_size_bytes,
@@ -79,13 +88,18 @@ class VideoCacheClient():
     def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
         '''
         Look up a VideoCache record by URL and return a MediaDownload.
-        Returns None if not found.
+        Returns None if not found or if the entry was stored under a different
+        storage type (stale entry is marked for deletion so it will be evicted).
         '''
         attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
             with self.session_generator() as db_session:
                 video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_request.search_result.resolved_search_string))
                 if not video_cache:
+                    return None
+                if video_cache.storage_type is not None and video_cache.storage_type != self.storage_type:
+                    video_cache.ready_for_deletion = True
+                    retry_database_commands(db_session, partial(run_commit, db_session))
                     return None
                 return self.__generate_source_download(video_cache, media_request)
 
