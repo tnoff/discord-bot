@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from discord_bot.database import GuildVideoAnalytics, VideoCache
 from discord_bot.cogs.music_helpers.database_functions import (
@@ -154,7 +154,6 @@ def test_update_video_guild_analytics_multiple_days(fake_engine, fake_context): 
 
 def _make_cache_entry(session, file_size_bytes, offset_seconds=0):
     now = datetime.now(timezone.utc)
-    from datetime import timedelta  # pylint:disable=import-outside-toplevel
     entry = VideoCache(
         video_id='vid',
         video_url=f'https://example.com/{offset_seconds}',

@@ -5,6 +5,7 @@ import pytest
 
 from discord_bot.database import VideoCache
 from discord_bot.cogs.music import Music
+from discord_bot.exceptions import CogMissingRequiredArg
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
@@ -15,7 +16,6 @@ from tests.helpers import fake_engine, fake_context #pylint:disable=unused-impor
 
 def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pylint:disable=redefined-outer-name
     '''enable_cache_files without storage raises CogMissingRequiredArg at construction time'''
-    from discord_bot.exceptions import CogMissingRequiredArg  #pylint:disable=import-outside-toplevel
     config = {
         'music': {
             'download': {

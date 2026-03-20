@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
@@ -1637,7 +1637,6 @@ async def test_playlist_merge_p2_not_found(fake_engine, mocker, fake_context):  
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     cog.dispatcher = MagicMock()
     # Patch __get_playlist so p1 is found but p2 is not
-    from unittest.mock import AsyncMock  #pylint:disable=import-outside-toplevel
     mocker.patch.object(cog, '_Music__get_playlist', new_callable=AsyncMock,
                         side_effect=[(42, False), (None, False)])
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')

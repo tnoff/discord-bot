@@ -12,6 +12,7 @@ from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
+from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
@@ -230,7 +231,6 @@ class DownloadClient():
         sleep_duration = max(0, self._wait_timestamp - now)
 
         if shutdown_event.is_set():
-            from discord_bot.exceptions import ExitEarlyException  # pylint:disable=import-outside-toplevel
             raise ExitEarlyException('Exiting bot wait loop')
 
         if sleep_duration == 0:
@@ -241,7 +241,6 @@ class DownloadClient():
                 shutdown_event.wait(),
                 timeout=sleep_duration,
             )
-            from discord_bot.exceptions import ExitEarlyException  # pylint:disable=import-outside-toplevel
             raise ExitEarlyException('Exiting bot wait loop')
         except asyncio.TimeoutError:
             return
