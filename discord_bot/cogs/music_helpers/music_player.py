@@ -260,6 +260,10 @@ class MusicPlayer:
                 return True
         return False
 
+    def _on_prefetch_done(self, task: asyncio.Task):
+        if not task.cancelled() and (exc := task.exception()):
+            self.logger.warning(f'Prefetch failed in guild {self.guild.id}: {exc}')
+
     def trigger_prefetch(self):
         '''
         Fire a non-blocking prefetch task to pre-stage the next items in the
@@ -271,6 +275,7 @@ class MusicPlayer:
                 self.broker.prefetch,
                 self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
             ))
+            self._prefetch_task.add_done_callback(self._on_prefetch_done)
 
     def add_to_play_queue(self, source_download: MediaDownload) -> bool:
         '''
