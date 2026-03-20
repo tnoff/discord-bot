@@ -195,17 +195,17 @@ async def test_cog_load_with_db_engine_creates_post_play_task(fake_engine, fake_
 
 @pytest.mark.asyncio
 async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """add_source_to_player calls _trigger_prefetch after register_download"""
+    """add_source_to_player calls trigger_prefetch on the player after register_download"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    prefetch_mock = mocker.patch.object(cog, '_trigger_prefetch')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    prefetch_mock = mocker.patch.object(player, 'trigger_prefetch')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
             await cog.add_source_to_player(media_download, player)
-            prefetch_mock.assert_called_once_with(player)
+            prefetch_mock.assert_called_once()
 
 
 @pytest.mark.asyncio

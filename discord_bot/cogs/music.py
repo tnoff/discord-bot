@@ -573,7 +573,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
                 self.media_broker.register_download(media_download)
-                self._trigger_prefetch(player)
+                player.trigger_prefetch()
                 media_download.media_request.state_machine.mark_completed()
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
                 self.dispatcher.update_mutable(key, player.guild.id,
@@ -593,15 +593,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 media_download.media_request.state_machine.mark_discarded()
                 self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
-
-    def _trigger_prefetch(self, player: MusicPlayer):
-        if player.prefetch_limit > 0:
-            self.media_broker.prefetch(
-                player.get_queue_items(),
-                player.guild.id,
-                player.file_dir,
-                player.prefetch_limit,
-            )
 
     # Take both source dict and media download
     # Since media download might be none

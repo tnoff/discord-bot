@@ -133,11 +133,7 @@ class MusicPlayer:
             if not self.shutdown_called:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
-        if self.broker:
-            self._prefetch_task = asyncio.create_task(asyncio.to_thread(
-                self.broker.prefetch,
-                self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
-            ))
+        self.trigger_prefetch()
         self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{media_download.webpage_url}"')
@@ -263,6 +259,18 @@ class MusicPlayer:
             if member.id != self.bot.user.id:
                 return True
         return False
+
+    def trigger_prefetch(self):
+        '''
+        Fire a non-blocking prefetch task to pre-stage the next items in the
+        queue from S3.  Replaces any previous prefetch task reference so cleanup
+        can cancel it.  No-op in local mode or when prefetch_limit is 0.
+        '''
+        if self.broker and self.prefetch_limit > 0:
+            self._prefetch_task = asyncio.create_task(asyncio.to_thread(
+                self.broker.prefetch,
+                self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
+            ))
 
     def add_to_play_queue(self, source_download: MediaDownload) -> bool:
         '''
