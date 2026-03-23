@@ -1,5 +1,10 @@
-from discord_bot.database import GuildVideoAnalytics
-from discord_bot.cogs.music_helpers.database_functions import ensure_guild_video_analytics, update_video_guild_analytics
+from datetime import datetime, timezone, timedelta
+
+from discord_bot.database import GuildVideoAnalytics, VideoCache
+from discord_bot.cogs.music_helpers.database_functions import (
+    ensure_guild_video_analytics, update_video_guild_analytics,
+    video_cache_mark_deletion_for_size,
+)
 
 from tests.helpers import fake_engine, fake_context, mock_session #pylint:disable=unused-import
 
@@ -145,3 +150,43 @@ def test_update_video_guild_analytics_multiple_days(fake_engine, fake_context): 
         analytics = ensure_guild_video_analytics(session, fake_context['guild'].id)
         assert analytics.total_duration_days == 2
         assert analytics.total_duration_seconds == 12 * 3600  # 0.5 days = 12 hours
+
+
+def _make_cache_entry(session, file_size_bytes, offset_seconds=0):
+    now = datetime.now(timezone.utc)
+    entry = VideoCache(
+        video_id='vid',
+        video_url=f'https://example.com/{offset_seconds}',
+        title='t',
+        uploader='u',
+        duration=120,
+        extractor='youtube',
+        last_iterated_at=datetime(2020, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=offset_seconds),
+        created_at=now,
+        base_path='/tmp/x',
+        count=1,
+        ready_for_deletion=False,
+        file_size_bytes=file_size_bytes,
+    )
+    session.add(entry)
+    session.commit()
+    return entry
+
+
+def test_video_cache_mark_deletion_for_size(fake_engine):  #pylint:disable=redefined-outer-name
+    '''video_cache_mark_deletion_for_size marks oldest entries until total <= budget'''
+    with mock_session(fake_engine) as session:
+        # Three entries: 200, 300, 400 bytes, oldest first
+        _make_cache_entry(session, 200, offset_seconds=0)
+        _make_cache_entry(session, 300, offset_seconds=1)
+        _make_cache_entry(session, 400, offset_seconds=2)
+
+        # Budget: 400 bytes; total is 900, so we must evict until <= 400
+        # Evict oldest (200) → 700 still > 400
+        # Evict next (300) → 400 <= 400 → stop
+        video_cache_mark_deletion_for_size(session, 400)
+
+        flagged = session.query(VideoCache).filter(VideoCache.ready_for_deletion.is_(True)).all()
+        assert len(flagged) == 2
+        flagged_sizes = sorted(e.file_size_bytes for e in flagged)
+        assert flagged_sizes == [200, 300]

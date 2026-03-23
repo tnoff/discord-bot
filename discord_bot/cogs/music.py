@@ -19,7 +19,7 @@ from discord import VoiceChannel, TextChannel
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.engine.base import Engine
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -94,18 +94,18 @@ class ServerQueuePriorityConfig(BaseModel):
 
 class MusicCacheConfig(BaseModel):
     '''Music cache configuration'''
-    download_dir_path: Optional[str] = None
     enable_cache_files: bool = False
     max_cache_files: int = Field(default=2048, ge=1)
-    ignore_cleanup_paths: list[str] = Field(default_factory=list)
+    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
-    backend: str
     bucket_name: str
+    prefetch_limit: int = Field(default=5, ge=0)
 
 class MusicDownloadConfig(BaseModel):
     '''Music download configuration'''
+    download_dir_path: Optional[str] = None
     max_video_length: int = Field(default=900, ge=1)
     enable_audio_processing: bool = False
     extra_ytdlp_options: dict = Field(default_factory=dict)
@@ -123,6 +123,13 @@ class MusicDownloadConfig(BaseModel):
     failure_tracking_max_size: int = Field(default=100, ge=1)
     # Recommended to be at least an hour
     failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
+
+    @model_validator(mode='after')
+    def validate_cache_requires_storage(self) -> 'MusicDownloadConfig':
+        '''Require storage when enable_cache_files is set.'''
+        if self.cache.enable_cache_files and self.storage is None:  #pylint:disable=no-member
+            raise ValueError('enable_cache_files requires storage to be configured')
+        return self
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -216,8 +223,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
         # Setup rest of client
-        if self.config.download.cache.download_dir_path is not None:
-            self.download_dir = Path(self.config.download.cache.download_dir_path)
+        if self.config.download.download_dir_path is not None:
+            self.download_dir = Path(self.config.download.download_dir_path)
             if not self.download_dir.exists():
                 self.download_dir.mkdir(exist_ok=True, parents=True)
         else:
@@ -231,23 +238,23 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
         self.video_cache = None
-        if self.config.download.cache.enable_cache_files and self.db_engine:
-            # Use music-specific storage if specified, otherwise fall back to general storage config
-            general_storage_config = self.settings.get('general', {}).get('storage', {})
-            storage_backend = self.config.download.storage.backend if self.config.download.storage else general_storage_config.get('backend', None)
-            storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
-
+        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
+        if self.config.download.cache.enable_cache_files and self.db_engine and storage_bucket_name:
             self.video_cache = VideoCacheClient(
-                self.download_dir,
                 self.config.download.cache.max_cache_files,
                 partial(self.with_db_session),
-                storage_backend,
-                storage_bucket_name,
-                self.config.download.cache.ignore_cleanup_paths
+                max_cache_size_bytes=(
+                    self.config.download.cache.max_cache_size_mb * 1024 * 1024
+                    if self.config.download.cache.max_cache_size_mb else None
+                ),
+                storage_type='s3',
             )
-            self.video_cache.verify_cache()
 
-        self.media_broker = MediaBroker(file_dir=self.download_dir, video_cache=self.video_cache)
+        self.media_broker = MediaBroker(
+            file_dir=self.download_dir,
+            video_cache=self.video_cache,
+            bucket_name=storage_bucket_name,
+        )
 
         # Multi Request bundles
         self.multirequest_bundles = {}
@@ -282,6 +289,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             failure_queue=failure_queue,
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
+            bucket_name=storage_bucket_name,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -565,6 +573,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
                 self.media_broker.register_download(media_download)
+                player.trigger_prefetch()
                 media_download.media_request.state_machine.mark_completed()
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
                 self.dispatcher.update_mutable(key, player.guild.id,
@@ -1026,7 +1035,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
-                                     broker=self.media_broker)
+                                     broker=self.media_broker,
+                                     prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:

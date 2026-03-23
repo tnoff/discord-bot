@@ -112,6 +112,21 @@ def video_cache_mark_deletion(db_session: Session, num_to_remove: int):
     db_session.commit()
 
 
+def video_cache_mark_deletion_for_size(db_session: Session, max_size_bytes: int):
+    '''Mark oldest non-flagged entries for deletion until total size <= max_size_bytes.
+    Already-flagged entries are excluded from the total so count and size eviction compose correctly.'''
+    entries = (db_session.query(VideoCache)
+               .filter(VideoCache.ready_for_deletion == False)  # noqa: E712
+               .order_by(asc(VideoCache.last_iterated_at)).all())
+    total = sum(e.file_size_bytes or 0 for e in entries)
+    for entry in entries:
+        if total <= max_size_bytes:
+            break
+        entry.ready_for_deletion = True
+        total -= (entry.file_size_bytes or 0)
+    db_session.commit()
+
+
 #
 # VideoCacheBackup Functions
 #

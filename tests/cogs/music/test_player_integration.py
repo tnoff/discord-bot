@@ -62,12 +62,15 @@ async def test_get_player_check_voice_client_active(mocker, fake_context):  # py
 
 @pytest.mark.asyncio
 async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """Test adding source to player with caching enabled"""
+    """Test adding source to player with S3 caching enabled"""
     config = {
         'music': {
             'download': {
                 'cache': {
                     'enable_cache_files': True,
+                },
+                'storage': {
+                    'bucket_name': 'test-bucket',
                 }
             }
         }
@@ -76,6 +79,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as media_download:
@@ -87,16 +91,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
 @pytest.mark.asyncio
 async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """Test adding source to player when queue is blocked"""
-    config = {
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                }
-            }
-        }
-    } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -196,6 +191,21 @@ async def test_cog_load_with_db_engine_creates_post_play_task(fake_engine, fake_
 
     # With db_engine set, 4 tasks: cleanup, download, youtube_search, post_play_processing
     assert loop_mock.create_task.call_count >= 4
+
+
+@pytest.mark.asyncio
+async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """add_source_to_player calls trigger_prefetch on the player after register_download"""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    prefetch_mock = mocker.patch.object(player, 'trigger_prefetch')
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
+            await cog.add_source_to_player(media_download, player)
+            prefetch_mock.assert_called_once()
 
 
 @pytest.mark.asyncio

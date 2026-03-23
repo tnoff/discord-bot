@@ -4,10 +4,14 @@ from pathlib import Path
 from shutil import copyfile
 from typing import List
 
-from discord_bot.types.media_download import MediaDownload
+from opentelemetry.trace import SpanKind
+
+from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.download import DownloadResult
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.utils.integrations.s3 import get_file, delete_file
+from discord_bot.utils.otel import otel_span_wrapper
 
 
 class Zone(Enum):
@@ -45,12 +49,19 @@ class MediaBroker:
     The base-file check is separate because multiple requests for the
     same URL share the same underlying base_path; the file must not be
     evicted while any of those requests are still AVAILABLE or CHECKED_OUT.
+
+    When bucket_name is set (S3 mode), DownloadClient has already uploaded
+    the file and set file_path to the S3 object key before register_download
+    is called. MediaBroker uses bucket_name for checkout (get_file) and
+    eviction (delete_file). Without bucket_name local-disk behaviour is used.
     '''
 
-    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None):
+    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None,
+                 bucket_name: str | None = None):
         self._registry: dict[str, BrokerEntry] = {}
         self.file_dir: Path | None = file_dir
         self.video_cache: VideoCacheClient | None = video_cache
+        self.bucket_name: str | None = bucket_name
 
     # ------------------------------------------------------------------
     # Registration
@@ -70,6 +81,7 @@ class MediaBroker:
         Create a MediaDownload from a successful DownloadResult and register it.
         '''
         media_download = MediaDownload(result.file_name, result.ytdlp_data, result.media_request)
+        media_download.file_size_bytes = result.file_size_bytes
         self.register_download(media_download)
         return media_download
 
@@ -81,26 +93,28 @@ class MediaBroker:
         If the entry does not yet exist (e.g. a cache hit that bypassed
         the normal pipeline) a new AVAILABLE entry is created.
         '''
-        key = str(media_download.media_request.uuid)
-        entry = self._registry.get(key)
-        if entry is None:
-            self._registry[key] = BrokerEntry(
-                request=media_download.media_request,
-                download=media_download,
-                zone=Zone.AVAILABLE,
-            )
-        else:
-            entry.download = media_download
-            entry.zone = Zone.AVAILABLE
-        if self.video_cache:
-            self.video_cache.iterate_file(media_download)
+        with otel_span_wrapper('music.broker.register_download', kind=SpanKind.INTERNAL,
+                               attributes=media_download_attributes(media_download)):
+            key = str(media_download.media_request.uuid)
+            entry = self._registry.get(key)
+            if entry is None:
+                self._registry[key] = BrokerEntry(
+                    request=media_download.media_request,
+                    download=media_download,
+                    zone=Zone.AVAILABLE,
+                )
+            else:
+                entry.download = media_download
+                entry.zone = Zone.AVAILABLE
+            if self.video_cache:
+                self.video_cache.iterate_file(media_download)
 
     def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:
         '''
         Look up a completed download in the video cache.
 
         Returns a MediaDownload if the URL was previously downloaded and is
-        still on disk, or None if the cache is disabled or there is no hit.
+        still available, or None if the cache is disabled or there is no hit.
         '''
         if not self.video_cache:
             return None
@@ -111,22 +125,27 @@ class MediaBroker:
         Mark old cache entries for deletion and evict those that are no
         longer referenced by any active player.
 
+        In S3 mode deletes the S3 object; in local-disk mode deletes the
+        local file. In both cases the DB record is removed.
+
         Returns True if at least one file was removed, False otherwise.
         '''
         if not self.video_cache:
             return False
-        self.video_cache.ready_remove()
-        to_delete = [
-            vc.id
-            for vc in self.video_cache.get_deletable_entries()
-            if self.can_evict_base(vc.video_url)
-        ]
-        if to_delete:
-            self.video_cache.remove_video_cache(to_delete)
-        if self.video_cache.object_storage_enabled:
-            for vc in self.video_cache.get_entries_without_backup():
-                self.video_cache.object_storage_backup(vc.id)
-        return bool(to_delete)
+        with otel_span_wrapper('music.broker.cache_cleanup', kind=SpanKind.INTERNAL) as span:
+            self.video_cache.ready_remove()
+            to_delete = [
+                vc
+                for vc in self.video_cache.get_deletable_entries()
+                if self.can_evict_base(vc.video_url)
+            ]
+            span.set_attribute('music.broker.evicted_count', len(to_delete))
+            if not to_delete:
+                return False
+            for vc in to_delete:
+                delete_file(self.bucket_name, str(vc.base_path))
+            self.video_cache.remove_video_cache([vc.id for vc in to_delete])
+            return True
 
     # ------------------------------------------------------------------
     # Player lifecycle
@@ -136,24 +155,38 @@ class MediaBroker:
         '''
         Mark an entry as CHECKED_OUT when a player dequeues it to play.
 
-        If guild_path is given, copies the base file into the guild-specific
-        directory and stores the resulting path in entry.guild_file_path.
+        If guild_path is given, stages the file into the guild-specific
+        directory (copying from local disk or downloading from S3) and
+        stores the resulting path in entry.guild_file_path.
 
         Returns the guild-specific file path, or None if no copy was made.
         '''
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return None
-        if guild_path is not None and entry.download is not None and entry.download.file_path:
-            guild_path.mkdir(exist_ok=True)
-            if not entry.download.file_path.exists():
-                raise FileNotFoundError('Unable to locate base path')
-            uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
-            copyfile(str(entry.download.file_path), str(uuid_path))
-            entry.guild_file_path = uuid_path
-        entry.zone = Zone.CHECKED_OUT
-        entry.checked_out_by = guild_id
-        return entry.guild_file_path
+        if entry.zone == Zone.CHECKED_OUT and entry.guild_file_path and entry.guild_file_path.exists():
+            return entry.guild_file_path
+        attributes = {
+            'music.media_request.uuid': media_request_uuid,
+            'music.guild_id': guild_id,
+            'music.broker.s3_mode': bool(self.bucket_name),
+        }
+        if entry.download:
+            attributes.update(media_download_attributes(entry.download))
+        with otel_span_wrapper('music.broker.checkout', kind=SpanKind.INTERNAL, attributes=attributes):
+            if guild_path is not None and entry.download is not None and entry.download.file_path:
+                guild_path.mkdir(exist_ok=True)
+                uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
+                if self.bucket_name:
+                    get_file(self.bucket_name, str(entry.download.file_path), uuid_path)
+                else:
+                    if not entry.download.file_path.exists():
+                        raise FileNotFoundError('Unable to locate base path')
+                    copyfile(str(entry.download.file_path), str(uuid_path))
+                entry.guild_file_path = uuid_path
+            entry.zone = Zone.CHECKED_OUT
+            entry.checked_out_by = guild_id
+            return entry.guild_file_path
 
     def remove(self, media_request_uuid: str):
         '''
@@ -179,14 +212,40 @@ class MediaBroker:
         '''
         Remove an entry that was registered but could not be enqueued.
 
-        If no video cache is configured the base file is also deleted,
-        since nothing else will manage its lifecycle. With a cache the
-        file is kept as a valid cache entry.
+        If no video cache is configured the base file is also deleted from
+        the appropriate store (S3 or local disk), since nothing else will
+        manage its lifecycle. With a cache the file is kept as a valid
+        cache entry.
         '''
         entry = self._registry.pop(media_request_uuid, None)
         if entry and entry.download and not self.video_cache:
             if entry.download.file_path:
-                entry.download.file_path.unlink(missing_ok=True)
+                if self.bucket_name:
+                    delete_file(self.bucket_name, str(entry.download.file_path))
+                else:
+                    entry.download.file_path.unlink(missing_ok=True)
+
+    def prefetch(self, queue_items: list, guild_id: int, guild_path: 'Path | None', limit: int):
+        '''
+        Pre-stage the next `limit` AVAILABLE items from the queue to local disk.
+        Already-staged (CHECKED_OUT) items count toward the limit.
+        '''
+        if not guild_path or not self.bucket_name:
+            return  # local mode: no-op (copyfile is fast, no benefit)
+        with otel_span_wrapper('music.broker.prefetch', kind=SpanKind.INTERNAL,
+                               attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit}):
+            staged = 0
+            for item in queue_items:
+                if staged >= limit:
+                    break
+                entry = self._registry.get(str(item.media_request.uuid))
+                if entry is None:
+                    continue
+                if entry.zone == Zone.CHECKED_OUT:
+                    staged += 1
+                elif entry.zone == Zone.AVAILABLE:
+                    self.checkout(str(item.media_request.uuid), guild_id, guild_path)
+                    staged += 1
 
     # ------------------------------------------------------------------
     # Eviction queries

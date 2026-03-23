@@ -99,22 +99,28 @@ register_download(media_download)
     → entry updated with download, zone = AVAILABLE
     → triggered when state machine fires COMPLETED
 
-checkout(media_request_uuid, guild_id)
-    → zone = CHECKED_OUT, checked_out_by = guild_id
-    → triggered when player takes the file from the queue
+prefetch(queue_items, guild_id, guild_path, limit)
+    → stages the next `limit` AVAILABLE items to local disk via checkout()
+    → already CHECKED_OUT items count toward the limit
+    → no-op in local mode (no bucket_name configured)
 
-release(media_request_uuid, guild_id)
-    → zone = AVAILABLE (if keeping file) or entry removed (evict)
+checkout(media_request_uuid, guild_id, guild_path)
+    → zone = CHECKED_OUT, checked_out_by = guild_id
+    → stages the file to guild_path (S3 download or local copy)
+    → if already CHECKED_OUT with a valid staged file, returns immediately (idempotent)
+    → triggered when player takes the file from the queue, or by prefetch()
+
+release(media_request_uuid)
+    → deletes the guild-specific staged copy, removes entry from registry
     → triggered when player finishes the track or is cleaned up
 
-evict(media_request_uuid)
-    → only valid when zone = AVAILABLE (no active references)
-    → deletes the file and removes the entry
-    → replaces the current mark-for-deletion pattern
-
 remove(media_request_uuid)
-    → removes an IN_FLIGHT entry that reached FAILED or DISCARDED
-    → no file to clean up
+    → removes an AVAILABLE entry without touching any files
+    → used when a queued item is discarded before checkout
+
+discard(media_request_uuid)
+    → removes an entry that could not be enqueued
+    → deletes the underlying file (S3 object or local) if no video cache is configured
 ```
 
 ---
@@ -138,6 +144,26 @@ When the player finishes a track or is cleaned up → `release`.
 Instead of checking a "marked for deletion" flag on the file, the cache cleanup logic asks the broker `can_evict(media_request_uuid)`. The broker returns true only when the entry is in the AVAILABLE zone (not checked out, not in-flight).
 
 ---
+
+## S3 Prefetch Window
+
+In S3 mode, `checkout()` downloads the file from S3 the moment the player dequeues it. With typical song durations of 3+ minutes, this latency is imperceptible. However, the broker also supports a configurable **prefetch window** that pre-stages the next N songs to local disk so they are ready the instant the player needs them, and provides a predictable disk usage ceiling.
+
+```
+add_source_to_player()
+    → register_download() → Zone.AVAILABLE
+    → _trigger_prefetch(): prefetch() next N AVAILABLE items → local disk
+
+player_loop() dequeues
+    → checkout() → file already staged, no S3 download needed
+
+player_loop() finishes → release() → local file deleted
+    → prefetch() slides next item into the window
+```
+
+The number of items pre-staged is controlled by `storage.prefetch_limit` in the config (default: 5). Setting it to `0` restores fully lazy behaviour — only 1 song on local disk at a time.
+
+Already-CHECKED_OUT items count toward the limit, so the window never over-stages. The `checkout()` call is idempotent: if a prefetched item reaches the player while its staged file still exists, no second S3 download is made.
 
 ## Player Restart / Refresh
 

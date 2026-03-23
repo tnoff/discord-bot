@@ -71,11 +71,12 @@ This document defines all key components, types, and concepts used throughout th
 - Located in `discord_bot/cogs/music_helpers/download_client.py`
 
 ### **`VideoCacheClient`**
-- Manages local cache of downloaded files
-- Implements LRU (Least Recently Used) eviction
-- Integrates with database to track cached files
-- Optionally backs up files to S3 storage
-- Checks cache before downloads to avoid re-downloading
+- DB catalog for the video cache; manages `VideoCache` records (metadata, play counts, eviction policy)
+- Implements LRU (Least Recently Used) eviction by count and optional size limit
+- Tracks `storage_type` (`'s3'` or `'local'`) per cache entry so stale entries are detected if the storage backend changes
+- On cache lookup: returns `None` and marks the entry for eviction if its `storage_type` doesn't match the current config
+- On cache write: updates `base_path` and `storage_type` in-place if an existing entry was from a different storage backend
+- All actual file operations (S3 download, local copy, delete) are handled by `MediaBroker`
 - Located in `discord_bot/cogs/music_helpers/video_cache_client.py`
 
 ---

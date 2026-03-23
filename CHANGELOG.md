@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.5.3
+
+Music:
+- Moved all S3 file operations out of `VideoCacheClient` into `MediaBroker`; cache client now manages only DB records
+- Added prefetch support to `MediaBroker` — pre-stages upcoming queue items from S3 to local disk ahead of playback
+- Made S3 checkout and prefetch non-blocking: checkout runs via `asyncio.to_thread` and prefetch fires as a background task immediately after playback starts, eliminating the between-song gap caused by blocking S3 downloads
+- Added `max_cache_size_mb` config option to enforce a disk size budget on the video cache; stored `file_size_bytes` per cache entry, with size-based eviction composing correctly with the existing count-based limit
+- Added `storage_type` column (`'s3'` or `'local'`) to `VideoCache` to track which storage backend each cached entry was written under; stale entries from a previous storage config are detected on access — treated as a cache miss and marked for eviction rather than causing a failed file lookup
+- Moved download backoff tracking and failure queue management from `music.py` into `DownloadClient`
+- Added `PlaylistAddRequest` / `PlaylistAddResult` types to consolidate playlist-add handling
+- Added `CleanupReason` type to unify player shutdown/cleanup paths
+- Improved serialization of `MediaRequest` bundles and `DistributedQueue` items
+- Made `MessageDispatcher` context bits more mutable and serializable; refactored dispatch logic
+- Fixed log levels across music, markov, dispatcher, and utility modules
+
+Code Quality:
+- Migrated remaining internal types (`DownloadStatus`, `CatalogResponse`) to Pydantic
+- Moved ready-file and file-removal operations from `MusicPlayer` into `MediaBroker`
+- Increased test coverage to 96%
+- Moved KNOWN-ISSUES content into DEVELOPMENT.md
+
+Dependencies:
+- Bumped yt-dlp from 2026.3.3 to 2026.3.17
+- Bumped boto3 from 1.42.67 to 1.42.71
+- Bumped google-api-python-client from 2.192.0 to 2.193.0
+- Bumped croniter from 6.0.0 to 6.2.2
+- Bumped tox from 4.49.1 to 4.50.0
+
 ## 2.5.2
 
 General:
