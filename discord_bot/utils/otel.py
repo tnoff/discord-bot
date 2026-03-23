@@ -1,6 +1,6 @@
 from enum import Enum
 import functools
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from discord.ext.commands import Context
 from opentelemetry import trace
@@ -87,7 +87,7 @@ def command_wrapper(function):
         span_name = 'unamed_command_wrapper'
         if ctx:
             span_name = f'{ctx.command.cog.qualified_name.lower()}.{ctx.command.name}'
-        with otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
+        async with async_otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
             return await function(*args, **kwargs)
     return _wrapper
 
@@ -118,6 +118,33 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
             raise e
         finally:
             pass
+
+
+@asynccontextmanager
+async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
+                                   kind: trace.SpanKind = trace.SpanKind.INTERNAL,
+                                   attributes: dict = None):
+    '''
+    Wrap a generic span in an async context manager
+    '''
+    with TRACER.start_as_current_span(span_name, kind=kind) as span:
+        if ctx:
+            span.set_attributes({
+                DiscordContextNaming.AUTHOR.value: ctx.author.id,
+                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
+                DiscordContextNaming.GUILD.value: ctx.guild.id,
+                DiscordContextNaming.COMMAND.value: ctx.command.name,
+                DiscordContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
+            })
+        if attributes:
+            span.set_attributes(attributes)
+        try:
+            yield span
+            span.set_status(StatusCode.OK)
+        except Exception as e:
+            span.set_status(StatusCode.ERROR)
+            span.record_exception(e)
+            raise
 
 
 def create_observable_gauge(meter_provider, name: str, function, description: str, unit: str = '1'):

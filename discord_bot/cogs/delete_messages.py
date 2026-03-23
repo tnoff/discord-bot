@@ -11,7 +11,7 @@ from sqlalchemy.engine.base import Engine
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7
@@ -70,11 +70,11 @@ class DeleteMessages(CogHelper):
         '''
         # Set heartbeat metric
         await sleep(self.loop_sleep_interval)
-        with otel_span_wrapper('delete_messages.check'):
+        async with async_otel_span_wrapper('delete_messages.check'):
             for channel_dict in self.discord_channels:
                 guild_id = channel_dict['server_id']
                 channel_id = channel_dict['channel_id']
-                with otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_id}):
+                async with async_otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_id}):
                     self.logger.debug(f'Checking Channel ID {channel_id}')
                     delete_after = channel_dict.get('delete_after', DELETE_AFTER_DEFAULT)
                     cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))

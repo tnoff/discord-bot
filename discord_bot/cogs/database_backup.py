@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
 from discord_bot.utils.integrations.s3 import upload_file, ObjectStorageException
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 
@@ -117,16 +117,16 @@ class DatabaseBackup(CogHelper):
         await sleep(seconds_until)
 
         # Run the backup with OpenTelemetry tracing
-        with otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
+        async with async_otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
             # Create backup file
-            with otel_span_wrapper('database_backup.create_file'):
-                backup_file_path = self.backup_client.create_backup()
+            async with async_otel_span_wrapper('database_backup.create_file'):
+                backup_file_path = await asyncio.to_thread(self.backup_client.create_backup)
 
             # Upload to S3
-            with otel_span_wrapper('database_backup.upload_to_s3',
-                                    attributes={'s3.bucket': self.bucket_name}):
+            async with async_otel_span_wrapper('database_backup.upload_to_s3',
+                                               attributes={'s3.bucket': self.bucket_name}):
                 object_name = f'{self.object_prefix}{backup_file_path.name}'
-                success = upload_file(self.bucket_name, backup_file_path, object_name)
+                success = await asyncio.to_thread(upload_file, self.bucket_name, backup_file_path, object_name)
 
                 if success:
                     self.logger.info(f'Successfully uploaded backup to s3://{self.bucket_name}/{object_name}')

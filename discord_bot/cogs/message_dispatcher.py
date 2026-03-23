@@ -16,7 +16,7 @@ from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming, otel_span_wrapper, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, METER_PROVIDER, MetricNaming, create_observable_gauge
 
 
 class DispatchPriority(IntEnum):
@@ -465,13 +465,13 @@ class MessageDispatcher(CogHelper):
     async def _dispatch(self, item, guild_id: int):
         if isinstance(item, _MutableSentinel):
             self.logger.debug(f'MessageDispatcher :: processing mutable "{item.key}" for guild {guild_id}')
-            with otel_span_wrapper('message_dispatcher.process_mutable',
-                                   attributes={'key': item.key, 'discord.guild': guild_id}):
+            async with async_otel_span_wrapper('message_dispatcher.process_mutable',
+                                              attributes={'key': item.key, 'discord.guild': guild_id}):
                 await self._process_mutable(item.key)
         elif isinstance(item, _DeleteItem):
             self.logger.debug(f'MessageDispatcher :: deleting message {item.message_id} in channel {item.channel_id} for guild {guild_id}')
-            with otel_span_wrapper('message_dispatcher.delete',
-                                   attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
+            async with async_otel_span_wrapper('message_dispatcher.delete',
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
                 try:
                     channel = await self.bot.fetch_channel(item.channel_id)
                     msg = channel.get_partial_message(item.message_id)
@@ -480,8 +480,8 @@ class MessageDispatcher(CogHelper):
                     pass
         elif isinstance(item, _ReadItem):
             self.logger.debug(f'MessageDispatcher :: fetching object for guild {guild_id}')
-            with otel_span_wrapper('message_dispatcher.fetch',
-                                   attributes={'discord.guild': guild_id}) as span:
+            async with async_otel_span_wrapper('message_dispatcher.fetch',
+                                              attributes={'discord.guild': guild_id}) as span:
                 try:
                     result = await async_retry_discord_message_command(
                         item.func, max_retries=item.max_retries, allow_404=item.allow_404
@@ -507,8 +507,8 @@ class MessageDispatcher(CogHelper):
                 self.logger.info(f'MessageDispatcher :: channel {item.channel_id} not found for send')
                 return
             self.logger.debug(f'MessageDispatcher :: sending to channel {item.channel_id} guild {guild_id}')
-            with otel_span_wrapper('message_dispatcher.send',
-                                   attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
+            async with async_otel_span_wrapper('message_dispatcher.send',
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
                 await async_retry_discord_message_command(
                     partial(channel.send, content=item.content, delete_after=item.delete_after),
                     allow_404=item.allow_404,
