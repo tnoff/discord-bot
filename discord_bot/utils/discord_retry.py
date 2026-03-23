@@ -6,7 +6,7 @@ from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimi
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.utils.otel import otel_span_wrapper, AttributeNaming
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'utils'
 
@@ -23,7 +23,7 @@ async def async_retry_command(func: Callable[[], Awaitable], max_retries: int = 
     '''
     retry_exceptions = retry_exceptions or ()
     accepted_exceptions = accepted_exceptions or ()
-    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
+    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
         for retry in range(max_retries + 1):
             span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
             try:
@@ -52,7 +52,7 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
       - NotFound (404) with allow_404=True: swallowed, returns False
     '''
     accepted = (NotFound,) if allow_404 else ()
-    with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT) as span:
+    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT) as span:
         for retry in range(max_retries + 1):
             span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
             try:

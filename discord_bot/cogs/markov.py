@@ -21,7 +21,7 @@ from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -198,9 +198,9 @@ class Markov(CogHelper):
         with self.with_db_session() as db_session:
             for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
                 guild_id = markov_channel.server_id
-                with otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL,
-                                       attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
-                                                   DiscordContextNaming.GUILD.value: markov_channel.server_id}):
+                async with async_otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL,
+                                                   attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
+                                                               DiscordContextNaming.GUILD.value: markov_channel.server_id}):
                     self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
                     # Not sure why but this check in particular seems especially flakey
                     emojis = await self.dispatch_guild_emojis(guild_id, max_retries=5)
@@ -257,7 +257,7 @@ class Markov(CogHelper):
                     self.logger.debug(f'Done with channel {markov_channel.channel_id}')
 
             # Clean up old messages
-            with otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
+            async with async_otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
                 retry_database_commands(db_session, partial(delete_old_records, db_session))
                 self.logger.debug('Deleted expired/old markov relations')
 
