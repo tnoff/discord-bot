@@ -7,6 +7,7 @@ from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
 
 from discord_bot.database import BASE
+from discord_bot.utils.integrations.s3 import get_file, list_objects
 
 
 class DatabaseBackupClient:
@@ -66,16 +67,16 @@ class DatabaseBackupClient:
             if table_names:
                 f.write(',\n')  # Comma before tables if any exist
 
-            for table_idx, table_name in enumerate(table_names):
-                if table_idx > 0:
-                    f.write(',\n')  # Comma separator between tables
+            with self.db_engine.connect() as connection:
+                for table_idx, table_name in enumerate(table_names):
+                    if table_idx > 0:
+                        f.write(',\n')  # Comma separator between tables
 
-                self.logger.debug(f'Backing up table: {table_name}')
-                f.write(f'  "{table_name}": [\n')
+                    self.logger.debug(f'Backing up table: {table_name}')
+                    f.write(f'  "{table_name}": [\n')
 
-                # Stream rows in chunks to minimize memory usage
-                row_count = 0
-                with self.db_engine.connect() as connection:
+                    # Stream rows in chunks to minimize memory usage
+                    row_count = 0
                     result = connection.execution_options(stream_results=True).execute(
                         text(f'SELECT * FROM {table_name}')
                     )
@@ -96,8 +97,8 @@ class DatabaseBackupClient:
                             f.write('    ' + json.dumps(row_dict, default=str))
                             row_count += 1
 
-                self.logger.debug(f'  -> {row_count} rows')
-                f.write('\n  ]')  # Close table array
+                    self.logger.debug(f'  -> {row_count} rows')
+                    f.write('\n  ]')  # Close table array
 
             f.write('\n}\n')  # Close JSON object
 
@@ -235,3 +236,26 @@ class DatabaseBackupClient:
 
         self.logger.debug(f'  -> {table_name}: {rows_inserted} rows restored')
         return rows_inserted
+
+    def find_latest_backup(self, bucket_name: str, prefix: str) -> str | None:
+        '''
+        Returns the S3 key of the most recent backup object under prefix, or None if none exist.
+        '''
+        objects = list_objects(bucket_name, prefix)
+        if not objects:
+            return None
+        return objects[0]['key']
+
+    def restore_from_s3(self, bucket_name: str, object_key: str) -> dict:
+        '''
+        Downloads the backup object from S3 to a temp file and restores the database from it.
+        Returns the restoration stats dict.
+        '''
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            get_file(bucket_name, object_key, tmp_path)
+            return self.restore_backup(tmp_path, clear_existing=True)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()

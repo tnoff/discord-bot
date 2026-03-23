@@ -3,6 +3,7 @@ from freezegun import freeze_time
 
 from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.utils.integrations.s3 import ObjectStorageException
 
 from tests.helpers import fake_context, fake_engine  #pylint:disable=unused-import
 
@@ -304,6 +305,109 @@ async def test_database_backup_loop_success_flow(fake_context, fake_engine, mock
     # Verify success message in logs
     assert 'Successfully uploaded backup' in caplog.text
     assert 's3://test-backup-bucket/' in caplog.text
+
+
+def test_database_backup_restore_on_startup_config(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+    '''Test that restore_on_startup config is parsed correctly'''
+    config = {
+        'general': {
+            'storage': {'backend': 's3'},
+            'include': {'database_backup': True}
+        },
+        'database_backup': {
+            'bucket_name': 'test-bucket',
+            'cron_schedule': '0 2 * * *',
+            'restore_on_startup': True
+        }
+    }
+    cog = DatabaseBackup(fake_context['bot'], config, fake_engine)
+    assert cog.config.restore_on_startup is True
+
+
+def test_database_backup_restore_on_startup_defaults_false(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+    '''Test that restore_on_startup defaults to False'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    assert cog.config.restore_on_startup is False
+
+
+def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup calls restore_from_s3 when a backup key is found'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
+    mock_restore = mocker.patch.object(cog.backup_client, 'restore_from_s3', return_value={
+        'tables_restored': 3,
+        'total_rows_inserted': 42,
+        'tables': {},
+        'metadata': {}
+    })
+
+    cog._restore_on_startup()  #pylint:disable=protected-access
+
+    mock_restore.assert_called_once_with(cog.bucket_name, 'backups/db/latest.json')
+
+
+def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup logs info and does not call restore_from_s3 when no backup exists'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value=None)
+    mock_restore = mocker.patch.object(cog.backup_client, 'restore_from_s3')
+
+    cog._restore_on_startup()  #pylint:disable=protected-access
+
+    mock_restore.assert_not_called()
+    assert 'No backup found in S3' in caplog.text
+
+
+def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup logs warning and does not raise on ObjectStorageException'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mocker.patch.object(cog.backup_client, 'find_latest_backup',
+                        side_effect=ObjectStorageException('S3 unavailable'))
+
+    # Should not raise
+    cog._restore_on_startup()  #pylint:disable=protected-access
+
+    assert 'Startup restore failed' in caplog.text
+
+
+@pytest.mark.asyncio
+@freeze_time('2025-12-04 00:00:00', tz_offset=0)
+async def test_cog_load_runs_startup_restore_when_enabled(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_load calls _restore_on_startup via asyncio.to_thread when restore_on_startup=True'''
+    config = {
+        'general': {
+            'storage': {'backend': 's3'},
+            'include': {'database_backup': True}
+        },
+        'database_backup': {
+            'bucket_name': 'test-bucket',
+            'cron_schedule': '0 2 * * *',
+            'restore_on_startup': True
+        }
+    }
+    cog = DatabaseBackup(fake_context['bot'], config, fake_engine)
+    mock_restore = mocker.patch.object(cog, '_restore_on_startup')
+    mocker.patch('asyncio.to_thread', side_effect=lambda fn: fn())
+    fake_context['bot'].loop = mocker.Mock()
+    fake_context['bot'].loop.create_task = mocker.Mock()
+
+    await cog.cog_load()
+
+    mock_restore.assert_called_once()
+
+
+@pytest.mark.asyncio
+@freeze_time('2025-12-04 00:00:00', tz_offset=0)
+async def test_cog_load_skips_startup_restore_when_disabled(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_load does not call _restore_on_startup when restore_on_startup=False'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mock_restore = mocker.patch.object(cog, '_restore_on_startup')
+    fake_context['bot'].loop = mocker.Mock()
+    fake_context['bot'].loop.create_task = mocker.Mock()
+
+    await cog.cog_load()
+
+    mock_restore.assert_not_called()
 
 
 @pytest.mark.asyncio

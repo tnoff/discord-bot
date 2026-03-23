@@ -5,6 +5,8 @@ The database backup cog automatically backs up all SQLAlchemy-defined tables to 
 ## Features
 
 - **Scheduled backups**: Uses cron expressions to schedule automatic backups
+- **Startup restore**: Optionally downloads and restores the latest S3 backup on container start
+- **Consistent snapshots**: All tables are read within a single SQLite connection/transaction, preventing cross-table inconsistency
 - **Memory efficient**: Streams data in chunks to minimize memory usage
 - **S3 integration**: Uploads backups to S3 using existing storage infrastructure
 - **Model-only backups**: Only backs up tables defined in SQLAlchemy models (excludes system tables)
@@ -24,6 +26,7 @@ general:
     bucket_name: my-db-backups
     cron_schedule: "0 2 * * *"  # Daily at 2 AM
     object_prefix: "backups/db/"  # Optional: S3 path prefix
+    restore_on_startup: true     # Optional: restore latest backup on startup
 
   include:
     database_backup: true
@@ -39,6 +42,7 @@ general:
 #### Optional
 
 - `object_prefix` (string): S3 object key prefix (default: `backups/db/`)
+- `restore_on_startup` (bool): If `true`, downloads and restores the most recent backup from S3 before starting the backup loop (default: `false`). Useful for ephemeral/container deployments where the database volume is wiped on restart. If no backup exists in S3, startup continues normally with an empty database. S3 errors are logged as warnings and do not prevent startup.
 
 ### Cron Schedule Examples
 
@@ -60,14 +64,21 @@ The backup system uses boto3's default credential chain. Configure credentials v
 ## How It Works
 
 1. **Initialization**: Cog loads and validates configuration
-2. **Scheduling**: Calculates next run time from cron expression
-3. **Backup process**:
+2. **Startup restore** (if `restore_on_startup: true`):
+   - Lists objects under `object_prefix` in S3, sorted by last-modified date
+   - Downloads the most recent backup to a temporary file
+   - Restores all tables (clearing existing data first)
+   - Deletes the temporary file
+   - If no backup exists or S3 is unreachable, logs a warning and continues
+3. **Scheduling**: Calculates next run time from cron expression
+4. **Backup process**:
+   - Opens a single database connection so all table reads share one consistent SQLite WAL snapshot
    - Queries all tables defined in SQLAlchemy models (`BASE.metadata`)
    - Streams rows in chunks of 1000 to minimize memory usage
    - Writes JSON incrementally to `/tmp/db_backup_YYYY-MM-DD_HH-MM-SS.json`
    - Uploads to S3: `s3://bucket_name/object_prefix/db_backup_YYYY-MM-DD_HH-MM-SS.json`
    - Cleans up local file
-4. **Repeat**: Schedules next backup based on cron expression
+5. **Repeat**: Schedules next backup based on cron expression
 
 ## Backup Format
 
