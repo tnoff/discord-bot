@@ -146,3 +146,45 @@ async def test_cleanup_removes_guild_download_dir(mocker, fake_context):  # pyli
         await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
         assert not guild_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """cleanup removes the guild's player subdirectory (prefetched files) when it exists."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    with TemporaryDirectory() as tmp_dir:
+        cog.player_dir = Path(tmp_dir)
+        guild_player_path = cog.player_dir / str(fake_context['guild'].id)
+        guild_player_path.mkdir()
+        # Simulate a prefetched file left in the guild player dir
+        (guild_player_path / 'prefetched.webm').write_bytes(b'data')
+        assert guild_player_path.exists()
+
+        await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
+
+        assert not guild_player_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """cleanup does not remove guild player dir on BOT_SHUTDOWN (cog_unload handles it)."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    with TemporaryDirectory() as tmp_dir:
+        cog.player_dir = Path(tmp_dir)
+        guild_player_path = cog.player_dir / str(fake_context['guild'].id)
+        guild_player_path.mkdir()
+        assert guild_player_path.exists()
+
+        await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+
+        assert guild_player_path.exists()

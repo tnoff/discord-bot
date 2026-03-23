@@ -993,6 +993,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guild_path = self.download_dir / f'{guild.id}'
                 if guild_path.exists():
                     rm_tree(guild_path)
+                self.logger.debug(f'Deleting player dir for guild {guild.id}')
+                guild_player_path = self.player_dir / f'{guild.id}'
+                if guild_player_path.exists():
+                    rm_tree(guild_player_path)
 
             # Wait for voice disconnect to complete
             # Skip on BOT_SHUTDOWN — cog_unload handles directory teardown and
