@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 from sqlalchemy import text
 
@@ -155,7 +157,6 @@ def test_create_backup_only_includes_base_tables(fake_engine):  #pylint:disable=
 
 def test_create_backup_handles_special_types(fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that backup handles dates and special types correctly'''
-    from datetime import datetime  #pylint:disable=import-outside-toplevel
     # Add data with dates/times
     with mock_session(fake_engine) as session:
         playlist = Playlist(
@@ -230,6 +231,105 @@ def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=redefine
 
     # Cleanup
     backup_file.unlink()
+
+
+def test_create_backup_single_connection(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''Test that create_backup uses a single connection for all tables (consistency fix)'''
+    client = DatabaseBackupClient(fake_engine)
+    connect_spy = mocker.spy(fake_engine, 'connect')
+
+    backup_file = client.create_backup()
+
+    # Only one connection should be opened for the table reads
+    # (_get_alembic_version opens its own connection separately)
+    assert connect_spy.call_count <= 2  # at most alembic check + one table connection
+
+    backup_file.unlink()
+
+
+def test_find_latest_backup_returns_key(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''Returns the key of the most recent object'''
+    t1 = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    t2 = datetime(2025, 5, 1, tzinfo=timezone.utc)
+    mocker.patch(
+        'discord_bot.utils.database_backup_client.list_objects',
+        return_value=[
+            {'key': 'backups/new.json', 'last_modified': t1},
+            {'key': 'backups/old.json', 'last_modified': t2},
+        ]
+    )
+    client = DatabaseBackupClient(fake_engine)
+
+    result = client.find_latest_backup('my-bucket', 'backups/')
+
+    assert result == 'backups/new.json'
+
+
+def test_find_latest_backup_returns_none_when_empty(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''Returns None when no objects exist under prefix'''
+    mocker.patch(
+        'discord_bot.utils.database_backup_client.list_objects',
+        return_value=[]
+    )
+    client = DatabaseBackupClient(fake_engine)
+
+    result = client.find_latest_backup('my-bucket', 'backups/')
+
+    assert result is None
+
+
+def test_restore_from_s3_calls_restore_backup(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''restore_from_s3 downloads the file and calls restore_backup'''
+    # Create a real backup file to restore from
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    def fake_get_file(_bucket, _key, path):
+        import shutil  #pylint:disable=import-outside-toplevel
+        shutil.copy(backup_file, path)
+        return True
+
+    mocker.patch('discord_bot.utils.database_backup_client.get_file', side_effect=fake_get_file)
+    mock_restore = mocker.patch.object(client, 'restore_backup', wraps=client.restore_backup)
+
+    stats = client.restore_from_s3('my-bucket', 'backups/latest.json')
+
+    mock_restore.assert_called_once()
+    call_kwargs = mock_restore.call_args
+    assert call_kwargs.kwargs.get('clear_existing') is True or call_kwargs[1].get('clear_existing') is True
+    assert isinstance(stats, dict)
+    assert 'tables_restored' in stats
+
+    backup_file.unlink()
+
+
+def test_restore_from_s3_cleans_up_temp_file(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''Temp file is deleted even if restore_backup raises'''
+    tmp_paths = []
+
+    original_named_temp = __import__('tempfile').NamedTemporaryFile
+
+    def tracking_named_temp(*args, **kwargs):
+        f = original_named_temp(*args, **kwargs)
+        tmp_paths.append(Path(f.name))
+        return f
+
+    mocker.patch('discord_bot.utils.database_backup_client.tempfile.NamedTemporaryFile', side_effect=tracking_named_temp)
+    mocker.patch('discord_bot.utils.database_backup_client.get_file', return_value=True)
+    mocker.patch.object(
+        DatabaseBackupClient,
+        'restore_backup',
+        side_effect=RuntimeError('restore failed')
+    )
+
+    client = DatabaseBackupClient(fake_engine)
+
+    with __import__('pytest').raises(RuntimeError):
+        client.restore_from_s3('my-bucket', 'backups/latest.json')
+
+    # Temp file should be cleaned up
+    for p in tmp_paths:
+        assert not p.exists()
 
 
 def test_backup_metadata_includes_alembic_version(fake_engine):  #pylint:disable=redefined-outer-name

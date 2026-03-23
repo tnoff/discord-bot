@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import sleep
 from datetime import datetime
 from typing import Optional
@@ -13,7 +14,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.otel import otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
-from discord_bot.utils.integrations.s3 import upload_file
+from discord_bot.utils.integrations.s3 import upload_file, ObjectStorageException
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 
 # Pydantic config model
@@ -22,6 +23,7 @@ class DatabaseBackupConfig(BaseModel):
     bucket_name: str
     cron_schedule: str
     object_prefix: Optional[str] = None
+    restore_on_startup: bool = False
 
 class DatabaseBackup(CogHelper):
     '''
@@ -72,6 +74,8 @@ class DatabaseBackup(CogHelper):
 
     async def cog_load(self):
         '''Start the backup loop when cog loads'''
+        if self.config.restore_on_startup:
+            await asyncio.to_thread(self._restore_on_startup)
         self._task = self.bot.loop.create_task(
             return_loop_runner(
                 self.database_backup_loop,
@@ -79,6 +83,23 @@ class DatabaseBackup(CogHelper):
                 self.logger
             )()
         )
+
+    def _restore_on_startup(self):
+        '''Sync: download and restore the latest S3 backup. Runs in a thread.'''
+        with otel_span_wrapper('database_backup.startup_restore'):
+            try:
+                key = self.backup_client.find_latest_backup(self.bucket_name, self.object_prefix)
+                if key is None:
+                    self.logger.info('No backup found in S3, starting with empty DB')
+                    return
+                stats = self.backup_client.restore_from_s3(self.bucket_name, key)
+                self.logger.info(
+                    f'Startup restore complete from {key}: '
+                    f'{stats["tables_restored"]} tables, '
+                    f'{stats["total_rows_inserted"]} rows'
+                )
+            except ObjectStorageException as e:
+                self.logger.warning(f'Startup restore failed, continuing with existing DB: {e}')
 
     async def cog_unload(self):
         '''Cancel backup task when cog unloads'''

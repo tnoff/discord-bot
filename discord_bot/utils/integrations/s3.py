@@ -57,6 +57,28 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
 
     return True
 
+def list_objects(bucket_name: str, prefix: str) -> list[dict]:
+    '''
+    List objects in an S3 bucket with the given prefix, sorted by last_modified descending.
+    Returns [{'key': ..., 'last_modified': ...}] or [] if no objects found.
+    '''
+    s3_client = client('s3')
+    results = []
+    kwargs = {'Bucket': bucket_name, 'Prefix': prefix}
+    try:
+        while True:
+            response = s3_client.list_objects_v2(**kwargs)
+            for obj in response.get('Contents', []):
+                results.append({'key': obj['Key'], 'last_modified': obj['LastModified']})
+            if response.get('NextContinuationToken'):
+                kwargs['ContinuationToken'] = response['NextContinuationToken']
+            else:
+                break
+    except (BotoCoreError, ClientError) as e:
+        raise ObjectStorageException('Error listing objects') from e
+    results.sort(key=lambda x: x['last_modified'], reverse=True)
+    return results
+
 def delete_file(bucket_name: str, object_name: str) -> bool:
     '''
     Delete files in object storage
