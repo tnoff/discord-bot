@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from discord_bot.utils.health_server import HealthServer
+from discord_bot.servers.health_server import HealthServer
 
 
 def _make_bot(is_ready=True, is_closed=False):

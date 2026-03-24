@@ -45,7 +45,7 @@ from discord_bot.cogs.urban import UrbanDictionary
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, GeneralConfig
-from discord_bot.utils.health_server import HealthServer
+from discord_bot.servers.health_server import HealthServer
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 
