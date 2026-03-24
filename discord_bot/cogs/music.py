@@ -177,6 +177,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
+    REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
+                       'video_cache_backup', 'guild', 'server_video_analytics']
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
         super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
@@ -188,6 +190,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
+        self._init_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
@@ -416,7 +419,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
-            self._post_play_processing_task = self.bot.loop.create_task(return_loop_runner(self.post_play_processing, self.bot, self.logger)())
+            await self.gate_tasks_on_db_restore(self._start_tasks)
+
+    def _start_tasks(self):
+        self._post_play_processing_task = self.bot.loop.create_task(
+            return_loop_runner(self.post_play_processing, self.bot, self.logger)()
+        )
 
     async def cog_unload(self):
         '''
@@ -433,6 +441,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self.cleanup(guild, reason=CleanupReason.BOT_SHUTDOWN)
 
             self.logger.info('Cancelling main tasks')
+            if self._init_task:
+                self._init_task.cancel()
             if self._cleanup_task:
                 self._cleanup_task.cancel()
             if self._download_task:

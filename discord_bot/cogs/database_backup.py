@@ -11,6 +11,7 @@ from croniter import croniter
 from pydantic import BaseModel
 
 from discord_bot.cogs.common import CogHelper
+from discord_bot.database import BASE
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
@@ -29,6 +30,9 @@ class DatabaseBackup(CogHelper):
     '''
     Database Backup to S3
     '''
+    # Defines which cogs' tables to restore, and in what order
+    RESTORE_ORDER = ['Music', 'Markov']
+
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
         # Check if enabled
         if not settings.get('general', {}).get('include', {}).get('database_backup', False):
@@ -54,6 +58,12 @@ class DatabaseBackup(CogHelper):
         )
 
         self._task = None
+        self._restore_task = None
+
+        # Per-table asyncio events: set when each table has been restored
+        self._table_events: dict[str, asyncio.Event] = {
+            name: asyncio.Event() for name in BASE.metadata.tables.keys()
+        }
 
         # OpenTelemetry heartbeat gauge
         create_observable_gauge(
@@ -73,9 +83,9 @@ class DatabaseBackup(CogHelper):
         ]
 
     async def cog_load(self):
-        '''Start the backup loop when cog loads'''
+        '''Start the backup loop when cog loads; kick off restore in background if enabled'''
         if self.config.restore_on_startup:
-            await asyncio.to_thread(self._restore_on_startup)
+            self._restore_task = self.bot.loop.create_task(self._restore_on_startup_async())
         self._task = self.bot.loop.create_task(
             return_loop_runner(
                 self.database_backup_loop,
@@ -84,7 +94,22 @@ class DatabaseBackup(CogHelper):
             )()
         )
 
-    def _restore_on_startup(self):
+    async def _restore_on_startup_async(self):
+        '''Async wrapper: builds table groups from RESTORE_ORDER, then runs restore in a thread.'''
+        loop = asyncio.get_running_loop()
+        table_groups = [
+            list(self.bot.cogs[name].REQUIRED_TABLES)
+            for name in self.RESTORE_ORDER
+            if name in self.bot.cogs and hasattr(self.bot.cogs[name], 'REQUIRED_TABLES')
+        ]
+
+        def on_table_restored(table_name: str):
+            if table_name in self._table_events:
+                loop.call_soon_threadsafe(self._table_events[table_name].set)
+
+        await asyncio.to_thread(self._restore_on_startup, table_groups, on_table_restored)
+
+    def _restore_on_startup(self, table_groups=None, on_table_restored=None):
         '''Sync: download and restore the latest S3 backup. Runs in a thread.'''
         with otel_span_wrapper('database_backup.startup_restore'):
             try:
@@ -92,7 +117,11 @@ class DatabaseBackup(CogHelper):
                 if key is None:
                     self.logger.info('No backup found in S3, starting with empty DB')
                     return
-                stats = self.backup_client.restore_from_s3(self.bucket_name, key)
+                stats = self.backup_client.restore_from_s3(
+                    self.bucket_name, key,
+                    table_groups=table_groups,
+                    on_table_restored=on_table_restored,
+                )
                 self.logger.info(
                     f'Startup restore complete from {key}: '
                     f'{stats["tables_restored"]} tables, '
@@ -101,8 +130,18 @@ class DatabaseBackup(CogHelper):
             except ObjectStorageException as e:
                 self.logger.warning(f'Startup restore failed, continuing with existing DB: {e}')
 
+    async def wait_for_tables(self, table_names: list[str]) -> None:
+        '''Wait until all named tables have been restored.'''
+        await asyncio.gather(*[
+            self._table_events[t].wait()
+            for t in table_names
+            if t in self._table_events
+        ])
+
     async def cog_unload(self):
         '''Cancel backup task when cog unloads'''
+        if self._restore_task:
+            self._restore_task.cancel()
         if self._task:
             self._task.cancel()
 

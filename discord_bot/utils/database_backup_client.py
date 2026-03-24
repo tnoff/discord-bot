@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 import json
 import logging
@@ -111,7 +112,9 @@ class DatabaseBackupClient:
     # ijson scalar event types (all carry a Python value directly)
     _SCALAR_EVENTS = frozenset(['null', 'boolean', 'integer', 'double', 'number', 'string'])
 
-    def restore_backup(self, backup_file: Path, clear_existing: bool = False) -> dict:
+    def restore_backup(self, backup_file: Path, clear_existing: bool = False,
+                       table_groups: list[list[str]] | None = None,
+                       on_table_restored: Callable[[str], None] | None = None) -> dict:
         '''
         Restores database tables from a JSON backup file.
         Uses streaming JSON parsing to avoid loading the entire file into memory.
@@ -119,6 +122,9 @@ class DatabaseBackupClient:
         Args:
             backup_file: Path to the JSON backup file
             clear_existing: If True, truncates tables before restoring (default: False)
+            table_groups: If provided, restore in multiple passes — one per group — with
+                          per-table transactions. Tables not in any group are restored first.
+            on_table_restored: Called with each table name after its transaction commits.
 
         Returns:
             Dictionary with restoration statistics
@@ -137,69 +143,26 @@ class DatabaseBackupClient:
         }
         table_metadata = BASE.metadata.tables
 
-        with self.db_engine.begin() as connection:
+        if table_groups is None:
+            # Original behavior: single pass inside a single transaction
+            with self.db_engine.begin() as connection:
+                if clear_existing:
+                    self._truncate_tables(connection, list(table_metadata.keys()))
+                self._restore_pass_single(backup_file, connection, stats, metadata)
+        else:
+            # Multi-pass: truncate first, then restore ungrouped tables, then each group
             if clear_existing:
-                self._truncate_tables(connection, list(table_metadata.keys()))
+                with self.db_engine.begin() as connection:
+                    self._truncate_tables(connection, list(table_metadata.keys()))
 
-            current_table = None
-            current_row = None
-            row_buffer = []
-            table_rows_inserted = 0
+            grouped = {t for group in table_groups for t in group}
+            ungrouped = set(table_metadata.keys()) - grouped
 
-            def flush_buffer():
-                nonlocal table_rows_inserted
-                if row_buffer and current_table in table_metadata:
-                    table_rows_inserted += self._restore_table(connection, current_table, row_buffer)
-                    row_buffer.clear()
+            if ungrouped:
+                self._restore_pass(backup_file, ungrouped, on_table_restored, stats, metadata)
 
-            def finalize_table():
-                nonlocal table_rows_inserted
-                flush_buffer()
-                if current_table and current_table != '_metadata':
-                    if current_table not in table_metadata:
-                        self.logger.info(f'Table {current_table} not found in current schema, skipping')
-                    else:
-                        stats['tables'][current_table] = table_rows_inserted
-                        stats['tables_restored'] += 1
-                        stats['total_rows_inserted'] += table_rows_inserted
-                table_rows_inserted = 0
-
-            with open(backup_file, 'rb') as f:
-                for prefix, event, value in ijson.parse(f, use_float=True):
-                    # Top-level key = start of a new section (metadata or table)
-                    if prefix == '' and event == 'map_key':
-                        finalize_table()
-                        current_table = value
-                        current_row = None
-
-                    elif current_table == '_metadata' and event in self._SCALAR_EVENTS:
-                        field = prefix[len('_metadata.'):]
-                        if field:
-                            metadata[field] = value
-
-                    elif current_table and current_table != '_metadata':
-                        item_prefix = f'{current_table}.item'
-
-                        if prefix == item_prefix and event == 'start_map':
-                            current_row = {}
-
-                        elif prefix == item_prefix and event == 'end_map':
-                            if current_row is not None:
-                                row_buffer.append(current_row)
-                                current_row = None
-                                if len(row_buffer) >= self.BATCH_SIZE:
-                                    flush_buffer()
-
-                        elif (current_row is not None
-                              and event in self._SCALAR_EVENTS
-                              and prefix.startswith(item_prefix + '.')):
-                            field = prefix[len(item_prefix) + 1:]
-                            # Only handle flat (non-nested) fields
-                            if field and '.' not in field:
-                                current_row[field] = value  #pylint:disable=unsupported-assignment-operation
-
-            # Finalize the last table in the file
-            finalize_table()
+            for group in table_groups:
+                self._restore_pass(backup_file, set(group), on_table_restored, stats, metadata)
 
         if metadata:
             self.logger.info('Backup metadata:')
@@ -210,6 +173,145 @@ class DatabaseBackupClient:
         self.logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
+
+    def _restore_pass_single(self, backup_file: Path, connection, stats: dict,
+                              metadata: dict) -> None:
+        '''Single streaming pass using an existing connection (original behavior).'''
+        table_metadata = BASE.metadata.tables
+
+        current_table = None
+        current_row = None
+        row_buffer = []
+        table_rows_inserted = 0
+
+        def flush_buffer():
+            nonlocal table_rows_inserted
+            if row_buffer and current_table in table_metadata:
+                table_rows_inserted += self._restore_table(connection, current_table, row_buffer)
+                row_buffer.clear()
+
+        def finalize_table():
+            nonlocal table_rows_inserted
+            flush_buffer()
+            if current_table and current_table != '_metadata':
+                if current_table not in table_metadata:
+                    self.logger.info(f'Table {current_table} not found in current schema, skipping')
+                else:
+                    stats['tables'][current_table] = table_rows_inserted
+                    stats['tables_restored'] += 1
+                    stats['total_rows_inserted'] += table_rows_inserted
+            table_rows_inserted = 0
+
+        with open(backup_file, 'rb') as f:
+            for prefix, event, value in ijson.parse(f, use_float=True):
+                if prefix == '' and event == 'map_key':
+                    finalize_table()
+                    current_table = value
+                    current_row = None
+
+                elif current_table == '_metadata' and event in self._SCALAR_EVENTS:
+                    field = prefix[len('_metadata.'):]
+                    if field:
+                        metadata[field] = value
+
+                elif current_table and current_table != '_metadata':
+                    item_prefix = f'{current_table}.item'
+
+                    if prefix == item_prefix and event == 'start_map':
+                        current_row = {}
+
+                    elif prefix == item_prefix and event == 'end_map':
+                        if current_row is not None:
+                            row_buffer.append(current_row)
+                            current_row = None
+                            if len(row_buffer) >= self.BATCH_SIZE:
+                                flush_buffer()
+
+                    elif (current_row is not None
+                          and event in self._SCALAR_EVENTS
+                          and prefix.startswith(item_prefix + '.')):
+                        field = prefix[len(item_prefix) + 1:]
+                        if field and '.' not in field:
+                            current_row[field] = value  #pylint:disable=unsupported-assignment-operation
+
+        finalize_table()
+
+    def _restore_pass(self, backup_file: Path, only_tables: set[str],
+                      on_table_restored: Callable | None, stats: dict,
+                      metadata: dict) -> None:
+        '''
+        One streaming pass over backup_file, restoring only tables in only_tables.
+        Each table is committed in its own transaction; on_table_restored is called after commit.
+        '''
+        table_metadata = BASE.metadata.tables
+
+        current_table = None
+        current_row = None
+        row_buffer = []
+        table_rows_inserted = 0
+
+        def flush_buffer():
+            nonlocal table_rows_inserted
+            if not row_buffer:
+                return
+            if current_table not in only_tables or current_table not in table_metadata:
+                row_buffer.clear()
+                return
+            rows_to_insert = list(row_buffer)
+            row_buffer.clear()
+            with self.db_engine.begin() as connection:
+                table_rows_inserted += self._restore_table(connection, current_table, rows_to_insert)
+
+        def finalize_table():
+            nonlocal table_rows_inserted
+            flush_buffer()
+            if current_table and current_table != '_metadata' and current_table in only_tables:
+                if current_table not in table_metadata:
+                    self.logger.info(f'Table {current_table} not found in current schema, skipping')
+                else:
+                    stats['tables'][current_table] = table_rows_inserted
+                    stats['tables_restored'] += 1
+                    stats['total_rows_inserted'] += table_rows_inserted
+                    if on_table_restored:
+                        on_table_restored(current_table)
+            table_rows_inserted = 0
+
+        with open(backup_file, 'rb') as f:
+            for prefix, event, value in ijson.parse(f, use_float=True):
+                if prefix == '' and event == 'map_key':
+                    finalize_table()
+                    current_table = value
+                    current_row = None
+
+                elif current_table == '_metadata' and event in self._SCALAR_EVENTS:
+                    field = prefix[len('_metadata.'):]
+                    if field:
+                        metadata[field] = value
+
+                elif current_table and current_table != '_metadata':
+                    if current_table not in only_tables:
+                        continue
+
+                    item_prefix = f'{current_table}.item'
+
+                    if prefix == item_prefix and event == 'start_map':
+                        current_row = {}
+
+                    elif prefix == item_prefix and event == 'end_map':
+                        if current_row is not None:
+                            row_buffer.append(current_row)
+                            current_row = None
+                            if len(row_buffer) >= self.BATCH_SIZE:
+                                flush_buffer()
+
+                    elif (current_row is not None
+                          and event in self._SCALAR_EVENTS
+                          and prefix.startswith(item_prefix + '.')):
+                        field = prefix[len(item_prefix) + 1:]
+                        if field and '.' not in field:
+                            current_row[field] = value  #pylint:disable=unsupported-assignment-operation
+
+        finalize_table()
 
     def _truncate_tables(self, connection, table_names: list):
         '''
@@ -285,7 +387,9 @@ class DatabaseBackupClient:
             return None
         return objects[0]['key']
 
-    def restore_from_s3(self, bucket_name: str, object_key: str) -> dict:
+    def restore_from_s3(self, bucket_name: str, object_key: str,
+                        table_groups: list[list[str]] | None = None,
+                        on_table_restored: Callable[[str], None] | None = None) -> dict:
         '''
         Downloads the backup object from S3 to a temp file and restores the database from it.
         Returns the restoration stats dict.
@@ -294,7 +398,9 @@ class DatabaseBackupClient:
             tmp_path = Path(tmp.name)
         try:
             get_file(bucket_name, object_key, tmp_path)
-            return self.restore_backup(tmp_path, clear_existing=True)
+            return self.restore_backup(tmp_path, clear_existing=True,
+                                       table_groups=table_groups,
+                                       on_table_restored=on_table_restored)
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
