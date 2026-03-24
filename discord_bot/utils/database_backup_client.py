@@ -1,8 +1,10 @@
-from pathlib import Path
 from datetime import datetime
 import json
 import logging
+from pathlib import Path
 import tempfile
+
+import ijson
 from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
 
@@ -106,9 +108,13 @@ class DatabaseBackupClient:
         self.logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
         return backup_file
 
+    # ijson scalar event types (all carry a Python value directly)
+    _SCALAR_EVENTS = frozenset(['null', 'boolean', 'integer', 'double', 'number', 'string'])
+
     def restore_backup(self, backup_file: Path, clear_existing: bool = False) -> dict:
         '''
-        Restores database tables from a JSON backup file
+        Restores database tables from a JSON backup file.
+        Uses streaming JSON parsing to avoid loading the entire file into memory.
 
         Args:
             backup_file: Path to the JSON backup file
@@ -122,51 +128,84 @@ class DatabaseBackupClient:
 
         self.logger.info(f'Starting database restoration from {backup_file}')
 
-        # Load backup data
-        with open(backup_file, 'r', encoding='utf-8') as f:
-            backup_data = json.load(f)
+        metadata = {}
+        stats = {
+            'tables_restored': 0,
+            'total_rows_inserted': 0,
+            'tables': {},
+            'metadata': metadata,
+        }
+        table_metadata = BASE.metadata.tables
 
-        # Extract and log metadata if present
-        metadata = backup_data.get('_metadata', {})
+        with self.db_engine.begin() as connection:
+            if clear_existing:
+                self._truncate_tables(connection, list(table_metadata.keys()))
+
+            current_table = None
+            current_row = None
+            row_buffer = []
+            table_rows_inserted = 0
+
+            def flush_buffer():
+                nonlocal table_rows_inserted
+                if row_buffer and current_table in table_metadata:
+                    table_rows_inserted += self._restore_table(connection, current_table, row_buffer)
+                    row_buffer.clear()
+
+            def finalize_table():
+                nonlocal table_rows_inserted
+                flush_buffer()
+                if current_table and current_table != '_metadata':
+                    if current_table not in table_metadata:
+                        self.logger.info(f'Table {current_table} not found in current schema, skipping')
+                    else:
+                        stats['tables'][current_table] = table_rows_inserted
+                        stats['tables_restored'] += 1
+                        stats['total_rows_inserted'] += table_rows_inserted
+                table_rows_inserted = 0
+
+            with open(backup_file, 'rb') as f:
+                for prefix, event, value in ijson.parse(f, use_float=True):
+                    # Top-level key = start of a new section (metadata or table)
+                    if prefix == '' and event == 'map_key':
+                        finalize_table()
+                        current_table = value
+                        current_row = None
+
+                    elif current_table == '_metadata' and event in self._SCALAR_EVENTS:
+                        field = prefix[len('_metadata.'):]
+                        if field:
+                            metadata[field] = value
+
+                    elif current_table and current_table != '_metadata':
+                        item_prefix = f'{current_table}.item'
+
+                        if prefix == item_prefix and event == 'start_map':
+                            current_row = {}
+
+                        elif prefix == item_prefix and event == 'end_map':
+                            if current_row is not None:
+                                row_buffer.append(current_row)
+                                current_row = None
+                                if len(row_buffer) >= self.BATCH_SIZE:
+                                    flush_buffer()
+
+                        elif (current_row is not None
+                              and event in self._SCALAR_EVENTS
+                              and prefix.startswith(item_prefix + '.')):
+                            field = prefix[len(item_prefix) + 1:]
+                            # Only handle flat (non-nested) fields
+                            if field and '.' not in field:
+                                current_row[field] = value  #pylint:disable=unsupported-assignment-operation
+
+            # Finalize the last table in the file
+            finalize_table()
+
         if metadata:
             self.logger.info('Backup metadata:')
             self.logger.info(f'  Timestamp: {metadata.get("backup_timestamp", "unknown")}')
             self.logger.info(f'  Alembic version: {metadata.get("alembic_version", "unknown")}')
             self.logger.info(f'  Table count: {metadata.get("table_count", "unknown")}')
-
-        stats = {
-            'tables_restored': 0,
-            'total_rows_inserted': 0,
-            'tables': {},
-            'metadata': metadata
-        }
-
-        # Get table metadata from SQLAlchemy
-        table_metadata = BASE.metadata.tables
-
-        # Get table names to restore (exclude metadata)
-        table_names_to_restore = [name for name in backup_data.keys() if name != '_metadata']
-
-        with self.db_engine.begin() as connection:
-            # Clear existing data if requested
-            if clear_existing:
-                self._truncate_tables(connection, table_names_to_restore)
-
-            # Restore each table
-            for table_name, rows in backup_data.items():
-                # Skip metadata entry
-                if table_name == '_metadata':
-                    continue
-                if table_name not in table_metadata:
-                    self.logger.info(f'Table {table_name} not found in current schema, skipping')
-                    continue
-
-                self.logger.info(f'Restoring table: {table_name}')
-                rows_inserted = self._restore_table(connection, table_name, rows)
-
-                stats['tables'][table_name] = rows_inserted
-                stats['tables_restored'] += 1
-                stats['total_rows_inserted'] += rows_inserted
 
         self.logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
