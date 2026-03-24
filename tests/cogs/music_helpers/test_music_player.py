@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -421,3 +422,264 @@ async def test_player_cleanup_with_active_source(fake_context): #pylint:disable=
 
                 # Verify audio source was cleaned up
                 mock_audio_source.cleanup.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# start_tasks
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_start_tasks_creates_player_task(fake_context): #pylint:disable=redefined-outer-name
+    """start_tasks creates _player_task when not already set"""
+    with with_music_player(fake_context) as player:
+        player.bot.loop = asyncio.get_event_loop()
+        assert player._player_task is None #pylint:disable=protected-access
+        await player.start_tasks()
+        assert player._player_task is not None #pylint:disable=protected-access
+        player._player_task.cancel() #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_start_tasks_idempotent(fake_context): #pylint:disable=redefined-outer-name
+    """start_tasks does not replace an existing task"""
+    with with_music_player(fake_context) as player:
+        player.bot.loop = asyncio.get_event_loop()
+        await player.start_tasks()
+        first_task = player._player_task #pylint:disable=protected-access
+        await player.start_tasks()
+        assert player._player_task is first_task #pylint:disable=protected-access
+        first_task.cancel()
+
+
+# ---------------------------------------------------------------------------
+# broker paths in player_loop
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10): #pylint:disable=redefined-outer-name
+    with TemporaryDirectory() as tmp_dir:
+        broker = Mock()
+        broker.checkout.return_value = None
+        broker.release = Mock()
+        broker.remove = Mock()
+        broker.prefetch = Mock()
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
+        history_queue = Queue()
+        player = MusicPlayer(
+            fake_context['context'], queue_max_size, 0.01, Path(tmp_dir),
+            dispatcher, history_playlist_id, history_queue, broker=broker,
+        )
+        yield player
+
+
+@pytest.mark.asyncio
+async def test_player_loop_broker_checkout_called(fake_context): #pylint:disable=redefined-outer-name
+    """broker.checkout is called in player_loop when broker is set"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+            await player.player_loop()
+            assert player.broker.checkout.called
+
+
+@pytest.mark.asyncio
+async def test_player_loop_broker_release_on_voice_exception(fake_context): #pylint:disable=redefined-outer-name
+    """broker.release called when voice client raises AttributeError"""
+    fake_context['guild'].voice_client = None
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+            with pytest.raises(ExitEarlyException):
+                await player.player_loop()
+            player.broker.release.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_player_loop_broker_release_after_play(fake_context): #pylint:disable=redefined-outer-name
+    """broker.release called after next.wait() completes normally"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+            await player.player_loop()
+            player.broker.release.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# history_playlist_id and history QueueFull
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_player_loop_history_playlist_id(fake_context): #pylint:disable=redefined-outer-name
+    """history_playlist_queue receives an item when history_playlist_id is set"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with TemporaryDirectory() as tmp_dir:
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
+        history_queue = Queue()
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir),
+                             dispatcher, 999, history_queue)
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+            await player.player_loop()
+            assert not history_queue.empty()
+            item = history_queue.get_nowait()
+            assert item.playlist_id == 999
+
+
+@pytest.mark.asyncio
+async def test_player_loop_history_queue_full_evicts_oldest(fake_context): #pylint:disable=redefined-outer-name
+    """QueueFull on _history is handled by evicting the oldest entry"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with TemporaryDirectory() as tmp_dir:
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
+        history_queue = Queue()
+        # maxsize=1 means _history also holds at most 1 entry
+        player = MusicPlayer(fake_context['context'], 1, 0.01, Path(tmp_dir),
+                             dispatcher, None, history_queue)
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd1:
+            with fake_media_download(player.file_dir, fake_context=fake_context) as sd2:
+                player._history.put_nowait(sd1)  # fill history to capacity #pylint:disable=protected-access
+                player.add_to_play_queue(sd2)
+                await player.player_loop()
+                # sd1 was evicted; history now contains sd2
+                assert player._history.get_nowait() == sd2  #pylint:disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# get_queue_order_messages edge cases
+# ---------------------------------------------------------------------------
+
+def test_get_queue_order_messages_with_current_media_download(fake_context): #pylint:disable=redefined-outer-name
+    """current_media_download.duration is used as wait-time offset for queued items"""
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as current_dl:
+            with fake_media_download(player.file_dir, fake_context=fake_context) as queued_dl:
+                player.current_media_download = current_dl
+                player.add_to_play_queue(queued_dl)
+                result = player.get_queue_order_messages()
+                assert result  # non-empty list
+
+
+def test_get_queue_order_messages_render_returns_non_list(fake_context): #pylint:disable=redefined-outer-name
+    """A non-list render result is wrapped in a list"""
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
+            player.add_to_play_queue(sd)
+            with patch('discord_bot.cogs.music_helpers.music_player.DapperTable') as mock_table_cls:
+                mock_table = Mock()
+                mock_table.render.return_value = 'rendered string'
+                mock_table_cls.return_value = mock_table
+                result = player.get_queue_order_messages()
+                assert 'rendered string' in result
+
+
+# ---------------------------------------------------------------------------
+# join_voice same-channel shortcut
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_join_voice_same_channel_returns_true(fake_context): #pylint:disable=redefined-outer-name
+    """join_voice returns True immediately when already in the requested channel"""
+    channel = FakeChannel()
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    fake_context['guild'].voice_client.channel = channel
+    with with_music_player(fake_context) as player:
+        result = await player.join_voice(channel)
+        assert result is True
+        # channel should not have changed (move_to not called)
+        assert fake_context['guild'].voice_client.channel is channel
+
+
+# ---------------------------------------------------------------------------
+# _on_prefetch_done
+# ---------------------------------------------------------------------------
+
+def test_on_prefetch_done_logs_warning_on_exception(fake_context): #pylint:disable=redefined-outer-name
+    """_on_prefetch_done logs a warning when the task raised an exception"""
+    with with_music_player(fake_context) as player:
+        mock_task = Mock()
+        mock_task.cancelled.return_value = False
+        mock_task.exception.return_value = RuntimeError('prefetch boom')
+        player._on_prefetch_done(mock_task)  # should not raise #pylint:disable=protected-access
+
+
+def test_on_prefetch_done_silent_when_cancelled(fake_context): #pylint:disable=redefined-outer-name
+    """_on_prefetch_done does nothing when the task was cancelled"""
+    with with_music_player(fake_context) as player:
+        mock_task = Mock()
+        mock_task.cancelled.return_value = True
+        player._on_prefetch_done(mock_task)  #pylint:disable=protected-access
+        mock_task.exception.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# get_file_paths with current_media_download
+# ---------------------------------------------------------------------------
+
+def test_get_file_paths_includes_current_media_download(fake_context): #pylint:disable=redefined-outer-name
+    """get_file_paths includes current_media_download.file_path"""
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as current_dl:
+            player.current_media_download = current_dl
+            result = player.get_file_paths()
+            assert current_dl.file_path in result
+
+
+# ---------------------------------------------------------------------------
+# cleanup with broker
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cleanup_broker_release_and_remove(fake_context): #pylint:disable=redefined-outer-name
+    """cleanup releases current download and removes queued downloads via broker"""
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as current_dl:
+            with fake_media_download(player.file_dir, fake_context=fake_context) as queued_dl:
+                player.current_media_download = current_dl
+                player.add_to_play_queue(queued_dl)
+                await player.cleanup()
+                player.broker.release.assert_called_once_with(
+                    str(current_dl.media_request.uuid)
+                )
+                player.broker.remove.assert_called_once_with(
+                    str(queued_dl.media_request.uuid)
+                )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cancels_prefetch_task(fake_context): #pylint:disable=redefined-outer-name
+    """cleanup cancels an active prefetch task"""
+    with with_music_player(fake_context) as player:
+        mock_prefetch = Mock()
+        mock_prefetch.done.return_value = False
+        mock_prefetch.cancel = Mock()
+        player._prefetch_task = mock_prefetch  #pylint:disable=protected-access
+        await player.cleanup()
+        mock_prefetch.cancel.assert_called_once()
+        assert player._prefetch_task is None  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cancels_player_task(fake_context): #pylint:disable=redefined-outer-name
+    """cleanup cancels _player_task when set"""
+    with with_music_player(fake_context) as player:
+        mock_task = Mock()
+        mock_task.cancel = Mock()
+        player._player_task = mock_task  #pylint:disable=protected-access
+        await player.cleanup()
+        mock_task.cancel.assert_called_once()
+        assert player._player_task is None  #pylint:disable=protected-access
+
+
+def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disable=redefined-outer-name
+    """clear_queue calls broker.remove for each queued item"""
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
+            player.add_to_play_queue(sd)
+            items = player.clear_queue()
+            assert len(items) == 1
+            player.broker.remove.assert_called_once_with(str(sd.media_request.uuid))
