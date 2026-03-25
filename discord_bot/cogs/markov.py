@@ -96,6 +96,8 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
+    REQUIRED_TABLES = ['markov_channel', 'markov_relation']
+
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
@@ -111,6 +113,7 @@ class Markov(CogHelper):
         self.server_reject_list = self.config.server_reject_list
 
         self._task = None
+        self._init_task = None
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
 
     def __loop_active_callback(self, _options):
@@ -125,9 +128,17 @@ class Markov(CogHelper):
         ]
 
     async def cog_load(self):
-        self._task = self.bot.loop.create_task(return_loop_runner(self.markov_message_check, self.bot, self.logger, continue_exceptions=(DiscordServerError, TimeoutError))())
+        await self.gate_tasks_on_db_restore(self._start_tasks)
+
+    def _start_tasks(self):
+        self._task = self.bot.loop.create_task(
+            return_loop_runner(self.markov_message_check, self.bot, self.logger,
+                               continue_exceptions=(DiscordServerError, TimeoutError))()
+        )
 
     async def cog_unload(self):
+        if self._init_task:
+            self._init_task.cancel()
         if self._task:
             self._task.cancel()
 

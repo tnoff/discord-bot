@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 import random
-from shutil import copyfile
 from time import time
 from typing import List
 
@@ -127,7 +126,6 @@ class DownloadClient():
     def __init__(
         self,
         ytdl: YoutubeDL,
-        download_dir: Path,
         failure_queue: FailureQueue | None = None,
         wait_period_minimum: int = 30,
         wait_period_max_variance: int = 10,
@@ -137,7 +135,6 @@ class DownloadClient():
         Init download client
 
         ytdl : YoutubeDL Client
-        download_dir : Directory to place after tempfile download
         failure_queue : Optional FailureQueue for tracking download failures
         wait_period_minimum : Minimum backoff wait time in seconds
         wait_period_max_variance : Maximum extra random variance in seconds
@@ -146,7 +143,6 @@ class DownloadClient():
                       holds the S3 object key instead of a local path
         '''
         self.ytdl: YoutubeDL = ytdl
-        self.download_dir: Path = download_dir
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -319,17 +315,6 @@ class DownloadClient():
                 if file_path is None:
                     span.set_status(StatusCode.ERROR)
                     return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail='No file path returned from download'), media_request=media_request, ytdlp_data=None, file_name=None)
-                # Move file to download dir after finished
-                new_path = self.download_dir / file_path.name
-                # Rename might not work if file on diff filesystem
-                try:
-                    copyfile(str(file_path), str(new_path))
-                    file_path.unlink()
-                    file_path = new_path
-                except FileNotFoundError as e:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(e)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail=f'File not found after download: {file_path}'), media_request=media_request, ytdlp_data=None, file_name=None)
                 file_size_bytes = file_path.stat().st_size
                 # Upload to S3 immediately when configured; local staging file is deleted
                 # and file_name in the result becomes the S3 object key

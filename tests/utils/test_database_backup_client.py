@@ -1,7 +1,10 @@
 import json
+import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+import pytest
 from sqlalchemy import text
 
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
@@ -285,7 +288,6 @@ def test_restore_from_s3_calls_restore_backup(fake_engine, mocker):  #pylint:dis
     backup_file = client.create_backup()
 
     def fake_get_file(_bucket, _key, path):
-        import shutil  #pylint:disable=import-outside-toplevel
         shutil.copy(backup_file, path)
         return True
 
@@ -357,3 +359,355 @@ def test_backup_metadata_includes_alembic_version(fake_engine):  #pylint:disable
 
     # Cleanup
     backup_file.unlink()
+
+# ---------------------------------------------------------------------------
+# restore_backup — core paths
+# ---------------------------------------------------------------------------
+
+def test_restore_backup_file_not_found(fake_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup raises FileNotFoundError when the path does not exist'''
+    client = DatabaseBackupClient(fake_engine)
+    with pytest.raises(FileNotFoundError):
+        client.restore_backup(Path('/nonexistent/file.json'))
+
+
+def test_restore_backup_restores_data(fake_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup inserts rows from a backup file into empty tables'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='10', server_id='20'))
+        session.add(MarkovRelation(channel_id=1, leader_word='hello', follower_word='world'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM markov_relation'))
+        conn.execute(text('DELETE FROM markov_channel'))
+        conn.commit()
+
+    stats = client.restore_backup(backup_file)
+
+    assert stats['tables_restored'] >= 2
+    assert stats['total_rows_inserted'] >= 2
+    assert stats['tables'].get('markov_channel', 0) == 1
+    assert stats['tables'].get('markov_relation', 0) == 1
+
+    backup_file.unlink()
+
+
+def test_restore_backup_clear_existing(fake_engine):  #pylint:disable=redefined-outer-name
+    '''clear_existing=True truncates tables before restoring'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='10', server_id='20'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    # Add an extra row that should be wiped by clear_existing
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='99', server_id='99'))
+        session.commit()
+
+    stats = client.restore_backup(backup_file, clear_existing=True)
+
+    with fake_engine.connect() as conn:
+        count = conn.execute(text('SELECT COUNT(*) FROM markov_channel')).scalar()
+    assert count == 1
+    assert stats['tables']['markov_channel'] == 1
+
+    backup_file.unlink()
+
+
+def test_restore_backup_skips_unknown_table(fake_engine, caplog):  #pylint:disable=redefined-outer-name
+    '''Tables present in the backup but absent from the schema are skipped with a log message'''
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with open(backup_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    data['unknown_table'] = [{'id': 1}]
+    with open(backup_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    with caplog.at_level(logging.INFO, logger='databasebackup'):
+        stats = client.restore_backup(backup_file)
+
+    assert 'unknown_table' not in stats['tables']
+    assert 'unknown_table' in caplog.text
+
+    backup_file.unlink()
+
+
+def test_restore_backup_returns_metadata(fake_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup populates stats["metadata"] from the backup file'''
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    stats = client.restore_backup(backup_file)
+
+    assert 'backup_timestamp' in stats['metadata']
+    assert 'table_count' in stats['metadata']
+
+    backup_file.unlink()
+
+
+# ---------------------------------------------------------------------------
+# restore_backup — multi-pass (table_groups)
+# ---------------------------------------------------------------------------
+
+def test_restore_backup_table_groups_restores_data(fake_engine):  #pylint:disable=redefined-outer-name
+    '''table_groups path restores each group and reports correct stats'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='1', server_id='1'))
+        session.add(MarkovRelation(channel_id=1, leader_word='foo', follower_word='bar'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM markov_relation'))
+        conn.execute(text('DELETE FROM markov_channel'))
+        conn.commit()
+
+    stats = client.restore_backup(
+        backup_file,
+        table_groups=[['markov_channel'], ['markov_relation']],
+    )
+
+    assert stats['tables']['markov_channel'] == 1
+    assert stats['tables']['markov_relation'] == 1
+    # tables_restored includes empty ungrouped tables too; just check ours are present
+    assert stats['tables_restored'] >= 2
+
+    backup_file.unlink()
+
+
+def test_restore_backup_table_groups_clear_existing(fake_engine):  #pylint:disable=redefined-outer-name
+    '''table_groups + clear_existing=True truncates before restoring groups'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='1', server_id='1'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='99', server_id='99'))
+        session.commit()
+
+    client.restore_backup(backup_file, clear_existing=True,
+                          table_groups=[['markov_channel']])
+
+    with fake_engine.connect() as conn:
+        count = conn.execute(text('SELECT COUNT(*) FROM markov_channel')).scalar()
+    assert count == 1
+
+    backup_file.unlink()
+
+
+def test_restore_backup_table_groups_on_table_restored_callback(fake_engine):  #pylint:disable=redefined-outer-name
+    '''on_table_restored is called once per restored table'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='1', server_id='1'))
+        session.add(MarkovRelation(channel_id=1, leader_word='a', follower_word='b'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM markov_relation'))
+        conn.execute(text('DELETE FROM markov_channel'))
+        conn.commit()
+
+    restored = []
+    client.restore_backup(
+        backup_file,
+        table_groups=[['markov_channel'], ['markov_relation']],
+        on_table_restored=restored.append,
+    )
+
+    assert restored.count('markov_channel') == 1
+    assert restored.count('markov_relation') == 1
+
+    backup_file.unlink()
+
+
+def test_restore_backup_table_groups_ungrouped_tables_restored_first(fake_engine):  #pylint:disable=redefined-outer-name
+    '''Tables not in any group are restored in pass 0 before the named groups'''
+    with mock_session(fake_engine) as session:
+        pl = Playlist(server_id='1', name='p', is_history=False)
+        session.add(pl)
+        session.add(MarkovChannel(channel_id='1', server_id='1'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM playlist'))
+        conn.execute(text('DELETE FROM markov_channel'))
+        conn.commit()
+
+    restore_order = []
+    client.restore_backup(
+        backup_file,
+        table_groups=[['markov_channel']],   # playlist is ungrouped -> pass 0
+        on_table_restored=restore_order.append,
+    )
+
+    playlist_idx = next((i for i, t in enumerate(restore_order) if t == 'playlist'), None)
+    channel_idx = next((i for i, t in enumerate(restore_order) if t == 'markov_channel'), None)
+    assert playlist_idx is not None
+    assert channel_idx is not None
+    assert playlist_idx < channel_idx
+
+    backup_file.unlink()
+
+
+def test_restore_backup_table_groups_skips_unknown_table(fake_engine, caplog):  #pylint:disable=redefined-outer-name
+    '''_restore_pass logs and skips tables absent from the schema'''
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with open(backup_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    data['ghost_table'] = [{'id': 1}]
+    with open(backup_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    with caplog.at_level(logging.INFO, logger='databasebackup'):
+        stats = client.restore_backup(backup_file, table_groups=[['ghost_table']])
+
+    assert 'ghost_table' not in stats['tables']
+    assert 'ghost_table' in caplog.text
+
+    backup_file.unlink()
+
+
+# ---------------------------------------------------------------------------
+# _restore_table
+# ---------------------------------------------------------------------------
+
+def test_restore_table_empty_rows_returns_zero(fake_engine):  #pylint:disable=redefined-outer-name
+    '''_restore_table returns 0 and does nothing when rows is empty'''
+    client = DatabaseBackupClient(fake_engine)
+    with fake_engine.begin() as conn:
+        result = client._restore_table(conn, 'markov_channel', [])  #pylint:disable=protected-access
+    assert result == 0
+
+
+def test_restore_table_insert_failure_continues(fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+    '''_restore_table logs the error and skips failed batches rather than raising'''
+    client = DatabaseBackupClient(fake_engine)
+
+    with fake_engine.begin() as conn:
+        mocker.patch.object(conn, 'execute', side_effect=Exception('db error'))
+        result = client._restore_table(  #pylint:disable=protected-access
+            conn, 'markov_channel', [{'channel_id': 1, 'server_id': 1}]
+        )
+
+    assert result == 0
+    assert 'Failed to insert batch' in caplog.text
+
+
+def test_restore_table_large_dataset_batching(fake_engine):  #pylint:disable=redefined-outer-name
+    '''_restore_table inserts more rows than BATCH_SIZE correctly across multiple batches'''
+    client = DatabaseBackupClient(fake_engine)
+    rows = [{'channel_id': i, 'server_id': i} for i in range(1, 2502)]
+
+    with fake_engine.begin() as conn:
+        result = client._restore_table(conn, 'markov_channel', rows)  #pylint:disable=protected-access
+
+    assert result == 2501
+    with fake_engine.connect() as conn:
+        count = conn.execute(text('SELECT COUNT(*) FROM markov_channel')).scalar()
+    assert count == 2501
+
+def test_restore_backup_mid_table_batch_flush(fake_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup flushes row buffer mid-table when BATCH_SIZE is exceeded (single-pass path)'''
+    with mock_session(fake_engine) as session:
+        for i in range(1, 1502):   # More than BATCH_SIZE=1000
+            session.add(MarkovRelation(channel_id=1, leader_word=f'w{i}', follower_word=f'n{i}'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM markov_relation'))
+        conn.commit()
+
+    stats = client.restore_backup(backup_file)
+
+    assert stats['tables']['markov_relation'] == 1501
+    with fake_engine.connect() as conn:
+        count = conn.execute(text('SELECT COUNT(*) FROM markov_relation')).scalar()
+    assert count == 1501
+
+    backup_file.unlink()
+
+
+def test_restore_backup_table_groups_mid_table_batch_flush(fake_engine):  #pylint:disable=redefined-outer-name
+    '''_restore_pass flushes row buffer mid-table when BATCH_SIZE is exceeded (multi-pass path)'''
+    with mock_session(fake_engine) as session:
+        for i in range(1, 1502):
+            session.add(MarkovRelation(channel_id=1, leader_word=f'w{i}', follower_word=f'n{i}'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    backup_file = client.create_backup()
+
+    with fake_engine.connect() as conn:
+        conn.execute(text('DELETE FROM markov_relation'))
+        conn.commit()
+
+    stats = client.restore_backup(backup_file, table_groups=[['markov_relation']])
+
+    assert stats['tables']['markov_relation'] == 1501
+
+    backup_file.unlink()
+
+
+def test_truncate_tables_handles_pragma_exception(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_truncate_tables silently ignores failures from PRAGMA statements'''
+    client = DatabaseBackupClient(fake_engine)
+
+    call_count = 0
+    original_execute = None
+
+    def execute_side_effect(stmt, *a, **kw):
+        nonlocal call_count
+        call_count += 1
+        stmt_str = str(stmt)
+        if 'PRAGMA' in stmt_str:
+            raise RuntimeError('PRAGMA not supported')
+        return original_execute(stmt, *a, **kw)
+
+    with fake_engine.begin() as conn:
+        original_execute = conn.execute
+        mocker.patch.object(conn, 'execute', side_effect=execute_side_effect)
+        # Should not raise even when PRAGMA fails
+        client._truncate_tables(conn, [])  #pylint:disable=protected-access
+
+
+def test_truncate_tables_handles_delete_exception(fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+    '''_truncate_tables logs debug and continues when a DELETE fails'''
+
+    client = DatabaseBackupClient(fake_engine)
+
+    def execute_side_effect(stmt, *_a, **_kw):
+        if 'DELETE' in str(stmt):
+            raise RuntimeError('delete failed')
+
+    with fake_engine.begin() as conn:
+        mocker.patch.object(conn, 'execute', side_effect=execute_side_effect)
+        with caplog.at_level(logging.DEBUG, logger='databasebackup'):
+            client._truncate_tables(conn, list(__import__('discord_bot.database', fromlist=['BASE']).BASE.metadata.tables.keys()))  #pylint:disable=protected-access
+
+    assert 'Failed to truncate' in caplog.text

@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile
 from unittest.mock import patch
 
 import pytest
@@ -74,36 +74,34 @@ class MockYoutubeMusic():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source():
     loop = asyncio.get_running_loop()
-    with TemporaryDirectory() as tmp_dir:
-        with NamedTemporaryFile(delete=False) as tmp_file:
-            fake_context = generate_fake_context()
-            x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir))
-            y = fake_source_dict(fake_context)
-            result = await x.create_source(y, 3, loop)
-            assert result.status.success
-            assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        fake_context = generate_fake_context()
+        x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3, loop)
+        assert result.status.success
+        assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode():
     '''In S3 mode, upload_file is called, local file deleted, result.file_name is S3 key'''
     loop = asyncio.get_running_loop()
-    with TemporaryDirectory() as tmp_dir:
-        with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-            fake_context = generate_fake_context()
-            x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir),
-                               bucket_name='test-bucket')
-            y = fake_source_dict(fake_context)
-            with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
-                result = await x.create_source(y, 3, loop)
-            assert result.status.success
-            upload_mock.assert_called_once()
-            call_args = upload_mock.call_args[0]
-            assert call_args[0] == 'test-bucket'
-            assert str(call_args[2]).startswith('cache/')
-            assert str(call_args[2]).endswith('.mp3')
-            # local file gone, result carries the S3 key
-            assert not call_args[1].exists()
-            assert str(result.file_name).startswith('cache/')
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        fake_context = generate_fake_context()
+        x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)),
+                           bucket_name='test-bucket')
+        y = fake_source_dict(fake_context)
+        with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
+            result = await x.create_source(y, 3, loop)
+        assert result.status.success
+        upload_mock.assert_called_once()
+        call_args = upload_mock.call_args[0]
+        assert call_args[0] == 'test-bucket'
+        assert str(call_args[2]).startswith('cache/')
+        assert str(call_args[2]).endswith('.mp3')
+        # local file gone, result carries the S3 key
+        assert not call_args[1].exists()
+        assert str(result.file_name).startswith('cache/')
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_empty_requested_downloads():
@@ -116,13 +114,12 @@ async def test_prepare_source_empty_requested_downloads():
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': []}]}
 
-    with TemporaryDirectory() as tmp_dir:
-        fake_context = generate_fake_context()
-        x = DownloadClient(MockYTDLPEmptyDownloads(), Path(tmp_dir))
-        y = fake_source_dict(fake_context)
-        result = await x.create_source(y, 3, loop)
-        assert not result.status.success
-        assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
+    fake_context = generate_fake_context()
+    x = DownloadClient(MockYTDLPEmptyDownloads())
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -136,36 +133,19 @@ async def test_prepare_source_filepath_does_not_exist():
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': [{'filepath': '/nonexistent/no/such/file.mp3'}]}]}
 
-    with TemporaryDirectory() as tmp_dir:
-        fake_context = generate_fake_context()
-        x = DownloadClient(MockYTDLPMissingFile(), Path(tmp_dir))
-        y = fake_source_dict(fake_context)
-        result = await x.create_source(y, 3, loop)
-        assert not result.status.success
-        assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_prepare_source_copyfile_raises_file_not_found():
-    """copyfile raises FileNotFoundError (file removed between check and copy) — should return FILE_NOT_FOUND."""
-    loop = asyncio.get_running_loop()
-    with TemporaryDirectory() as tmp_dir:
-        with NamedTemporaryFile(delete=False) as tmp_file:
-            fake_context = generate_fake_context()
-            x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)), Path(tmp_dir))
-            y = fake_source_dict(fake_context)
-            with patch('discord_bot.cogs.music_helpers.download_client.copyfile', side_effect=FileNotFoundError('file gone')):
-                result = await x.create_source(y, 3, loop)
+    fake_context = generate_fake_context()
+    x = DownloadClient(MockYTDLPMissingFile())
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
-    assert 'File not found after download' in result.status.error_detail
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_download():
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
-    x = DownloadClient(MockYTDLP(), None)
+    x = DownloadClient(MockYTDLP())
     y = PlaylistAddRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id,
                            requester_name=fake_context['author'].display_name, requester_id=fake_context['author'].id,
                            search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.foo.com'),
@@ -650,7 +630,7 @@ def _make_result(success, error_type=None, extractor='youtube', error_detail=Non
 def test_update_tracking_success_youtube_sets_timestamp():
     """Success with youtube extractor adds success item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='youtube')
 
     client.update_tracking(result)
@@ -662,7 +642,7 @@ def test_update_tracking_success_youtube_sets_timestamp():
 def test_update_tracking_success_non_youtube_no_timestamp():
     """Success with non-youtube extractor adds success item but does NOT set timestamp."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='spotify')
 
     client.update_tracking(result)
@@ -673,7 +653,7 @@ def test_update_tracking_success_non_youtube_no_timestamp():
 def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
     """RETRYABLE error adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='timeout')
 
     client.update_tracking(result)
@@ -685,7 +665,7 @@ def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
 def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
     """BOT_FLAGGED error adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='bot check')
 
     client.update_tracking(result)
@@ -697,7 +677,7 @@ def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
 def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
     """RETRY_LIMIT_EXCEEDED adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail='too many')
 
     client.update_tracking(result)
@@ -709,7 +689,7 @@ def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
 def test_update_tracking_terminal_error_sets_timestamp_no_failure():
     """Terminal errors (AGE_RESTRICTED etc.) set timestamp but do not add failure item."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.AGE_RESTRICTED)
 
     client.update_tracking(result)
@@ -720,7 +700,7 @@ def test_update_tracking_terminal_error_sets_timestamp_no_failure():
 
 def test_update_tracking_no_failure_queue():
     """update_tracking works when failure_queue is None."""
-    client = DownloadClient(None, None, failure_queue=None, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, failure_queue=None, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE)
 
     client.update_tracking(result)  # Should not raise
@@ -729,13 +709,13 @@ def test_update_tracking_no_failure_queue():
 
 def test_backoff_seconds_remaining_none_when_no_timestamp():
     """backoff_seconds_remaining is None when no timestamp has been set."""
-    client = DownloadClient(None, None)
+    client = DownloadClient(None)
     assert client.backoff_seconds_remaining is None
 
 
 def test_backoff_seconds_remaining_after_tracking():
     """backoff_seconds_remaining returns a non-negative int after update_tracking."""
-    client = DownloadClient(None, None, wait_period_minimum=30, wait_period_max_variance=10)
+    client = DownloadClient(None, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='youtube')
 
     client.update_tracking(result)
@@ -747,14 +727,14 @@ def test_backoff_seconds_remaining_after_tracking():
 
 def test_failure_summary_no_queue():
     """failure_summary returns '0 failures in queue' when failure_queue is None."""
-    client = DownloadClient(None, None)
+    client = DownloadClient(None)
     assert client.failure_summary == '0 failures in queue'
 
 
 def test_failure_summary_with_queue():
     """failure_summary delegates to failure_queue.get_status_summary()."""
     queue = DownloadFailureQueue(max_size=10)
-    client = DownloadClient(None, None, failure_queue=queue)
+    client = DownloadClient(None, failure_queue=queue)
     assert client.failure_summary == '0 failures in queue'
 
     queue.add_item(DownloadStatus(success=False, exception_type='Err', exception_message='oops'))
@@ -765,7 +745,7 @@ def test_failure_summary_with_queue():
 async def test_backoff_wait_returns_immediately_when_no_timestamp():
     """backoff_wait returns immediately when no timestamp is set."""
     shutdown = asyncio.Event()
-    client = DownloadClient(None, None)
+    client = DownloadClient(None)
     await client.backoff_wait(shutdown)  # Should not raise or block
 
 
@@ -774,7 +754,7 @@ async def test_backoff_wait_raises_on_shutdown():
     """backoff_wait raises ExitEarlyException when shutdown_event is already set."""
     shutdown = asyncio.Event()
     shutdown.set()
-    client = DownloadClient(None, None, wait_period_minimum=60, wait_period_max_variance=10)
+    client = DownloadClient(None, wait_period_minimum=60, wait_period_max_variance=10)
     # Set a future timestamp so there's something to wait for
     client._wait_timestamp = datetime.now(timezone.utc).timestamp() + 120  # pylint: disable=protected-access
 
@@ -786,7 +766,7 @@ async def test_backoff_wait_raises_on_shutdown():
 async def test_backoff_wait_returns_when_elapsed():
     """backoff_wait returns normally when backoff period has already elapsed."""
     shutdown = asyncio.Event()
-    client = DownloadClient(None, None, wait_period_minimum=1, wait_period_max_variance=1)
+    client = DownloadClient(None, wait_period_minimum=1, wait_period_max_variance=1)
     # Set timestamp in the past
     client._wait_timestamp = datetime.now(timezone.utc).timestamp() - 10  # pylint: disable=protected-access
 

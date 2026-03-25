@@ -54,7 +54,7 @@ def yield_fake_download_client(media_download: MediaDownload):
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(
-                None, None,
+                None,
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),

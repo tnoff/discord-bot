@@ -56,10 +56,9 @@ class MediaBroker:
     eviction (delete_file). Without bucket_name local-disk behaviour is used.
     '''
 
-    def __init__(self, file_dir: Path | None = None, video_cache: VideoCacheClient | None = None,
+    def __init__(self, video_cache: VideoCacheClient | None = None,
                  bucket_name: str | None = None):
         self._registry: dict[str, BrokerEntry] = {}
-        self.file_dir: Path | None = file_dir
         self.video_cache: VideoCacheClient | None = video_cache
         self.bucket_name: str | None = bucket_name
 

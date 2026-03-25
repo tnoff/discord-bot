@@ -343,7 +343,8 @@ def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_e
 
     cog._restore_on_startup()  #pylint:disable=protected-access
 
-    mock_restore.assert_called_once_with(cog.bucket_name, 'backups/db/latest.json')
+    mock_restore.assert_called_once_with(cog.bucket_name, 'backups/db/latest.json',
+                                         table_groups=None, on_table_restored=None)
 
 
 def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
@@ -373,7 +374,7 @@ def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine, mock
 @pytest.mark.asyncio
 @freeze_time('2025-12-04 00:00:00', tz_offset=0)
 async def test_cog_load_runs_startup_restore_when_enabled(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
-    '''cog_load calls _restore_on_startup via asyncio.to_thread when restore_on_startup=True'''
+    '''cog_load creates a background _restore_task when restore_on_startup=True'''
     config = {
         'general': {
             'storage': {'backend': 's3'},
@@ -386,14 +387,14 @@ async def test_cog_load_runs_startup_restore_when_enabled(fake_context, fake_eng
         }
     }
     cog = DatabaseBackup(fake_context['bot'], config, fake_engine)
-    mock_restore = mocker.patch.object(cog, '_restore_on_startup')
-    mocker.patch('asyncio.to_thread', side_effect=lambda fn: fn())
     fake_context['bot'].loop = mocker.Mock()
     fake_context['bot'].loop.create_task = mocker.Mock()
 
     await cog.cog_load()
 
-    mock_restore.assert_called_once()
+    # create_task is called at least twice: once for _restore_task, once for _task
+    assert fake_context['bot'].loop.create_task.call_count >= 2
+    assert cog._restore_task is not None  #pylint:disable=protected-access
 
 
 @pytest.mark.asyncio

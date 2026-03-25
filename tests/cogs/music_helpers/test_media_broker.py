@@ -34,7 +34,7 @@ def test_register_download_local_mode():
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
             original_path = md.file_path
-            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker = MediaBroker()
             broker.register_download(md)
             assert md.file_path == original_path
             assert md.file_path.exists()
@@ -49,7 +49,7 @@ def test_checkout_local_mode():
     with TemporaryDirectory() as tmp_dir:
         with TemporaryDirectory() as guild_dir:
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-                broker = MediaBroker(file_dir=Path(tmp_dir))
+                broker = MediaBroker()
                 broker.register_download(md)
                 result = broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
                 assert result is not None
@@ -64,7 +64,7 @@ def test_checkout_missing_local_file_raises():
     with TemporaryDirectory() as tmp_dir:
         with TemporaryDirectory() as guild_dir:
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-                broker = MediaBroker(file_dir=Path(tmp_dir))
+                broker = MediaBroker()
                 broker.register_download(md)
                 md.file_path.unlink()
                 with pytest.raises(FileNotFoundError):
@@ -76,7 +76,7 @@ def test_discard_local_mode_deletes_file():
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker = MediaBroker()
             broker.register_download(md)
             local_path = md.file_path
             broker.discard(str(md.media_request.uuid))
@@ -94,7 +94,7 @@ def test_release_deletes_guild_file():
     with TemporaryDirectory() as tmp_dir:
         with TemporaryDirectory() as guild_dir:
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-                broker = MediaBroker(file_dir=Path(tmp_dir))
+                broker = MediaBroker()
                 broker.register_download(md)
                 guild_path = broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
                 assert guild_path.exists()
@@ -189,7 +189,7 @@ def test_can_evict_base_not_evictable_while_checked_out():
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker = MediaBroker()
             broker.register_download(md)
             broker.checkout(str(md.media_request.uuid), 123)
             assert not broker.can_evict_base(md.webpage_url)
@@ -204,7 +204,7 @@ def test_get_checked_out_by():
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker = MediaBroker()
             broker.register_download(md)
             broker.checkout(str(md.media_request.uuid), guild_id=42)
             entries = broker.get_checked_out_by(42)
@@ -245,7 +245,7 @@ def test_prefetch_noop_in_local_mode():
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            broker = MediaBroker(file_dir=Path(tmp_dir))
+            broker = MediaBroker()
             broker.register_download(md)
             # Should not raise and should not change zone
             broker.prefetch([md], 123, Path(tmp_dir), limit=5)

@@ -177,6 +177,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
+    REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
+                       'video_cache_backup', 'guild', 'server_video_analytics']
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
         super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
@@ -188,6 +190,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
+        self._init_task = None
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
@@ -222,13 +225,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in self.config.download.server_queue_priority:
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
-        # Setup rest of client
-        if self.config.download.download_dir_path is not None:
-            self.download_dir = Path(self.config.download.download_dir_path)
-            if not self.download_dir.exists():
-                self.download_dir.mkdir(exist_ok=True, parents=True)
-        else:
-            self.download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
 
         # Tempdir used in downloads
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -237,8 +234,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Tempdir for players
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
+        # Only used in local (non-S3) mode; doubles as yt-dlp output dir when set
+        self.download_dir: Path | None = None
+        if not storage_bucket_name:
+            if self.config.download.download_dir_path is not None:
+                self.download_dir = Path(self.config.download.download_dir_path)
+                self.download_dir.mkdir(exist_ok=True, parents=True)
+
         self.video_cache = None
-        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
         if self.config.download.cache.enable_cache_files and self.db_engine and storage_bucket_name:
             self.video_cache = VideoCacheClient(
                 self.config.download.cache.max_cache_files,
@@ -251,7 +254,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
 
         self.media_broker = MediaBroker(
-            file_dir=self.download_dir,
             video_cache=self.video_cache,
             bucket_name=storage_bucket_name,
         )
@@ -269,7 +271,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'logger': get_logger('ytdlp', self.logging_config),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
-            'outtmpl': str(self.temp_download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
+            'outtmpl': str((self.download_dir if self.download_dir else self.temp_download_dir) / f'{YTDLP_OUTPUT_TEMPLATE}'),
         }
         for key, val in self.config.download.extra_ytdlp_options.items():
             ytdlopts[key] = val
@@ -285,7 +287,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
         self.download_client = DownloadClient(
-            ytdl, self.download_dir,
+            ytdl,
             failure_queue=failure_queue,
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
@@ -301,8 +303,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
         create_observable_gauge(METER_PROVIDER, 'music.multirequest_bundles', self.__multirequest_bundles_callback, 'Active multirequest bundles')
         create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILE_COUNT.value, self.__cache_count_callback, 'Number of cache files in use')
-        # Cache file count callback
-        if self.download_dir and self.download_dir.is_mount():
+        # Cache file count callback — only meaningful in local mode with a dedicated mount
+        if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
@@ -416,7 +418,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
-            self._post_play_processing_task = self.bot.loop.create_task(return_loop_runner(self.post_play_processing, self.bot, self.logger)())
+            await self.gate_tasks_on_db_restore(self._start_tasks)
+
+    def _start_tasks(self):
+        self._post_play_processing_task = self.bot.loop.create_task(
+            return_loop_runner(self.post_play_processing, self.bot, self.logger)()
+        )
 
     async def cog_unload(self):
         '''
@@ -433,6 +440,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self.cleanup(guild, reason=CleanupReason.BOT_SHUTDOWN)
 
             self.logger.info('Cancelling main tasks')
+            if self._init_task:
+                self._init_task.cancel()
             if self._cleanup_task:
                 self._cleanup_task.cancel()
             if self._download_task:
@@ -443,7 +452,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._youtube_search_task.cancel()
 
             self.logger.info('Removing directories')
-            if self.download_dir.exists() and not self.config.download.cache.enable_cache_files:
+            if self.download_dir and self.download_dir.exists():
                 rm_tree(self.download_dir)
             if self.temp_download_dir.exists():
                 rm_tree(self.temp_download_dir)
@@ -989,10 +998,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                    sticky=False, delete_after=delete_after)
 
             if reason != CleanupReason.BOT_SHUTDOWN:
-                self.logger.debug(f'Deleting download dir for guild {guild.id}')
-                guild_path = self.download_dir / f'{guild.id}'
-                if guild_path.exists():
-                    rm_tree(guild_path)
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
                 guild_player_path = self.player_dir / f'{guild.id}'
                 if guild_player_path.exists():

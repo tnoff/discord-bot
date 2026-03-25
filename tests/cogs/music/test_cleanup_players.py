@@ -128,27 +128,6 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
 
 
 @pytest.mark.asyncio
-async def test_cleanup_removes_guild_download_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """cleanup removes the guild's download subdirectory when it exists."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-
-    with TemporaryDirectory() as tmp_dir:
-        # Set download_dir to the temp dir and create the guild subdirectory
-        cog.download_dir = Path(tmp_dir)
-        guild_path = cog.download_dir / str(fake_context['guild'].id)
-        guild_path.mkdir()
-        assert guild_path.exists()
-
-        await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
-
-        assert not guild_path.exists()
-
-
-@pytest.mark.asyncio
 async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup removes the guild's player subdirectory (prefetched files) when it exists."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
