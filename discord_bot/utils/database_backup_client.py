@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from discord_bot.database import BASE
 from discord_bot.utils.integrations.s3 import get_file, list_objects
+from discord_bot.utils.otel import otel_span_wrapper
 
 
 class DatabaseBackupClient:
@@ -46,68 +47,70 @@ class DatabaseBackupClient:
         Only includes tables defined in SQLAlchemy models (BASE.metadata)
         Returns path to the created file
         '''
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        with otel_span_wrapper('database_backup_client.create_backup') as span:
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-        # Get table names from SQLAlchemy metadata (only tables defined in models)
-        table_names = list(BASE.metadata.tables.keys())
+            # Get table names from SQLAlchemy metadata (only tables defined in models)
+            table_names = list(BASE.metadata.tables.keys())
 
-        # Get alembic version
-        alembic_version = self._get_alembic_version()
+            # Get alembic version
+            alembic_version = self._get_alembic_version()
 
-        # Create temporary file for backup (delete=False so it persists after closing)
-        with tempfile.NamedTemporaryFile(mode='w', prefix=f'db_backup_{timestamp}_',
-                                          suffix='.json', delete=False, encoding='utf-8') as f:
-            backup_file = Path(f.name)
-            # Write JSON incrementally to avoid loading entire database into memory
-            f.write('{\n')  # Start JSON object
+            # Create temporary file for backup (delete=False so it persists after closing)
+            with tempfile.NamedTemporaryFile(mode='w', prefix=f'db_backup_{timestamp}_',
+                                              suffix='.json', delete=False, encoding='utf-8') as f:
+                backup_file = Path(f.name)
+                # Write JSON incrementally to avoid loading entire database into memory
+                f.write('{\n')  # Start JSON object
 
-            # Write metadata as first entry
-            f.write('  "_metadata": {\n')
-            f.write(f'    "backup_timestamp": "{timestamp}",\n')
-            f.write(f'    "alembic_version": {json.dumps(alembic_version)},\n')
-            f.write(f'    "table_count": {len(table_names)}\n')
-            f.write('  }')
-            if table_names:
-                f.write(',\n')  # Comma before tables if any exist
+                # Write metadata as first entry
+                f.write('  "_metadata": {\n')
+                f.write(f'    "backup_timestamp": "{timestamp}",\n')
+                f.write(f'    "alembic_version": {json.dumps(alembic_version)},\n')
+                f.write(f'    "table_count": {len(table_names)}\n')
+                f.write('  }')
+                if table_names:
+                    f.write(',\n')  # Comma before tables if any exist
 
-            with self.db_engine.connect() as connection:
-                for table_idx, table_name in enumerate(table_names):
-                    if table_idx > 0:
-                        f.write(',\n')  # Comma separator between tables
+                with self.db_engine.connect() as connection:
+                    for table_idx, table_name in enumerate(table_names):
+                        if table_idx > 0:
+                            f.write(',\n')  # Comma separator between tables
 
-                    self.logger.debug(f'Backing up table: {table_name}')
-                    f.write(f'  "{table_name}": [\n')
+                        self.logger.debug(f'Backing up table: {table_name}')
+                        f.write(f'  "{table_name}": [\n')
 
-                    # Stream rows in chunks to minimize memory usage
-                    row_count = 0
-                    result = connection.execution_options(stream_results=True).execute(
-                        text(f'SELECT * FROM {table_name}')
-                    )
+                        # Stream rows in chunks to minimize memory usage
+                        row_count = 0
+                        result = connection.execution_options(stream_results=True).execute(
+                            text(f'SELECT * FROM {table_name}')
+                        )
 
-                    while True:
-                        # Fetch chunk of rows
-                        chunk = result.fetchmany(self.CHUNK_SIZE)
-                        if not chunk:
-                            break
+                        while True:
+                            # Fetch chunk of rows
+                            chunk = result.fetchmany(self.CHUNK_SIZE)
+                            if not chunk:
+                                break
 
-                        # Write each row as JSON
-                        for row in chunk:
-                            if row_count > 0:
-                                f.write(',\n')
+                            # Write each row as JSON
+                            for row in chunk:
+                                if row_count > 0:
+                                    f.write(',\n')
 
-                            row_dict = dict(row._mapping)  #pylint:disable=protected-access
-                            # Write row with proper indentation
-                            f.write('    ' + json.dumps(row_dict, default=str))
-                            row_count += 1
+                                row_dict = dict(row._mapping)  #pylint:disable=protected-access
+                                # Write row with proper indentation
+                                f.write('    ' + json.dumps(row_dict, default=str))
+                                row_count += 1
 
-                    self.logger.debug(f'  -> {row_count} rows')
-                    f.write('\n  ]')  # Close table array
+                        self.logger.debug(f'  -> {table_name}: {row_count} rows')
+                        f.write('\n  ]')  # Close table array
 
-            f.write('\n}\n')  # Close JSON object
+                f.write('\n}\n')  # Close JSON object
 
-        file_size = backup_file.stat().st_size
-        self.logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
-        return backup_file
+            file_size = backup_file.stat().st_size
+            span.set_attributes({'backup.table_count': len(table_names), 'backup.file_size_bytes': file_size})
+            self.logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
+            return backup_file
 
     # ijson scalar event types (all carry a Python value directly)
     _SCALAR_EVENTS = frozenset(['null', 'boolean', 'integer', 'double', 'number', 'string'])
@@ -165,10 +168,11 @@ class DatabaseBackupClient:
                 self._restore_pass(backup_file, set(group), on_table_restored, stats, metadata)
 
         if metadata:
-            self.logger.info('Backup metadata:')
-            self.logger.info(f'  Timestamp: {metadata.get("backup_timestamp", "unknown")}')
-            self.logger.info(f'  Alembic version: {metadata.get("alembic_version", "unknown")}')
-            self.logger.info(f'  Table count: {metadata.get("table_count", "unknown")}')
+            self.logger.info(
+                f'Backup metadata: timestamp={metadata.get("backup_timestamp", "unknown")} '
+                f'alembic={metadata.get("alembic_version", "unknown")} '
+                f'tables={metadata.get("table_count", "unknown")}'
+            )
 
         self.logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
@@ -200,6 +204,7 @@ class DatabaseBackupClient:
                     stats['tables'][current_table] = table_rows_inserted
                     stats['tables_restored'] += 1
                     stats['total_rows_inserted'] += table_rows_inserted
+                    self.logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
             table_rows_inserted = 0
 
         with open(backup_file, 'rb') as f:
@@ -272,6 +277,7 @@ class DatabaseBackupClient:
                     stats['tables'][current_table] = table_rows_inserted
                     stats['tables_restored'] += 1
                     stats['total_rows_inserted'] += table_rows_inserted
+                    self.logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
                     if on_table_restored:
                         on_table_restored(current_table)
             table_rows_inserted = 0
@@ -317,26 +323,28 @@ class DatabaseBackupClient:
         '''
         Truncates tables in the correct order (respecting foreign key constraints)
         '''
-        # Disable foreign key constraints temporarily (database-specific)
-        # For SQLite
-        try:
-            connection.execute(text('PRAGMA foreign_keys = OFF'))
-        except Exception:  # pylint: disable=broad-except
-            pass  # Not SQLite or already disabled
+        with otel_span_wrapper('database_backup_client.truncate_tables',
+                               attributes={'db.table_count': len(table_names)}):
+            # Disable foreign key constraints temporarily (database-specific)
+            # For SQLite
+            try:
+                connection.execute(text('PRAGMA foreign_keys = OFF'))
+            except Exception:  # pylint: disable=broad-except
+                pass  # Not SQLite or already disabled
 
-        for table_name in table_names:
-            if table_name in BASE.metadata.tables:
-                self.logger.info(f'Truncating table: {table_name}')
-                try:
-                    connection.execute(text(f'DELETE FROM {table_name}'))
-                except Exception as e:  # pylint: disable=broad-except
-                    self.logger.debug(f'Failed to truncate {table_name}: {str(e)}')
+            for table_name in table_names:
+                if table_name in BASE.metadata.tables:
+                    self.logger.debug(f'Truncating table: {table_name}')
+                    try:
+                        connection.execute(text(f'DELETE FROM {table_name}'))
+                    except Exception as e:  # pylint: disable=broad-except
+                        self.logger.debug(f'Failed to truncate {table_name}: {str(e)}')
 
-        # Re-enable foreign key constraints
-        try:
-            connection.execute(text('PRAGMA foreign_keys = ON'))
-        except Exception:  # pylint: disable=broad-except
-            pass
+            # Re-enable foreign key constraints
+            try:
+                connection.execute(text('PRAGMA foreign_keys = ON'))
+            except Exception:  # pylint: disable=broad-except
+                pass
 
     def _restore_table(self, connection, table_name: str, rows: list) -> int:
         '''
@@ -350,33 +358,36 @@ class DatabaseBackupClient:
         Returns:
             Number of rows inserted
         '''
-        if not rows:
-            self.logger.debug(f'  -> {table_name}: No rows to restore')
-            return 0
+        with otel_span_wrapper('database_backup_client.restore_table',
+                               attributes={'db.table': table_name}) as span:
+            if not rows:
+                self.logger.debug(f'  -> {table_name}: No rows to restore')
+                return 0
 
-        rows_inserted = 0
+            rows_inserted = 0
 
-        # Insert in batches
-        for i in range(0, len(rows), self.BATCH_SIZE):
-            batch = rows[i:i + self.BATCH_SIZE]
+            # Insert in batches
+            for i in range(0, len(rows), self.BATCH_SIZE):
+                batch = rows[i:i + self.BATCH_SIZE]
 
-            # Get column names from first row
-            columns = list(batch[0].keys())
-            column_str = ', '.join(columns)
-            placeholders = ', '.join([f':{col}' for col in columns])
+                # Get column names from first row
+                columns = list(batch[0].keys())
+                column_str = ', '.join(columns)
+                placeholders = ', '.join([f':{col}' for col in columns])
 
-            insert_sql = f'INSERT INTO {table_name} ({column_str}) VALUES ({placeholders})'
+                insert_sql = f'INSERT INTO {table_name} ({column_str}) VALUES ({placeholders})'
 
-            try:
-                connection.execute(text(insert_sql), batch)
-                rows_inserted += len(batch)
-            except Exception as e:  # pylint: disable=broad-except
-                self.logger.error(f'Failed to insert batch into {table_name}: {str(e)}')
-                # Continue with next batch instead of failing completely
-                continue
+                try:
+                    connection.execute(text(insert_sql), batch)
+                    rows_inserted += len(batch)
+                except Exception as e:  # pylint: disable=broad-except
+                    self.logger.error(f'Failed to insert batch into {table_name}: {str(e)}')
+                    # Continue with next batch instead of failing completely
+                    continue
 
-        self.logger.debug(f'  -> {table_name}: {rows_inserted} rows restored')
-        return rows_inserted
+            span.set_attributes({'db.rows_inserted': rows_inserted})
+            self.logger.debug(f'  -> {table_name}: {rows_inserted} rows restored')
+            return rows_inserted
 
     def find_latest_backup(self, bucket_name: str, prefix: str) -> str | None:
         '''

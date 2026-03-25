@@ -102,6 +102,7 @@ class DatabaseBackup(CogHelper):
             for name in self.RESTORE_ORDER
             if name in self.bot.cogs and hasattr(self.bot.cogs[name], 'REQUIRED_TABLES')
         ]
+        self.logger.debug(f'Restore table groups: {table_groups}')
 
         def on_table_restored(table_name: str):
             if table_name in self._table_events:
@@ -132,11 +133,13 @@ class DatabaseBackup(CogHelper):
 
     async def wait_for_tables(self, table_names: list[str]) -> None:
         '''Wait until all named tables have been restored.'''
+        self.logger.debug(f'Waiting for tables: {table_names}')
         await asyncio.gather(*[
             self._table_events[t].wait()
             for t in table_names
             if t in self._table_events
         ])
+        self.logger.debug(f'Tables ready: {table_names}')
 
     async def cog_unload(self):
         '''Cancel backup task when cog unloads'''
