@@ -225,13 +225,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in self.config.download.server_queue_priority:
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
-        # Setup rest of client
-        if self.config.download.download_dir_path is not None:
-            self.download_dir = Path(self.config.download.download_dir_path)
-            if not self.download_dir.exists():
-                self.download_dir.mkdir(exist_ok=True, parents=True)
-        else:
-            self.download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
 
         # Tempdir used in downloads
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
@@ -240,8 +234,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Tempdir for players
         self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
 
+        # Only used in local (non-S3) mode; doubles as yt-dlp output dir when set
+        self.download_dir: Path | None = None
+        if not storage_bucket_name:
+            if self.config.download.download_dir_path is not None:
+                self.download_dir = Path(self.config.download.download_dir_path)
+                self.download_dir.mkdir(exist_ok=True, parents=True)
+
         self.video_cache = None
-        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
         if self.config.download.cache.enable_cache_files and self.db_engine and storage_bucket_name:
             self.video_cache = VideoCacheClient(
                 self.config.download.cache.max_cache_files,
@@ -254,7 +254,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             )
 
         self.media_broker = MediaBroker(
-            file_dir=self.download_dir,
             video_cache=self.video_cache,
             bucket_name=storage_bucket_name,
         )
@@ -272,7 +271,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             'logger': get_logger('ytdlp', self.logging_config),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
-            'outtmpl': str(self.temp_download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
+            'outtmpl': str((self.download_dir if self.download_dir else self.temp_download_dir) / f'{YTDLP_OUTPUT_TEMPLATE}'),
         }
         for key, val in self.config.download.extra_ytdlp_options.items():
             ytdlopts[key] = val
@@ -288,7 +287,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
         self.download_client = DownloadClient(
-            ytdl, self.download_dir,
+            ytdl,
             failure_queue=failure_queue,
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
@@ -304,8 +303,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
         create_observable_gauge(METER_PROVIDER, 'music.multirequest_bundles', self.__multirequest_bundles_callback, 'Active multirequest bundles')
         create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILE_COUNT.value, self.__cache_count_callback, 'Number of cache files in use')
-        # Cache file count callback
-        if self.download_dir and self.download_dir.is_mount():
+        # Cache file count callback — only meaningful in local mode with a dedicated mount
+        if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
@@ -453,7 +452,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._youtube_search_task.cancel()
 
             self.logger.info('Removing directories')
-            if self.download_dir.exists() and not self.config.download.cache.enable_cache_files:
+            if self.download_dir and self.download_dir.exists():
                 rm_tree(self.download_dir)
             if self.temp_download_dir.exists():
                 rm_tree(self.temp_download_dir)
@@ -999,10 +998,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                                    sticky=False, delete_after=delete_after)
 
             if reason != CleanupReason.BOT_SHUTDOWN:
-                self.logger.debug(f'Deleting download dir for guild {guild.id}')
-                guild_path = self.download_dir / f'{guild.id}'
-                if guild_path.exists():
-                    rm_tree(guild_path)
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
                 guild_player_path = self.player_dir / f'{guild.id}'
                 if guild_player_path.exists():
