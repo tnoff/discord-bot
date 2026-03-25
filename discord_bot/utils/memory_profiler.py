@@ -8,13 +8,14 @@ import tracemalloc
 from threading import Thread
 import time
 
+logger = logging.getLogger(__name__)
+
 class MemoryProfiler:
     """
     Profile Python memory usage by tracking allocation locations using tracemalloc
     Reports via periodic logging showing top allocation sites by file and line number
     """
     def __init__(self, interval_seconds=60, top_n_lines=25):
-        self.logger = logging.getLogger('memory_profiler')
         self.interval_seconds = interval_seconds
         self.top_n_lines = top_n_lines
         self._running = False
@@ -109,23 +110,23 @@ class MemoryProfiler:
 
     def _profiling_loop(self):
         """Background thread that collects and reports memory snapshots"""
-        self.logger.info("Memory profiler started (using tracemalloc)")
+        logger.info("Memory profiler started (using tracemalloc)")
 
         while self._running:
             try:
                 # Get snapshot summary and log it
                 summary = self.get_snapshot_summary()
-                self.logger.info(f"Memory snapshot:\n{summary}")
+                logger.info(f"Memory snapshot:\n{summary}")
 
             except Exception as e:
-                self.logger.warning(f"Error in memory profiling loop: {e}", exc_info=True)
+                logger.warning(f"Error in memory profiling loop: {e}", exc_info=True)
 
             time.sleep(self.interval_seconds)
 
     def start(self):
         """Start the background profiling thread and tracemalloc"""
         if self._running:
-            self.logger.debug("Memory profiler already running")
+            logger.debug("Memory profiler already running")
             return
 
         # Start tracemalloc if not already running
@@ -135,7 +136,7 @@ class MemoryProfiler:
         self._running = True
         self._thread = Thread(target=self._profiling_loop, daemon=True, name="MemoryProfiler")
         self._thread.start()
-        self.logger.info(f"Memory profiler started (interval: {self.interval_seconds}s, top {self.top_n_lines} lines)")
+        logger.info(f"Memory profiler started (interval: {self.interval_seconds}s, top {self.top_n_lines} lines)")
 
     def stop(self):
         """Stop the background profiling thread and tracemalloc"""
@@ -147,4 +148,4 @@ class MemoryProfiler:
         if tracemalloc.is_tracing():
             tracemalloc.stop()
 
-        self.logger.info("Memory profiler stopped")
+        logger.info("Memory profiler stopped")

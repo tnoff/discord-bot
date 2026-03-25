@@ -8,6 +8,7 @@ from threading import Thread
 
 import psutil
 
+logger = logging.getLogger(__name__)
 
 class ProcessMetricsProfiler:
     """
@@ -15,7 +16,6 @@ class ProcessMetricsProfiler:
     Reports via periodic logging showing memory usage, CPU, threads, etc.
     """
     def __init__(self, interval_seconds=15):
-        self.logger = logging.getLogger('process_metrics')
         self.interval_seconds = interval_seconds
         self._running = False
         self._thread = None
@@ -81,7 +81,7 @@ class ProcessMetricsProfiler:
 
             return metrics
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            self.logger.warning(f"Error getting process metrics: {e}")
+            logger.warning(f"Error getting process metrics: {e}")
             return None
 
     def get_metrics_summary(self):
@@ -146,29 +146,29 @@ class ProcessMetricsProfiler:
 
     def _profiling_loop(self):
         """Background thread that collects and reports process metrics"""
-        self.logger.info("Process metrics profiler started (using psutil)")
+        logger.info("Process metrics profiler started (using psutil)")
 
         while self._running:
             try:
                 # Get metrics summary and log it
                 summary = self.get_metrics_summary()
-                self.logger.info(f"Process metrics:\n{summary}")
+                logger.info(f"Process metrics:\n{summary}")
 
             except Exception as e:
-                self.logger.warning(f"Error in process metrics loop: {e}", exc_info=True)
+                logger.warning(f"Error in process metrics loop: {e}", exc_info=True)
 
             time.sleep(self.interval_seconds)
 
     def start(self):
         """Start the background profiling thread"""
         if self._running:
-            self.logger.debug("Process metrics profiler already running")
+            logger.debug("Process metrics profiler already running")
             return
 
         self._running = True
         self._thread = Thread(target=self._profiling_loop, daemon=True, name="ProcessMetrics")
         self._thread.start()
-        self.logger.info(f"Process metrics profiler started (interval: {self.interval_seconds}s)")
+        logger.info(f"Process metrics profiler started (interval: {self.interval_seconds}s)")
 
     def stop(self):
         """Stop the background profiling thread"""
@@ -176,4 +176,4 @@ class ProcessMetricsProfiler:
         if self._thread:
             self._thread.join(timeout=5)
 
-        self.logger.info("Process metrics profiler stopped")
+        logger.info("Process metrics profiler stopped")

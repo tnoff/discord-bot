@@ -127,13 +127,12 @@ class TestMemoryProfiler:
     def test_memory_profiling_with_logging(self):
         """Test that memory snapshots are logged"""
         mock_logger = Mock()
-        with patch('logging.getLogger', return_value=mock_logger):
-            tracker = MemoryProfiler(interval_seconds=1, top_n_lines=10)
-
-        # Start tracker and wait for snapshot
-        tracker.start()
-        time.sleep(1.5)  # Wait for one snapshot
-        tracker.stop()
+        tracker = MemoryProfiler(interval_seconds=1, top_n_lines=10)
+        with patch('discord_bot.utils.memory_profiler.logger', mock_logger):
+            # Start tracker and wait for snapshot
+            tracker.start()
+            time.sleep(1.5)  # Wait for one snapshot
+            tracker.stop()
 
         # Verify logger was called
         assert mock_logger.info.called

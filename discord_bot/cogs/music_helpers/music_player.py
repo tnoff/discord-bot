@@ -23,6 +23,8 @@ from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 
+logger = logging.getLogger(__name__)
+
 def cleanup_source(audio_source: FFmpegPCMAudio):
     '''
     Cleanup audio source
@@ -57,7 +59,6 @@ class MusicPlayer:
         self.bot = ctx.bot
         self.guild = ctx.guild
         self.text_channel = ctx.channel
-        self.logger = logging.getLogger('music')
 
         self.disconnect_timeout: int = disconnect_timeout
         self.file_dir: Path = file_dir
@@ -95,7 +96,7 @@ class MusicPlayer:
         Start background methods
         '''
         if not self._player_task:
-            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
+            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, logger, None)())
 
     async def player_loop(self):
         '''
@@ -108,7 +109,7 @@ class MusicPlayer:
             async with timeout(self.disconnect_timeout):
                 media_download = await self._play_queue.get()
         except async_timeout as e:
-            self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
+            logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
@@ -125,7 +126,7 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
-            self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
+            logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
             cleanup_source(audio_source)
             if self.broker:
@@ -134,7 +135,7 @@ class MusicPlayer:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.trigger_prefetch()
-        self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
+        logger.info(f'Now playing "{media_download.webpage_url}" requested '
                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{media_download.webpage_url}"')
         self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
@@ -211,7 +212,7 @@ class MusicPlayer:
         '''
         Used for loop to call once voice channel done
         '''
-        self.logger.info(f'Set next called on player in guild "{self.guild.id}"')
+        logger.info(f'Set next called on player in guild "{self.guild.id}"')
         self.next.set()
 
     async def join_voice(self, channel):
@@ -262,7 +263,7 @@ class MusicPlayer:
 
     def _on_prefetch_done(self, task: asyncio.Task):
         if not task.cancelled() and (exc := task.exception()):
-            self.logger.warning(f'Prefetch failed in guild {self.guild.id}: {exc}')
+            logger.warning(f'Prefetch failed in guild {self.guild.id}: {exc}')
 
     def trigger_prefetch(self):
         '''
@@ -352,7 +353,7 @@ class MusicPlayer:
         '''
         Cleanup all resources for player
         '''
-        self.logger.info(f'Clearing out resources for player in {self.guild.id}')
+        logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
         cleanup_source(self.current_audio_source)
         if self.broker and self.current_media_download:
@@ -362,14 +363,14 @@ class MusicPlayer:
         while True:
             try:
                 media_download = self._play_queue.get_nowait()
-                self.logger.debug(f'Removing item {media_download} from play queue')
+                logger.debug(f'Removing item {media_download} from play queue')
                 if self.broker:
                     self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:
                 break
 
         # Clear out all the queues
-        self.logger.debug('Calling clear on queues and queue messages')
+        logger.debug('Calling clear on queues and queue messages')
         self._history.clear()
         self._play_queue.clear()
         # Clear any messages in the current queue
@@ -389,6 +390,6 @@ class MusicPlayer:
 
         reason : CleanupReason describing why playback is ending
         '''
-        self.logger.info(f'Calling shutdown on music player for guild {self.guild.id}, reason: {reason.value}')
+        logger.info(f'Calling shutdown on music player for guild {self.guild.id}, reason: {reason.value}')
         self.shutdown_called = True
         self.shutdown_reason = reason

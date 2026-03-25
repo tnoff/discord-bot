@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 
+logger = logging.getLogger(__name__)
 
 class HealthServer:
     """
@@ -17,13 +18,12 @@ class HealthServer:
 
     def __init__(self, bot, port=8080):
         self.bot = bot
-        self.logger = logging.getLogger('health_server')
         self.port = port
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
         server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
-        self.logger.info(f'Health server listening on port {self.port}')
+        logger.info(f'Health server listening on port {self.port}')
         async with server:
             await server.serve_forever()
 
@@ -54,7 +54,7 @@ class HealthServer:
             writer.write(status_line + headers + body)
             await writer.drain()
         except Exception as e:
-            self.logger.debug(f'Health server handler error: {e}')
+            logger.debug(f'Health server handler error: {e}')
         finally:
             writer.close()
             try:

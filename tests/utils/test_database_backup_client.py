@@ -17,7 +17,6 @@ def test_database_backup_client_init(fake_engine):  #pylint:disable=redefined-ou
     '''Test DatabaseBackupClient initialization'''
     client = DatabaseBackupClient(fake_engine)
     assert client.db_engine == fake_engine
-    assert client.logger.name == 'databasebackup'
     assert client.CHUNK_SIZE == 1000
     assert client.BATCH_SIZE == 1000
 
@@ -198,9 +197,9 @@ def test_create_backup_logging(fake_engine, mocker):  #pylint:disable=redefined-
         session.add(channel)
         session.commit()
 
-    with patch('logging.getLogger', return_value=logger):
-        client = DatabaseBackupClient(fake_engine)
-    backup_file = client.create_backup()
+    client = DatabaseBackupClient(fake_engine)
+    with patch('discord_bot.utils.database_backup_client.logger', logger):
+        backup_file = client.create_backup()
 
     # Check that debug logging was called for table backup
     debug_calls = [call.args[0] for call in logger.debug.call_args_list]
@@ -218,9 +217,9 @@ def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=redefine
     '''Test that backup file size is logged correctly'''
     logger = mocker.Mock()
 
-    with patch('logging.getLogger', return_value=logger):
-        client = DatabaseBackupClient(fake_engine)
-    backup_file = client.create_backup()
+    client = DatabaseBackupClient(fake_engine)
+    with patch('discord_bot.utils.database_backup_client.logger', logger):
+        backup_file = client.create_backup()
 
     # Verify file size is logged
     logger.info.assert_called()
@@ -432,7 +431,7 @@ def test_restore_backup_skips_unknown_table(fake_engine, caplog):  #pylint:disab
     with open(backup_file, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-    with caplog.at_level(logging.INFO, logger='databasebackup'):
+    with caplog.at_level(logging.INFO, logger='discord_bot.utils.database_backup_client'):
         stats = client.restore_backup(backup_file)
 
     assert 'unknown_table' not in stats['tables']
@@ -581,7 +580,7 @@ def test_restore_backup_table_groups_skips_unknown_table(fake_engine, caplog):  
     with open(backup_file, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-    with caplog.at_level(logging.INFO, logger='databasebackup'):
+    with caplog.at_level(logging.INFO, logger='discord_bot.utils.database_backup_client'):
         stats = client.restore_backup(backup_file, table_groups=[['ghost_table']])
 
     assert 'ghost_table' not in stats['tables']
@@ -707,7 +706,7 @@ def test_truncate_tables_handles_delete_exception(fake_engine, mocker, caplog): 
 
     with fake_engine.begin() as conn:
         mocker.patch.object(conn, 'execute', side_effect=execute_side_effect)
-        with caplog.at_level(logging.DEBUG, logger='databasebackup'):
+        with caplog.at_level(logging.DEBUG, logger='discord_bot.utils.database_backup_client'):
             client._truncate_tables(conn, list(__import__('discord_bot.database', fromlist=['BASE']).BASE.metadata.tables.keys()))  #pylint:disable=protected-access
 
     assert 'Failed to truncate' in caplog.text

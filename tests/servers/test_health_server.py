@@ -2,6 +2,7 @@
 Tests for the HTTP health server.
 """
 import asyncio
+import logging
 from unittest.mock import Mock
 
 import pytest
@@ -41,7 +42,7 @@ class TestHealthServerInit:
         bot = _make_bot()
         hs = HealthServer(bot, port=9090)
         assert hs.bot is bot
-        assert hs.logger.name == 'health_server'
+        assert logging.getLogger('discord_bot.servers.health_server').name == 'discord_bot.servers.health_server'
         assert hs.port == 9090
 
     def test_init_default_port(self):
