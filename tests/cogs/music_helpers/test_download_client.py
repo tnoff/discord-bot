@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
+import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from unittest.mock import patch
@@ -139,6 +140,69 @@ async def test_prepare_source_filepath_does_not_exist():
     result = await x.create_source(y, 3, loop)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_md5_match_no_warning(mocker):
+    '''No warning when yt-dlp md5 matches the file on disk'''
+    loop = asyncio.get_running_loop()
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        file_path = Path(tmp_file.name)
+    file_path.write_bytes(b'audio content')
+    correct_md5 = hashlib.md5(b'audio content').hexdigest()
+
+    class MockYTDLPWithMd5:
+        def extract_info(self, _search_string, **_kwargs):
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
+                                 'requested_downloads': [{'filepath': str(file_path), 'md5': correct_md5}]}]}
+
+    fake_context = generate_fake_context()
+    x = DownloadClient(MockYTDLPWithMd5())
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
+    assert result.status.success
+    mock_logger.warning.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_md5_mismatch_logs_warning(mocker):
+    '''Warning logged when yt-dlp md5 does not match the file on disk; download still succeeds'''
+    loop = asyncio.get_running_loop()
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        file_path = Path(tmp_file.name)
+    file_path.write_bytes(b'audio content')
+
+    class MockYTDLPWithWrongMd5:
+        def extract_info(self, _search_string, **_kwargs):
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
+                                 'requested_downloads': [{'filepath': str(file_path), 'md5': 'deadbeef000000000000000000000000'}]}]}
+
+    fake_context = generate_fake_context()
+    x = DownloadClient(MockYTDLPWithWrongMd5())
+    y = fake_source_dict(fake_context)
+    result = await x.create_source(y, 3, loop)
+    assert result.status.success
+    mock_logger.warning.assert_called_once()
+    args = mock_logger.warning.call_args[0]
+    assert 'deadbeef000000000000000000000000' in args[1]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_no_md5_no_warning(mocker):
+    '''No warning when yt-dlp does not provide an md5 field (most sources)'''
+    loop = asyncio.get_running_loop()
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        fake_context = generate_fake_context()
+        x = DownloadClient(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3, loop)
+        assert result.status.success
+        mock_logger.warning.assert_not_called()
 
 
 @pytest.mark.asyncio(loop_scope="session")

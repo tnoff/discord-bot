@@ -1,4 +1,5 @@
 
+import hashlib
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -92,6 +93,50 @@ def test_download_file_success(mock_s3_client, tmp_path): #pylint:disable=redefi
     assert destination_path.read_bytes() == fake_data
 
     mock_s3_client.get_object.assert_called_once_with(Bucket="my-bucket", Key=object_name)
+
+def test_get_file_matching_etag_no_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
+    '''No warning when ETag matches the computed MD5 of downloaded bytes'''
+    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    fake_data = b'downloaded content'
+    correct_md5 = hashlib.md5(fake_data).hexdigest()
+
+    mock_body = MagicMock()
+    mock_body.read.return_value = fake_data
+    mock_s3_client.get_object.return_value = {'Body': mock_body, 'ETag': f'"{correct_md5}"'}
+
+    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
+    mock_logger.warning.assert_not_called()
+
+
+def test_get_file_mismatched_etag_logs_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
+    '''Warning logged when ETag does not match computed MD5'''
+    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    fake_data = b'downloaded content'
+    wrong_etag = 'deadbeef000000000000000000000000'
+
+    mock_body = MagicMock()
+    mock_body.read.return_value = fake_data
+    mock_s3_client.get_object.return_value = {'Body': mock_body, 'ETag': f'"{wrong_etag}"'}
+
+    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
+    mock_logger.warning.assert_called_once()
+    args = mock_logger.warning.call_args[0]
+    assert wrong_etag in args[1]
+    assert 'test.txt' in args[3]
+
+
+def test_get_file_multipart_etag_no_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
+    '''No warning for multipart ETags (contain a hyphen)'''
+    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    fake_data = b'downloaded content'
+
+    mock_body = MagicMock()
+    mock_body.read.return_value = fake_data
+    mock_s3_client.get_object.return_value = {'Body': mock_body, 'ETag': '"abc123deadbeef-5"'}
+
+    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
+    mock_logger.warning.assert_not_called()
+
 
 def test_download_file_failure(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
     object_name = "test.txt"

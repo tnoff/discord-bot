@@ -82,10 +82,17 @@ class DatabaseBackup(CogHelper):
             })
         ]
 
+    def _release_all_table_events(self):
+        '''Set any unset table events so waiters are never permanently blocked.'''
+        for event in self._table_events.values():
+            event.set()
+
     async def cog_load(self):
         '''Start the backup loop when cog loads; kick off restore in background if enabled'''
         if self.config.restore_on_startup:
             self._restore_task = self.bot.loop.create_task(self._restore_on_startup_async())
+        else:
+            self._release_all_table_events()
         self._task = self.bot.loop.create_task(
             return_loop_runner(
                 self.database_backup_loop,
@@ -109,6 +116,9 @@ class DatabaseBackup(CogHelper):
                 loop.call_soon_threadsafe(self._table_events[table_name].set)
 
         await asyncio.to_thread(self._restore_on_startup, table_groups, on_table_restored)
+        # Ensure all events are set after restore completes regardless of outcome
+        # (handles no-backup-found, S3 errors, and tables absent from the backup)
+        self._release_all_table_events()
 
     def _restore_on_startup(self, table_groups=None, on_table_restored=None):
         '''Sync: download and restore the latest S3 backup. Runs in a thread.'''

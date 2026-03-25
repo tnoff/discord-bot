@@ -1,9 +1,12 @@
 import base64
 import hashlib
+import logging
 from pathlib import Path
 
 from boto3 import client
 from botocore.exceptions import BotoCoreError, ClientError
+
+logger = logging.getLogger(__name__)
 
 class ObjectStorageException(Exception):
     '''
@@ -48,6 +51,11 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
         )
         # Read the body stream
         data = response['Body'].read()
+        computed_md5 = hashlib.md5(data).hexdigest()
+        etag = response.get('ETag', '').strip('"')
+        # ETag from multi-part upload has '-N' suffix — skip check if so
+        if etag and '-' not in etag and etag != computed_md5:
+            logger.warning('S3 checksum mismatch: etag=%s computed=%s key=%s', etag, computed_md5, object_name)
     except (BotoCoreError, ClientError) as e:
         raise ObjectStorageException('Error downloading file') from e
 

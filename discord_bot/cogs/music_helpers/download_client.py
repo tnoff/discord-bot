@@ -1,7 +1,9 @@
 import asyncio
 from datetime import datetime, timezone
 from functools import partial
+import hashlib
 from pathlib import Path
+import logging
 import random
 from time import time
 from typing import List
@@ -97,6 +99,8 @@ class BotDownloadFlagged(RetryableException):
     Youtube flagged download as a bot
     '''
 
+
+logger = logging.getLogger(__name__)
 
 OTEL_SPAN_PREFIX = 'music.download_client'
 
@@ -316,6 +320,10 @@ class DownloadClient():
                     span.set_status(StatusCode.ERROR)
                     return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail='No file path returned from download'), media_request=media_request, ytdlp_data=None, file_name=None)
                 file_size_bytes = file_path.stat().st_size
+                computed_md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
+                ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
+                if ytdlp_md5 and ytdlp_md5 != computed_md5:
+                    logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
                 # Upload to S3 immediately when configured; local staging file is deleted
                 # and file_name in the result becomes the S3 object key
                 if self.bucket_name:

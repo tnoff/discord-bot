@@ -1,6 +1,7 @@
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -56,6 +57,40 @@ def test_checkout_local_mode():
                 assert result.exists()
                 entry = broker.get_entry(str(md.media_request.uuid))
                 assert entry.zone == Zone.CHECKED_OUT
+
+
+def test_checkout_local_mode_checksum_match_no_warning(mocker):
+    '''No warning logged when copyfile produces matching checksums'''
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    fake_context = generate_fake_context()
+    with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory() as guild_dir:
+            with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+                broker = MediaBroker()
+                broker.register_download(md)
+                result = broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                assert result is not None
+                mock_logger.warning.assert_not_called()
+
+
+def test_checkout_local_mode_checksum_mismatch_logs_warning(mocker):
+    '''Warning logged when copyfile produces mismatched checksums'''
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    src_mock = MagicMock()
+    src_mock.hexdigest.return_value = 'aaaa'
+    dst_mock = MagicMock()
+    dst_mock.hexdigest.return_value = 'bbbb'
+    mocker.patch('discord_bot.cogs.music_helpers.media_broker.hashlib.md5',
+                 side_effect=[src_mock, dst_mock])
+    fake_context = generate_fake_context()
+    with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory() as guild_dir:
+            with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+                broker = MediaBroker()
+                broker.register_download(md)
+                result = broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                assert result is not None
+                mock_logger.warning.assert_called_once()
 
 
 def test_checkout_missing_local_file_raises():

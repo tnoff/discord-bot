@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 from pathlib import Path
+import logging
 from shutil import copyfile
 from typing import List
 
@@ -12,6 +14,8 @@ from discord_bot.types.download import DownloadResult
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.utils.integrations.s3 import get_file, delete_file
 from discord_bot.utils.otel import otel_span_wrapper
+
+logger = logging.getLogger(__name__)
 
 
 class Zone(Enum):
@@ -182,6 +186,11 @@ class MediaBroker:
                     if not entry.download.file_path.exists():
                         raise FileNotFoundError('Unable to locate base path')
                     copyfile(str(entry.download.file_path), str(uuid_path))
+                    src_md5 = hashlib.md5(entry.download.file_path.read_bytes()).hexdigest()
+                    dst_md5 = hashlib.md5(uuid_path.read_bytes()).hexdigest()
+                    if src_md5 != dst_md5:
+                        logger.warning('Checksum mismatch after copyfile: src=%s dst=%s src_md5=%s dst_md5=%s',
+                                       entry.download.file_path, uuid_path, src_md5, dst_md5)
                 entry.guild_file_path = uuid_path
             entry.zone = Zone.CHECKED_OUT
             entry.checked_out_by = guild_id
