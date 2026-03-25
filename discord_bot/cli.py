@@ -220,6 +220,8 @@ def main(config_file): #pylint:disable=too-many-statements
         # Grab logger
         print('Starting logging', file=stderr)
         logger = get_logger('main', general_config.logging)
+        # Configure discord_bot package hierarchy once — all discord_bot.* loggers inherit this
+        get_logger('discord_bot', general_config.logging)
 
 
 
@@ -238,7 +240,6 @@ def main(config_file): #pylint:disable=too-many-statements
         # Start memory profiling if enabled
         if general_config.monitoring and general_config.monitoring.memory_profiling and general_config.monitoring.memory_profiling.enabled:
             logger.info('Main :: Starting memory profiler')
-            get_logger('memory_profiler', general_config.logging, otlp_logger=logger_provider).setLevel(logging.INFO)
             interval_seconds = general_config.monitoring.memory_profiling.interval_seconds
             top_n_lines = general_config.monitoring.memory_profiling.top_n_lines
             memory_profiler = MemoryProfiler(interval_seconds=interval_seconds, top_n_lines=top_n_lines)
@@ -247,7 +248,6 @@ def main(config_file): #pylint:disable=too-many-statements
         # Start process metrics profiling if enabled
         if general_config.monitoring and general_config.monitoring.process_metrics and general_config.monitoring.process_metrics.enabled:
             logger.info('Main :: Starting process metrics profiler')
-            get_logger('process_metrics', general_config.logging, otlp_logger=logger_provider).setLevel(logging.INFO)
             interval_seconds = general_config.monitoring.process_metrics.interval_seconds
             process_metrics_profiler = ProcessMetricsProfiler(interval_seconds=interval_seconds)
             process_metrics_profiler.start()
@@ -293,7 +293,6 @@ def main_runner(general_config: GeneralConfig, settings: dict, db_engine: Engine
     health_server = None
     if general_config.monitoring and general_config.monitoring.health_server \
             and general_config.monitoring.health_server.enabled:
-        get_logger('health_server', general_config.logging)
         health_server = HealthServer(bot, port=general_config.monitoring.health_server.port)
 
     # Make sure we cast to string here just to keep it consistent

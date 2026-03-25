@@ -87,13 +87,12 @@ class TestProcessMetricsProfiler:
     def test_metrics_with_logging(self):
         """Test that metrics are logged"""
         mock_logger = Mock()
-        with patch('logging.getLogger', return_value=mock_logger):
-            profiler = ProcessMetricsProfiler(interval_seconds=1)
-
-        # Start profiler and wait for snapshot
-        profiler.start()
-        time.sleep(1.5)  # Wait for one snapshot
-        profiler.stop()
+        profiler = ProcessMetricsProfiler(interval_seconds=1)
+        with patch('discord_bot.utils.process_metrics.logger', mock_logger):
+            # Start profiler and wait for snapshot
+            profiler.start()
+            time.sleep(1.5)  # Wait for one snapshot
+            profiler.stop()
 
         # Verify logger was called
         assert mock_logger.info.called

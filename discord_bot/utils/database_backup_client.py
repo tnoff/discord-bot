@@ -13,6 +13,7 @@ from discord_bot.database import BASE
 from discord_bot.utils.integrations.s3 import get_file, list_objects
 from discord_bot.utils.otel import otel_span_wrapper
 
+logger = logging.getLogger(__name__)
 
 class DatabaseBackupClient:
     '''
@@ -25,7 +26,6 @@ class DatabaseBackupClient:
 
     def __init__(self, db_engine: Engine):
         self.db_engine = db_engine
-        self.logger = logging.getLogger('databasebackup')
 
     def _get_alembic_version(self) -> str:
         '''
@@ -77,7 +77,7 @@ class DatabaseBackupClient:
                         if table_idx > 0:
                             f.write(',\n')  # Comma separator between tables
 
-                        self.logger.debug(f'Backing up table: {table_name}')
+                        logger.debug(f'Backing up table: {table_name}')
                         f.write(f'  "{table_name}": [\n')
 
                         # Stream rows in chunks to minimize memory usage
@@ -102,14 +102,14 @@ class DatabaseBackupClient:
                                 f.write('    ' + json.dumps(row_dict, default=str))
                                 row_count += 1
 
-                        self.logger.debug(f'  -> {table_name}: {row_count} rows')
+                        logger.debug(f'  -> {table_name}: {row_count} rows')
                         f.write('\n  ]')  # Close table array
 
                 f.write('\n}\n')  # Close JSON object
 
             file_size = backup_file.stat().st_size
             span.set_attributes({'backup.table_count': len(table_names), 'backup.file_size_bytes': file_size})
-            self.logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
+            logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
             return backup_file
 
     # ijson scalar event types (all carry a Python value directly)
@@ -135,7 +135,7 @@ class DatabaseBackupClient:
         if not backup_file.exists():
             raise FileNotFoundError(f'Backup file not found: {backup_file}')
 
-        self.logger.info(f'Starting database restoration from {backup_file}')
+        logger.info(f'Starting database restoration from {backup_file}')
 
         metadata = {}
         stats = {
@@ -168,13 +168,13 @@ class DatabaseBackupClient:
                 self._restore_pass(backup_file, set(group), on_table_restored, stats, metadata)
 
         if metadata:
-            self.logger.info(
+            logger.info(
                 f'Backup metadata: timestamp={metadata.get("backup_timestamp", "unknown")} '
                 f'alembic={metadata.get("alembic_version", "unknown")} '
                 f'tables={metadata.get("table_count", "unknown")}'
             )
 
-        self.logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
+        logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
 
@@ -199,12 +199,12 @@ class DatabaseBackupClient:
             flush_buffer()
             if current_table and current_table != '_metadata':
                 if current_table not in table_metadata:
-                    self.logger.info(f'Table {current_table} not found in current schema, skipping')
+                    logger.info(f'Table {current_table} not found in current schema, skipping')
                 else:
                     stats['tables'][current_table] = table_rows_inserted
                     stats['tables_restored'] += 1
                     stats['total_rows_inserted'] += table_rows_inserted
-                    self.logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
+                    logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
             table_rows_inserted = 0
 
         with open(backup_file, 'rb') as f:
@@ -272,12 +272,12 @@ class DatabaseBackupClient:
             flush_buffer()
             if current_table and current_table != '_metadata' and current_table in only_tables:
                 if current_table not in table_metadata:
-                    self.logger.info(f'Table {current_table} not found in current schema, skipping')
+                    logger.info(f'Table {current_table} not found in current schema, skipping')
                 else:
                     stats['tables'][current_table] = table_rows_inserted
                     stats['tables_restored'] += 1
                     stats['total_rows_inserted'] += table_rows_inserted
-                    self.logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
+                    logger.info(f'Restored {current_table}: {table_rows_inserted} rows')
                     if on_table_restored:
                         on_table_restored(current_table)
             table_rows_inserted = 0
@@ -334,11 +334,11 @@ class DatabaseBackupClient:
 
             for table_name in table_names:
                 if table_name in BASE.metadata.tables:
-                    self.logger.debug(f'Truncating table: {table_name}')
+                    logger.debug(f'Truncating table: {table_name}')
                     try:
                         connection.execute(text(f'DELETE FROM {table_name}'))
                     except Exception as e:  # pylint: disable=broad-except
-                        self.logger.debug(f'Failed to truncate {table_name}: {str(e)}')
+                        logger.debug(f'Failed to truncate {table_name}: {str(e)}')
 
             # Re-enable foreign key constraints
             try:
@@ -361,7 +361,7 @@ class DatabaseBackupClient:
         with otel_span_wrapper('database_backup_client.restore_table',
                                attributes={'db.table': table_name}) as span:
             if not rows:
-                self.logger.debug(f'  -> {table_name}: No rows to restore')
+                logger.debug(f'  -> {table_name}: No rows to restore')
                 return 0
 
             rows_inserted = 0
@@ -381,12 +381,12 @@ class DatabaseBackupClient:
                     connection.execute(text(insert_sql), batch)
                     rows_inserted += len(batch)
                 except Exception as e:  # pylint: disable=broad-except
-                    self.logger.error(f'Failed to insert batch into {table_name}: {str(e)}')
+                    logger.error(f'Failed to insert batch into {table_name}: {str(e)}')
                     # Continue with next batch instead of failing completely
                     continue
 
             span.set_attributes({'db.rows_inserted': rows_inserted})
-            self.logger.debug(f'  -> {table_name}: {rows_inserted} rows restored')
+            logger.debug(f'  -> {table_name}: {rows_inserted} rows restored')
             return rows_inserted
 
     def find_latest_backup(self, bucket_name: str, prefix: str) -> str | None:
