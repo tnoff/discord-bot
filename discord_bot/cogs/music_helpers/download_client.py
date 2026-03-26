@@ -327,7 +327,13 @@ class DownloadClient():
                 # Upload to S3 immediately when configured; local staging file is deleted
                 # and file_name in the result becomes the S3 object key
                 if self.bucket_name:
-                    s3_key = f'cache/{media_request.uuid}{"".join(file_path.suffixes)}'
+                    # Key is deterministic per video so the same video always maps to the
+                    # same S3 object, enabling cache reuse across requests.
+                    # With a single downloader instance this is fine, but if multiple
+                    # downloaders run concurrently they could race to upload the same key.
+                    # If concurrency is ever added, consider a download queue or a
+                    # check-then-skip pattern (list_objects before uploading).
+                    s3_key = f'cache/{data["extractor"]}.{data["id"]}{"".join(file_path.suffixes)}'
                     upload_file(self.bucket_name, file_path, s3_key)
                     file_path.unlink()
                     file_path = Path(s3_key)
