@@ -1,6 +1,6 @@
 import pytest
 
-from discord_bot.cogs.role import RoleAssignment
+from discord_bot.cogs.role import RoleAssignment, RoleConfig
 from discord_bot.exceptions import CogMissingRequiredArg
 
 from tests.helpers import fake_context #pylint:disable=unused-import
@@ -1147,3 +1147,117 @@ async def test_remove_user_where_another_has_self_service_but_admin_override(fak
     cog = RoleAssignment(fake_context['bot'], config, None)
     await cog.role_remove(cog, fake_context['context'], inputs=f'<@{fake_user2.id}> <@{fake_role3.id}>') #pylint:disable=too-many-function-args
     assert fake_role3 not in fake_user2.roles
+
+# ---------------------------------------------------------------------------
+# RoleConfig.model_validate edge cases
+# ---------------------------------------------------------------------------
+
+def test_role_config_model_validate_non_dict():
+    '''model_validate falls back to super() when obj is not a dict (line 37)'''
+    # Passing an existing model instance (not a dict) triggers the early-return branch
+    existing = RoleConfig.model_validate({})
+    instance = RoleConfig.model_validate(existing)
+    assert instance is not None
+
+
+def test_role_config_model_validate_nested_dict_without_manages_roles():
+    '''Dict value for an unrecognised key with no manages_roles key hits line 59.
+    RoleManagementConfig requires manages_roles, so the fallback path always raises.'''
+    from pydantic import ValidationError as PydanticValidationError  #pylint:disable=import-outside-toplevel
+    config = {
+        999: {
+            12345: {'some_key': 'some_value'},  # dict, no manages_roles, not a special key
+        }
+    }
+    with pytest.raises(PydanticValidationError):
+        RoleConfig.model_validate(config)
+
+
+def test_role_config_model_validate_non_dict_server_config():
+    '''A non-dict server config value is stored as-is (lines 73 and 92)'''
+    config = {999: 'not_a_dict'}
+    instance = RoleConfig.model_validate(config)
+    assert instance is not None
+
+
+# ---------------------------------------------------------------------------
+# __init__ guard: members intent
+# ---------------------------------------------------------------------------
+
+def test_role_requires_members_intent(fake_context):  #pylint:disable=redefined-outer-name
+    '''Raises CogMissingRequiredArg when bot.intents.members is False'''
+    fake_context['bot'].intents.members = False
+    with pytest.raises(CogMissingRequiredArg) as exc:
+        RoleAssignment(fake_context['bot'], BASE_GENERAL_CONFIG, None)
+    assert 'intents' in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# check_required_roles: author lacks role when user is also provided
+# ---------------------------------------------------------------------------
+
+def test_required_roles_author_lacks_role_with_user_provided(fake_context):  #pylint:disable=redefined-outer-name
+    '''Returns False immediately when author does not hold the required role (line 243)'''
+    required_role = FakeRole()
+    fake_user2 = FakeAuthor(roles=[required_role])
+    # Author does NOT have required_role — only fake_user2 does
+    config = {
+        'role': {
+            fake_context['guild'].id: {
+                'required_roles_list': [required_role.id],
+            }
+        }
+    } | BASE_GENERAL_CONFIG
+    cog = RoleAssignment(fake_context['bot'], config, None)
+    result = cog.check_required_roles(fake_context['context'], user=fake_user2)
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# role group: no subcommand (lines 265-266)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_role_group_no_subcommand(fake_context):  #pylint:disable=redefined-outer-name
+    '''Group handler sends error message when invoked without a subcommand'''
+    cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, None)
+    fake_context['context'].invoked_subcommand = None
+    await cog.role(cog, fake_context['context'])  #pylint:disable=too-many-function-args
+    assert 'Invalid sub command passed...' in fake_context['context'].messages_sent
+
+
+# ---------------------------------------------------------------------------
+# get_managed_roles: NotFound for self-service and managed roles
+# ---------------------------------------------------------------------------
+
+def test_managed_roles_self_service_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
+    '''Self-service role ID absent from guild is silently skipped (lines 342-343, 347)'''
+    missing_role_id = 99999  # not added to guild.roles
+    config = {
+        'role': {
+            fake_context['guild'].id: {
+                'self_service_role_list': [missing_role_id],
+            }
+        }
+    } | BASE_GENERAL_CONFIG
+    cog = RoleAssignment(fake_context['bot'], config, None)
+    result = cog.get_managed_roles(fake_context['context'])
+    assert not result
+
+
+def test_managed_roles_managed_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
+    '''Managed role ID absent from guild is silently skipped (lines 364-365, 369)'''
+    author_role = fake_context['author'].roles[0]
+    missing_role_id = 99999  # not added to guild.roles
+    config = {
+        'role': {
+            fake_context['guild'].id: {
+                author_role.id: {
+                    'manages_roles': [missing_role_id],
+                },
+            }
+        }
+    } | BASE_GENERAL_CONFIG
+    cog = RoleAssignment(fake_context['bot'], config, None)
+    result = cog.get_managed_roles(fake_context['context'])
+    assert not result
