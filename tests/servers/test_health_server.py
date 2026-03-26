@@ -3,7 +3,7 @@ Tests for the HTTP health server.
 """
 import asyncio
 import logging
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -106,3 +106,27 @@ class TestHealthServerAsync:
                 await task
             except asyncio.CancelledError:
                 pass
+
+    async def test_handle_exception_during_request(self):
+        """Exception mid-request is caught and writer is still closed cleanly"""
+        bot = _make_bot()
+        hs = HealthServer(bot)
+        reader = MagicMock()
+        reader.readline = AsyncMock(side_effect=ConnectionResetError('connection reset'))
+        writer = MagicMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
+        await getattr(hs, '_handle')(reader, writer)
+        writer.close.assert_called_once()
+
+    async def test_handle_wait_closed_exception(self):
+        """Exception in wait_closed is swallowed; writer.close still called"""
+        bot = _make_bot()
+        hs = HealthServer(bot)
+        reader = MagicMock()
+        reader.readline = AsyncMock(side_effect=ConnectionResetError('connection reset'))
+        writer = MagicMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock(side_effect=OSError('broken pipe'))
+        await getattr(hs, '_handle')(reader, writer)
+        writer.close.assert_called_once()

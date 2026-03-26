@@ -2,6 +2,7 @@ from functools import partial
 import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unittest.mock import MagicMock
 
 from pydantic import ValidationError as PydanticValidationError
 from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
@@ -10,7 +11,7 @@ import pytest
 
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.common import GeneralConfig, LoggingConfig, DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
-from discord_bot.utils.common import get_logger
+from discord_bot.utils.common import get_logger, run_commit
 from discord_bot.utils.discord_retry import async_retry_command
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.discord_utils import discord_format_string_embed
@@ -456,3 +457,24 @@ def test_discord_format_string_embed_https_variations():
     for input_url, expected in test_cases:
         result = discord_format_string_embed(input_url)
         assert result == expected, f"Failed for {input_url}"
+
+def test_logging_config_otlp_only_false_requires_file_fields():
+    '''LoggingConfig with otlp_only=False raises when log_dir/count/bytes are missing'''
+    with pytest.raises(PydanticValidationError) as exc:
+        LoggingConfig(log_level=30)
+    assert 'Fields required' in str(exc.value)
+
+
+def test_get_logger_with_otlp_logger(mocker):
+    '''get_logger attaches LoggingHandler when otlp_logger is provided'''
+    mock_handler = MagicMock()
+    mocker.patch('discord_bot.utils.common.LoggingHandler', return_value=mock_handler)
+    logging_config = LoggingConfig(log_level=30, otlp_only=True)
+    logger = get_logger('test_otlp_logger', logging_config, otlp_logger=MagicMock())
+    assert mock_handler in logger.handlers
+
+def test_run_commit_calls_session_commit():
+    '''run_commit calls db_session.commit()'''
+    session = MagicMock()
+    run_commit(session)
+    session.commit.assert_called_once()
