@@ -34,6 +34,7 @@ class MockYTDLP():
                     'uploader': 'Foo Uploader',
                     'duration': 1234,
                     'extractor': 'test-extractor',
+                    'id': 'vid123',
                 },
             ]
         }
@@ -98,11 +99,10 @@ async def test_prepare_source_s3_mode():
         upload_mock.assert_called_once()
         call_args = upload_mock.call_args[0]
         assert call_args[0] == 'test-bucket'
-        assert str(call_args[2]).startswith('cache/')
-        assert str(call_args[2]).endswith('.mp3')
+        assert str(call_args[2]) == 'cache/test-extractor.vid123.mp3'
         # local file gone, result carries the S3 key
         assert not call_args[1].exists()
-        assert str(result.file_name).startswith('cache/')
+        assert str(result.file_name) == 'cache/test-extractor.vid123.mp3'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_empty_requested_downloads():

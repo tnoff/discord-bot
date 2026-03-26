@@ -307,3 +307,75 @@ async def test_list_channels_with_valid_output(fake_engine, fake_context):  #pyl
     result = await cog.list_channels(cog, fake_context['context']) #pylint: disable=too-many-function-args
     assert fake_context['context'].messages_sent == [f'Channel List \nChannel\n-------\n<#{fake_context["channel"].id}>']
     assert result is True
+
+# ---------------------------------------------------------------------------
+# __loop_active_callback (lines 123-124)
+# ---------------------------------------------------------------------------
+
+def test_loop_active_callback_not_running(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Heartbeat returns 0 when _task is None'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    observations = cog._Markov__loop_active_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 0
+
+
+def test_loop_active_callback_running(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''Heartbeat returns 1 when _task is set and not done'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    mock_task = mocker.Mock()
+    mock_task.done.return_value = False
+    cog._task = mock_task  #pylint:disable=protected-access
+    observations = cog._Markov__loop_active_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 1
+
+
+# ---------------------------------------------------------------------------
+# cog_load / _start_tasks (lines 131, 134-137)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_load_creates_task(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_load calls gate_tasks_on_db_restore which schedules _start_tasks'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    fake_context['bot'].loop = mocker.Mock()
+    fake_context['bot'].loop.create_task = mocker.Mock(return_value=mocker.Mock())
+    # No DatabaseBackup cog present, so gate_tasks_on_db_restore calls _start_tasks directly
+    await cog.cog_load()
+    assert cog._task is not None  #pylint:disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# cog_unload (lines 140-143)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_tasks(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_unload cancels both _task and _init_task when set'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    mock_task = mocker.Mock()
+    mock_init_task = mocker.Mock()
+    cog._task = mock_task  #pylint:disable=protected-access
+    cog._init_task = mock_init_task  #pylint:disable=protected-access
+    await cog.cog_unload()
+    mock_task.cancel.assert_called_once()
+    mock_init_task.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_handles_none_tasks(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_unload does not raise when tasks are None'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    await cog.cog_unload()
+
+
+# ---------------------------------------------------------------------------
+# markov group: no subcommand (lines 280-281)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_markov_group_no_subcommand(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Group handler sends error when invoked without a subcommand'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    fake_context['context'].invoked_subcommand = None
+    await cog.markov(cog, fake_context['context'])  #pylint:disable=too-many-function-args
+    assert 'Invalid sub command passed...' in fake_context['context'].messages_sent
