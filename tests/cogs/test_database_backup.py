@@ -1,3 +1,4 @@
+import asyncio as _asyncio
 import pytest
 from freezegun import freeze_time
 
@@ -432,3 +433,146 @@ async def test_database_backup_loop_upload_failure(fake_context, fake_engine, mo
 
     # Verify error message in logs
     assert 'Failed to upload backup to S3' in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _restore_on_startup_async
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_restore_on_startup_async_builds_table_groups(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup_async builds table_groups from bot.cogs in RESTORE_ORDER'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+
+    music_cog = mocker.Mock()
+    music_cog.REQUIRED_TABLES = ['playlist', 'playlist_item']
+    markov_cog = mocker.Mock()
+    markov_cog.REQUIRED_TABLES = ['markov_channel', 'markov_relation']
+    fake_context['bot'].cogs = {'Music': music_cog, 'Markov': markov_cog}
+
+    captured = {}
+
+    def fake_restore(table_groups, _on_table_restored):
+        captured['table_groups'] = table_groups
+
+    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog, '_release_all_table_events')
+
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
+
+    assert captured['table_groups'] == [['playlist', 'playlist_item'], ['markov_channel', 'markov_relation']]
+
+
+@pytest.mark.asyncio
+async def test_restore_on_startup_async_skips_cog_without_required_tables(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup_async excludes cogs that lack REQUIRED_TABLES from table_groups'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+
+    music_cog = mocker.Mock(spec=[])  # no REQUIRED_TABLES attribute
+    fake_context['bot'].cogs = {'Music': music_cog}
+
+    captured = {}
+
+    def fake_restore(table_groups, _on_table_restored):
+        captured['table_groups'] = table_groups
+
+    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog, '_release_all_table_events')
+
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
+
+    assert captured['table_groups'] == []
+
+
+@pytest.mark.asyncio
+async def test_restore_on_startup_async_releases_events_after_restore(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup_async always calls _release_all_table_events after restore'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
+
+    mocker.patch.object(cog, '_restore_on_startup')
+    release_spy = mocker.patch.object(cog, '_release_all_table_events')
+
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
+
+    release_spy.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_on_startup_async_callback_sets_table_event(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''on_table_restored callback triggers the matching asyncio.Event'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
+
+    # Capture the callback so we can call it directly
+    captured_callback = {}
+
+    def fake_restore(_table_groups, on_table_restored):
+        captured_callback['fn'] = on_table_restored
+
+    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog, '_release_all_table_events')
+
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
+
+    # Manually invoke the callback for a known table
+    table_name = next(iter(cog._table_events))  #pylint:disable=protected-access
+    assert not cog._table_events[table_name].is_set()  #pylint:disable=protected-access
+    captured_callback['fn'](table_name)
+    # call_soon_threadsafe schedules the set; run the loop briefly to process it
+    await _asyncio.sleep(0)
+    assert cog._table_events[table_name].is_set()  #pylint:disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# wait_for_tables
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_wait_for_tables_returns_when_events_already_set(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+    '''wait_for_tables completes immediately when all named events are already set'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+
+    tables = list(cog._table_events.keys())[:2]  #pylint:disable=protected-access
+    for t in tables:
+        cog._table_events[t].set()  #pylint:disable=protected-access
+
+    # Should return without blocking
+    await cog.wait_for_tables(tables)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_tables_ignores_unknown_table_names(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+    '''wait_for_tables silently ignores names that are not in _table_events'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+
+    # Should not raise even with completely unknown names
+    await cog.wait_for_tables(['nonexistent_table_xyz'])
+
+
+# ---------------------------------------------------------------------------
+# cog_unload
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_both_tasks(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_unload cancels _task and _restore_task when both are set'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+
+    mock_task = mocker.Mock()
+    mock_restore_task = mocker.Mock()
+    cog._task = mock_task  #pylint:disable=protected-access
+    cog._restore_task = mock_restore_task  #pylint:disable=protected-access
+
+    await cog.cog_unload()
+
+    mock_task.cancel.assert_called_once()
+    mock_restore_task.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_handles_none_tasks(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+    '''cog_unload does not raise when _task and _restore_task are None'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    # Both are None by default after __init__
+    await cog.cog_unload()  # Should not raise

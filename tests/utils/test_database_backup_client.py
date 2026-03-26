@@ -242,9 +242,9 @@ def test_create_backup_single_connection(fake_engine, mocker):  #pylint:disable=
 
     backup_file = client.create_backup()
 
-    # Only one connection should be opened for the table reads
-    # (_get_alembic_version opens its own connection separately)
-    assert connect_spy.call_count <= 2  # at most alembic check + one table connection
+    # For SQLite: _get_alembic_version + _create_sqlite_snapshot each open one connection.
+    # Table reads use the snapshot engine, which is not spied on here.
+    assert connect_spy.call_count <= 2
 
     backup_file.unlink()
 
@@ -710,3 +710,61 @@ def test_truncate_tables_handles_delete_exception(fake_engine, mocker, caplog): 
             client._truncate_tables(conn, list(__import__('discord_bot.database', fromlist=['BASE']).BASE.metadata.tables.keys()))  #pylint:disable=protected-access
 
     assert 'Failed to truncate' in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _create_sqlite_snapshot and SQLite snapshot path in create_backup
+# ---------------------------------------------------------------------------
+
+def test_create_sqlite_snapshot_contains_data(fake_engine):  #pylint:disable=redefined-outer-name
+    '''_create_sqlite_snapshot copies live data into the snapshot DB'''
+    with mock_session(fake_engine) as session:
+        session.add(MarkovChannel(channel_id='42', server_id='99'))
+        session.commit()
+
+    client = DatabaseBackupClient(fake_engine)
+    snap_engine, snap_path = client._create_sqlite_snapshot()  #pylint:disable=protected-access
+    try:
+        with snap_engine.connect() as conn:
+            rows = conn.execute(text('SELECT channel_id FROM markov_channel')).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == 42
+    finally:
+        snap_engine.dispose()
+        if snap_path.exists():
+            snap_path.unlink()
+
+
+def test_create_backup_sqlite_snapshot_cleaned_up(fake_engine):  #pylint:disable=redefined-outer-name
+    '''create_backup deletes the snapshot file after the export finishes'''
+    client = DatabaseBackupClient(fake_engine)
+
+    snap_paths = []
+    original = client._create_sqlite_snapshot  #pylint:disable=protected-access
+
+    def tracking_snapshot():
+        engine, path = original()
+        snap_paths.append(path)
+        return engine, path
+
+    client._create_sqlite_snapshot = tracking_snapshot  #pylint:disable=protected-access
+
+    backup_file = client.create_backup()
+
+    assert len(snap_paths) == 1
+    assert not snap_paths[0].exists(), 'snapshot file was not cleaned up'
+
+    backup_file.unlink()
+
+
+def test_create_backup_non_sqlite_skips_snapshot(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''create_backup does not call _create_sqlite_snapshot for non-SQLite engines'''
+    client = DatabaseBackupClient(fake_engine)
+    snapshot_spy = mocker.patch.object(client, '_create_sqlite_snapshot')
+    # Make the dialect appear to be PostgreSQL
+    mocker.patch.object(fake_engine.dialect, 'name', 'postgresql')
+
+    backup_file = client.create_backup()
+
+    snapshot_spy.assert_not_called()
+    backup_file.unlink()
