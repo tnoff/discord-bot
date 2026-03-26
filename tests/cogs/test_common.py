@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from discord_bot.cogs.common import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.helpers import FakeMessage, fake_engine, generate_fake_context  #pylint:disable=unused-import
@@ -101,51 +102,99 @@ def test_dispatcher_raises_when_not_loaded(fake_context, mocker):  #pylint:disab
 
 
 # ---------------------------------------------------------------------------
-# dispatch_fetch (line 101)
+# register_result_queue
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dispatch_fetch_delegates_to_dispatcher(fake_context):  #pylint:disable=redefined-outer-name
-    '''dispatch_fetch calls _dispatcher.fetch_object with the supplied function'''
+async def test_register_result_queue_sets_result_queue(fake_context):  #pylint:disable=redefined-outer-name
+    '''register_result_queue stores a queue from the dispatcher on the cog'''
     cog = CogHelper(fake_context['bot'], {}, None)
-    fetch_fn = AsyncMock(return_value='result')
-
-    result = await cog.dispatch_fetch(fake_context['guild'].id, fetch_fn)
-
-    assert result == 'result'
-    fetch_fn.assert_called_once()
+    cog.register_result_queue()
+    assert cog._result_queue is not None  #pylint:disable=protected-access
 
 
 # ---------------------------------------------------------------------------
-# dispatch_guild_emojis (lines 128-131)
+# dispatch_channel_history: fire-and-forget, result on queue
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dispatch_guild_emojis_returns_guild_emojis(fake_context):  #pylint:disable=redefined-outer-name
-    '''dispatch_guild_emojis fetches and returns the guild emoji list'''
+async def test_dispatch_channel_history_delivers_to_result_queue(fake_context):  #pylint:disable=redefined-outer-name
+    '''dispatch_channel_history submits a request; result arrives on _result_queue'''
     cog = CogHelper(fake_context['bot'], {}, None)
+    cog.register_result_queue()
+    msg = FakeMessage(channel=fake_context['channel'])
+    fake_context['channel'].messages = [msg]
+    await cog.dispatch_channel_history(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+    )
+    result = cog._result_queue.get_nowait()  #pylint:disable=protected-access
+    assert isinstance(result, ChannelHistoryResult)
+    assert len(result.messages) == 1
+    assert result.messages[0].id == msg.id
+
+
+@pytest.mark.asyncio
+async def test_dispatch_channel_history_error_delivers_to_result_queue(fake_context):  #pylint:disable=redefined-outer-name
+    '''When channel not found, a ChannelHistoryResult with error arrives on _result_queue'''
+    cog = CogHelper(fake_context['bot'], {}, None)
+    cog.register_result_queue()
+    await cog.dispatch_channel_history(fake_context['guild'].id, 999999)
+    result = cog._result_queue.get_nowait()  #pylint:disable=protected-access
+    assert isinstance(result, ChannelHistoryResult)
+    assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
+# dispatch_guild_emojis: fire-and-forget, result on queue
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_guild_emojis_delivers_to_result_queue(fake_context):  #pylint:disable=redefined-outer-name
+    '''dispatch_guild_emojis submits a request; GuildEmojisResult arrives on _result_queue'''
+    cog = CogHelper(fake_context['bot'], {}, None)
+    cog.register_result_queue()
     fake_emoji = MagicMock()
     fake_context['guild'].emojis = [fake_emoji]
-    result = await cog.dispatch_guild_emojis(fake_context['guild'].id)
-    assert result == [fake_emoji]
+    await cog.dispatch_guild_emojis(fake_context['guild'].id)
+    result = cog._result_queue.get_nowait()  #pylint:disable=protected-access
+    assert isinstance(result, GuildEmojisResult)
+    assert result.emojis == [fake_emoji]
 
 
 # ---------------------------------------------------------------------------
-# dispatch_channel_history: after_message_id branch (line 152)
+# dispatch_message: routes through dispatcher, returns content
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dispatch_channel_history_with_after_message_id(fake_context):  #pylint:disable=redefined-outer-name
-    '''after_message_id causes the message to be fetched and used as the after cursor'''
+async def test_dispatch_message_delivers_and_returns_content(fake_context):  #pylint:disable=redefined-outer-name
+    '''dispatch_message delivers to the channel and returns the content string'''
+    cog = CogHelper(fake_context['bot'], {}, None)
+    result = await cog.dispatch_message(
+        fake_context['guild'].id,
+        fake_context['channel'].id,
+        'hello dispatcher',
+    )
+    assert result == 'hello dispatcher'
+    assert 'hello dispatcher' in fake_context['channel'].messages_sent
+
+
+# ---------------------------------------------------------------------------
+# dispatch_delete: routes through dispatcher
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_delete_removes_message(fake_context):  #pylint:disable=redefined-outer-name
+    '''dispatch_delete routes through the dispatcher and removes the message'''
     cog = CogHelper(fake_context['bot'], {}, None)
     msg = FakeMessage(channel=fake_context['channel'])
     fake_context['channel'].messages = [msg]
-    result = await cog.dispatch_channel_history(
+    await cog.dispatch_delete(
         fake_context['guild'].id,
         fake_context['channel'].id,
-        after_message_id=msg.id,
+        msg.id,
     )
-    assert isinstance(result, list)
+    assert msg.deleted
 
 
 # ---------------------------------------------------------------------------

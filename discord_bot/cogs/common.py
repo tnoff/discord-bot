@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import contextmanager
 from functools import cached_property, partial
 from typing import Optional
@@ -13,6 +14,12 @@ from sqlalchemy.orm.session import Session
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.types.dispatch_request import (
+    FetchChannelHistoryRequest,
+    FetchGuildEmojisRequest,
+    SendRequest,
+    DeleteRequest,
+)
 
 _UNSET = object()
 
@@ -49,6 +56,7 @@ class CogHelper(Cog):
         self.db_engine = db_engine
         self.config: Optional[BaseModel] = None
         self._init_task = None
+        self._result_queue: asyncio.Queue | None = None
 
         # Setup config validation
         if config_model:
@@ -94,11 +102,53 @@ class CogHelper(Cog):
             raise RuntimeError('MessageDispatcher cog is required but not loaded')
         return dispatcher
 
+    def register_result_queue(self) -> None:
+        '''Register this cog with MessageDispatcher to receive a result queue.'''
+        self._result_queue = self._dispatcher.register_cog_queue(self._cog_name)
+
     async def dispatch_fetch(self, guild_id: int, func, **retry_kwargs):
         '''
         Fetch a Discord object through MessageDispatcher (LOW priority).
         '''
         return await self._dispatcher.fetch_object(guild_id, func, **retry_kwargs)
+
+    async def dispatch_channel_history(
+        self,
+        guild_id: int,
+        channel_id: int,
+        limit: int = 100,
+        after=None,
+        after_message_id: int | None = None,
+        oldest_first: bool = True,
+    ) -> None:
+        '''
+        Submit a channel history fetch request (fire-and-forget).
+
+        Results are delivered to self._result_queue as ChannelHistoryResult objects.
+        Call register_result_queue() before using this method.
+        '''
+        await self._dispatcher.submit_request(FetchChannelHistoryRequest(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            limit=limit,
+            after=after,
+            after_message_id=after_message_id,
+            oldest_first=oldest_first,
+            cog_name=self._cog_name,
+        ))
+
+    async def dispatch_guild_emojis(self, guild_id: int, max_retries: int = 3) -> None:
+        '''
+        Submit a guild emoji fetch request (fire-and-forget).
+
+        Results are delivered to self._result_queue as GuildEmojisResult objects.
+        Call register_result_queue() before using this method.
+        '''
+        await self._dispatcher.submit_request(FetchGuildEmojisRequest(
+            guild_id=guild_id,
+            cog_name=self._cog_name,
+            max_retries=max_retries,
+        ))
 
     async def dispatch_message(self, guild_id: int, channel_id: int, content: str,
                                delete_after=_UNSET) -> str:
@@ -112,46 +162,23 @@ class CogHelper(Cog):
         '''
         if delete_after is _UNSET:
             delete_after = self._message_delete_after
-        self._dispatcher.send_message(guild_id, channel_id, content, delete_after=delete_after)
+        await self._dispatcher.submit_request(SendRequest(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            content=content,
+            delete_after=delete_after,
+        ))
         return content
 
     async def dispatch_delete(self, guild_id: int, channel_id: int, message_id: int) -> None:
         '''
         Delete a Discord message by ID through MessageDispatcher (NORMAL priority).
         '''
-        self._dispatcher.delete_message(guild_id, channel_id, message_id)
-
-    async def dispatch_guild_emojis(self, guild_id: int, **retry_kwargs) -> list:
-        '''
-        Fetch guild emojis through MessageDispatcher (LOW priority).
-        '''
-        async def _fetch():
-            guild = await self.bot.fetch_guild(guild_id)
-            return await guild.fetch_emojis()
-        return await self._dispatcher.fetch_object(guild_id, _fetch, **retry_kwargs)
-
-    async def dispatch_channel_history(
-        self,
-        guild_id: int,
-        channel_id: int,
-        limit: int = 100,
-        after=None,
-        after_message_id: int | None = None,
-        oldest_first: bool = True,
-    ) -> list:
-        '''
-        Fetch channel history through MessageDispatcher (LOW priority).
-
-        after               :   datetime or discord.Message; passed directly to channel.history
-        after_message_id    :   if given, fetches that message first and uses it as `after`
-        '''
-        async def _fetch():
-            channel = await self.bot.fetch_channel(channel_id)
-            after_obj = after
-            if after_message_id is not None:
-                after_obj = await channel.fetch_message(after_message_id)
-            return [m async for m in channel.history(limit=limit, after=after_obj, oldest_first=oldest_first)]
-        return await self._dispatcher.fetch_object(guild_id, _fetch)
+        await self._dispatcher.submit_request(DeleteRequest(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            message_id=message_id,
+        ))
 
     def retry_commit(self, db_session: Session):
         '''

@@ -19,6 +19,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.sql_retry import retry_database_commands
 from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
@@ -92,6 +93,12 @@ def list_guild_channels(db_session: Session, ctx: Context):
     return db_session.query(MarkovChannel.channel_id).\
         filter(MarkovChannel.server_id == ctx.guild.id)
 
+def get_markov_channel_by_ids(db_session: Session, guild_id: int, channel_id: int):
+    '''Get markov channel matching guild_id and channel_id.'''
+    return db_session.query(MarkovChannel).\
+        filter(MarkovChannel.channel_id == channel_id).\
+        filter(MarkovChannel.server_id == guild_id).first()
+
 class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
@@ -113,6 +120,8 @@ class Markov(CogHelper):
         self.server_reject_list = self.config.server_reject_list
 
         self._task = None
+        self._result_task = None
+        self._emoji_cache: dict[int, list] = {}
         self._init_task = None
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
 
@@ -128,19 +137,27 @@ class Markov(CogHelper):
         ]
 
     async def cog_load(self):
+        '''Start tasks, gated on DB restore if needed.'''
         await self.gate_tasks_on_db_restore(self._start_tasks)
 
     def _start_tasks(self):
+        '''Start the producer and consumer tasks.'''
+        self.register_result_queue()
+        self._emoji_cache = {}
         self._task = self.bot.loop.create_task(
-            return_loop_runner(self.markov_message_check, self.bot, self.logger,
+            return_loop_runner(self._markov_request_loop, self.bot, self.logger,
                                continue_exceptions=(DiscordServerError, TimeoutError))()
         )
+        self._result_task = self.bot.loop.create_task(self._markov_result_loop())
 
     async def cog_unload(self):
+        '''Cancel all running tasks.'''
         if self._init_task:
             self._init_task.cancel()
         if self._task:
             self._task.cancel()
+        if self._result_task:
+            self._result_task.cancel()
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
     def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
@@ -181,7 +198,7 @@ class Markov(CogHelper):
     def delete_channel_relations(self, db_session: Session, channel_id: str):
         '''
         Delete all relations related to channel
-        
+
         db_session : Sqlalchemy db_session
         channel_id: Markov Channel ID (DB ID)
         '''
@@ -191,9 +208,9 @@ class Markov(CogHelper):
 
         retry_database_commands(db_session, partial(delete_records, db_session, channel_id))
 
-    async def markov_message_check(self):
+    async def _markov_request_loop(self):
         '''
-        Main loop runner
+        Producer loop: submit Discord fetch requests for each tracked channel.
         '''
         def get_all_channels(db_session):
             return db_session.query(MarkovChannel).all()
@@ -213,64 +230,99 @@ class Markov(CogHelper):
                                                    attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
                                                                DiscordContextNaming.GUILD.value: markov_channel.server_id}):
                     self.logger.debug(f'Checking channel id: {markov_channel.channel_id}, server id: {markov_channel.server_id}')
-                    # Not sure why but this check in particular seems especially flakey
-                    emojis = await self.dispatch_guild_emojis(guild_id, max_retries=5)
+                    await self.dispatch_guild_emojis(guild_id, max_retries=5)
                     self.logger.info('Gathering markov messages for '
                                     f'channel {markov_channel.channel_id}')
-                    # Start at the beginning of channel history,
-                    # slowly make your way make to current day
                     if not markov_channel.last_message_id:
-                        messages = await self.dispatch_channel_history(
+                        await self.dispatch_channel_history(
                             guild_id, markov_channel.channel_id,
                             limit=self.message_check_limit,
                             after=retention_cutoff,
                         )
                     else:
-                        try:
-                            messages = await self.dispatch_channel_history(
-                                guild_id, markov_channel.channel_id,
-                                limit=self.message_check_limit,
-                                after_message_id=markov_channel.last_message_id,
-                            )
-                        except NotFound:
-                            self.logger.info(f'Unable to find message {markov_channel.last_message_id}'
-                                             f' in channel {markov_channel.id}')
-                            # Last message on record not found
-                            # If this happens, wipe the channel clean and restart
-                            self.delete_channel_relations(db_session, markov_channel.id)
-                            markov_channel.last_message_id = None
-                            self.retry_commit(db_session)
-                            # Skip this channel for now
-                            continue
+                        await self.dispatch_channel_history(
+                            guild_id, markov_channel.channel_id,
+                            limit=self.message_check_limit,
+                            after_message_id=markov_channel.last_message_id,
+                        )
 
-                    if len(messages) == 0:
-                        self.logger.debug(f'No new messages for channel {markov_channel.channel_id}')
-                        continue
-
-
-                    for message in messages:
-                        self.logger.debug(f'Gathering message {message.id} '
-                                            f'for channel {markov_channel.channel_id}')
-                        add_message = True
-                        if not message.content or message.author.bot:
-                            add_message = False
-                        elif message.content[0] == '!':
-                            add_message = False
-                        corpus = None
-                        if add_message:
-                            corpus = clean_message(message.content, emojis)
-                        if corpus:
-                            self.logger.info(f'Attempting to add corpus "{corpus}" '
-                                                f'to channel {markov_channel.channel_id}')
-                            self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
-                        markov_channel.last_message_id = message.id
-                        self.retry_commit(db_session)
-                    self.logger.debug(f'Done with channel {markov_channel.channel_id}')
-
-            # Clean up old messages
+            # Clean up old records (DB-only, stays in producer)
             async with async_otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
                 retry_database_commands(db_session, partial(delete_old_records, db_session))
                 self.logger.debug('Deleted expired/old markov relations')
+
+    async def _markov_result_loop(self):
+        '''
+        Consumer loop: process results from the dispatcher result queue.
+        '''
+        while True:
+            result = await self._result_queue.get()
+            if isinstance(result, GuildEmojisResult):
+                if result.error:
+                    self.logger.error(f'Markov :: Failed to fetch emojis for guild {result.guild_id}: {result.error}')
+                    continue
+                self._emoji_cache[result.guild_id] = result.emojis
+            elif isinstance(result, ChannelHistoryResult):
+                await self._process_history_result(result)
+
+    async def _process_history_result(self, result: ChannelHistoryResult):
+        '''
+        Process a channel history result: filter messages and save to the Markov chain.
+        '''
+        guild_id = result.guild_id
+        channel_id = result.channel_id
+
+        if result.error:
+            if isinstance(result.error, NotFound) and result.after_message_id:
+                self.logger.info(f'Unable to find message {result.after_message_id}'
+                                 f' in channel {channel_id}')
+                with self.with_db_session() as db_session:
+                    markov_channel = retry_database_commands(
+                        db_session,
+                        partial(get_markov_channel_by_ids, db_session, guild_id, channel_id)
+                    )
+                    if markov_channel:
+                        self.delete_channel_relations(db_session, markov_channel.id)
+                        markov_channel.last_message_id = None
+                        self.retry_commit(db_session)
+            else:
+                self.logger.error(
+                    f'Markov :: Failed to fetch history for channel {channel_id}: {result.error}'
+                )
+            return
+
+        if not result.messages:
+            self.logger.debug(f'No new messages for channel {channel_id}')
+            return
+
+        emojis = self._emoji_cache.get(guild_id, [])
+        with self.with_db_session() as db_session:
+            markov_channel = retry_database_commands(
+                db_session,
+                partial(get_markov_channel_by_ids, db_session, guild_id, channel_id)
+            )
+            if not markov_channel:
+                self.logger.debug(f'Markov channel {channel_id} not found in DB, skipping')
+                return
+
+            for message in result.messages:
+                self.logger.debug(f'Gathering message {message.id} '
+                                  f'for channel {channel_id}')
+                add_message = True
+                if not message.content or message.author_bot:
+                    add_message = False
+                elif message.content[0] == '!':
+                    add_message = False
+                corpus = None
+                if add_message:
+                    corpus = clean_message(message.content, emojis)
+                if corpus:
+                    self.logger.info(f'Attempting to add corpus "{corpus}" '
+                                     f'to channel {channel_id}')
+                    self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
+                markov_channel.last_message_id = message.id
+                self.retry_commit(db_session)
+            self.logger.debug(f'Done with channel {channel_id}')
 
     @group(name='markov', invoke_without_command=False)
     async def markov(self, ctx: Context):

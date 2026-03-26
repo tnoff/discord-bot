@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import partial
 import itertools
-from typing import Callable, List
+from typing import Any, Callable, List
 
 from discord import Message
 from discord.errors import NotFound
@@ -15,6 +15,14 @@ from opentelemetry.metrics import Observation
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.common import CogHelper
+from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.types.dispatch_request import (
+    FetchChannelHistoryRequest,
+    FetchGuildEmojisRequest,
+    SendRequest,
+    DeleteRequest,
+)
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, METER_PROVIDER, MetricNaming, create_observable_gauge
 
@@ -200,6 +208,7 @@ class MessageMutableBundle:
 
 @dataclass
 class _MutableSentinel:
+    '''High-priority sentinel that triggers a mutable bundle flush.'''
     priority: int = field(default=DispatchPriority.HIGH, init=False)
     seq: int = field(default=0)
     key: str = ''
@@ -207,6 +216,7 @@ class _MutableSentinel:
 
 @dataclass
 class _DeleteItem:
+    '''Work item for a single message deletion.'''
     priority: int = field(default=DispatchPriority.NORMAL, init=False)
     seq: int = field(default=0)
     channel_id: int = 0
@@ -215,6 +225,7 @@ class _DeleteItem:
 
 @dataclass
 class _SendItem:
+    '''Work item for a single message send.'''
     priority: int = field(default=DispatchPriority.NORMAL, init=False)
     seq: int = field(default=0)
     channel_id: int = 0
@@ -225,6 +236,7 @@ class _SendItem:
 
 @dataclass
 class _ReadItem:
+    '''Work item for a generic low-priority callable fetch.'''
     priority: int = field(default=DispatchPriority.LOW, init=False)
     seq: int = field(default=0)
     func: Callable = field(default=None)
@@ -234,7 +246,34 @@ class _ReadItem:
 
 
 @dataclass
+class _HistoryReadItem:
+    '''Work item for a channel history fetch submitted via the cog input queue.'''
+    priority: int = field(default=DispatchPriority.LOW, init=False)
+    seq: int = field(default=0)
+    cog_name: str = ''
+    guild_id: int = 0
+    channel_id: int = 0
+    limit: int = 100
+    after: Any = None
+    after_message_id: int | None = None
+    oldest_first: bool = True
+    dedup_key: tuple = field(default_factory=tuple)
+
+
+@dataclass
+class _EmojiReadItem:
+    '''Work item for a guild emoji fetch submitted via the cog input queue.'''
+    priority: int = field(default=DispatchPriority.LOW, init=False)
+    seq: int = field(default=0)
+    cog_name: str = ''
+    guild_id: int = 0
+    max_retries: int = 3
+    dedup_key: tuple = field(default_factory=tuple)
+
+
+@dataclass
 class _MutablePending:
+    '''Pending content for a mutable bundle update.'''
     content: List[str]
     guild_id: int
     channel_id: int | None
@@ -249,10 +288,16 @@ class MessageDispatcher(CogHelper):
     Owns one asyncio.PriorityQueue per guild and one worker task per active guild.
     Work items are processed at HIGH > NORMAL > LOW priority.
 
-    HIGH   (_MutableSentinel) – flush a mutable bundle update
-    NORMAL (_SendItem)        – one-off channel.send calls
-    NORMAL (_DeleteItem)      – message deletions
-    LOW    (_ReadItem)        – background reads (channel history, fetch_message)
+    HIGH   (_MutableSentinel)  – flush a mutable bundle update
+    NORMAL (_SendItem)         – one-off channel.send calls
+    NORMAL (_DeleteItem)       – message deletions
+    LOW    (_ReadItem)         – generic background reads (fetch_object)
+    LOW    (_HistoryReadItem)  – channel history fetches from cog input queue
+    LOW    (_EmojiReadItem)    – guild emoji fetches from cog input queue
+
+    Cogs submit typed requests via submit_request(), which feeds _cog_consumer.
+    Identical history/emoji requests (same cog + channel/guild) are deduplicated.
+    Results are delivered to per-cog result queues as typed result objects.
     '''
 
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
@@ -271,6 +316,15 @@ class MessageDispatcher(CogHelper):
         self._shutdown: asyncio.Event = asyncio.Event()
         self._seq = itertools.count()
 
+        # Cog input queue: all cogs submit typed requests here
+        self._cog_input: asyncio.Queue = asyncio.Queue()
+        # Per-cog result queues: cog_name -> Queue
+        self._cog_result_queues: dict[str, asyncio.Queue] = {}
+        # Dedup tracking: (cog_name, guild_id, channel_id) or (cog_name, guild_id)
+        self._pending_history: set[tuple] = set()
+        self._pending_emojis: set[tuple] = set()
+        self._cog_consumer_task: asyncio.Task | None = None
+
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCHER_QUEUE_DEPTH.value,
                                 self.__queue_depth_callback, 'Message dispatcher total pending items')
 
@@ -284,10 +338,14 @@ class MessageDispatcher(CogHelper):
     # ------------------------------------------------------------------
 
     async def cog_load(self):
-        pass  # workers are lazy – started on first use
+        '''Start the cog input consumer task.'''
+        self._cog_consumer_task = asyncio.create_task(self._cog_consumer())
 
     async def cog_unload(self):
+        '''Shut down the consumer task and all guild workers.'''
         self.logger.info('MessageDispatcher :: cog_unload called')
+        if self._cog_consumer_task:
+            self._cog_consumer_task.cancel()
         self._shutdown.set()
         for task in self._workers.values():
             task.cancel()
@@ -309,6 +367,96 @@ class MessageDispatcher(CogHelper):
             self.logger.debug(f'MessageDispatcher :: starting worker for guild {guild_id}')
             loop = asyncio.get_event_loop()
             self._workers[guild_id] = loop.create_task(self._worker(guild_id))
+
+    # ------------------------------------------------------------------
+    # Cog input queue: public API for CogHelper
+    # ------------------------------------------------------------------
+
+    def register_cog_queue(self, cog_name: str) -> asyncio.Queue:
+        '''Register a result delivery queue for the named cog.'''
+        q: asyncio.Queue = asyncio.Queue()
+        self._cog_result_queues[cog_name] = q
+        return q
+
+    async def submit_request(self, request) -> None:
+        '''Submit a typed cog request to the consumer queue.'''
+        await self._cog_input.put(request)
+
+    # ------------------------------------------------------------------
+    # Cog consumer: routes typed requests into the guild priority queues
+    # ------------------------------------------------------------------
+
+    async def _cog_consumer(self):
+        '''
+        Read typed requests from _cog_input, convert to internal work items,
+        and drop them into the appropriate guild PriorityQueue.
+
+        Identical history/emoji requests (same cog + channel/guild) are deduplicated:
+        the first enqueues a work item; subsequent duplicates are dropped since the
+        result will arrive on the cog's result queue regardless.
+        '''
+        while True:
+            request = await self._cog_input.get()
+            if isinstance(request, FetchChannelHistoryRequest):
+                key = (request.cog_name, request.guild_id, request.channel_id)
+                if key not in self._pending_history:
+                    self._pending_history.add(key)
+                    item = _HistoryReadItem(
+                        seq=next(self._seq),
+                        cog_name=request.cog_name,
+                        guild_id=request.guild_id,
+                        channel_id=request.channel_id,
+                        limit=request.limit,
+                        after=request.after,
+                        after_message_id=request.after_message_id,
+                        oldest_first=request.oldest_first,
+                        dedup_key=key,
+                    )
+                    queue = self._get_queue(request.guild_id)
+                    queue.put_nowait((item.priority, item.seq, item))
+                    self._ensure_worker(request.guild_id)
+            elif isinstance(request, FetchGuildEmojisRequest):
+                key = (request.cog_name, request.guild_id)
+                if key not in self._pending_emojis:
+                    self._pending_emojis.add(key)
+                    item = _EmojiReadItem(
+                        seq=next(self._seq),
+                        cog_name=request.cog_name,
+                        guild_id=request.guild_id,
+                        max_retries=request.max_retries,
+                        dedup_key=key,
+                    )
+                    queue = self._get_queue(request.guild_id)
+                    queue.put_nowait((item.priority, item.seq, item))
+                    self._ensure_worker(request.guild_id)
+            elif isinstance(request, SendRequest):
+                self.send_message(request.guild_id, request.channel_id,
+                                  request.content, delete_after=request.delete_after)
+            elif isinstance(request, DeleteRequest):
+                self.delete_message(request.guild_id, request.channel_id, request.message_id)
+
+    # ------------------------------------------------------------------
+    # Fetch helpers (called from _dispatch)
+    # ------------------------------------------------------------------
+
+    async def _fetch_channel_history(self, item: _HistoryReadItem) -> list:
+        '''Fetch channel history and return as a list of FetchedMessage.'''
+        channel = await self.bot.fetch_channel(item.channel_id)
+        after_obj = item.after
+        if item.after_message_id is not None:
+            after_obj = await channel.fetch_message(item.after_message_id)
+        messages = [m async for m in channel.history(
+            limit=item.limit, after=after_obj, oldest_first=item.oldest_first
+        )]
+        return [
+            FetchedMessage(id=m.id, content=m.content, created_at=m.created_at, author_bot=m.author.bot)
+            for m in messages
+        ]
+
+    async def _fetch_guild_emojis(self, item: _EmojiReadItem) -> list:
+        '''Fetch and return the emoji list for the given guild.'''
+        guild = await self.bot.fetch_guild(item.guild_id)
+        return await guild.fetch_emojis()
 
     # ------------------------------------------------------------------
     # Public API
@@ -501,6 +649,60 @@ class MessageDispatcher(CogHelper):
                     span.set_status(StatusCode.ERROR)
                     if not item.future.done():
                         item.future.set_exception(exc)
+        elif isinstance(item, _HistoryReadItem):
+            self.logger.debug(f'MessageDispatcher :: fetching channel history {item.channel_id} for guild {guild_id}')
+            async with async_otel_span_wrapper('message_dispatcher.channel_history',
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}) as span:
+                try:
+                    messages = await async_retry_discord_message_command(
+                        partial(self._fetch_channel_history, item)
+                    )
+                    result = ChannelHistoryResult(
+                        guild_id=item.guild_id,
+                        channel_id=item.channel_id,
+                        messages=messages,
+                        after_message_id=item.after_message_id,
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    self.logger.error(
+                        'MessageDispatcher :: channel history fetch failed for guild %d: %s',
+                        guild_id, exc, exc_info=True
+                    )
+                    span.record_exception(exc)
+                    span.set_status(StatusCode.ERROR)
+                    result = ChannelHistoryResult(
+                        guild_id=item.guild_id,
+                        channel_id=item.channel_id,
+                        messages=[],
+                        after_message_id=item.after_message_id,
+                        error=exc,
+                    )
+                self._pending_history.discard(item.dedup_key)
+                q = self._cog_result_queues.get(item.cog_name)
+                if q:
+                    await q.put(result)
+        elif isinstance(item, _EmojiReadItem):
+            self.logger.debug(f'MessageDispatcher :: fetching guild emojis for guild {guild_id}')
+            async with async_otel_span_wrapper('message_dispatcher.guild_emojis',
+                                              attributes={'discord.guild': guild_id}) as span:
+                try:
+                    emojis = await async_retry_discord_message_command(
+                        partial(self._fetch_guild_emojis, item),
+                        max_retries=item.max_retries,
+                    )
+                    result = GuildEmojisResult(guild_id=item.guild_id, emojis=emojis)
+                except Exception as exc:  # pylint: disable=broad-except
+                    self.logger.error(
+                        'MessageDispatcher :: guild emojis fetch failed for guild %d: %s',
+                        guild_id, exc, exc_info=True
+                    )
+                    span.record_exception(exc)
+                    span.set_status(StatusCode.ERROR)
+                    result = GuildEmojisResult(guild_id=item.guild_id, emojis=[], error=exc)
+                self._pending_emojis.discard(item.dedup_key)
+                q = self._cog_result_queues.get(item.cog_name)
+                if q:
+                    await q.put(result)
         elif isinstance(item, _SendItem):
             channel = self.bot.get_channel(item.channel_id)
             if channel is None:
