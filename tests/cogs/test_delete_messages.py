@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
+
 from freezegun import freeze_time
 import pytest
 
@@ -101,3 +103,63 @@ async def test_delete_messages_main_loop_no_delete(mocker, fake_context):  #pyli
     cog = DeleteMessages(fake_context['bot'], config, None)
     await cog.delete_messages_loop()
     assert fake_context['channel'].messages[0].deleted is False
+
+_FULL_CONFIG = {
+    'delete_messages': {
+        'loop_sleep_interval': 5,
+        'discord_channels': [
+            {
+                'server_id': 123456789012,
+                'channel_id': 987654321098
+            }
+        ]
+    }
+} | BASE_CONFIG
+
+
+def test_loop_active_callback_task_none(fake_context):  #pylint:disable=redefined-outer-name
+    '''__loop_active_callback returns 0 when _task is None'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    # _task is None by default after __init__
+    result = getattr(cog, '_DeleteMessages__loop_active_callback')(None)
+    assert result[0].value == 0
+
+
+def test_loop_active_callback_task_running(fake_context):  #pylint:disable=redefined-outer-name
+    '''__loop_active_callback returns 1 when _task exists and is not done'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    fake_task = MagicMock()
+    fake_task.done.return_value = False
+    setattr(cog, '_task', fake_task)
+    result = getattr(cog, '_DeleteMessages__loop_active_callback')(None)
+    assert result[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_cog_load_creates_task(fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_load assigns a task to self._task'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    fake_task = MagicMock()
+    fake_loop = MagicMock()
+    fake_loop.create_task.return_value = fake_task
+    fake_context['bot'].loop = fake_loop
+    await cog.cog_load()
+    assert getattr(cog, '_task') is fake_task
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_task(fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_unload cancels _task when it exists'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    fake_task = MagicMock()
+    setattr(cog, '_task', fake_task)
+    await cog.cog_unload()
+    fake_task.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_handles_none_task(fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_unload does not raise when _task is None'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    # _task is already None by default; ensure cog_unload handles it gracefully
+    await cog.cog_unload()

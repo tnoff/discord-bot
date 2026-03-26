@@ -63,3 +63,23 @@ def test_sql_retry_operational_error_triggers_rollback(mocker):
     func = partial(query_markov, session)
     retry_database_commands(session, func)
     assert session.rollback_called
+
+def test_sql_retry_pending_rollback_error_exhausts(mocker):
+    '''PendingRollbackError exhausts all attempts and re-raises'''
+    mocker.patch('discord_bot.utils.sql_retry.sleep', return_value=True)
+
+    class AlwaysPendingSession:
+        def __init__(self):
+            self.rollback_called = False
+
+        def query(self, *_, **__):
+            raise PendingRollbackError('Pending', None, None)
+
+        def rollback(self, *_, **__):
+            self.rollback_called = True
+
+    session = AlwaysPendingSession()
+    func = partial(query_markov, session)
+    with raises(PendingRollbackError):
+        retry_database_commands(session, func)
+    assert session.rollback_called

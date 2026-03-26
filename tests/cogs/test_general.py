@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import pytest
 
 from discord_bot.cogs.general import General
@@ -50,3 +52,13 @@ async def test_meta(fake_context):  #pylint:disable=redefined-outer-name
     cog = General(fake_context['bot'], {}, None)
     result = await cog.meta(cog, fake_context['context']) #pylint:disable=too-many-function-args
     assert result == f'```Server id: {fake_context["guild"].id}\nChannel id: {fake_context["channel"].id}\nUser id: {fake_context["author"].id}```'
+
+@pytest.mark.asyncio
+async def test_roll_value_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''ValueError branch is reached when match groups cannot be converted to int'''
+    cog = General(fake_context['bot'], {}, None)
+    mock_matcher = MagicMock()
+    mock_matcher.group.side_effect = lambda key: 'abc' if key == 'sides' else None
+    mocker.patch('discord_bot.cogs.general.match', return_value=mock_matcher)
+    result = await cog.roll(cog, fake_context['context'], input_value='abc')  #pylint:disable=too-many-function-args
+    assert 'Non integer value given' in result
