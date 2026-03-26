@@ -3,11 +3,12 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
+import sqlite3
 import tempfile
 
 import ijson
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.base import Engine
-from sqlalchemy import text
 
 from discord_bot.database import BASE
 from discord_bot.utils.integrations.s3 import get_file, list_objects
@@ -26,6 +27,25 @@ class DatabaseBackupClient:
 
     def __init__(self, db_engine: Engine):
         self.db_engine = db_engine
+
+    def _create_sqlite_snapshot(self) -> tuple:
+        '''
+        Copies the live SQLite database to a temporary file using SQLite's internal
+        backup API, then returns a (snapshot_engine, snapshot_path) tuple.
+        The snapshot is taken by borrowing the raw DBAPI connection from the pool,
+        so it works for both file-based and in-memory databases.
+        The caller is responsible for deleting snapshot_path and disposing snapshot_engine.
+        '''
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+            snap_path = Path(f.name)
+        dst_conn = sqlite3.connect(str(snap_path))
+        try:
+            with self.db_engine.connect() as src_conn:
+                src_conn.connection.dbapi_connection.backup(dst_conn)
+        finally:
+            dst_conn.close()
+        snap_engine = create_engine(f'sqlite:///{snap_path}')
+        return snap_engine, snap_path
 
     def _get_alembic_version(self) -> str:
         '''
@@ -56,61 +76,75 @@ class DatabaseBackupClient:
             # Get alembic version
             alembic_version = self._get_alembic_version()
 
-            # Create temporary file for backup (delete=False so it persists after closing)
-            with tempfile.NamedTemporaryFile(mode='w', prefix=f'db_backup_{timestamp}_',
-                                              suffix='.json', delete=False, encoding='utf-8') as f:
-                backup_file = Path(f.name)
-                # Write JSON incrementally to avoid loading entire database into memory
-                f.write('{\n')  # Start JSON object
+            # For SQLite, snapshot the DB first so the live connection is released
+            # before the (potentially slow) JSON export begins.
+            if self.db_engine.dialect.name == 'sqlite':
+                read_engine, snap_path = self._create_sqlite_snapshot()
+            else:
+                read_engine = self.db_engine
+                snap_path = None
 
-                # Write metadata as first entry
-                f.write('  "_metadata": {\n')
-                f.write(f'    "backup_timestamp": "{timestamp}",\n')
-                f.write(f'    "alembic_version": {json.dumps(alembic_version)},\n')
-                f.write(f'    "table_count": {len(table_names)}\n')
-                f.write('  }')
-                if table_names:
-                    f.write(',\n')  # Comma before tables if any exist
+            try:
+                # Create temporary file for backup (delete=False so it persists after closing)
+                with tempfile.NamedTemporaryFile(mode='w', prefix=f'db_backup_{timestamp}_',
+                                                  suffix='.json', delete=False, encoding='utf-8') as f:
+                    backup_file = Path(f.name)
+                    # Write JSON incrementally to avoid loading entire database into memory
+                    f.write('{\n')  # Start JSON object
 
-                with self.db_engine.connect() as connection:
-                    for table_idx, table_name in enumerate(table_names):
-                        if table_idx > 0:
-                            f.write(',\n')  # Comma separator between tables
+                    # Write metadata as first entry
+                    f.write('  "_metadata": {\n')
+                    f.write(f'    "backup_timestamp": "{timestamp}",\n')
+                    f.write(f'    "alembic_version": {json.dumps(alembic_version)},\n')
+                    f.write(f'    "table_count": {len(table_names)}\n')
+                    f.write('  }')
+                    if table_names:
+                        f.write(',\n')  # Comma before tables if any exist
 
-                        logger.debug(f'Backing up table: {table_name}')
-                        f.write(f'  "{table_name}": [\n')
+                    with read_engine.connect() as connection:
+                        for table_idx, table_name in enumerate(table_names):
+                            if table_idx > 0:
+                                f.write(',\n')  # Comma separator between tables
 
-                        # Stream rows in chunks to minimize memory usage
-                        row_count = 0
-                        result = connection.execution_options(stream_results=True).execute(
-                            text(f'SELECT * FROM {table_name}')
-                        )
+                            logger.debug(f'Backing up table: {table_name}')
+                            f.write(f'  "{table_name}": [\n')
 
-                        while True:
-                            # Fetch chunk of rows
-                            chunk = result.fetchmany(self.CHUNK_SIZE)
-                            if not chunk:
-                                break
+                            # Stream rows in chunks to minimize memory usage
+                            row_count = 0
+                            result = connection.execution_options(stream_results=True).execute(
+                                text(f'SELECT * FROM {table_name}')
+                            )
 
-                            # Write each row as JSON
-                            for row in chunk:
-                                if row_count > 0:
-                                    f.write(',\n')
+                            while True:
+                                # Fetch chunk of rows
+                                chunk = result.fetchmany(self.CHUNK_SIZE)
+                                if not chunk:
+                                    break
 
-                                row_dict = dict(row._mapping)  #pylint:disable=protected-access
-                                # Write row with proper indentation
-                                f.write('    ' + json.dumps(row_dict, default=str))
-                                row_count += 1
+                                # Write each row as JSON
+                                for row in chunk:
+                                    if row_count > 0:
+                                        f.write(',\n')
 
-                        logger.debug(f'  -> {table_name}: {row_count} rows')
-                        f.write('\n  ]')  # Close table array
+                                    row_dict = dict(row._mapping)  #pylint:disable=protected-access
+                                    # Write row with proper indentation
+                                    f.write('    ' + json.dumps(row_dict, default=str))
+                                    row_count += 1
 
-                f.write('\n}\n')  # Close JSON object
+                            logger.debug(f'  -> {table_name}: {row_count} rows')
+                            f.write('\n  ]')  # Close table array
 
-            file_size = backup_file.stat().st_size
-            span.set_attributes({'backup.table_count': len(table_names), 'backup.file_size_bytes': file_size})
-            logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
-            return backup_file
+                    f.write('\n}\n')  # Close JSON object
+
+                file_size = backup_file.stat().st_size
+                span.set_attributes({'backup.table_count': len(table_names), 'backup.file_size_bytes': file_size})
+                logger.info(f'Created backup file: {backup_file} ({file_size} bytes)')
+                return backup_file
+            finally:
+                if snap_path is not None:
+                    if snap_path.exists():
+                        snap_path.unlink()
+                    read_engine.dispose()
 
     # ijson scalar event types (all carry a Python value directly)
     _SCALAR_EVENTS = frozenset(['null', 'boolean', 'integer', 'double', 'number', 'string'])

@@ -44,5 +44,6 @@ def retry_database_commands(db_session: Session, function: Callable, attempts: i
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(error)
                     raise
+                db_session.rollback()
                 sleep(0.5 * (attempts * interval))
                 continue
