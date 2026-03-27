@@ -4,6 +4,8 @@ on:
   - pull_request
 
 jobs:
+  actions:
+    uses: tnoff/github-workflows/.github/workflows/check-action-pins.yml@64405b1b33a7b6881ee07164018782dc21830dad
   build:
     name: Tox
     runs-on: ubuntu-24.04
