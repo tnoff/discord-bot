@@ -1,0 +1,13 @@
+name: Coverage Upload
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  store-coverage:
+    uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@c3a2dbfa7121104454456322e923ba9f6ac7ffeb
+    with:
+      coverage_source: discord_bot
+      install_command: pip install -r requirements.txt -r tests/requirements.txt
+      python_version: 3.14
