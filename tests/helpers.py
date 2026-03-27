@@ -15,11 +15,19 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from discord_bot.database import BASE
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.database import BASE
+from discord_bot.types.dispatch_request import (
+    FetchChannelHistoryRequest,
+    FetchGuildEmojisRequest,
+    SendRequest,
+    DeleteRequest,
+)
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
-from discord_bot.types.media_download import MediaDownload
 
 class HelperException(Exception):
     '''
@@ -368,15 +376,75 @@ class FakeVoiceClient():
         return True
 
 class FakeMessageDispatcher():
+    '''Synchronous fake dispatcher for tests — processes requests inline.'''
     def __init__(self, bot: Any) -> None:
         self.bot = bot
+        self._cog_result_queues: dict = {}
+
+    def register_cog_queue(self, cog_name: str) -> asyncio.Queue:
+        '''Create and return a result queue for the named cog.'''
+        q: asyncio.Queue = asyncio.Queue()
+        self._cog_result_queues[cog_name] = q
+        return q
+
+    async def submit_request(self, request: Any) -> None:
+        '''Process a typed request inline (synchronous for test predictability).'''
+        if isinstance(request, FetchChannelHistoryRequest):
+            try:
+                channel = await self.bot.fetch_channel(request.channel_id)
+                if channel is None:
+                    raise Exception(f'Channel {request.channel_id} not found')  # pylint: disable=broad-exception-raised
+                after_obj = request.after
+                if request.after_message_id is not None:
+                    after_obj = await channel.fetch_message(request.after_message_id)
+                messages = [m async for m in channel.history(
+                    limit=request.limit, after=after_obj, oldest_first=request.oldest_first,
+                )]
+                result_msgs = [
+                    FetchedMessage(id=m.id, content=m.content, created_at=m.created_at, author_bot=m.author.bot)
+                    for m in messages
+                ]
+                result: Any = ChannelHistoryResult(
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    messages=result_msgs,
+                    after_message_id=request.after_message_id,
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                result = ChannelHistoryResult(
+                    guild_id=request.guild_id,
+                    channel_id=request.channel_id,
+                    messages=[],
+                    after_message_id=request.after_message_id,
+                    error=exc,
+                )
+            q = self._cog_result_queues.get(request.cog_name)
+            if q:
+                await q.put(result)
+        elif isinstance(request, FetchGuildEmojisRequest):
+            try:
+                guild = await self.bot.fetch_guild(request.guild_id)
+                emojis = await guild.fetch_emojis()
+                emoji_result: Any = GuildEmojisResult(guild_id=request.guild_id, emojis=emojis)
+            except Exception as exc:  # pylint: disable=broad-except
+                emoji_result = GuildEmojisResult(guild_id=request.guild_id, emojis=[], error=exc)
+            q = self._cog_result_queues.get(request.cog_name)
+            if q:
+                await q.put(emoji_result)
+        elif isinstance(request, SendRequest):
+            self.send_message(request.guild_id, request.channel_id, request.content,
+                              delete_after=request.delete_after)
+        elif isinstance(request, DeleteRequest):
+            self.delete_message(request.guild_id, request.channel_id, request.message_id)
 
     def send_message(self, _guild_id: int, channel_id: int, content: str, **_kwargs: Any) -> None:
+        '''Add content to channel.messages_sent.'''
         channel = self.bot.get_channel(channel_id)
         if channel is not None:
             channel.messages_sent.append(content)
 
     def delete_message(self, _guild_id: int, channel_id: int, message_id: int) -> None:
+        '''Mark and remove message from channel.messages.'''
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             return
@@ -390,6 +458,7 @@ class FakeMessageDispatcher():
                 return
 
     async def fetch_object(self, _guild_id: int, func: Callable, **_retry_kwargs: Any) -> Any:
+        '''Call func and return its result.'''
         return await func()
 
 

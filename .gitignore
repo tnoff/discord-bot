@@ -21,3 +21,4 @@ htmlcov/
 CLAUDE.md
 claude-todos.md
 .venv
+.claude/

@@ -3,24 +3,30 @@ import asyncio
 import pytest
 
 from discord_bot.cogs.message_dispatcher import (
-    MessageDispatcher, DispatchPriority, _SendItem, _DeleteItem, _ReadItem,
+    MessageDispatcher, DispatchPriority,
+    _SendItem, _DeleteItem, _ReadItem, _HistoryReadItem, _EmojiReadItem,
 )
+from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.types.dispatch_request import (
+    FetchChannelHistoryRequest, FetchGuildEmojisRequest, SendRequest, DeleteRequest,
+)
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, fake_context  # pylint: disable=unused-import
 
 
 def make_dispatcher(channels=None):
-    """Return a fresh MessageDispatcher backed by a fake bot."""
+    '''Return a fresh MessageDispatcher backed by a fake bot.'''
     bot = fake_bot_yielder(channels=channels or [])()
     return MessageDispatcher(bot, {}, None)
 
 
 async def drain_dispatcher(dispatcher, guild_id, timeout=5.0):
-    """Wait until all currently-queued work for guild_id has been processed.
+    '''Wait until all currently-queued work for guild_id has been processed.
 
     Enqueues a LOW-priority fetch_object that resolves only after all
     previously-queued NORMAL items have run (HIGH > NORMAL > LOW ordering).
-    """
+    '''
     async def _noop():
         return None
 
@@ -33,7 +39,7 @@ async def drain_dispatcher(dispatcher, guild_id, timeout=5.0):
 
 @pytest.mark.asyncio
 async def test_update_mutable_dedup(fake_context):  # pylint: disable=redefined-outer-name
-    """Rapid-fire update_mutable calls collapse to a single sentinel in the queue."""
+    '''Rapid-fire update_mutable calls collapse to a single sentinel in the queue.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -54,7 +60,7 @@ async def test_update_mutable_dedup(fake_context):  # pylint: disable=redefined-
 
 @pytest.mark.asyncio
 async def test_update_mutable_creates_bundle(fake_context):  # pylint: disable=redefined-outer-name
-    """update_mutable lazily creates a MessageMutableBundle."""
+    '''update_mutable lazily creates a MessageMutableBundle.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -71,7 +77,7 @@ async def test_update_mutable_creates_bundle(fake_context):  # pylint: disable=r
 
 @pytest.mark.asyncio
 async def test_delete_message_enqueues_item(fake_context):  # pylint: disable=redefined-outer-name
-    """delete_message places a _DeleteItem at NORMAL priority."""
+    '''delete_message places a _DeleteItem at NORMAL priority.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -89,7 +95,7 @@ async def test_delete_message_enqueues_item(fake_context):  # pylint: disable=re
 
 @pytest.mark.asyncio
 async def test_delete_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
-    """delete_message causes the worker to delete the message from the channel."""
+    '''delete_message causes the worker to delete the message from the channel.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     fake_message = FakeMessage(channel=channel)
@@ -109,7 +115,7 @@ async def test_delete_message_executes_via_worker(fake_context):  # pylint: disa
 
 @pytest.mark.asyncio
 async def test_fetch_object_returns_result(fake_context):  # pylint: disable=redefined-outer-name
-    """fetch_object awaits the function in the worker and returns its result."""
+    '''fetch_object awaits the function in the worker and returns its result.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
@@ -122,7 +128,7 @@ async def test_fetch_object_returns_result(fake_context):  # pylint: disable=red
 
 @pytest.mark.asyncio
 async def test_fetch_object_propagates_exception(fake_context):  # pylint: disable=redefined-outer-name
-    """fetch_object propagates exceptions raised by the function."""
+    '''fetch_object propagates exceptions raised by the function.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
@@ -139,7 +145,7 @@ async def test_fetch_object_propagates_exception(fake_context):  # pylint: disab
 
 @pytest.mark.asyncio
 async def test_priority_ordering(fake_context):  # pylint: disable=redefined-outer-name
-    """A HIGH item queued after a NORMAL item is still dispatched first."""
+    '''A HIGH item queued after a NORMAL item is still dispatched first.'''
     from discord_bot.cogs.message_dispatcher import _MutableSentinel  # pylint: disable=import-outside-toplevel
 
     dispatcher = make_dispatcher()
@@ -164,7 +170,7 @@ async def test_priority_ordering(fake_context):  # pylint: disable=redefined-out
 
 @pytest.mark.asyncio
 async def test_priority_ordering_low(fake_context):  # pylint: disable=redefined-outer-name
-    """A LOW (_ReadItem) queued before a NORMAL item is still dispatched after."""
+    '''A LOW (_ReadItem) queued before a NORMAL item is still dispatched after.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
@@ -193,7 +199,7 @@ async def test_priority_ordering_low(fake_context):  # pylint: disable=redefined
 
 @pytest.mark.asyncio
 async def test_guild_isolation():
-    """Each guild gets its own independent queue."""
+    '''Each guild gets its own independent queue.'''
     dispatcher = make_dispatcher()
 
     guild_a = FakeGuild()
@@ -218,7 +224,7 @@ async def test_guild_isolation():
 
 @pytest.mark.asyncio
 async def test_remove_mutable_clears_bundle(fake_context):  # pylint: disable=redefined-outer-name
-    """remove_mutable removes the bundle and pending state."""
+    '''remove_mutable removes the bundle and pending state.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -237,7 +243,7 @@ async def test_remove_mutable_clears_bundle(fake_context):  # pylint: disable=re
 
 @pytest.mark.asyncio
 async def test_remove_mutable_noop_when_missing():
-    """remove_mutable on an unknown key does not raise."""
+    '''remove_mutable on an unknown key does not raise.'''
     dispatcher = make_dispatcher()
     dispatcher.remove_mutable('nonexistent-key')  # should not raise
 
@@ -248,7 +254,7 @@ async def test_remove_mutable_noop_when_missing():
 
 @pytest.mark.asyncio
 async def test_update_mutable_channel_noop_when_no_bundle(fake_context):  # pylint: disable=redefined-outer-name
-    """update_mutable_channel does nothing if the bundle doesn't exist yet."""
+    '''update_mutable_channel does nothing if the bundle doesn't exist yet.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -259,7 +265,7 @@ async def test_update_mutable_channel_noop_when_no_bundle(fake_context):  # pyli
 
 @pytest.mark.asyncio
 async def test_update_mutable_channel_requeues_with_new_channel(fake_context):  # pylint: disable=redefined-outer-name
-    """update_mutable_channel re-queues an update using the new channel."""
+    '''update_mutable_channel re-queues an update using the new channel.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     old_channel = fake_context['channel']
@@ -285,10 +291,11 @@ async def test_update_mutable_channel_requeues_with_new_channel(fake_context):  
 
 @pytest.mark.asyncio
 async def test_cog_unload_cancels_workers(fake_context):  # pylint: disable=redefined-outer-name
-    """cog_unload sets shutdown event and cancels all worker tasks."""
+    '''cog_unload sets shutdown event and cancels all worker and consumer tasks.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
+    await dispatcher.cog_load()
     # Trigger worker creation via drain (needs a running event loop)
     await drain_dispatcher(dispatcher, guild_id)
     assert guild_id in dispatcher._workers  # pylint: disable=protected-access
@@ -298,6 +305,8 @@ async def test_cog_unload_cancels_workers(fake_context):  # pylint: disable=rede
     assert dispatcher._shutdown.is_set()  # pylint: disable=protected-access
     assert not dispatcher._workers  # pylint: disable=protected-access
     assert not dispatcher._guilds  # pylint: disable=protected-access
+    await asyncio.sleep(0)
+    assert dispatcher._cog_consumer_task.done()  # pylint: disable=protected-access
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +315,7 @@ async def test_cog_unload_cancels_workers(fake_context):  # pylint: disable=rede
 
 @pytest.mark.asyncio
 async def test_send_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
-    """send_message causes the worker to deliver the message to the channel."""
+    '''send_message causes the worker to deliver the message to the channel.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     dispatcher = make_dispatcher(channels=[channel])
@@ -324,7 +333,7 @@ async def test_send_message_executes_via_worker(fake_context):  # pylint: disabl
 
 @pytest.mark.asyncio
 async def test_sentinel_requeued_after_processing(fake_context):  # pylint: disable=redefined-outer-name
-    """After a sentinel is consumed by the worker a new update_mutable call re-queues one."""
+    '''After a sentinel is consumed by the worker a new update_mutable call re-queues one.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -349,7 +358,7 @@ async def test_sentinel_requeued_after_processing(fake_context):  # pylint: disa
 
 @pytest.mark.asyncio
 async def test_update_mutable_no_channel_on_new_key(fake_context):  # pylint: disable=redefined-outer-name
-    """update_mutable with channel=None for an unknown key logs a warning and returns."""
+    '''update_mutable with channel=None for an unknown key logs a warning and returns.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     key = 'new-key-no-channel'
@@ -369,7 +378,7 @@ async def test_update_mutable_no_channel_on_new_key(fake_context):  # pylint: di
 
 @pytest.mark.asyncio
 async def test_long_content_truncated_to_1900(fake_context):  # pylint: disable=redefined-outer-name
-    """Content longer than 2000 chars is truncated to 1900 before send."""
+    '''Content longer than 2000 chars is truncated to 1900 before send.'''
     dispatcher = make_dispatcher(channels=[fake_context['channel']])
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -390,7 +399,7 @@ async def test_long_content_truncated_to_1900(fake_context):  # pylint: disable=
 
 @pytest.mark.asyncio
 async def test_update_mutable_dispatches_message(fake_context):  # pylint: disable=redefined-outer-name
-    """update_mutable causes the worker to send a message to the channel."""
+    '''update_mutable causes the worker to send a message to the channel.'''
     dispatcher = make_dispatcher(channels=[fake_context['channel']])
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -405,7 +414,7 @@ async def test_update_mutable_dispatches_message(fake_context):  # pylint: disab
 
 @pytest.mark.asyncio
 async def test_ephemeral_bundle_removed_after_dispatch(fake_context):  # pylint: disable=redefined-outer-name
-    """A bundle with delete_after is removed from _bundles after the worker processes it."""
+    '''A bundle with delete_after is removed from _bundles after the worker processes it.'''
     dispatcher = make_dispatcher(channels=[fake_context['channel']])
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -424,7 +433,7 @@ async def test_ephemeral_bundle_removed_after_dispatch(fake_context):  # pylint:
 
 @pytest.mark.asyncio
 async def test_send_message_enqueues_send_item(fake_context):  # pylint: disable=redefined-outer-name
-    """send_message places a _SendItem at NORMAL priority."""
+    '''send_message places a _SendItem at NORMAL priority.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -446,7 +455,7 @@ async def test_send_message_enqueues_send_item(fake_context):  # pylint: disable
 
 @pytest.mark.asyncio
 async def test_fetch_object_passes_max_retries(fake_context):  # pylint: disable=redefined-outer-name
-    """_ReadItem stores max_retries; fetch_object passes it through end-to-end."""
+    '''_ReadItem stores max_retries; fetch_object passes it through end-to-end.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
@@ -466,7 +475,7 @@ async def test_fetch_object_passes_max_retries(fake_context):  # pylint: disable
 
 @pytest.mark.asyncio
 async def test_fetch_object_with_allow_404(fake_context):  # pylint: disable=redefined-outer-name
-    """_ReadItem stores allow_404; fetch_object passes it through end-to-end."""
+    '''_ReadItem stores allow_404; fetch_object passes it through end-to-end.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
 
@@ -485,14 +494,18 @@ async def test_fetch_object_with_allow_404(fake_context):  # pylint: disable=red
 
 
 # ---------------------------------------------------------------------------
-# cog_load
+# cog_load / cog_unload: consumer task lifecycle
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_cog_load():
-    """cog_load is a no-op but must not raise."""
+async def test_cog_load_starts_consumer_task():
+    '''cog_load starts the cog consumer task.'''
     dispatcher = make_dispatcher()
     await dispatcher.cog_load()
+    assert dispatcher._cog_consumer_task is not None  # pylint: disable=protected-access
+    assert not dispatcher._cog_consumer_task.done()  # pylint: disable=protected-access
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+    await asyncio.sleep(0)
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +514,7 @@ async def test_cog_load():
 
 @pytest.mark.asyncio
 async def test_queue_depth_callback(fake_context):  # pylint: disable=redefined-outer-name
-    """Queue depth callback returns the sum of all pending items across guilds."""
+    '''Queue depth callback returns the sum of all pending items across guilds.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -521,7 +534,7 @@ async def test_queue_depth_callback(fake_context):  # pylint: disable=redefined-
 
 @pytest.mark.asyncio
 async def test_delete_item_not_found_silently_ignored(fake_context):  # pylint: disable=redefined-outer-name
-    """Deleting a message that is already gone (404) does not crash the worker."""
+    '''Deleting a message that is already gone (404) does not crash the worker.'''
     from unittest.mock import AsyncMock, MagicMock  # pylint: disable=import-outside-toplevel
     from discord.errors import NotFound  # pylint: disable=import-outside-toplevel
     from tests.helpers import FakeResponse  # pylint: disable=import-outside-toplevel
@@ -547,7 +560,7 @@ async def test_delete_item_not_found_silently_ignored(fake_context):  # pylint: 
 
 @pytest.mark.asyncio
 async def test_process_mutable_bundle_removed_during_flight(fake_context):  # pylint: disable=redefined-outer-name
-    """If the bundle is popped between sentinel enqueue and processing, skip silently."""
+    '''If the bundle is popped between sentinel enqueue and processing, skip silently.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -566,7 +579,7 @@ async def test_process_mutable_bundle_removed_during_flight(fake_context):  # py
 
 @pytest.mark.asyncio
 async def test_process_mutable_channel_changed(fake_context):  # pylint: disable=redefined-outer-name
-    """When pending channel_id differs from bundle's, old messages are cleared and new channel is used."""
+    '''When pending channel_id differs from bundle's, old messages are cleared and new channel is used.'''
     channel_a = fake_context['channel']
     channel_b = FakeChannel(guild=channel_a.guild)
     guild_id = fake_context['guild'].id
@@ -592,7 +605,7 @@ async def test_process_mutable_channel_changed(fake_context):  # pylint: disable
 
 @pytest.mark.asyncio
 async def test_remove_mutable_deletes_tracked_messages(fake_context):  # pylint: disable=redefined-outer-name
-    """remove_mutable schedules deletion of all messages the bundle has sent."""
+    '''remove_mutable schedules deletion of all messages the bundle has sent.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     key = f'remove-msgs-{guild_id}'
@@ -617,7 +630,7 @@ async def test_remove_mutable_deletes_tracked_messages(fake_context):  # pylint:
 
 @pytest.mark.asyncio
 async def test_process_mutable_sticky_check_edits_in_place(fake_context):  # pylint: disable=redefined-outer-name
-    """Second dispatch on a sticky bundle calls check_last_message_func and edits in place."""
+    '''Second dispatch on a sticky bundle calls check_last_message_func and edits in place.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     key = f'sticky-e2e-{guild_id}'
@@ -640,7 +653,7 @@ async def test_process_mutable_sticky_check_edits_in_place(fake_context):  # pyl
 
 @pytest.mark.asyncio
 async def test_process_mutable_check_func_channel_not_found(fake_context):  # pylint: disable=redefined-outer-name
-    """check_last_message_func returns [] gracefully when the channel is not in the bot cache."""
+    '''check_last_message_func returns [] gracefully when the channel is not in the bot cache.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     key = f'check-no-channel-{guild_id}'
@@ -662,3 +675,260 @@ async def test_process_mutable_check_func_channel_not_found(fake_context):  # py
     # send_function also got None channel, so no new message sent; existing edit also failed
     # The important thing is no crash
     assert key in dispatcher._bundles  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# _cog_consumer: submit_request routing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_submit_request_send_routes_to_guild_queue(fake_context):  # pylint: disable=redefined-outer-name
+    '''submit_request(SendRequest) causes the consumer to enqueue a _SendItem.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    await dispatcher.submit_request(SendRequest(
+        guild_id=guild_id, channel_id=channel.id, content='via consumer',
+    ))
+    # Yield so consumer processes the SendRequest → _SendItem in guild queue
+    await asyncio.sleep(0)
+    await drain_dispatcher(dispatcher, guild_id)
+
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'via consumer'
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_submit_request_delete_routes_to_guild_queue(fake_context):  # pylint: disable=redefined-outer-name
+    '''submit_request(DeleteRequest) causes the consumer to enqueue a _DeleteItem.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    msg = FakeMessage(channel=channel)
+    channel.messages = [msg]
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    await dispatcher.submit_request(DeleteRequest(
+        guild_id=guild_id, channel_id=channel.id, message_id=msg.id,
+    ))
+    await asyncio.sleep(0)
+    await drain_dispatcher(dispatcher, guild_id)
+
+    assert msg.deleted
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_submit_request_history_delivers_channel_history_result(fake_context):  # pylint: disable=redefined-outer-name
+    '''submit_request(FetchChannelHistoryRequest) delivers ChannelHistoryResult to cog queue.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    msg = FakeMessage(channel=channel)
+    channel.messages = [msg]
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    result_queue = dispatcher.register_cog_queue(cog_name)
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name=cog_name,
+    ))
+    result = await asyncio.wait_for(result_queue.get(), timeout=5.0)
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+    assert isinstance(result, ChannelHistoryResult)
+    assert len(result.messages) == 1
+    assert isinstance(result.messages[0], FetchedMessage)
+    assert result.messages[0].id == msg.id
+
+
+@pytest.mark.asyncio
+async def test_submit_request_history_propagates_exception_as_result(fake_context):  # pylint: disable=redefined-outer-name
+    '''When the channel fetch fails, a ChannelHistoryResult with error is delivered.'''
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher()  # no channels registered
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    result_queue = dispatcher.register_cog_queue(cog_name)
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=999999, limit=10, cog_name=cog_name,
+    ))
+    result = await asyncio.wait_for(result_queue.get(), timeout=5.0)
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+    assert isinstance(result, ChannelHistoryResult)
+    assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
+# _cog_consumer: deduplication (new per-cog model)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_history_dedup_same_cog_same_channel(fake_context):  # pylint: disable=redefined-outer-name
+    '''Two requests from the same cog+channel produce only one _HistoryReadItem.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    dispatcher.register_cog_queue(cog_name)
+
+    # Submit both before yielding so the consumer sees them together
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name=cog_name,
+    ))
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name=cog_name,
+    ))
+    # One yield lets the consumer drain both items from _cog_input
+    await asyncio.sleep(0)
+
+    queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
+    assert queue.qsize() == 1
+    _, _, item = queue.get_nowait()
+    assert isinstance(item, _HistoryReadItem)
+
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_history_different_cogs_not_deduped(fake_context):  # pylint: disable=redefined-outer-name
+    '''Two requests from different cogs for the same channel are NOT deduplicated.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    dispatcher.register_cog_queue('cog_a')
+    dispatcher.register_cog_queue('cog_b')
+
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name='cog_a',
+    ))
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name='cog_b',
+    ))
+    await asyncio.sleep(0)
+
+    queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
+    assert queue.qsize() == 2
+
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_emoji_dedup_single_work_item(fake_context):  # pylint: disable=redefined-outer-name
+    '''Two FetchGuildEmojisRequests for the same cog+guild produce only one _EmojiReadItem.'''
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher()
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    dispatcher.register_cog_queue(cog_name)
+
+    await dispatcher.submit_request(FetchGuildEmojisRequest(guild_id=guild_id, cog_name=cog_name))
+    await dispatcher.submit_request(FetchGuildEmojisRequest(guild_id=guild_id, cog_name=cog_name))
+    await asyncio.sleep(0)
+
+    queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
+    assert queue.qsize() == 1
+    _, _, item = queue.get_nowait()
+    assert isinstance(item, _EmojiReadItem)
+
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_emoji_delivers_guild_emojis_result(fake_context):  # pylint: disable=redefined-outer-name
+    '''submit_request(FetchGuildEmojisRequest) delivers GuildEmojisResult to cog queue.'''
+    guild = fake_context['guild']
+    guild_id = guild.id
+    from unittest.mock import MagicMock  # pylint: disable=import-outside-toplevel
+    fake_emoji = MagicMock()
+    guild.emojis = [fake_emoji]
+    dispatcher = make_dispatcher()
+    dispatcher.bot.guilds = [guild]
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    result_queue = dispatcher.register_cog_queue(cog_name)
+    await dispatcher.submit_request(FetchGuildEmojisRequest(
+        guild_id=guild_id, cog_name=cog_name,
+    ))
+    result = await asyncio.wait_for(result_queue.get(), timeout=5.0)
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+    assert isinstance(result, GuildEmojisResult)
+    assert result.emojis == [fake_emoji]
+
+
+@pytest.mark.asyncio
+async def test_submit_request_history_with_after_message_id(fake_context):  # pylint: disable=redefined-outer-name
+    '''_fetch_channel_history calls fetch_message when after_message_id is set.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    msg = FakeMessage(channel=channel)
+    channel.messages = [msg]
+    dispatcher = make_dispatcher(channels=[channel])
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    result_queue = dispatcher.register_cog_queue(cog_name)
+    await dispatcher.submit_request(FetchChannelHistoryRequest(
+        guild_id=guild_id, channel_id=channel.id, limit=10, cog_name=cog_name,
+        after_message_id=msg.id,
+    ))
+    result = await asyncio.wait_for(result_queue.get(), timeout=5.0)
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+    assert isinstance(result, ChannelHistoryResult)
+    assert result.after_message_id == msg.id
+
+
+@pytest.mark.asyncio
+async def test_worker_exits_on_shutdown_queue_empty_race(fake_context):  # pylint: disable=redefined-outer-name
+    '''Worker returns when shutdown is set and get_nowait raises QueueEmpty (race path).'''
+    from asyncio import QueueEmpty  # pylint: disable=import-outside-toplevel
+
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher()
+
+    queue = dispatcher._get_queue(guild_id)  # pylint: disable=protected-access
+    # Put a dummy item so queue.empty() returns False, satisfying the while condition
+    queue.put_nowait((99, 0, None))
+
+    # Patch get_nowait to raise QueueEmpty so we hit the shutdown-check branch
+    def raise_empty():
+        raise QueueEmpty
+    queue.get_nowait = raise_empty
+
+    dispatcher._shutdown.set()  # pylint: disable=protected-access
+
+    worker_task = asyncio.create_task(dispatcher._worker(guild_id))  # pylint: disable=protected-access
+    await asyncio.wait_for(worker_task, timeout=1.0)
+    assert worker_task.done()
+
+
+@pytest.mark.asyncio
+async def test_submit_request_emoji_error_delivers_result(fake_context):  # pylint: disable=redefined-outer-name
+    '''When guild emoji fetch fails, GuildEmojisResult with error is delivered to cog queue.'''
+    guild_id = fake_context['guild'].id
+    dispatcher = make_dispatcher()  # no guilds → fetch_guild returns None → AttributeError
+    await dispatcher.cog_load()
+
+    cog_name = 'testcog'
+    result_queue = dispatcher.register_cog_queue(cog_name)
+    await dispatcher.submit_request(FetchGuildEmojisRequest(
+        guild_id=guild_id, cog_name=cog_name,
+    ))
+    result = await asyncio.wait_for(result_queue.get(), timeout=5.0)
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+
+    assert isinstance(result, GuildEmojisResult)
+    assert result.error is not None
