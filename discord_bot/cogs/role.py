@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError as PydanticValidationErro
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
 

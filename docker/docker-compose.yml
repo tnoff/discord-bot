@@ -1,0 +1,12 @@
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../volumes/cnf/discord.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/db:/opt/discord/db
+      - ../volumes/discord-logs:/var/log/discord
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

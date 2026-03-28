@@ -5,9 +5,10 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, Mock
 
+import fakeredis.aioredis
 import pytest
 
-from discord_bot.servers.health_server import HealthServer
+from discord_bot.servers.health_server import HealthServer, DispatchHealthServer
 
 
 def _make_bot(is_ready=True, is_closed=False):
@@ -141,6 +142,94 @@ class TestHealthServerAsync:
         """Exception in wait_closed is swallowed; writer.close still called"""
         bot = _make_bot()
         hs = HealthServer(bot)
+        reader = MagicMock()
+        reader.readline = AsyncMock(side_effect=ConnectionResetError('connection reset'))
+        writer = MagicMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock(side_effect=OSError('broken pipe'))
+        await getattr(hs, '_handle')(reader, writer)
+        writer.close.assert_called_once()
+
+
+class TestDispatchHealthServerInit:
+    """Sync tests for DispatchHealthServer constructor."""
+
+    def test_init(self):
+        """Constructor sets attributes correctly."""
+        hs = DispatchHealthServer('redis://localhost:6379/0', port=9090)
+        assert hs._redis_url == 'redis://localhost:6379/0'  #pylint:disable=protected-access
+        assert hs.port == 9090
+
+    def test_init_default_port(self):
+        """Default port is 8080."""
+        hs = DispatchHealthServer('redis://localhost:6379/0')
+        assert hs.port == 8080
+
+
+@pytest.mark.asyncio
+class TestDispatchHealthServerAsync:
+    """Async tests for DispatchHealthServer HTTP responses."""
+
+    async def test_health_ok(self, mocker):
+        """Returns 200 when Redis ping succeeds."""
+        fake_redis = fakeredis.aioredis.FakeRedis()
+        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        hs = DispatchHealthServer('redis://localhost:6379/0', port=18090)
+        task = asyncio.create_task(hs.serve())
+        await asyncio.sleep(0.05)
+        try:
+            response = await _raw_request(18090)
+            assert '200 OK' in response
+            assert '"ok"' in response
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_health_redis_unavailable(self, mocker):
+        """Returns 503 when Redis ping raises."""
+        fake_redis = AsyncMock()
+        fake_redis.ping = AsyncMock(side_effect=ConnectionError('redis down'))
+        fake_redis.aclose = AsyncMock()
+        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        hs = DispatchHealthServer('redis://localhost:6379/0', port=18091)
+        task = asyncio.create_task(hs.serve())
+        await asyncio.sleep(0.05)
+        try:
+            response = await _raw_request(18091)
+            assert '503' in response
+            assert 'unavailable' in response
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_handle_exception_during_request(self, mocker):
+        """Exception mid-request is caught and writer is still closed cleanly."""
+        fake_redis = AsyncMock()
+        fake_redis.aclose = AsyncMock()
+        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        hs = DispatchHealthServer('redis://localhost:6379/0')
+        hs._client = fake_redis  #pylint:disable=protected-access
+        reader = MagicMock()
+        reader.readline = AsyncMock(side_effect=ConnectionResetError('connection reset'))
+        writer = MagicMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
+        await getattr(hs, '_handle')(reader, writer)
+        writer.close.assert_called_once()
+
+    async def test_handle_wait_closed_exception(self, mocker):
+        """Exception in wait_closed is swallowed; writer.close still called."""
+        fake_redis = AsyncMock()
+        fake_redis.aclose = AsyncMock()
+        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        hs = DispatchHealthServer('redis://localhost:6379/0')
+        hs._client = fake_redis  #pylint:disable=protected-access
         reader = MagicMock()
         reader.readline = AsyncMock(side_effect=ConnectionResetError('connection reset'))
         writer = MagicMock()

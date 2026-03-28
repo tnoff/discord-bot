@@ -9,6 +9,7 @@ import tempfile
 import ijson
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.pool import NullPool
 
 from discord_bot.database import BASE
 from discord_bot.utils.integrations.s3 import get_file, list_objects
@@ -44,7 +45,7 @@ class DatabaseBackupClient:
                 src_conn.connection.dbapi_connection.backup(dst_conn)
         finally:
             dst_conn.close()
-        snap_engine = create_engine(f'sqlite:///{snap_path}')
+        snap_engine = create_engine(f'sqlite:///{snap_path}', poolclass=NullPool)
         return snap_engine, snap_path
 
     def _get_alembic_version(self) -> str:

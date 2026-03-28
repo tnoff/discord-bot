@@ -15,7 +15,7 @@ jobs:
       coverage_source: discord_bot
       install_command: pip install -r requirements.txt -r tests/requirements.txt
       python_version: 3.14
-      pre_install_command: sudo apt-get update && sudo apt-get install -y ffmpeg
+      pre_install_command: sudo apt-get update && sudo apt-get install -y sqlite3 ffmpeg
   build:
     name: Tox
     runs-on: ubuntu-24.04
@@ -30,8 +30,8 @@ jobs:
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: ${{ matrix.python-version }}
-    - id: setup-ffmpeg
-      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+    - id: setup-sqlite3
+      run: sudo apt-get update && sudo apt-get install -y sqlite3 ffmpeg
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -47,7 +47,15 @@ jobs:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-    - name: Build image
+    - name: Build bot image
       uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
       with:
+        context: .
+        file: ./docker/Dockerfile
+        push: false
+    - name: Build dispatcher image
+      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+      with:
+        context: .
+        file: ./docker/Dockerfile.dispatcher
         push: false

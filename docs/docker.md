@@ -7,7 +7,7 @@ Build docker file for discord-bot to run however you want.
 Build just the discord-bot docker image:
 
 ```bash
-docker build .
+docker build -f docker/Dockerfile .
 ```
 
 ## Security
@@ -131,6 +131,89 @@ docker run -d \
   -v /path/to/discord.cnf:/opt/discord/cnf/discord.cnf:ro \
   discord-bot
 ```
+
+## Docker Compose
+
+Two Compose files are provided for different deployment scenarios.
+
+### Setup A — single container (`docker-compose.yml`)
+
+Standard single-process deployment with no Redis:
+
+```bash
+# Place your config at cnf/discord.cnf, then:
+docker compose -f docker/docker-compose.yml up -d
+```
+
+The `bot` service mounts `./cnf/discord.cnf` and exposes port 8080 for the health check.
+
+### Setup B — multi-process with Redis (`docker-compose.multiprocess.yml`)
+
+Runs the dispatcher and bot as separate containers connected via Redis Streams.
+See [Cross-process dispatch](./message_dispatcher.md#cross-process-dispatch-via-redis-streams) for background.
+
+```bash
+docker compose -f docker/docker-compose.multiprocess.yml up -d
+```
+
+Three services are started:
+
+| Service | Purpose |
+|---------|---------|
+| `redis` | Redis 7 (Alpine), persisted via named volume |
+| `dispatcher` | Loads only `MessageDispatcher`; reads the input stream and executes Discord API calls |
+| `bot` | Loads all desired cogs; routes dispatch calls to Redis instead of in-process |
+
+**Required config files:**
+
+`cnf/discord.dispatcher.cnf`:
+```yaml
+general:
+  discord_token: "YOUR_TOKEN"
+  redis_url: "redis://redis:6379/0"
+  dispatch_cross_process: true
+  dispatch_process_id: "dispatcher"
+  dispatch_gateway: false
+  dispatch_shard_id: 0
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+  include:
+    default: false
+    message_dispatcher: true
+```
+
+`cnf/discord.bot.cnf`:
+```yaml
+general:
+  discord_token: "YOUR_TOKEN"
+  redis_url: "redis://redis:6379/0"
+  dispatch_cross_process: true
+  dispatch_process_id: "bot-main"
+  dispatch_shard_id: 0
+  include:
+    default: true
+    message_dispatcher: false
+    markov: true
+    delete_messages: true
+```
+
+> **Note:** Both containers connect to the Discord gateway with the same token. The dispatcher container has all non-dispatcher cogs disabled so it will not respond to commands.
+
+## Debug Builds
+
+### heaptrack
+
+`docker/Dockerfile` accepts an `INSTALL_HEAPTRACK` build arg (default `false`) for memory profiling sessions. The production image intentionally excludes it to keep the image size down.
+
+```bash
+docker build --build-arg INSTALL_HEAPTRACK=true -f docker/Dockerfile -t discord-bot:debug .
+```
+
+Keep debug images local — there's no need to push them to the registry.
 
 ## Database Setup
 

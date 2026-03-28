@@ -11,7 +11,8 @@ import pytest
 
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.common import GeneralConfig, LoggingConfig, DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
-from discord_bot.utils.common import get_logger, run_commit
+from discord_bot.utils.common import get_logger
+from discord_bot.utils.sql_retry import run_commit
 from discord_bot.utils.discord_retry import async_retry_command
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.discord_utils import discord_format_string_embed

@@ -4,10 +4,13 @@ from datetime import datetime, timezone
 from random import choice
 from pathlib import Path
 from string import digits, ascii_lowercase
+import os
+import tempfile
 from tempfile import NamedTemporaryFile
 from typing import Any, AsyncGenerator, Generator, Optional
 from collections.abc import Callable
 
+from unittest.mock import AsyncMock
 from discord import ChannelType
 from discord.errors import NotFound
 import pytest
@@ -15,7 +18,7 @@ import pytest_asyncio
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_bot.cogs.music_helpers.common import SearchType
@@ -127,18 +130,16 @@ async def fake_engine() -> AsyncGenerator[AsyncEngine, None]:
 
 @pytest.fixture(scope="function")
 def fake_sync_engine() -> Generator[Engine, None, None]:
-    engine = create_engine(
-        'sqlite+pysqlite:///:memory:',
-        connect_args={'check_same_thread': False},
-        poolclass=StaticPool,
-    )
+    fd, db_path = tempfile.mkstemp(suffix='.db')
+    os.close(fd)
+    engine = create_engine(f'sqlite:///{db_path}', poolclass=NullPool)
     BASE.metadata.create_all(engine)
-    BASE.metadata.bind = engine
     try:
         yield engine
     finally:
         BASE.metadata.drop_all(engine)
         engine.dispose()
+        os.unlink(db_path)
 
 @pytest.fixture(scope="function")
 def fake_context() -> Generator[dict[str, Any], None, None]:
@@ -301,6 +302,23 @@ class FakeIntents():
         self.members = True
 
 
+class FakePartialMessageable():
+    '''Minimal stand-in for discord.PartialMessageable (no gateway cache required).'''
+    def __init__(self, channel_id: int) -> None:
+        self.id = channel_id
+
+    async def send(self, **_kwargs: Any) -> 'FakeMessage':
+        return FakeMessage(content=_kwargs.get('content', ''), channel=self)
+
+    def history(self, **_kwargs: Any) -> 'AsyncIterator':
+        return AsyncIterator([])
+
+    def get_partial_message(self, message_id: int) -> Any:
+        msg = AsyncMock()
+        msg.id = message_id
+        return msg
+
+
 def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: Optional[list[Any]] = None, channels: Optional[list[Any]] = None) -> type:
     class FakeBot():
         def __init__(self, *_args: Any, **_kwargs: Any) -> None:
@@ -327,6 +345,12 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
                 if channel.id == channel_id:
                     return channel
             return None
+
+        def get_partial_messageable(self, channel_id: int) -> Any:
+            for channel in self.channels:
+                if channel.id == channel_id:
+                    return channel
+            return FakePartialMessageable(channel_id)
 
         async def fetch_guild(self, guild_id: int) -> Optional[Any]:
             for guild in self.guilds:

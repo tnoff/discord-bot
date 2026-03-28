@@ -22,6 +22,22 @@ jobs:
     uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
     with:
       image_name: ${{ vars.OCI_REPO_NAME }}
+      dockerfile_path: ./docker/Dockerfile
+      docker_context: .
+      platforms: linux/arm64
+    secrets:
+      oci_registry: ${{ secrets.OCI_REGISTRY }}
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+      oci_namespace: ${{ secrets.OCI_NAMESPACE }}
+  build_dispatcher:
+    needs: check_labels
+    if: needs.check_labels.outputs.conditions_met == 'true'
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
+    with:
+      image_name: ${{ vars.OCI_DISPATCHER_REPO_NAME }}
+      dockerfile_path: ./docker/Dockerfile.dispatcher
+      docker_context: .
       platforms: linux/arm64
     secrets:
       oci_registry: ${{ secrets.OCI_REGISTRY }}

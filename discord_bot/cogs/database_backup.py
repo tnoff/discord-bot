@@ -10,7 +10,7 @@ from opentelemetry.trace import SpanKind
 from croniter import croniter
 from pydantic import BaseModel
 
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.database import BASE
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import return_loop_runner

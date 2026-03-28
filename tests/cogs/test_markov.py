@@ -583,6 +583,57 @@ async def test_markov_result_loop_emoji_error_skips_cache_update(fake_engine, fa
 
 
 # ---------------------------------------------------------------------------
+# _markov_result_loop: emoji success + channel history result paths
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_markov_result_loop_emoji_success_updates_cache(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''_markov_result_loop stores emojis in _emoji_cache when GuildEmojisResult has no error.'''
+    from unittest.mock import MagicMock  #pylint:disable=import-outside-toplevel
+
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    cog.register_result_queue()
+    fake_emoji = MagicMock()
+    guild_id = fake_context['guild'].id
+
+    cog._result_queue.put_nowait(GuildEmojisResult(guild_id=guild_id, emojis=[fake_emoji]))  #pylint:disable=protected-access
+
+    task = asyncio.create_task(cog._markov_result_loop())  #pylint:disable=protected-access
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert cog._emoji_cache.get(guild_id) == [fake_emoji]  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_markov_result_loop_channel_history_result_dispatches(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''_markov_result_loop calls _process_history_result when a ChannelHistoryResult arrives.'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
+    cog.register_result_queue()
+
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[],
+        after_message_id=None,
+        error=Exception('fetch failed'),
+    )
+    cog._result_queue.put_nowait(result)  #pylint:disable=protected-access
+
+    task = asyncio.create_task(cog._markov_result_loop())  #pylint:disable=protected-access
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # _process_history_result: channel not found in DB
 # ---------------------------------------------------------------------------
 
