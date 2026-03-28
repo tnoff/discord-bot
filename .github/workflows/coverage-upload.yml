@@ -6,8 +6,9 @@ on:
 
 jobs:
   store-coverage:
-    uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@c3a2dbfa7121104454456322e923ba9f6ac7ffeb
+    uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@64405b1b33a7b6881ee07164018782dc21830dad
     with:
       coverage_source: discord_bot
       install_command: pip install -r requirements.txt -r tests/requirements.txt
       python_version: 3.14
+      pre_install_command: sudo apt-get update && sudo apt-get install -y ffmpeg
