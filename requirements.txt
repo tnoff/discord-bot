@@ -5,7 +5,7 @@ beautifulsoup4==4.14.3
 boto3==1.42.78
 click==8.3.1
 croniter==6.2.2
-davey==0.1.4
+davey==0.1.5
 discord.py==2.7.1
 dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0
 google-api-python-client==2.193.0
