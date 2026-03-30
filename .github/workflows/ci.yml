@@ -6,6 +6,16 @@ on:
 jobs:
   actions:
     uses: tnoff/github-workflows/.github/workflows/check-action-pins.yml@64405b1b33a7b6881ee07164018782dc21830dad
+  coverage:
+    uses: tnoff/github-workflows/.github/workflows/coverage-check.yml@ace23270fbc86eea0152c1cd2b186a03d9839072
+    permissions:
+      contents: read
+      actions: read
+    with:
+      coverage_source: discord_bot
+      install_command: pip install -r requirements.txt -r tests/requirements.txt
+      python_version: 3.14
+      pre_install_command: sudo apt-get update && sudo apt-get install -y ffmpeg
   build:
     name: Tox
     runs-on: ubuntu-24.04
