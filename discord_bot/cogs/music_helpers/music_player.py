@@ -225,7 +225,10 @@ class MusicPlayer:
             # Turn off reconnect
             # If bot is having issues this just ends up connecting and reconnecting over and over
             # Tends to be more annoying that anything
-            await channel.connect()
+            try:
+                await channel.connect()
+            except async_timeout as error:
+                raise ClientException('Timed out connecting to voice channel, please try again') from error
             return True
         if self.guild.voice_client.channel and self.guild.voice_client.channel.id == channel.id:
             return True

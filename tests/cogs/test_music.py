@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import List
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, AsyncMock
 
 import asyncio
 import pytest
@@ -166,6 +166,20 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
     assert fake_context['guild'].id not in cog.download_queue.queues
 
+
+@pytest.mark.asyncio
+async def test_get_player_join_voice_timeout(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog.dispatcher = Mock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    fake_context['guild'].voice_client = None
+    join_channel = FakeChannel()
+    join_channel.connect = AsyncMock(side_effect=asyncio.TimeoutError())
+    result = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], join_channel=join_channel)
+    assert result is None
+    cog.dispatcher.send_message.assert_called_once()
+    assert 'Timed out connecting to voice channel' in cog.dispatcher.send_message.call_args[0][2]
 
 @pytest.mark.asyncio
 async def test_awaken(mocker, fake_context):  #pylint:disable=redefined-outer-name

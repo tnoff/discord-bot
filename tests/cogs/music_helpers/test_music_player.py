@@ -2,9 +2,11 @@ import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
+
+from discord.errors import ClientException
 
 from discord_bot.exceptions import ExitEarlyException
 
@@ -69,6 +71,14 @@ async def test_music_player_join_no_voice(fake_context): #pylint:disable=redefin
     with with_music_player(fake_context) as player:
         c = FakeChannel()
         assert await player.join_voice(c) is True
+
+@pytest.mark.asyncio
+async def test_music_player_join_voice_timeout(fake_context): #pylint:disable=redefined-outer-name
+    with with_music_player(fake_context) as player:
+        c = FakeChannel()
+        c.connect = AsyncMock(side_effect=asyncio.TimeoutError())
+        with pytest.raises(ClientException, match='Timed out connecting to voice channel'):
+            await player.join_voice(c)
 
 @pytest.mark.asyncio
 async def test_music_player_join_move_to(fake_context): #pylint:disable=redefined-outer-name
