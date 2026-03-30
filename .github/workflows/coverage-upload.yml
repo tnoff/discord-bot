@@ -6,7 +6,7 @@ on:
 
 jobs:
   store-coverage:
-    uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@64405b1b33a7b6881ee07164018782dc21830dad
+    uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
     with:
       coverage_source: discord_bot
       install_command: pip install -r requirements.txt -r tests/requirements.txt
