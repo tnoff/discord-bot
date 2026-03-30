@@ -7,7 +7,7 @@ on:
 jobs:
   # boto3 and friends: all update types
   auto-approve-specific:
-    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@c3a2dbfa7121104454456322e923ba9f6ac7ffeb
+    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@3cc45e806b8343c4bb8ce1dfa68981bafa3d84ba
     with:
       accept_packages: 'boto3'
       allowed_update_types: 'major,minor,patch'
@@ -16,7 +16,7 @@ jobs:
 
   # test requirements: any update type, filtered by path
   auto-approve-test-reqs:
-    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@c3a2dbfa7121104454456322e923ba9f6ac7ffeb
+    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@3cc45e806b8343c4bb8ce1dfa68981bafa3d84ba
     with:
       file_pattern: 'tests/**'
       allowed_update_types: 'major,minor,patch'
@@ -25,7 +25,7 @@ jobs:
 
   # everything else: patch only
   auto-approve-patch:
-    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@c3a2dbfa7121104454456322e923ba9f6ac7ffeb
+    uses: tnoff/github-workflows/.github/workflows/dependabot-auto-approve.yml@3cc45e806b8343c4bb8ce1dfa68981bafa3d84ba
     with:
       allowed_update_types: 'patch'
     secrets:
