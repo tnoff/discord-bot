@@ -16,6 +16,7 @@ from typing import List, Optional
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord import VoiceChannel, TextChannel
+from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
@@ -1056,7 +1057,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     return None
             # Check if we should join voice
             if not player.guild.voice_client and join_channel:
-                await player.join_voice(join_channel)
+                try:
+                    await player.join_voice(join_channel)
+                except ClientException as error:
+                    self.dispatcher.send_message(player.guild.id, player.text_channel.id,
+                        str(error),
+                        delete_after=self.config.general.message_delete_after)
+                    return None
             return player
 
     async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
