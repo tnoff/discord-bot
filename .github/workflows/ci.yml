@@ -5,7 +5,7 @@ on:
 
 jobs:
   actions:
-    uses: tnoff/github-workflows/.github/workflows/check-action-pins.yml@64405b1b33a7b6881ee07164018782dc21830dad
+    uses: tnoff/github-workflows/.github/workflows/check-action-pins.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
   coverage:
     uses: tnoff/github-workflows/.github/workflows/coverage-check.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
     permissions:
