@@ -168,7 +168,7 @@ Note that with either Spotify playlists/albums or Youtube playlist input, you ca
 
 ## Under the Hood
 
-
+`ffmpeg` must be installed on the bot host. It is used during audio processing after download.
 
 All videos are downloaded by the bot via [yt-dlp](https://github.com/yt-dlp/yt-dlp). The video audio is then left on disk and deleted after the video is played. You can specify what directory the videos are downloaded to in the config:
 
@@ -183,6 +183,14 @@ Specifically when videos are downloaded, they go to the base directory of the do
 This is to ensure:
 - A video can be played within a queue multiple times, and deleting it when the first iteration is over does not delete all files for the same video
 - If the same video is downloaded by multiple servers, there is not contention over which player uses which file
+
+### Audio Processing
+
+After download, each file is converted to raw PCM (16-bit little-endian stereo 48 kHz) and audio levels are normalized. The converted `.pcm` file replaces the original download before playback begins.
+
+Playback uses `discord.PCMAudio`, which reads the pre-converted file directly with no subprocess. The alternative, `discord.FFmpegPCMAudio`, keeps an FFmpeg subprocess alive for the entire duration of playback — one per active player. Converting ahead of time on the download side eliminates that per-player FFmpeg overhead entirely.
+
+The tradeoff is disk space: raw PCM is roughly 11 MB/min versus ~1 MB/min for a compressed format. For short-lived playback files this is acceptable, but worth keeping in mind if cache retention is long.
 
 Do to disk limitation you may wish to limit the queue size, max length of a video that can be played, max playlist size that can be used.
 
@@ -236,21 +244,6 @@ Both limits can be used together; each evicts independently and the effects comp
 
 Here is a diagram of how the layers of caching interact with each other:
 
-
-### Audio Processing
-
-You can also choose to enable audio processing, which will use FFMPEG to normalize the audio of all videos downloaded, since some videos have different volumes to them. This will also remove "dead air" from the start and end of videos after they are downloaded.
-
-
-`ffmpeg` must be installed on the machine is using to be able to use this feature.
-
-```
-music:
-  download:
-    enable_audio_processing: true
-```
-
-Note that if audio processing is enabled alongside the cache, then two copies of each video will be stored. One for the original download, and another for the processed file.
 
 ### Extra YT-DLP Options
 

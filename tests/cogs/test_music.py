@@ -16,7 +16,6 @@ from discord_bot.types.download import DownloadErrorType, DownloadResult, Downlo
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.cogs.music import VideoEditing
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
 from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
 
@@ -55,6 +54,7 @@ def yield_fake_download_client(media_download: MediaDownload):
         def __init__(self, *_args, **kwargs):
             super().__init__(
                 None,
+                Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
@@ -776,47 +776,6 @@ def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=
     cog = Music(fake_context['bot'], config, None)
     assert cog.config.download.storage.bucket_name == 'test-bucket'
 
-def test_video_editing_post_processor_success():
-    """Test VideoEditing post-processor success path - covers lines 255-263"""
-
-    with patch('discord_bot.cogs.music.edit_audio_file') as mock_edit:
-        mock_edit.return_value = Path('/edited/file.mp3')
-
-        processor = VideoEditing()
-        information = {
-            '_filename': '/original/file.mp3',
-            'filepath': '/original/file.mp3'
-        }
-
-        result_list, result_info = processor.run(information)
-
-        # Should update paths to edited file
-        assert result_info['_filename'] == '/edited/file.mp3'
-        assert result_info['filepath'] == '/edited/file.mp3'
-        assert not result_list
-
-
-def test_video_editing_post_processor_failure():
-    """Test VideoEditing post-processor failure path - covers lines 255-263"""
-
-    with patch('discord_bot.cogs.music.edit_audio_file') as mock_edit:
-        mock_edit.return_value = None  # Simulate editing failure
-
-        processor = VideoEditing()
-        original_filename = '/original/file.mp3'
-        information = {
-            '_filename': original_filename,
-            'filepath': original_filename
-        }
-
-        result_list, result_info = processor.run(information)
-
-        # Should keep original paths when editing fails
-        assert result_info['_filename'] == original_filename
-        assert result_info['filepath'] == original_filename
-        assert not result_list
-
-
 def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=redefined-outer-name
     """Test ytdlp options merging - covers line 378"""
     config = {
@@ -835,55 +794,13 @@ def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=red
         }
     }
 
-    with patch('discord_bot.cogs.music.YoutubeDL') as mock_ytdl:
+    with patch('discord_bot.cogs.music_helpers.download_client.YoutubeDL') as mock_ytdl:
         Music(fake_context['bot'], config, None)
 
         # Check that custom options were merged
         call_args = mock_ytdl.call_args[0][0]  # First positional arg (options dict)
         assert call_args['custom_option'] == 'custom_value'
         assert call_args['format'] == 'worst'  # Should override default 'bestaudio/best'
-
-
-def test_music_init_with_audio_processing_enabled(fake_context):  #pylint:disable=redefined-outer-name
-    """Test audio processing initialization - covers line 387"""
-    config = {
-        'general': {'include': {'music': True}},
-        'music': {
-            'download': {
-                'enable_audio_processing': True
-            }
-        }
-    }
-
-    with patch('discord_bot.cogs.music.YoutubeDL') as mock_ytdl:
-        mock_ytdl_instance = patch.object(mock_ytdl.return_value, 'add_post_processor')
-
-        with mock_ytdl_instance:
-            Music(fake_context['bot'], config, None)
-
-            # Verify post-processor was added for audio processing
-            mock_ytdl.return_value.add_post_processor.assert_called_once()
-
-
-def test_music_init_with_audio_processing_disabled(fake_context):  #pylint:disable=redefined-outer-name
-    """Test without audio processing - covers line 387 negative case"""
-    config = {
-        'general': {'include': {'music': True}},
-        'music': {
-            'download': {
-                'enable_audio_processing': False
-            }
-        }
-    }
-
-    with patch('discord_bot.cogs.music.YoutubeDL') as mock_ytdl:
-        mock_ytdl_instance = patch.object(mock_ytdl.return_value, 'add_post_processor')
-
-        with mock_ytdl_instance:
-            Music(fake_context['bot'], config, None)
-
-            # Verify post-processor was NOT added
-            mock_ytdl.return_value.add_post_processor.assert_not_called()
 
 
 def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylint:disable=redefined-outer-name

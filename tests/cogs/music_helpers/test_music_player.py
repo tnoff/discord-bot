@@ -340,7 +340,7 @@ async def test_music_player_cleans_up_on_voice_exception(fake_context): #pylint:
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             # Patch FFmpegPCMAudio to track cleanup calls
-            with patch('discord_bot.cogs.music_helpers.music_player.FFmpegPCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_ffmpeg.return_value = mock_audio_source
@@ -380,7 +380,7 @@ async def test_music_player_cleanup_calls_audio_cleanup(fake_context): #pylint:d
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             # Patch FFmpegPCMAudio to track cleanup
-            with patch('discord_bot.cogs.music_helpers.music_player.FFmpegPCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_audio_source.volume = 0.5
@@ -417,7 +417,7 @@ async def test_player_cleanup_with_active_source(fake_context): #pylint:disable=
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            with patch('discord_bot.cogs.music_helpers.music_player.FFmpegPCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_audio_source.volume = 0.5

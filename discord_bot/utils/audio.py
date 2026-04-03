@@ -1,8 +1,16 @@
+import logging
 from pathlib import Path
 
 from moviepy.audio.fx import AudioNormalize
 from moviepy import AudioFileClip
-from numpy import sqrt
+from opentelemetry.trace.status import StatusCode
+
+from discord_bot.utils.otel import otel_span_wrapper
+
+logger = logging.getLogger(__name__)
+
+class AudioProcessingError(Exception):
+    '''Raised when audio conversion to PCM fails'''
 
 def get_finished_path(path: Path) -> Path:
     '''
@@ -10,7 +18,7 @@ def get_finished_path(path: Path) -> Path:
 
     path : Path of original file
     '''
-    return path.parent / (path.stem + '.finished.mp3')
+    return path.parent / (path.stem + '.pcm')
 
 def get_editing_path(path: Path) -> Path:
     '''
@@ -18,9 +26,9 @@ def get_editing_path(path: Path) -> Path:
 
     path: Path of original file
     '''
-    return path.parent / (path.stem + '.edited.mp3')
+    return path.parent / (path.stem + '.edited.pcm')
 
-def edit_audio_file(file_path: Path, delete_old_file: bool = True) -> Path:
+def edit_audio_file(file_path: Path) -> Path:
     '''
     Normalize audio for file
 
@@ -28,40 +36,33 @@ def edit_audio_file(file_path: Path, delete_old_file: bool = True) -> Path:
     delete_old_file : Delete old file if it exists
     '''
     finished_path = get_finished_path(file_path)
-    # If exists, assume it was already edited successfully
-    if finished_path.exists():
-        return finished_path
     editing_path = get_editing_path(file_path)
-    try:
-        audio_clip = AudioFileClip(str(file_path))
-    except KeyError:
-        # Need to treat like a video
-        # Assume we cant do file processing at this point
-        return None
-    # Find dead audio at start and end of file
-    cut = lambda i: audio_clip.subclipped(i, i+1).to_soundarray(fps=1)
-    volume = lambda array: sqrt(((1.0 * array) ** 2).mean())
-    volumes = [volume(cut(i)) for i in range(0, int(audio_clip.duration-1))]
-    start = 0
-    while True:
-        if volumes[start] > 0:
-            break
-        start += 1
-    end = len(volumes) - 1
-    while True:
-        if volumes[end] > 0:
-            break
-        end -= 1
-    # From testing, it seems good to give this a little bit of a buffer, add 1 second to each end if possible
-    if start > 0:
-        start -= 1
-    if end < audio_clip.duration - 1:
-        end += 1
-    audio_clip = audio_clip.subclipped(start, end + 1)
-    # Normalize audio
-    edited_audio = audio_clip.with_effects([AudioNormalize()]) #pylint:disable=no-member
-    edited_audio.write_audiofile(str(editing_path))
+    with otel_span_wrapper('audio.edit_file', attributes={'file_path': str(file_path)}) as span:
+        try:
+            audio_clip = AudioFileClip(str(file_path))
+        except KeyError as error:
+            # File cannot be opened as audio (codec/format issue)
+            logger.warning('Could not open %s as audio, codec or format not supported', file_path)
+            span.record_exception(error)
+            span.set_status(StatusCode.ERROR)
+            raise AudioProcessingError(f'Could not open {file_path} as audio') from error
+        edited_audio = audio_clip.with_effects([AudioNormalize()]) #pylint:disable=no-member
+        array = edited_audio.to_soundarray(fps=48000)
+        if len(array) == 0:
+            raise AudioProcessingError(f'Audio conversion produced empty output for {file_path}')
+        array = (array * 32767).astype('<i2')
+        array.tofile(str(editing_path))
+        # s16le stereo: 2 bytes/sample * 2 channels = 4 bytes/frame
+        expected_size = len(array) * 4
+        actual_size = editing_path.stat().st_size
+        if actual_size % 4 != 0:
+            raise AudioProcessingError(
+                f'PCM output {editing_path} size {actual_size} is not divisible by 4, file is corrupt'
+            )
+        if actual_size != expected_size:
+            raise AudioProcessingError(
+                f'PCM output {editing_path} size {actual_size} does not match expected {expected_size}'
+            )
+    file_path.unlink()
     editing_path.rename(finished_path)
-    if delete_old_file:
-        file_path.unlink(missing_ok=True)
     return finished_path

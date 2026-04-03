@@ -14,11 +14,13 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.common import get_logger, LoggingConfig
 
 class DownloadClientException(Exception):
     '''
@@ -103,6 +105,7 @@ class BotDownloadFlagged(RetryableException):
 logger = logging.getLogger(__name__)
 
 OTEL_SPAN_PREFIX = 'music.download_client'
+YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 
 def match_generator(max_video_length: int, banned_videos_list: List[str]):
     '''
@@ -129,7 +132,11 @@ class DownloadClient():
     '''
     def __init__(
         self,
-        ytdl: YoutubeDL,
+        logging_config: LoggingConfig,
+        download_dir: Path,
+        extra_ytdlp_options: dict | None = None,
+        max_video_length: int | None = None,
+        banned_video_list: List[str] | None = None,
         failure_queue: FailureQueue | None = None,
         wait_period_minimum: int = 30,
         wait_period_max_variance: int = 10,
@@ -146,7 +153,24 @@ class DownloadClient():
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
         '''
-        self.ytdl: YoutubeDL = ytdl
+        ytdlopts = {
+            'format': 'bestaudio/best',
+            'restrictfilenames': True,
+            'noplaylist': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'logtostderr': False,
+            'logger': get_logger('ytdlp', logging_config),
+            'default_search': 'auto',
+            'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
+            'outtmpl': str(download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
+        }
+        if extra_ytdlp_options:
+            for key, value in extra_ytdlp_options.items():
+                ytdlopts[key] = value
+        if max_video_length or banned_video_list:
+            ytdlopts['match_filter'] = match_generator(max_video_length, banned_video_list)
+        self.ytdl = YoutubeDL(ytdlopts)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -343,8 +367,31 @@ class DownloadClient():
     async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''
         Download data from youtube search. Automatically calls update_tracking on the result.
+        PCM conversion runs after update_tracking so the backoff timer reflects download time only.
         '''
         to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
         result = await loop.run_in_executor(None, to_run)
         self.update_tracking(result)
+        if result.status.success and result.file_name is not None:
+            try:
+                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name)
+                post_process_timestamp = datetime.now(timezone.utc)
+                logger.info(
+                    'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',
+                    pcm_path, result.download_timestamp, post_process_timestamp,
+                )
+                result = result.model_copy(update={
+                    'file_name': pcm_path,
+                    'post_process_timestamp': post_process_timestamp,
+                })
+            except AudioProcessingError as error:
+                logger.warning('Audio processing failed for %s', result.file_name)
+                result = result.model_copy(update={
+                    'status': DownloadStatus(
+                        success=False,
+                        error_type=DownloadErrorType.RETRYABLE,
+                        user_message='Audio processing failed for download',
+                        error_detail=str(error),
+                    ),
+                })
         return result
