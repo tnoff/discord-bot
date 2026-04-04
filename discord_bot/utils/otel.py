@@ -21,6 +21,7 @@ class MetricNaming(Enum):
     CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
+    DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
 
 class AttributeNaming(Enum):
     '''
@@ -73,6 +74,41 @@ class MusicVideoCacheNaming(Enum):
     '''
     ID = 'music.video_cache.id'
 
+def capture_span_context() -> dict | None:
+    '''
+    Capture the currently-active span context as a JSON-serialisable dict.
+    Returns None when no valid span is active (e.g. during background tasks or
+    when the no-op tracer is in use).
+    '''
+    ctx = trace.get_current_span().get_span_context()
+    if not ctx.is_valid:
+        return None
+    return {
+        'trace_id': ctx.trace_id,
+        'span_id': ctx.span_id,
+        'trace_flags': int(ctx.trace_flags),
+    }
+
+
+def span_links_from_context(span_context: dict | None) -> list:
+    '''
+    Reconstruct a list of trace.Link objects from a dict produced by
+    capture_span_context().  Returns an empty list when the context is None
+    or cannot be reconstructed into a valid SpanContext.
+    '''
+    if not span_context:
+        return []
+    ctx = trace.SpanContext(
+        trace_id=span_context['trace_id'],
+        span_id=span_context['span_id'],
+        is_remote=True,
+        trace_flags=trace.TraceFlags(span_context['trace_flags']),
+    )
+    if not ctx.is_valid:
+        return []
+    return [trace.Link(ctx)]
+
+
 def command_wrapper(function):
     '''
     Wrap a discord command function
@@ -94,11 +130,12 @@ def command_wrapper(function):
 @contextmanager
 def otel_span_wrapper(span_name: str, ctx: Context = None,
                       kind: trace.SpanKind = trace.SpanKind.INTERNAL,
-                      attributes: dict = None):
+                      attributes: dict = None,
+                      links: list | None = None):
     '''
     Wrap a generic span
     '''
-    with TRACER.start_as_current_span(span_name, kind=kind) as span:
+    with TRACER.start_as_current_span(span_name, kind=kind, links=links or []) as span:
         if ctx:
             span.set_attributes({
                 DiscordContextNaming.AUTHOR.value: ctx.author.id,
@@ -123,11 +160,12 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
 @asynccontextmanager
 async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
                                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
-                                   attributes: dict = None):
+                                   attributes: dict = None,
+                                   links: list | None = None):
     '''
     Wrap a generic span in an async context manager
     '''
-    with TRACER.start_as_current_span(span_name, kind=kind) as span:
+    with TRACER.start_as_current_span(span_name, kind=kind, links=links or []) as span:
         if ctx:
             span.set_attributes({
                 DiscordContextNaming.AUTHOR.value: ctx.author.id,

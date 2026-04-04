@@ -28,7 +28,7 @@ from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.download import DownloadErrorType, DownloadResult
+from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -52,7 +52,7 @@ from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.queue import Queue
-from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 # GLOBALS
@@ -161,6 +161,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.players = {}
         self._cleanup_task = None
         self._download_task = None
+        self._result_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
         self._init_task = None
@@ -175,8 +176,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.db_engine:
             self.history_playlist_queue = Queue()
 
-        # Queues for download and youtube music search
-        self.download_queue: DistributedQueue[MediaRequest] = DistributedQueue(self.config.player.queue_max_size)
+        # Queues for youtube music search; download queue is owned by download_client
         # Search queue can be larger since search requests are lightweight
         self.youtube_music_search_queue: DistributedQueue[tuple[MediaRequest, TextChannel]] = DistributedQueue(self.config.player.queue_max_size * 2)
 
@@ -257,6 +257,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
             bucket_name=storage_bucket_name,
             normalize_audio=self.config.download.normalize_audio,
+            broker=self.media_broker,
+            max_retries=self.config.download.max_download_retries,
+            queue_max_size=self.config.player.queue_max_size,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -276,6 +279,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Timestamps for heartbeat gauges
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_task_loop_active_callback, 'Download result processing loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value, self.__download_result_queue_depth_callback, 'Pending download results awaiting processing')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
         if self.youtube_music_client:
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
@@ -310,6 +315,27 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files'
+            })
+        ]
+
+    def __result_task_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = 1 if (self._result_task and not self._result_task.done()) else 0
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
+            })
+        ]
+
+    def __download_result_queue_depth_callback(self, _options):
+        '''
+        Total pending download results waiting to be routed to players
+        '''
+        return [
+            Observation(self.download_client.result_queue_depth(), attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
             })
         ]
 
@@ -376,7 +402,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.dispatcher = self.bot.get_cog('MessageDispatcher')
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(self.download_files, self.bot, self.logger)())
+        self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+        self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
             await self.gate_tasks_on_db_restore(self._start_tasks)
@@ -407,6 +434,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._cleanup_task.cancel()
             if self._download_task:
                 self._download_task.cancel()
+            if self._result_task:
+                self._result_task.cancel()
             if self._post_play_processing_task:
                 self._post_play_processing_task.cancel()
             if self._youtube_search_task:
@@ -535,7 +564,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         skiP_update_queue_strings : Skip queue string update
         '''
         attributes = media_download_attributes(media_download)
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes):
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
             bundle = self.multirequest_bundles.get(media_download.media_request.bundle_uuid) if media_download.media_request.bundle_uuid else None
             try:
                 player.add_to_play_queue(media_download)
@@ -618,48 +647,51 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await self.youtube_music_backoff_time()
 
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_youtube_music', kind=SpanKind.CLIENT,
+                                           attributes=media_request_attributes(media_request),
+                                           links=span_links_from_context(media_request.span_context)) as span:
+            self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
+            try:
+                youtube_music_result = await asyncio.get_running_loop().run_in_executor(None, partial(self.youtube_music_client.search, media_request.search_result.raw_search_string))
+                self.youtube_music_failure_queue.add_item(FailureStatus())
+            except YoutubeMusicRetryException as e:
+                self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
+                self.logger.info(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
+                self.update_youtube_music_timestamp(backoff_multiplier=2 ** self.youtube_music_failure_queue.size)
+                backoff_seconds = None
+                if self.youtube_music_wait_timestamp:
+                    backoff_seconds = int(self.youtube_music_wait_timestamp - datetime.now(timezone.utc).timestamp())
+                    backoff_seconds = max(0, backoff_seconds)
+                    self.logger.info(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
+                media_request.youtube_music_retry_information.retry_count += 1
+                if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
+                    self.logger.warning(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
+                    media_request.state_machine.mark_failed('Youtube music search rate limit exceeded after max retries')
+                else:
+                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+                    media_request.state_machine.mark_retry_search(str(e), backoff_seconds)
+                span.set_status(StatusCode.ERROR)
+                return False
+            if youtube_music_result:
+                # This returns the raw id, make sure we add the proper prefix for caching bits
+                media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
 
-        self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
-        try:
-            youtube_music_result = await asyncio.get_running_loop().run_in_executor(None, partial(self.youtube_music_client.search, media_request.search_result.raw_search_string))
-            self.youtube_music_failure_queue.add_item(FailureStatus())
-        except YoutubeMusicRetryException as e:
-            self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
-            self.logger.info(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
-            self.update_youtube_music_timestamp(backoff_multiplier=2 ** self.youtube_music_failure_queue.size)
-            backoff_seconds = None
-            if self.youtube_music_wait_timestamp:
-                backoff_seconds = int(self.youtube_music_wait_timestamp - datetime.now(timezone.utc).timestamp())
-                backoff_seconds = max(0, backoff_seconds)
-                self.logger.info(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
-            media_request.youtube_music_retry_information.retry_count += 1
-            if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
-                self.logger.warning(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
-                media_request.state_machine.mark_failed('Youtube music search rate limit exceeded after max retries')
-            else:
-                self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-                media_request.state_machine.mark_retry_search(str(e), backoff_seconds)
-            return False
-        if youtube_music_result:
-            # This returns the raw id, make sure we add the proper prefix for caching bits
-            media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
+            media_request.state_machine.mark_queued()
 
-        media_request.state_machine.mark_queued()
+            # Check if cache item exists already
+            if await self._enqueue_media_download_from_cache(media_request):
+                return True
 
-        # Check if cache item exists already
-        if await self._enqueue_media_download_from_cache(media_request):
-            return True
-
-        try:
-            self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
-            self.download_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-        except PutsBlocked:
-            self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
-            media_request.state_machine.mark_discarded()
-            return False
-        except QueueFull:
-            self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
-            media_request.state_machine.mark_discarded()
+            try:
+                self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
+                self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+            except PutsBlocked:
+                self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
+                media_request.state_machine.mark_discarded()
+                return False
+            except QueueFull:
+                self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
+                media_request.state_machine.mark_discarded()
         return True
 
     def _on_request_state_change(self, media_request: MediaRequest, _new_stage: MediaRequestLifecycleStage):
@@ -720,124 +752,59 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         except asyncio.TimeoutError:
             return True
 
-    async def _handle_download_failure(
-        self,
-        result: DownloadResult,
-        media_request: MediaRequest,
-    ) -> bool:
+    async def process_download_results(self):
         '''
-        Route a non-success DownloadResult: update tracking, retry or permanently fail.
-        Returns False if the error should be marked as a span error, True otherwise.
-        '''
-        error_type = result.status.error_type
-        error_detail = result.status.error_detail or ''
-
-        if error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED:
-            self.logger.warning(f'Hit retry limit on "{str(media_request)}", {error_detail}')
-            await self.__return_bad_video(media_request, result.status.user_message)
-            return False
-
-        if error_type in {DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
-            result.media_request.download_retry_information.retry_count += 1
-            backoff_seconds = self.download_client.backoff_seconds_remaining
-            self.logger.info(f'Retryable error on "{str(media_request)}": "{error_detail}"')
-            self.logger.info(f'Failure queue: {self.download_client.failure_summary}')
-            if backoff_seconds:
-                self.logger.info(f'Waiting {backoff_seconds}s for next download')
-            self.download_queue.put_nowait(media_request.guild_id, media_request)
-            media_request.state_machine.mark_retry_download(error_detail, backoff_seconds)
-            return True
-
-        # Terminal error
-        self.logger.info(f'Terminal error on "{str(media_request)}": {error_detail}')
-        await self.__return_bad_video(media_request, result.status.user_message)
-        return True
-
-    async def download_files(self): #pylint:disable=too-many-statements
-        '''
-        Main runner
+        Result consumer: routes completed DownloadResults to players or playlist handlers.
+        Retryable errors are handled inside download_client.run(); only successes and
+        terminal failures reach this method.
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
 
         await sleep(.01)
         try:
-            media_request = self.download_queue.get_nowait()
+            result = self.download_client.get_result_nowait()
         except QueueEmpty:
             return
 
+        media_request = result.media_request
         is_playlist_add = isinstance(media_request, PlaylistAddRequest)
-
         attributes = media_request_attributes(media_request)
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.download_files', kind=SpanKind.CONSUMER, attributes=attributes) as span:
-            # PlaylistAddRequest does not need a player — it only writes to the database
-            player = None
-            if not is_playlist_add:
-                player = await self.get_player(media_request.guild_id, create_player=False)
-                if not player:
-                    media_request.state_machine.mark_discarded()
-                    return
 
-                # Check if queue in shutdown, if so return
-                if player.shutdown_called:
-                    self.logger.info(f'Play queue in shutdown, skipping downloads for guild {player.guild.id}')
-                    media_request.state_machine.mark_discarded()
-                    return
-            self.logger.info(f'Gathered new item to download "{str(media_request)}", guild "{media_request.guild_id}"')
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_download_results', kind=SpanKind.CONSUMER, attributes=attributes, links=span_links_from_context(media_request.span_context)) as span:
+            if not result.status.success:
+                self.logger.info(f'Terminal error on "{str(media_request)}": {result.status.error_detail or ""}')
+                span.set_status(StatusCode.ERROR)
+                await self.__return_bad_video(media_request, result.status.user_message)
+                return
 
-            # If cache enabled and search string with 'https://' given, try to grab this first
-            media_download = await self.media_broker.check_cache(media_request)
-            # Else grab from ytdlp
-            if not media_download:
-                # Update bundle to show waiting on youtube backoff time
-                media_request.state_machine.mark_backoff()
-                # Make sure we wait for next video download
-                # Dont spam the video client
-                await self.download_client.backoff_wait(self.bot_shutdown_event)
-                # Re-check player after backoff: guild may have disconnected while we were waiting
-                if not is_playlist_add and (not player or player not in self.players.values()):
-                    self.logger.info(f'Player gone after backoff for guild {media_request.guild_id}, discarding "{str(media_request)}"')
-                    media_request.state_machine.mark_discarded()
-                    return
-                # Update bundle to show in progress
-                media_request.state_machine.mark_in_progress()
-                result = await self.download_client.create_source(media_request,
-                                                                  self.config.download.max_download_retries,
-                                                                  self.bot.loop)
-                if not result.status.success:
-                    failure_result = await self._handle_download_failure(result, media_request)
-                    span.set_status(StatusCode.ERROR if not failure_result else StatusCode.OK)
-                    return
-                self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
-                if isinstance(media_request, PlaylistAddRequest):
-                    data = result.ytdlp_data
-                    if not data:
-                        media_request.state_machine.mark_failed(f'No metadata returned for "{str(media_request)}"')
-                        span.set_status(StatusCode.ERROR)
-                        return
-                    playlist_result = PlaylistAddResult(
-                        webpage_url=data.get('webpage_url', ''),
-                        title=data.get('title', ''),
-                        uploader=data.get('uploader', ''),
-                    )
-                    span.set_status(StatusCode.OK)
-                    await self.__add_playlist_item(media_request, playlist_result)
-                    return
-                media_download = await self.media_broker.register_download_result(result)
+            self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
 
-            # Cache hit path for playlist add: media_download came from check_cache above;
-            # download path for playlist add returns early before reaching here.
-            if isinstance(media_request, PlaylistAddRequest):
+            if is_playlist_add:
+                data = result.ytdlp_data
+                if not data:
+                    media_request.state_machine.mark_failed(f'No metadata returned for "{str(media_request)}"')
+                    span.set_status(StatusCode.ERROR)
+                    return
                 playlist_result = PlaylistAddResult(
-                    webpage_url=media_download.webpage_url or '',
-                    title=media_download.title,
-                    uploader=media_download.uploader,
+                    webpage_url=data.get('webpage_url', ''),
+                    title=data.get('title', ''),
+                    uploader=data.get('uploader', ''),
                 )
                 span.set_status(StatusCode.OK)
                 await self.__add_playlist_item(media_request, playlist_result)
                 return
 
-            # Final none check in case we couldn't download video
+            player = await self.get_player(media_request.guild_id, create_player=False)
+            if not player or player.shutdown_called:
+                self.logger.info(f'Player gone after download for guild {media_request.guild_id}, discarding "{str(media_request)}"')
+                self.media_broker.update_request_status(
+                    str(media_request.uuid), DownloadStatusUpdate(event=DownloadEvent.DISCARDED)
+                )
+                span.set_status(StatusCode.OK)
+                return
+
+            media_download = await self.media_broker.register_download_result(result)
             if not await self.__ensure_video_download_result(media_request, media_download):
                 span.set_status(StatusCode.ERROR)
                 return
@@ -902,7 +869,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # put_nowait, which would fail if the queue is already blocked.
             # No await between clear_queue and block() so no race condition.
             preserve_predicate = None if reason == CleanupReason.BOT_SHUTDOWN else (lambda r: not r.download_file)
-            dropped = self.download_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
+            dropped = self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
             self.logger.debug(f'Cleanup found {len(dropped)} existing download items')
             for item in dropped:
                 item.state_machine.mark_discarded()
@@ -912,7 +879,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in dropped:
                 item.state_machine.mark_discarded()
 
-            self.download_queue.block(guild.id)
+            self.download_client.block_guild(guild.id)
             self.youtube_music_search_queue.block(guild.id)
 
             player = None
@@ -1012,7 +979,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
-                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_queue.size(guild_id)):
+                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_client.queue_size(guild_id)):
                     self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                         'I am not currently playing anything',
                         delete_after=self.config.general.message_delete_after)
@@ -1088,7 +1055,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         Returns true if all items added, false if some were not
         '''
+        ctx_span_context = capture_span_context()
         for media_request in entries:
+            if media_request.span_context is None:
+                media_request.span_context = ctx_span_context
             self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {str(bundle)}')
             # Unless a direct or youtube url, pass into the search queue
             if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
@@ -1113,7 +1083,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 bundle.add_media_request(media_request)
                 continue
             try:
-                self.download_queue.put_nowait(media_request.guild_id, media_request)
+                self.download_client.submit(media_request.guild_id, media_request)
                 media_request.state_machine.mark_queued()
                 bundle.add_media_request(media_request)
             except PutsBlocked:

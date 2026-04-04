@@ -10,7 +10,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
-from discord_bot.types.download import DownloadResult
+from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatusUpdate
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.utils.integrations.s3 import get_file, delete_file
 from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper
@@ -78,6 +78,27 @@ class MediaBroker:
         key = str(media_request.uuid)
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
+
+    def update_request_status(self, request_uuid: str, update: DownloadStatusUpdate) -> None:
+        '''
+        Apply a lifecycle status update from the download worker.
+        Looks up the request by UUID and drives the state machine transition.
+
+        In a future distributed deployment this becomes the handler for a
+        PUT /requests/{uuid}/status HTTP call from the download worker process.
+        '''
+        entry = self._registry.get(request_uuid)
+        if entry is None:
+            logger.warning('update_request_status called for unknown uuid %s', request_uuid)
+            return
+        if update.event == DownloadEvent.BACKOFF:
+            entry.request.state_machine.mark_backoff()
+        elif update.event == DownloadEvent.IN_PROGRESS:
+            entry.request.state_machine.mark_in_progress()
+        elif update.event == DownloadEvent.RETRY:
+            entry.request.state_machine.mark_retry_download(update.error_detail, update.backoff_seconds)
+        elif update.event == DownloadEvent.DISCARDED:
+            entry.request.state_machine.mark_discarded()
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload:
         '''

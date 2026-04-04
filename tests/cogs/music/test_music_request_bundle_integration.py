@@ -1,3 +1,4 @@
+from asyncio import QueueFull
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, MagicMock, AsyncMock
 
@@ -1444,7 +1445,7 @@ async def test_enqueue_media_requests_puts_blocked_download_queue(mocker, fake_c
     # No cache hit
     mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=False)
     # Mock put_nowait to raise PutsBlocked (simulates a blocked queue)
-    mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=PutsBlocked('blocked'))
+    mocker.patch.object(cog.download_client, 'submit', side_effect=PutsBlocked('blocked'))
 
     result = await cog.enqueue_media_requests(fake_context['context'], [request], bundle)
     assert result is False
@@ -1453,7 +1454,6 @@ async def test_enqueue_media_requests_puts_blocked_download_queue(mocker, fake_c
 @pytest.mark.asyncio
 async def test_enqueue_media_requests_queue_full_download_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """enqueue_media_requests breaks and returns True when download queue is full."""
-    from asyncio import QueueFull  # pylint: disable=import-outside-toplevel
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
 
@@ -1463,7 +1463,7 @@ async def test_enqueue_media_requests_queue_full_download_queue(mocker, fake_con
 
     request = fake_source_dict(fake_context, is_direct_search=True)
     mocker.patch.object(cog, '_enqueue_media_download_from_cache', return_value=False)
-    mocker.patch.object(cog.download_queue, 'put_nowait', side_effect=QueueFull())
+    mocker.patch.object(cog.download_client, 'submit', side_effect=QueueFull())
 
     # QueueFull on download queue → request marked discarded, loop breaks, returns True
     result = await cog.enqueue_media_requests(fake_context['context'], [request], bundle)

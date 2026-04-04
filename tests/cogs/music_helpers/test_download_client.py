@@ -1,9 +1,10 @@
 import asyncio
+from asyncio import QueueEmpty
 from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from yt_dlp.utils import DownloadError
@@ -14,12 +15,13 @@ from discord_bot.cogs.music_helpers.download_client import (
 )
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus as DlStatus
+from discord_bot.types.download import DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus as DlStatus
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.utils.queue import PutsBlocked
 from tests.helpers import fake_source_dict, generate_fake_context
 
 class MockYTDLP():
@@ -93,14 +95,13 @@ class MockYoutubeMusic():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source():
     '''Successful download returns a result with the post-processed PCM file.'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False) as tmp_file:
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
-            result = await x.create_source(y, 3, loop)
+            result = await x.create_source(y, 3)
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
         assert result.file_name == pcm_path
@@ -109,7 +110,6 @@ async def test_prepare_source():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode():
     '''In S3 mode, PCM conversion runs first on the local file, then the PCM is uploaded to S3'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         download_path = Path(tmp_file.name)
     # Create a real PCM file so __upload_s3 can unlink it
@@ -122,7 +122,7 @@ async def test_prepare_source_s3_mode():
     expected_s3_key = f'cache/{pcm_path.name}'
     with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path) as edit_mock:
-            result = await x.create_source(y, 3, loop)
+            result = await x.create_source(y, 3)
     assert result.status.success
     # edit_audio_file was called with the local download file, not an S3 key
     assert edit_mock.call_args[0][0] == download_path
@@ -140,7 +140,6 @@ async def test_prepare_source_s3_mode():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode_audio_processing_error():
     '''In S3 mode, when AudioProcessingError occurs the original file is still uploaded to S3'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         download_path = Path(tmp_file.name)
     download_path.write_bytes(b'raw audio')
@@ -152,7 +151,7 @@ async def test_prepare_source_s3_mode_audio_processing_error():
     with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
-            result = await x.create_source(y, 3, loop)
+            result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRYABLE
     # upload still runs after processing failure, using the original download file
@@ -165,7 +164,6 @@ async def test_prepare_source_s3_mode_audio_processing_error():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_empty_requested_downloads():
     """requested_downloads list is empty — should return FILE_NOT_FOUND, not crash."""
-    loop = asyncio.get_running_loop()
 
     class MockYTDLPEmptyDownloads():
         '''Mock yt-dlp returning an entry with an empty requested_downloads list.'''
@@ -178,7 +176,7 @@ async def test_prepare_source_empty_requested_downloads():
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLPEmptyDownloads())
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
 
@@ -186,7 +184,6 @@ async def test_prepare_source_empty_requested_downloads():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_filepath_does_not_exist():
     """filepath returned by yt-dlp does not exist on disk — should return FILE_NOT_FOUND."""
-    loop = asyncio.get_running_loop()
 
     class MockYTDLPMissingFile():
         '''Mock yt-dlp returning a filepath that does not exist on disk.'''
@@ -199,7 +196,7 @@ async def test_prepare_source_filepath_does_not_exist():
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLPMissingFile())
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.FILE_NOT_FOUND
 
@@ -207,7 +204,6 @@ async def test_prepare_source_filepath_does_not_exist():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_md5_match_no_warning(mocker):
     '''No warning when yt-dlp md5 matches the file on disk'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
@@ -227,7 +223,7 @@ async def test_prepare_source_md5_match_no_warning(mocker):
     y = fake_source_dict(fake_context)
     with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
-        result = await x.create_source(y, 3, loop)
+        result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_not_called()
 
@@ -235,7 +231,6 @@ async def test_prepare_source_md5_match_no_warning(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     '''Warning logged when yt-dlp md5 does not match the file on disk; download still succeeds'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
@@ -254,7 +249,7 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     y = fake_source_dict(fake_context)
     with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
-        result = await x.create_source(y, 3, loop)
+        result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_called_once()
     args = mock_logger.warning.call_args[0]
@@ -264,7 +259,6 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_md5_no_warning(mocker):
     '''No warning when yt-dlp does not provide an md5 field (most sources)'''
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False) as tmp_file:
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
@@ -272,7 +266,7 @@ async def test_prepare_source_no_md5_no_warning(mocker):
         y = fake_source_dict(fake_context)
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
-            result = await x.create_source(y, 3, loop)
+            result = await x.create_source(y, 3)
         assert result.status.success
         mock_logger.warning.assert_not_called()
 
@@ -280,69 +274,67 @@ async def test_prepare_source_no_md5_no_warning(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_download():
     '''PlaylistAddRequest skips file download and returns metadata only.'''
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLP())
     y = PlaylistAddRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id,
                            requester_name=fake_context['author'].display_name, requester_id=fake_context['author'].id,
                            search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.foo.com'),
                            playlist_id=1)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert result.status.success
     assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_errors():
     '''Various yt-dlp DownloadError messages map to the correct DownloadErrorType.'''
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error('Sign in to confirm your age. This video may be inappropriate for some users'))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.AGE_RESTRICTED
     assert 'Video is age restricted, cannot download' in result.status.user_message
 
     x = make_download_client(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.TERMS_VIOLATION
     assert 'Video is unvailable due to violating terms of service, cannot download' in result.status.user_message
 
     x = make_download_client(yield_dlp_error('Video unavailable'))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.UNAVAILABLE
     assert 'Video is unavailable, cannot download' in result.status.user_message
 
     x = make_download_client(yield_dlp_error('Private video'))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.PRIVATE_VIDEO
     assert 'Video is private, cannot download' in result.status.user_message
 
     x = make_download_client(yield_dlp_error("Sign in to confirm you're not a bot"))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.BOT_FLAGGED
-    # download_client no longer increments retry_count; music.py does
+    # create_source does not increment retry_count; run() does
     assert result.media_request.download_retry_information.retry_count == 0
 
     x = make_download_client(yield_dlp_error('Requested format is not available'))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.INVALID_FORMAT
     assert 'Video is not available in requested format' in result.status.user_message
 
     x = make_download_client(MockYTDLPNoData())
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.NOT_FOUND
     assert 'No videos found' in result.status.user_message
@@ -359,11 +351,10 @@ def yield_metadata_check_error(exception):
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_video_too_long():
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
     x = make_download_client(yield_metadata_check_error(VideoTooLong('Video Too Long', user_message='too long message')))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.TOO_LONG
     assert result.status.user_message == 'too long message'
@@ -371,11 +362,10 @@ async def test_prepare_source_video_too_long():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_video_banned():
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
     x = make_download_client(yield_metadata_check_error(VideoBanned('Video Banned', user_message='banned message')))
     y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.BANNED
     assert result.status.user_message == 'banned message'
@@ -384,14 +374,13 @@ async def test_prepare_source_video_banned():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_audio_processing_error():
     """AudioProcessingError from edit_audio_file returns a RETRYABLE failure result"""
-    loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False) as tmp_file:
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
-            result = await x.create_source(y, 3, loop)
+            result = await x.create_source(y, 3)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRYABLE
     assert 'Audio processing failed' in result.status.user_message
@@ -439,13 +428,12 @@ def test_match_generator_video_within_length_limit():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_exception_on_timeout():
     """Test that RetryableException is returned for 'Read timed out.' errors"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error('Read timed out.'))
     y = fake_source_dict(fake_context)
 
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
 
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRYABLE
@@ -454,7 +442,6 @@ async def test_retryable_exception_on_timeout():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_exception_increments_retry_count():
     """Test that retry_count is NOT incremented by download_client (music.py does it)"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error('Read timed out.'))
@@ -462,9 +449,9 @@ async def test_retryable_exception_increments_retry_count():
 
     assert y.download_retry_information.retry_count == 0
 
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
 
-    # download_client no longer increments; music.py does after inspecting result
+    # create_source does not increment retry_count; run() does
     assert y.download_retry_information.retry_count == 0
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRYABLE
@@ -472,7 +459,6 @@ async def test_retryable_exception_increments_retry_count():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_all_unknown_errors_are_retryable():
     """Test that all unknown errors are now treated as RetryableException"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     test_errors = [
@@ -486,12 +472,12 @@ async def test_all_unknown_errors_are_retryable():
         x = make_download_client(yield_dlp_error(error_message))
         y = fake_source_dict(fake_context)
 
-        result = await x.create_source(y, 3, loop)
+        result = await x.create_source(y, 3)
 
         assert not result.status.success
         assert result.status.error_type == DownloadErrorType.RETRYABLE
         assert result.media_request == y
-        # download_client no longer increments retry_count
+        # create_source does not increment retry_count; run() does
         assert y.download_retry_information.retry_count == 0
 
 # ========== DownloadFailureQueue Tests ==========
@@ -614,7 +600,6 @@ def test_failure_queue_max_size():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retry_limit_exceeded_on_bot_flagged():
     """Test that RetryLimitExceeded is returned when retry count hits max on bot flagged error"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error("Sign in to confirm you're not a bot"))
@@ -624,7 +609,7 @@ async def test_retry_limit_exceeded_on_bot_flagged():
     y.download_retry_information.retry_count = 2
 
     # With max_retries=3 and retry_count=2, 2+1 >= 3 is True
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
 
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED
@@ -633,7 +618,6 @@ async def test_retry_limit_exceeded_on_bot_flagged():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retry_limit_exceeded_on_unknown_error():
     """Test that RetryLimitExceeded is returned when retry count hits max on unknown error"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error('Some random unknown error'))
@@ -642,7 +626,7 @@ async def test_retry_limit_exceeded_on_unknown_error():
     # Set retry count to max_retries - 1
     y.download_retry_information.retry_count = 2
 
-    result = await x.create_source(y, 3, loop)
+    result = await x.create_source(y, 3)
 
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED
@@ -651,14 +635,13 @@ async def test_retry_limit_exceeded_on_unknown_error():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retry_limit_exceeded_with_max_retries_one():
     """Test that RetryLimitExceeded is returned immediately when max_retries=1"""
-    loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
     x = make_download_client(yield_dlp_error('Read timed out.'))
     y = fake_source_dict(fake_context)
 
     # With max_retries=1 and retry_count=0, 0+1 >= 1 is True
-    result = await x.create_source(y, 1, loop)
+    result = await x.create_source(y, 1)
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED
 
@@ -794,8 +777,7 @@ def test_update_tracking_success_youtube_sets_timestamp():
     client.update_tracking(result)
 
     assert queue.size == 0  # success removes one item (queue was empty, stays 0)
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_update_tracking_success_non_youtube_no_timestamp():
     """Success with non-youtube extractor adds success item but does NOT set timestamp."""
@@ -805,8 +787,7 @@ def test_update_tracking_success_non_youtube_no_timestamp():
 
     client.update_tracking(result)
 
-    assert client._wait_timestamp is None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is None
 
 def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
     """RETRYABLE error adds failure item and sets backoff timestamp."""
@@ -817,8 +798,7 @@ def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
     client.update_tracking(result)
 
     assert queue.size == 1
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
     """BOT_FLAGGED error adds failure item and sets backoff timestamp."""
@@ -829,8 +809,7 @@ def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
     client.update_tracking(result)
 
     assert queue.size == 1
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
     """RETRY_LIMIT_EXCEEDED adds failure item and sets backoff timestamp."""
@@ -841,8 +820,7 @@ def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
     client.update_tracking(result)
 
     assert queue.size == 1
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_update_tracking_terminal_error_sets_timestamp_no_failure():
     """Terminal errors (AGE_RESTRICTED etc.) set timestamp but do not add failure item."""
@@ -853,8 +831,7 @@ def test_update_tracking_terminal_error_sets_timestamp_no_failure():
     client.update_tracking(result)
 
     assert queue.size == 0
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_update_tracking_no_failure_queue():
     """update_tracking works when failure_queue is None."""
@@ -862,8 +839,7 @@ def test_update_tracking_no_failure_queue():
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE)
 
     client.update_tracking(result)  # Should not raise
-    assert client._wait_timestamp is not None  # pylint: disable=protected-access
-
+    assert client.wait_timestamp is not None
 
 def test_backoff_seconds_remaining_none_when_no_timestamp():
     """backoff_seconds_remaining is None when no timestamp has been set."""
@@ -914,8 +890,7 @@ async def test_backoff_wait_raises_on_shutdown():
     shutdown.set()
     client = make_download_client(wait_period_minimum=60, wait_period_max_variance=10)
     # Set a future timestamp so there's something to wait for
-    client._wait_timestamp = datetime.now(timezone.utc).timestamp() + 120  # pylint: disable=protected-access
-
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 120
     with pytest.raises(ExitEarlyException):
         await client.backoff_wait(shutdown)
 
@@ -926,6 +901,217 @@ async def test_backoff_wait_returns_when_elapsed():
     shutdown = asyncio.Event()
     client = make_download_client(wait_period_minimum=1, wait_period_max_variance=1)
     # Set timestamp in the past
-    client._wait_timestamp = datetime.now(timezone.utc).timestamp() - 10  # pylint: disable=protected-access
-
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() - 10
     await client.backoff_wait(shutdown)  # Should return immediately, not raise
+
+
+# ========== Queue Interface Tests ==========
+
+def test_submit_and_queue_size():
+    '''submit enqueues a request; queue_size reflects it'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    assert client.queue_size(mr.guild_id) == 0
+    client.submit(mr.guild_id, mr)
+    assert client.queue_size(mr.guild_id) == 1
+
+
+def test_submit_captures_span_context():
+    '''submit sets span_context on the media request (None when no active span)'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    assert mr.span_context is None
+    client.submit(mr.guild_id, mr)
+    # No active OTEL span in tests → capture_span_context returns None, which is fine
+    assert mr.span_context is None
+
+
+def test_submit_does_not_overwrite_existing_span_context():
+    '''submit preserves an already-set span_context on the media request'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    existing_ctx = {'trace_id': 1, 'span_id': 2, 'trace_flags': 1}
+    mr.span_context = existing_ctx
+    client.submit(mr.guild_id, mr)
+    assert mr.span_context == existing_ctx
+
+
+def test_submit_with_priority():
+    '''submit with priority stores the request without error'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr, priority=10)
+    assert client.queue_size(mr.guild_id) == 1
+
+
+def test_block_guild_prevents_submissions():
+    '''block_guild blocks further put_nowait calls for that guild'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    client.block_guild(mr.guild_id)
+    with pytest.raises(PutsBlocked):
+        client.submit(mr.guild_id, fake_source_dict(fake_context))
+
+
+def test_clear_guild_queue_returns_dropped():
+    '''clear_guild_queue removes all requests and returns them'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr1 = fake_source_dict(fake_context)
+    mr2 = fake_source_dict(fake_context)
+    client.submit(mr1.guild_id, mr1)
+    client.submit(mr1.guild_id, mr2)
+    dropped = client.clear_guild_queue(mr1.guild_id)
+    assert len(dropped) == 2
+    assert client.queue_size(mr1.guild_id) == 0
+
+
+def test_clear_guild_queue_with_predicate():
+    '''preserve_predicate keeps matching items in the queue'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+
+    mr = fake_source_dict(fake_context)
+    par = PlaylistAddRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_name=fake_context['author'].display_name,
+        requester_id=fake_context['author'].id,
+        search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://x.com/v'),
+        playlist_id=1,
+    )
+    client.submit(mr.guild_id, mr)
+    client.submit(par.guild_id, par)
+    # Preserve PlaylistAddRequests (download_file=False)
+    dropped = client.clear_guild_queue(mr.guild_id, preserve_predicate=lambda r: not r.download_file)
+    assert len(dropped) == 1
+    assert client.queue_size(mr.guild_id) == 1
+
+
+def test_get_result_nowait_raises_when_empty():
+    '''get_result_nowait raises QueueEmpty when no results are available'''
+    client = make_download_client()
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+
+
+# ========== DownloadClient.run() Tests ==========
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_success_puts_result_on_result_queue():
+    '''run() downloads and puts result on result queue; broker gets IN_PROGRESS (no backoff active)'''
+    fake_context = generate_fake_context()
+    mock_broker = MagicMock()
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
+        mr = fake_source_dict(fake_context)
+        client.submit(mr.guild_id, mr)
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            await client.run(shutdown)
+    result = client.get_result_nowait()
+    assert result.status.success
+    assert result.file_name == pcm_path
+    broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
+    # No backoff active → no BACKOFF status emitted; only IN_PROGRESS
+    assert DownloadEvent.BACKOFF not in broker_events
+    assert DownloadEvent.IN_PROGRESS in broker_events
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_retryable_requeues_and_increments_retry_count():
+    '''run() requeues retryable errors and increments retry_count'''
+    fake_context = generate_fake_context()
+    mock_broker = MagicMock()
+    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
+    mr = fake_source_dict(fake_context)
+    assert mr.download_retry_information.retry_count == 0
+    client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    # Result queue should be empty — retryable goes back to input queue
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+    # retry_count incremented
+    assert mr.download_retry_information.retry_count == 1
+    # Input queue has the request again
+    assert client.queue_size(mr.guild_id) == 1
+    broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
+    assert DownloadEvent.RETRY in broker_events
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_terminal_error_puts_result_on_result_queue():
+    '''run() puts terminal failures on the result queue for music.py to handle'''
+    fake_context = generate_fake_context()
+    mock_broker = MagicMock()
+    client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    result = client.get_result_nowait()
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.PRIVATE_VIDEO
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_empty_queue_returns_immediately():
+    '''run() returns immediately when input queue is empty'''
+    client = make_download_client()
+    shutdown = asyncio.Event()
+    await client.run(shutdown)  # Should not raise or block
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_shutdown_during_backoff_does_not_lose_item():
+    '''Shutdown during backoff leaves the item in the input queue (not discarded)'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Private video'))
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    # Force an active backoff
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
+    shutdown = asyncio.Event()
+    shutdown.set()
+    with pytest.raises(ExitEarlyException):
+        await client.run(shutdown)
+    # Item must still be in the input queue
+    assert client.queue_size(mr.guild_id) == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_without_broker_still_works():
+    '''run() works correctly when no broker is configured'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Private video'))
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    result = client.get_result_nowait()
+    assert not result.status.success
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_result_queue_depth():
+    '''result_queue_depth returns total pending results across all guilds'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Private video'))
+    assert client.result_queue_depth() == 0
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    assert client.result_queue_depth() == 1
+    client.get_result_nowait()
+    assert client.result_queue_depth() == 0
