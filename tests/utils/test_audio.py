@@ -1,12 +1,14 @@
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from moviepy.audio.AudioClip import AudioClip
-from numpy import array, sin, pi
+from numpy import sin, pi, zeros
 
-from discord_bot.utils.audio import get_editing_path, get_finished_path, edit_audio_file
+from discord_bot.utils.audio import get_editing_path, get_finished_path, edit_audio_file, AudioProcessingError
 
 @contextmanager
 def temp_audio_file(duration=2):
@@ -23,65 +25,109 @@ def temp_audio_file(duration=2):
 
 def test_file_paths():
     with NamedTemporaryFile(suffix='.mp3') as temp_file:
-        assert 'edited.mp3' in str(get_editing_path(Path(temp_file.name)).resolve())
-        assert 'finished.mp3' in str(get_finished_path(Path(temp_file.name)).resolve())
+        assert 'edited.pcm' in str(get_editing_path(Path(temp_file.name)).resolve())
+        assert '.pcm' in str(get_finished_path(Path(temp_file.name)).resolve())
 
 def test_edit_audio_file():
     with temp_audio_file() as tmp_audio:
         new_path = edit_audio_file(Path(tmp_audio))
-        assert 'finished.mp3' in str(new_path)
+        assert new_path is not None
+        assert new_path.suffix == '.pcm'
         assert new_path.stat().st_size > 0
 
-def test_edit_audio_file_already_exists():
-    with NamedTemporaryFile(delete=False) as tmp_file:
-        path = Path(tmp_file.name)
-        path.write_text('testing', encoding='utf-8')
-        path.rename(get_finished_path(path))
-        edit_audio_file(path)
-        assert get_finished_path(path).read_text() == 'testing'
-        get_finished_path(path).unlink()
-
-def test_edit_audio_file_key_error(mocker, tmp_path):
-    '''AudioFileClip raises KeyError returns None without processing'''
-    mocker.patch('discord_bot.utils.audio.AudioFileClip', side_effect=KeyError('format'))
-    audio_file = tmp_path / 'test.mp3'
-    audio_file.touch()
-    result = edit_audio_file(audio_file)
-    assert result is None
-
-
-def _make_mock_clip(volumes):
-    '''Build a mock AudioFileClip whose subclipped() returns controlled volume data'''
+def test_edit_audio_file_converts_to_pcm(mocker, tmp_path):
+    '''Successful conversion writes pcm, renames editing file, deletes original'''
     mock_clip = MagicMock()
-    mock_clip.duration = float(len(volumes) + 1)
-
-    def _sub(start, end=None):
-        sub_clip = MagicMock()
-        if end is not None and (end - start) == 1:
-            # Volume-check call: return array with matching volume
-            idx = int(start)
-            vol = volumes[idx] if idx < len(volumes) else 1.0
-            sub_clip.to_soundarray.return_value = array([[vol, vol]])
-        else:
-            # Final subclip call: produce a clip that writes the editing file
-            edited = MagicMock()
-            sub_clip.with_effects.return_value = edited
-            def _write(path, **_kw):
-                Path(path).touch()
-            edited.write_audiofile.side_effect = _write
-        return sub_clip
-
-    mock_clip.subclipped.side_effect = _sub
-    return mock_clip
-
-
-def test_edit_audio_file_dead_start_and_end(mocker, tmp_path):
-    '''Silence at both start and end trims start/end and applies buffer'''
-    # volumes[0] = 0 (silent), volumes[1] = 1.0, volumes[2] = 0 (silent)
-    mock_clip = _make_mock_clip([0.0, 1.0, 0.0])
+    mock_edited = MagicMock()
+    mock_clip.with_effects.return_value = mock_edited
+    mock_edited.to_soundarray.return_value = zeros((100, 2))
     mocker.patch('discord_bot.utils.audio.AudioFileClip', return_value=mock_clip)
+
     audio_file = tmp_path / 'audio.mp3'
     audio_file.touch()
+
     result = edit_audio_file(audio_file)
+
     assert result is not None
-    assert 'finished' in result.name
+    assert result.suffix == '.pcm'
+    assert result.exists()
+    assert not audio_file.exists()
+    mock_edited.to_soundarray.assert_called_once_with(fps=48000)
+
+def test_edit_audio_file_key_error(mocker, tmp_path):
+    '''AudioFileClip raises KeyError raises AudioProcessingError and logs a warning'''
+    mocker.patch('discord_bot.utils.audio.AudioFileClip', side_effect=KeyError('format'))
+    mock_logger = mocker.patch('discord_bot.utils.audio.logger')
+    audio_file = tmp_path / 'test.mp3'
+    audio_file.touch()
+    with pytest.raises(AudioProcessingError):
+        edit_audio_file(audio_file)
+    mock_logger.warning.assert_called_once()
+
+def test_edit_audio_file_empty_array(mocker, tmp_path):
+    '''to_soundarray returning empty array raises AudioProcessingError'''
+    mock_clip = MagicMock()
+    mock_edited = MagicMock()
+    mock_clip.with_effects.return_value = mock_edited
+    mock_edited.to_soundarray.return_value = zeros((0, 2))
+    mocker.patch('discord_bot.utils.audio.AudioFileClip', return_value=mock_clip)
+
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+
+    with pytest.raises(AudioProcessingError, match='empty output'):
+        edit_audio_file(audio_file)
+
+
+def test_edit_audio_file_size_not_divisible_by_4(mocker, tmp_path):
+    '''File on disk with size not divisible by 4 raises AudioProcessingError'''
+    mock_clip = MagicMock()
+    mock_edited = MagicMock()
+    mock_clip.with_effects.return_value = mock_edited
+    mock_edited.to_soundarray.return_value = zeros((100, 2))
+    mocker.patch('discord_bot.utils.audio.AudioFileClip', return_value=mock_clip)
+
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+
+    mock_stat = MagicMock()
+    mock_stat.st_size = 3  # not divisible by 4
+    mocker.patch.object(Path, 'stat', return_value=mock_stat)
+
+    with pytest.raises(AudioProcessingError, match='not divisible by 4'):
+        edit_audio_file(audio_file)
+
+
+def test_edit_audio_file_size_mismatch(mocker, tmp_path):
+    '''File on disk with wrong byte count raises AudioProcessingError'''
+    mock_clip = MagicMock()
+    mock_edited = MagicMock()
+    mock_clip.with_effects.return_value = mock_edited
+    mock_edited.to_soundarray.return_value = zeros((100, 2))
+    mocker.patch('discord_bot.utils.audio.AudioFileClip', return_value=mock_clip)
+
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+
+    # Divisible by 4 but wrong total size (8 bytes = 2 frames, expected 100 * 4 = 400)
+    mock_stat = MagicMock()
+    mock_stat.st_size = 8
+    mocker.patch.object(Path, 'stat', return_value=mock_stat)
+
+    with pytest.raises(AudioProcessingError, match='does not match expected'):
+        edit_audio_file(audio_file)
+
+
+def test_edit_audio_file_key_error_records_otel_span(mocker, tmp_path):
+    '''KeyError is recorded on the otel span and span status set to ERROR'''
+    mocker.patch('discord_bot.utils.audio.AudioFileClip', side_effect=KeyError('format'))
+    mock_span = MagicMock()
+    with patch('discord_bot.utils.audio.otel_span_wrapper') as mock_wrapper:
+        mock_wrapper.return_value.__enter__ = MagicMock(return_value=mock_span)
+        mock_wrapper.return_value.__exit__ = MagicMock(return_value=False)
+        audio_file = tmp_path / 'test.mp3'
+        audio_file.touch()
+        with pytest.raises(AudioProcessingError):
+            edit_audio_file(audio_file)
+    mock_span.record_exception.assert_called_once()
+    mock_span.set_status.assert_called_once()

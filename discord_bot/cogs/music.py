@@ -22,13 +22,11 @@ from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.engine.base import Engine
-from yt_dlp import YoutubeDL
-from yt_dlp.postprocessor import PostProcessor
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
-from discord_bot.cogs.music_helpers.download_client import DownloadClient, match_generator
+from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import DownloadErrorType, DownloadResult
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
@@ -46,8 +44,7 @@ from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner, get_logger, run_commit
-from discord_bot.utils.audio import edit_audio_file
+from discord_bot.utils.common import rm_tree, return_loop_runner, run_commit
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
@@ -64,9 +61,6 @@ PLAYHISTORY_NAME = 'Channel History'
 
 # Find numbers in strings
 NUMBER_REGEX = r'.*(?P<number>[0-9]+).*'
-
-# YTDLP OUTPUT TEMPLATE
-YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 
 # Pydantic config models
 class MusicGeneralConfig(BaseModel):
@@ -108,7 +102,6 @@ class MusicDownloadConfig(BaseModel):
     '''Music download configuration'''
     download_dir_path: Optional[str] = None
     max_video_length: int = Field(default=900, ge=1)
-    enable_audio_processing: bool = False
     extra_ytdlp_options: dict = Field(default_factory=dict)
     banned_videos_list: list[str] = Field(default_factory=list)
     youtube_wait_period_minimum: int = Field(default=30, ge=1)
@@ -151,29 +144,6 @@ class PlaylistMaxLength(Exception):
 OTEL_SPAN_PREFIX = 'music'
 
 #
-# YTDL Post Processor
-#
-
-
-class VideoEditing(PostProcessor):
-    '''
-    Run post processing on downloaded videos
-    '''
-    def run(self, information):
-        '''
-        Run post processing editing
-        Get filename, edit with moviepy, and update dict
-        '''
-        file_path = Path(information['_filename'])
-        edited_path = edit_audio_file(file_path)
-        if edited_path:
-            information['_filename'] = str(edited_path)
-            information['filepath'] = str(edited_path)
-        else:
-            information['_filename'] = str(file_path)
-            information['filepath'] = str(file_path)
-        return [], information
-
 class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
@@ -262,33 +232,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Multi Request bundles
         self.multirequest_bundles = {}
 
-        ytdlopts = {
-            'format': 'bestaudio/best',
-            'restrictfilenames': True,
-            'noplaylist': True,
-            'nocheckcertificate': True,
-            'ignoreerrors': False,
-            'logtostderr': False,
-            'logger': get_logger('ytdlp', self.logging_config),
-            'default_search': 'auto',
-            'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
-            'outtmpl': str((self.download_dir if self.download_dir else self.temp_download_dir) / f'{YTDLP_OUTPUT_TEMPLATE}'),
-        }
-        for key, val in self.config.download.extra_ytdlp_options.items():
-            ytdlopts[key] = val
-        # Add any filter functions, do some logic so we only pass a single function into the processor
-        if self.config.download.max_video_length or self.config.download.banned_videos_list:
-            ytdlopts['match_filter'] = match_generator(self.config.download.max_video_length, self.config.download.banned_videos_list)
-        ytdl = YoutubeDL(ytdlopts)
-        if self.config.download.enable_audio_processing:
-            ytdl.add_post_processor(VideoEditing(), when='post_process')
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
+        # Add any filter functions, do some logic so we only pass a single function into the processor
         failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
         self.download_client = DownloadClient(
-            ytdl,
+            self.logging_config,
+            self.download_dir if self.download_dir else self.temp_download_dir,
+            extra_ytdlp_options=self.config.download.extra_ytdlp_options,
+            max_video_length=self.config.download.max_video_length,
+            banned_video_list=self.config.download.banned_videos_list,
             failure_queue=failure_queue,
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,

@@ -1,6 +1,6 @@
 import pytest
 
-from discord_bot.cogs.music import match_generator
+from discord_bot.cogs.music_helpers.download_client import match_generator
 
 from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned
 

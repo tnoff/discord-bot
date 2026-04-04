@@ -42,4 +42,5 @@ class DownloadResult(BaseModel):
     ytdlp_data: dict | None
     file_name: Path | None
     download_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    post_process_timestamp: datetime | None = None
     file_size_bytes: int | None = None

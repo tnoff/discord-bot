@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
+from io import BytesIO
 import logging
 from pathlib import Path
 from re import sub
@@ -9,7 +10,7 @@ from typing import List
 
 from async_timeout import timeout
 from dappertable import DapperTable, Column, Columns, PaginationLength
-from discord import FFmpegPCMAudio
+from discord import PCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
 
@@ -23,9 +24,9 @@ from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('music_player')
 
-def cleanup_source(audio_source: FFmpegPCMAudio):
+def cleanup_source(audio_source: PCMAudio):
     '''
     Cleanup audio source
     '''
@@ -79,7 +80,7 @@ class MusicPlayer:
 
         # Random things to store
         self.current_media_download: MediaDownload | None = None
-        self.current_audio_source: FFmpegPCMAudio | None = None
+        self.current_audio_source: PCMAudio | None = None
         self.np_message: str = ''
         self.video_skipped: bool = False
         self.queue_messages: list[str] = [] # Show current queue
@@ -119,10 +120,13 @@ class MusicPlayer:
                 self.broker.checkout, str(media_download.media_request.uuid), self.guild.id, self.file_dir
             )
 
-        audio_source = FFmpegPCMAudio(str(guild_file_path or media_download.file_path))
+        file_path = guild_file_path or media_download.file_path
+        logger.debug(f'Gathered new file to play {str(file_path)}')
+        with open(file_path, 'rb') as f:
+            audio_data = BytesIO(f.read())
+        audio_source = PCMAudio(audio_data)
         self.current_audio_source = audio_source
         self.video_skipped = False
-        audio_source.volume = 1
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
