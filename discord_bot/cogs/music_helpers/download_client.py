@@ -348,21 +348,23 @@ class DownloadClient():
                 ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
                 if ytdlp_md5 and ytdlp_md5 != computed_md5:
                     logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
-                # Upload to S3 immediately when configured; local staging file is deleted
-                # and file_name in the result becomes the S3 object key
-                if self.bucket_name:
-                    # Key is deterministic per video so the same video always maps to the
-                    # same S3 object, enabling cache reuse across requests.
-                    # With a single downloader instance this is fine, but if multiple
-                    # downloaders run concurrently they could race to upload the same key.
-                    # If concurrency is ever added, consider a download queue or a
-                    # check-then-skip pattern (list_objects before uploading).
-                    s3_key = f'cache/{data["extractor"]}.{data["id"]}{"".join(file_path.suffixes)}'
-                    upload_file(self.bucket_name, file_path, s3_key)
-                    file_path.unlink()
-                    file_path = Path(s3_key)
-            span.set_status(StatusCode.OK)
             return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None)
+
+    def __upload_s3(self, file_path: Path):
+        if not self.bucket_name:
+            return file_path
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.upload_s3', kind=SpanKind.CLIENT):
+            # Key is deterministic per video so the same video always maps to the
+            # same S3 object, enabling cache reuse across requests.
+            # With a single downloader instance this is fine, but if multiple
+            # downloaders run concurrently they could race to upload the same key.
+            # If concurrency is ever added, consider a download queue or a
+            # check-then-skip pattern (list_objects before uploading).
+            s3_key = f'cache/{file_path.name}'
+            upload_file(self.bucket_name, file_path, s3_key)
+            file_path.unlink()
+            file_path = Path(s3_key)
+        return file_path
 
     async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
         '''
@@ -394,4 +396,6 @@ class DownloadClient():
                         error_detail=str(error),
                     ),
                 })
+            # Finally upload result to s3 and update the filepath
+            result.file_name = await loop.run_in_executor(None, self.__upload_s3, result.file_name)
         return result

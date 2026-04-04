@@ -17,6 +17,24 @@ def _make_bot(is_ready=True, is_closed=False):
     return bot
 
 
+async def _wait_for_port(port: int, timeout: float = 5.0) -> None:
+    """Poll until the port accepts a TCP connection or timeout expires."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        try:
+            _, writer = await asyncio.open_connection('127.0.0.1', port)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+            return
+        except OSError:
+            if asyncio.get_event_loop().time() >= deadline:
+                raise
+            await asyncio.sleep(0.01)
+
+
 async def _raw_request(port: int) -> str:
     """Open a raw TCP connection and send a minimal HTTP GET, return the full response."""
     reader, writer = await asyncio.open_connection('127.0.0.1', port)
@@ -61,7 +79,7 @@ class TestHealthServerAsync:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18080)
         task = asyncio.create_task(hs.serve())
-        await asyncio.sleep(0.05)  # let server start
+        await _wait_for_port(18080)
         try:
             response = await _raw_request(18080)
             assert '200 OK' in response
@@ -78,7 +96,7 @@ class TestHealthServerAsync:
         bot = _make_bot(is_ready=False, is_closed=False)
         hs = HealthServer(bot, port=18081)
         task = asyncio.create_task(hs.serve())
-        await asyncio.sleep(0.05)
+        await _wait_for_port(18081)
         try:
             response = await _raw_request(18081)
             assert '503' in response
@@ -95,7 +113,7 @@ class TestHealthServerAsync:
         bot = _make_bot(is_ready=True, is_closed=True)
         hs = HealthServer(bot, port=18082)
         task = asyncio.create_task(hs.serve())
-        await asyncio.sleep(0.05)
+        await _wait_for_port(18082)
         try:
             response = await _raw_request(18082)
             assert '503' in response
