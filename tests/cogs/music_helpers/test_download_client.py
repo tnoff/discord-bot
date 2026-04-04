@@ -98,27 +98,59 @@ async def test_prepare_source():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode():
-    '''In S3 mode, upload_file is called, local file deleted, result.file_name is S3 key'''
+    '''In S3 mode, PCM conversion runs first on the local file, then the PCM is uploaded to S3'''
     loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
-        fake_context = generate_fake_context()
-        x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)),
-                                 bucket_name='test-bucket')
-        y = fake_source_dict(fake_context)
-        s3_key = Path('cache/test-extractor.vid123.mp3')
-        pcm_path = s3_key.with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
-            with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path) as edit_mock:
-                result = await x.create_source(y, 3, loop)
-        assert result.status.success
-        upload_mock.assert_called_once()
-        call_args = upload_mock.call_args[0]
-        assert call_args[0] == 'test-bucket'
-        assert str(call_args[2]) == 'cache/test-extractor.vid123.mp3'
-        # local file gone, PCM conversion ran on S3 key, result carries PCM path
-        assert not call_args[1].exists()
-        edit_mock.assert_called_once_with(s3_key)
-        assert result.file_name == pcm_path
+        download_path = Path(tmp_file.name)
+    # Create a real PCM file so __upload_s3 can unlink it
+    pcm_path = download_path.with_suffix('.pcm')
+    pcm_path.write_bytes(b'pcm data')
+    fake_context = generate_fake_context()
+    x = make_download_client(MockYTDLP(fake_file_path=download_path),
+                             bucket_name='test-bucket')
+    y = fake_source_dict(fake_context)
+    expected_s3_key = f'cache/{pcm_path.name}'
+    with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path) as edit_mock:
+            result = await x.create_source(y, 3, loop)
+    assert result.status.success
+    # edit_audio_file was called with the local download file, not an S3 key
+    edit_mock.assert_called_once_with(download_path)
+    upload_mock.assert_called_once()
+    call_args = upload_mock.call_args[0]
+    assert call_args[0] == 'test-bucket'
+    assert call_args[1] == pcm_path
+    assert str(call_args[2]) == expected_s3_key
+    # PCM file deleted after upload
+    assert not pcm_path.exists()
+    # result carries S3 key path
+    assert result.file_name == Path(expected_s3_key)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_s3_mode_audio_processing_error():
+    '''In S3 mode, when AudioProcessingError occurs the original file is still uploaded to S3'''
+    loop = asyncio.get_running_loop()
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        download_path = Path(tmp_file.name)
+    download_path.write_bytes(b'raw audio')
+    fake_context = generate_fake_context()
+    x = make_download_client(MockYTDLP(fake_file_path=download_path),
+                             bucket_name='test-bucket')
+    y = fake_source_dict(fake_context)
+    expected_s3_key = f'cache/{download_path.name}'
+    with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
+                   side_effect=AudioProcessingError('bad codec')):
+            result = await x.create_source(y, 3, loop)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
+    # upload still runs after processing failure, using the original download file
+    upload_mock.assert_called_once()
+    call_args = upload_mock.call_args[0]
+    assert call_args[0] == 'test-bucket'
+    assert call_args[1] == download_path
+    assert str(call_args[2]) == expected_s3_key
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_empty_requested_downloads():
