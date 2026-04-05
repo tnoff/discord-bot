@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.database import BASE
@@ -116,7 +117,11 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
 
 @pytest.fixture(scope="function")
 def fake_engine() -> Generator[Engine, None, None]:
-    engine = create_engine('sqlite+pysqlite:///:memory:')
+    engine = create_engine(
+        'sqlite+pysqlite:///:memory:',
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
 

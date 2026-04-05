@@ -1,4 +1,4 @@
-from asyncio import sleep
+from asyncio import sleep, to_thread
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from random import choice
@@ -246,10 +246,15 @@ class Markov(CogHelper):
                             after_message_id=markov_channel.last_message_id,
                         )
 
-            # Clean up old records (DB-only, stays in producer)
-            async with async_otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
-                retry_database_commands(db_session, partial(delete_old_records, db_session))
-                self.logger.debug('Deleted expired/old markov relations')
+        # Clean up old records in a separate thread with its own session,
+        # so the session is created and used in the same thread (required by SQLite,
+        # and avoids cross-thread session sharing with any DB).
+        async with async_otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
+            def _do_delete():
+                with self.with_db_session() as thread_session:
+                    retry_database_commands(thread_session, partial(delete_old_records, thread_session))
+            await to_thread(_do_delete)
+            self.logger.debug('Deleted expired/old markov relations')
 
     async def _markov_result_loop(self):
         '''
