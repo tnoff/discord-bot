@@ -200,6 +200,16 @@ Playback uses `discord.PCMAudio`, which reads the pre-converted file directly wi
 
 The tradeoff is disk space: raw PCM is roughly 11 MB/min versus ~1 MB/min for a compressed format. For short-lived playback files this is acceptable, but worth keeping in mind if cache retention is long.
 
+The converted PCM files are written to a per-guild subdirectory under the player working directory. By default this is a temporary directory that is cleaned up automatically on shutdown. If you are running on a host with a dedicated volume for bot storage (e.g. a Docker volume or separate disk mount), you can pin it to a specific path:
+
+```
+music:
+  player:
+    player_dir_path: /data/discord-bot/players
+```
+
+When `player_dir_path` is set, the directory is created on startup if it does not exist. On shutdown, per-guild subdirectories are still removed as players disconnect, but the root directory itself is left in place so it survives restarts.
+
 Do to disk limitation you may wish to limit the queue size, max length of a video that can be played, max playlist size that can be used.
 
 ```

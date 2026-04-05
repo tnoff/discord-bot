@@ -72,6 +72,7 @@ class MusicPlayerConfig(BaseModel):
     queue_max_size: int = Field(default=128, ge=1)
     disconnect_timeout: int = Field(default=900, ge=1)
     inactive_voice_channel_timeout: int = Field(default=180, ge=1)
+    player_dir_path: Optional[str] = None
 
 class MusicPlaylistConfig(BaseModel):
     '''Music playlist configuration'''
@@ -203,8 +204,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.temp_download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
         self.temp_download_dir.mkdir(exist_ok=True)
 
-        # Tempdir for players
-        self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+        # Dir for player working files; use configured path if set, otherwise a temp dir
+        if self.config.player.player_dir_path is not None:
+            self.player_dir = Path(self.config.player.player_dir_path)
+            self.player_dir.mkdir(exist_ok=True, parents=True)
+        else:
+            self.player_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
+            self.player_dir.mkdir(exist_ok=True, parents=True)
 
         # Only used in local (non-S3) mode; doubles as yt-dlp output dir when set
         self.download_dir: Path | None = None
@@ -412,7 +418,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 rm_tree(self.download_dir)
             if self.temp_download_dir.exists():
                 rm_tree(self.temp_download_dir)
-            if self.player_dir.exists():
+            if self.config.player.player_dir_path is None and self.player_dir.exists():
                 rm_tree(self.player_dir)
 
             self.multirequest_bundles.clear()
@@ -999,6 +1005,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Generate and start player
                 history_playlist_id = await self.__get_history_playlist(ctx.guild.id)
                 player = MusicPlayer(ctx,
+                                     self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
