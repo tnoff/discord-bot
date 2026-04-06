@@ -2,7 +2,6 @@ import asyncio
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
 from io import BytesIO
-import logging
 from pathlib import Path
 from re import sub
 from time import time
@@ -23,8 +22,9 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.common import return_loop_runner
+from discord_bot.utils.common import get_logger, LoggingConfig
 
-logger = logging.getLogger('music_player')
+
 
 def cleanup_source(audio_source: PCMAudio):
     '''
@@ -48,6 +48,7 @@ class MusicPlayer:
     '''
 
     def __init__(self, ctx: Context,
+                 logging_config: LoggingConfig,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  dispatcher,
                  history_playlist_id: int,
@@ -55,8 +56,9 @@ class MusicPlayer:
                  broker: MediaBroker | None = None,
                  prefetch_limit: int = 5):
         '''
-        file_dir : Files for guild stored here
+        Music Player to sit in voice chat
         '''
+        self.logger = get_logger(__name__, logging_config)
         self.bot = ctx.bot
         self.guild = ctx.guild
         self.text_channel = ctx.channel
@@ -97,7 +99,7 @@ class MusicPlayer:
         Start background methods
         '''
         if not self._player_task:
-            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, logger, None)())
+            self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
 
     async def player_loop(self):
         '''
@@ -110,7 +112,7 @@ class MusicPlayer:
             async with timeout(self.disconnect_timeout):
                 media_download = await self._play_queue.get()
         except async_timeout as e:
-            logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
+            self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
@@ -121,7 +123,7 @@ class MusicPlayer:
             )
 
         file_path = guild_file_path or media_download.file_path
-        logger.debug(f'Gathered new file to play {str(file_path)}')
+        self.logger.debug(f'Gathered new file to play {str(file_path)}')
         with open(file_path, 'rb') as f:
             audio_data = BytesIO(f.read())
         audio_source = PCMAudio(audio_data)
@@ -130,7 +132,7 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
-            logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
+            self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
             self.np_message = ''
             cleanup_source(audio_source)
             if self.broker:
@@ -139,7 +141,7 @@ class MusicPlayer:
                 self.destroy()
             raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.trigger_prefetch()
-        logger.info(f'Now playing "{media_download.webpage_url}" requested '
+        self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
                             f'"{media_download.webpage_url}"')
         self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
@@ -216,7 +218,7 @@ class MusicPlayer:
         '''
         Used for loop to call once voice channel done
         '''
-        logger.info(f'Set next called on player in guild "{self.guild.id}"')
+        self.logger.info(f'Set next called on player in guild "{self.guild.id}"')
         self.next.set()
 
     async def join_voice(self, channel):
@@ -270,7 +272,7 @@ class MusicPlayer:
 
     def _on_prefetch_done(self, task: asyncio.Task):
         if not task.cancelled() and (exc := task.exception()):
-            logger.warning(f'Prefetch failed in guild {self.guild.id}: {exc}')
+            self.logger.warning(f'Prefetch failed in guild {self.guild.id}: {exc}')
 
     def trigger_prefetch(self):
         '''
@@ -360,7 +362,7 @@ class MusicPlayer:
         '''
         Cleanup all resources for player
         '''
-        logger.info(f'Clearing out resources for player in {self.guild.id}')
+        self.logger.info(f'Clearing out resources for player in {self.guild.id}')
         self._play_queue.block()
         cleanup_source(self.current_audio_source)
         if self.broker and self.current_media_download:
@@ -370,14 +372,14 @@ class MusicPlayer:
         while True:
             try:
                 media_download = self._play_queue.get_nowait()
-                logger.debug(f'Removing item {media_download} from play queue')
+                self.logger.debug(f'Removing item {media_download} from play queue')
                 if self.broker:
                     self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:
                 break
 
         # Clear out all the queues
-        logger.debug('Calling clear on queues and queue messages')
+        self.logger.debug('Calling clear on queues and queue messages')
         self._history.clear()
         self._play_queue.clear()
         # Clear any messages in the current queue
@@ -397,6 +399,6 @@ class MusicPlayer:
 
         reason : CleanupReason describing why playback is ending
         '''
-        logger.info(f'Calling shutdown on music player for guild {self.guild.id}, reason: {reason.value}')
+        self.logger.info(f'Calling shutdown on music player for guild {self.guild.id}, reason: {reason.value}')
         self.shutdown_called = True
         self.shutdown_reason = reason

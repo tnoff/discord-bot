@@ -1409,6 +1409,64 @@ async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, f
     assert 'Total Plays: 1' in message_content
 
 
+def test_player_dir_uses_configured_path(fake_context):  #pylint:disable=redefined-outer-name
+    """player_dir is set to the configured player_dir_path and created on disk."""
+    with TemporaryDirectory() as tmp_dir:
+        configured_path = Path(tmp_dir) / 'players'
+        config = {
+            **BASE_MUSIC_CONFIG,
+            'music': {'player': {'player_dir_path': str(configured_path)}},
+        }
+        cog = Music(fake_context['bot'], config, None)
+        assert cog.player_dir == configured_path
+        assert configured_path.exists()
+
+
+def test_player_dir_defaults_to_temp_when_unconfigured(fake_context):  #pylint:disable=redefined-outer-name
+    """player_dir falls back to a temp path when player_dir_path is not set."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    assert cog.player_dir is not None
+    assert cog.config.player.player_dir_path is None
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_removes_temp_player_dir(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload deletes player_dir when player_dir_path was not configured."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.players = {}
+
+    with TemporaryDirectory() as tmp_dir:
+        cog.player_dir = Path(tmp_dir)
+        mocker.patch('pathlib.Path.exists', return_value=True)
+        rm_tree_mock = mocker.patch('discord_bot.cogs.music.rm_tree')
+
+        await cog.cog_unload()
+
+        # rm_tree should have been called for the temp player_dir
+        called_paths = [call.args[0] for call in rm_tree_mock.call_args_list]
+        assert cog.player_dir in called_paths
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_preserves_configured_player_dir(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload does not delete player_dir when player_dir_path is set in config."""
+    with TemporaryDirectory() as tmp_dir:
+        configured_path = Path(tmp_dir) / 'players'
+        config = {
+            **BASE_MUSIC_CONFIG,
+            'music': {'player': {'player_dir_path': str(configured_path)}},
+        }
+        cog = Music(fake_context['bot'], config, None)
+        cog.players = {}
+        mocker.patch('pathlib.Path.exists', return_value=True)
+        rm_tree_mock = mocker.patch('discord_bot.cogs.music.rm_tree')
+
+        await cog.cog_unload()
+
+        called_paths = [call.args[0] for call in rm_tree_mock.call_args_list]
+        assert cog.player_dir not in called_paths
+
+
 @pytest.mark.asyncio
 async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test music_stats command when database is not available"""
