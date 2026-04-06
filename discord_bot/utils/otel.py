@@ -109,6 +109,13 @@ def span_links_from_context(span_context: dict | None) -> list:
     return [trace.Link(ctx)]
 
 
+class DispatchNaming(Enum):
+    '''
+    Dispatch system attribute constants
+    '''
+    REQUEST_ID = 'dispatch.request_id'
+    PROCESS_ID = 'dispatch.process_id'
+
 def command_wrapper(function):
     '''
     Wrap a discord command function
@@ -131,11 +138,12 @@ def command_wrapper(function):
 def otel_span_wrapper(span_name: str, ctx: Context = None,
                       kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                       attributes: dict = None,
+                      context=None,
                       links: list | None = None):
     '''
     Wrap a generic span
     '''
-    with TRACER.start_as_current_span(span_name, kind=kind, links=links or []) as span:
+    with TRACER.start_as_current_span(span_name, kind=kind, context=context, links=links or []) as span:
         if ctx:
             span.set_attributes({
                 DiscordContextNaming.AUTHOR.value: ctx.author.id,
@@ -161,11 +169,12 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
 async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
                                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                                    attributes: dict = None,
+                                   context=None,
                                    links: list | None = None):
     '''
     Wrap a generic span in an async context manager
     '''
-    with TRACER.start_as_current_span(span_name, kind=kind, links=links or []) as span:
+    with TRACER.start_as_current_span(span_name, kind=kind, context=context, links=links or []) as span:
         if ctx:
             span.set_attributes({
                 DiscordContextNaming.AUTHOR.value: ctx.author.id,

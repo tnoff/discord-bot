@@ -15,6 +15,7 @@ class FetchChannelHistoryRequest:
     after: Optional[datetime] = None
     after_message_id: Optional[int] = None
     oldest_first: bool = True
+    span_context: Optional[dict] = None
     type: str = field(default='fetch_history', init=False)
 
 
@@ -25,6 +26,7 @@ class FetchGuildEmojisRequest:
     guild_id: int
     cog_name: str
     max_retries: int = 3
+    span_context: Optional[dict] = None
     type: str = field(default='fetch_emojis', init=False)
 
 
@@ -36,6 +38,7 @@ class SendRequest:
     channel_id: int
     content: str
     delete_after: Optional[int] = None
+    span_context: Optional[dict] = None
     type: str = field(default='send', init=False)
 
 
@@ -46,6 +49,7 @@ class DeleteRequest:
     guild_id: int
     channel_id: int
     message_id: int
+    span_context: Optional[dict] = None
     type: str = field(default='delete', init=False)
 
 

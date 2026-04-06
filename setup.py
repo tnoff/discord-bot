@@ -10,13 +10,28 @@ for root, dirs, files in os.walk(os.path.join(THIS_DIR, 'cogs/plugins')):
         if 'requirements.txt' in name.lower():
             REQUIREMENTS_FILES.append(os.path.join(root, name))
 
+def read_requirements(file_path, _seen=None):
+    if _seen is None:
+        _seen = set()
+    if file_path in _seen or not os.path.exists(file_path):
+        return []
+    _seen.add(file_path)
+    base_dir = os.path.dirname(file_path)
+    reqs = []
+    with open(file_path) as f:
+        for line in f.read().splitlines():
+            if line.startswith('-r '):
+                included = os.path.join(base_dir, line[3:].strip())
+                reqs += read_requirements(included, _seen)
+            else:
+                reqs.append(line)
+    return reqs
+
 required = []
 for file_name in REQUIREMENTS_FILES:
     # Not sure why but tox seems to miss the file here
     # So add the check
-    if os.path.exists(file_name):
-        with open(file_name) as f:
-            required += f.read().splitlines()
+    required += read_requirements(file_name)
 
 # Try/catch mostly here for tox.ini
 try:

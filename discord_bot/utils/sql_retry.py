@@ -13,6 +13,14 @@ from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper, A
 
 OTEL_SPAN_PREFIX = 'sql_retry'
 
+
+def run_commit(db_session: Session):
+    '''
+    Run commit on a db_session, useful for using in retries
+    '''
+    db_session.commit()
+
+
 def retry_database_commands(db_session: Session, function: Callable, attempts: int = 3, interval: int = 1):
     '''
     Wrap database commands in a retry class

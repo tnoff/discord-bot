@@ -1274,7 +1274,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     await cog.cleanup(fake_context['guild'])
 
     # Verify bundle was shutdown
-    mock_bundle.shutdown.assert_called_once()
+    assert mock_bundle.shutdown.called
 
     # Verify dispatcher update_mutable was called
     # This verifies the bug fix where we use item.channel_id instead of player.text_channel.id

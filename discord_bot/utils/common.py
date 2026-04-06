@@ -9,7 +9,7 @@ from opentelemetry.trace import get_current_span
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.orm.session import Session
+
 
 from discord_bot.cogs.schema import StorageConfig
 from discord_bot.exceptions import ExitEarlyException
@@ -78,6 +78,7 @@ class LoggingConfig(BaseModel):
 class IncludeConfig(BaseModel):
     '''Cog include configuration'''
     default: bool = True
+    message_dispatcher: bool = True
     markov: bool = False
     urban: bool = False
     music: bool = False
@@ -94,6 +95,11 @@ class GeneralConfig(BaseModel):
     include: IncludeConfig = Field(default_factory=IncludeConfig)
     intents: list[str] = Field(default_factory=list)
     rejectlist_guilds: list[int] = Field(default_factory=list)
+    redis_url: Optional[str] = None
+    dispatch_cross_process: bool = False
+    dispatch_process_id: Optional[str] = None
+    dispatch_shard_id: int = 0
+    dispatch_gateway: bool = True
 
 def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
     '''
@@ -168,9 +174,3 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
                 logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
                 return False
     return loop_runner
-
-def run_commit(db_session: Session):
-    '''
-    Run commit on a db_session, useful for using in retries
-    '''
-    db_session.commit()

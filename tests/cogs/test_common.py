@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
@@ -100,6 +100,29 @@ def test_dispatcher_raises_when_not_loaded(fake_context, mocker):  #pylint:disab
     mocker.patch.object(fake_context['bot'], 'get_cog', return_value=None)
     with pytest.raises(RuntimeError, match='MessageDispatcher'):
         getattr(cog, '_dispatcher')
+
+
+def test_dispatcher_returns_redis_client_when_cross_process(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''_dispatcher returns a RedisDispatchClient when dispatch_cross_process is true.'''
+    from discord_bot.utils.redis_dispatch_client import RedisDispatchClient  #pylint:disable=import-outside-toplevel
+
+    mocker.patch('discord_bot.cogs.common.get_redis_client', return_value=MagicMock())
+    fake_loop = MagicMock()
+    def _close_coro(coro):
+        if hasattr(coro, 'close'):
+            coro.close()
+        return MagicMock()
+    fake_loop.create_task.side_effect = _close_coro
+    mocker.patch('discord_bot.cogs.common.asyncio').get_running_loop.return_value = fake_loop
+
+    settings = {'general': {
+        'dispatch_cross_process': True,
+        'redis_url': 'redis://localhost:6379/0',
+        'dispatch_process_id': 'test-proc',
+        'dispatch_shard_id': 0,
+    }}
+    cog = CogHelper(fake_context['bot'], settings, None)
+    assert isinstance(cog._dispatcher, RedisDispatchClient)  #pylint:disable=protected-access
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +224,16 @@ async def test_dispatch_delete_removes_message(fake_context):  #pylint:disable=r
 # ---------------------------------------------------------------------------
 # retry_commit (lines 161-164)
 # ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_fetch_delegates_to_dispatcher(fake_context):  #pylint:disable=redefined-outer-name
+    '''dispatch_fetch routes through MessageDispatcher.fetch_object and returns the result.'''
+    cog = CogHelper(fake_context['bot'], {}, None)
+    func = AsyncMock(return_value=42)
+    result = await cog.dispatch_fetch(fake_context['guild'].id, func)
+    assert result == 42
+    func.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_retry_commit_calls_session_commit(fake_engine):  #pylint:disable=redefined-outer-name

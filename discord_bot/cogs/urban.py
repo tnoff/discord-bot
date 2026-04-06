@@ -6,7 +6,7 @@ from discord.ext.commands import Bot, command, Context
 from sqlalchemy.engine.base import Engine
 from requests import get as requests_get
 
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
 

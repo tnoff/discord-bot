@@ -1,0 +1,33 @@
+services:
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - ../volumes/redis:/data
+    restart: unless-stopped
+
+  dispatcher:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dispatcher
+    volumes:
+      - ../volumes/cnf/discord.dispatcher.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/db:/opt/discord/db
+      - ../volumes/dispatcher-logs:/var/log/discord
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../volumes/cnf/discord.bot.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/db:/opt/discord/db
+      - ../volumes/bot-logs:/var/log/discord
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - dispatcher
+    restart: unless-stopped

@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 
+from discord_bot.utils.redis_client import get_redis_client
+
 logger = logging.getLogger(__name__)
 
 class HealthServer:
@@ -55,6 +57,65 @@ class HealthServer:
             await writer.drain()
         except Exception as e:
             logger.debug(f'Health server handler error: {e}')
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+
+class DispatchHealthServer:
+    """
+    Lightweight HTTP health endpoint for the dispatcher process.
+
+    Responds 200 {"status": "ok"} when Redis is reachable (ping succeeds),
+    503 {"status": "unavailable"} otherwise.
+    """
+
+    def __init__(self, redis_url: str, port: int = 8080):
+        self._redis_url = redis_url
+        self.port = port
+        self._client = None
+
+    async def serve(self):
+        """Asyncio coroutine — schedule with asyncio.create_task()."""
+        self._client = get_redis_client(self._redis_url)
+        try:
+            server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
+            logger.info(f'Redis health server listening on port {self.port}')
+            async with server:
+                await server.serve_forever()
+        finally:
+            await self._client.aclose()
+
+    async def _handle(self, reader, writer):
+        """Handle a single HTTP request and write the response."""
+        try:
+            await reader.readline()
+            while True:
+                line = await reader.readline()
+                if line in (b'\r\n', b'\n', b''):
+                    break
+
+            try:
+                await self._client.ping()
+                status_line = b'HTTP/1.1 200 OK\r\n'
+                body = json.dumps({'status': 'ok'}).encode()
+            except Exception:
+                status_line = b'HTTP/1.1 503 Service Unavailable\r\n'
+                body = json.dumps({'status': 'unavailable'}).encode()
+
+            headers = (
+                b'Content-Type: application/json\r\n'
+                + b'Content-Length: ' + str(len(body)).encode() + b'\r\n'
+                + b'Connection: close\r\n'
+                + b'\r\n'
+            )
+            writer.write(status_line + headers + body)
+            await writer.drain()
+        except Exception as e:
+            logger.debug(f'Redis health server handler error: {e}')
         finally:
             writer.close()
             try:

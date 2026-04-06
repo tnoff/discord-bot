@@ -22,5 +22,6 @@ CLAUDE.md
 claude-todos.md
 .venv
 .claude/
+cnf/
 volumes/
 coverage.xml

@@ -147,6 +147,119 @@ Each dispatch type emits an OpenTelemetry span:
 All messages use the `message_dispatcher` logger at `DEBUG` level except warnings
 (channel not found, message truncation) which use `WARNING`.
 
+## Cross-process dispatch via Redis Streams
+
+In a multi-process deployment (e.g. separate music and markov processes), only
+the process that holds the Discord gateway connection can make API calls.
+`MessageDispatcher` runs in that process; other cog processes need to send
+dispatch requests to it over Redis Streams.
+
+### How it works
+
+```
+Cog process                         Dispatcher process
+──────────────────                  ──────────────────────────────────
+RedisDispatchClient                 MessageDispatcher
+  .update_mutable()  ──XADD──►  discord_bot:dispatch:input:shard:0
+  .send_message()                        │
+  .dispatch_channel_history()            │  _stream_consumer reads + ACKs
+        ▲                                ▼
+        │                     _handle_stream_request()
+        │                          routes to update_mutable,
+        │                          send_message, etc.
+        │                                │ (for fetch requests)
+        └──◄──XADD──  discord_bot:dispatch:result:{process_id}
+```
+
+Fire-and-forget requests (`update_mutable`, `send_message`, etc.) are
+XADD'd to the input stream and never return a result. Fetch requests
+(`dispatch_channel_history`, `dispatch_guild_emojis`) block on a
+per-process result stream until the dispatcher writes the result back.
+
+### Configuration
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `dispatch_cross_process` | `false` | Switch `CogHelper._dispatcher` to `RedisDispatchClient` |
+| `dispatch_process_id` | auto UUID | Identifies this process's result stream |
+| `dispatch_shard_id` | `0` | Selects which input stream shard to use |
+| `include.message_dispatcher` | `true` | Load `MessageDispatcher` in this process |
+
+When `dispatch_cross_process` is `false` (the default), `CogHelper._dispatcher`
+returns the in-process `MessageDispatcher` cog as before — no Redis involvement.
+
+#### Dispatcher container config (`discord.dispatcher.cnf`)
+
+```yaml
+general:
+  discord_token: "YOUR_TOKEN"
+  redis_url: "redis://redis:6379/0"
+  dispatch_cross_process: true
+  dispatch_process_id: "dispatcher"
+  dispatch_gateway: false   # HTTP-only — no gateway connection needed
+  dispatch_shard_id: 0
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true         # uses DispatchHealthServer (Redis ping)
+      port: 8080
+  include:
+    default: false          # disable all optional cogs
+    message_dispatcher: true  # only load MessageDispatcher
+```
+
+#### Bot container config (`discord.bot.cnf`)
+
+```yaml
+general:
+  discord_token: "YOUR_TOKEN"
+  redis_url: "redis://redis:6379/0"
+  dispatch_cross_process: true
+  dispatch_process_id: "bot-main"
+  dispatch_shard_id: 0
+  include:
+    default: true
+    message_dispatcher: false  # do NOT load MessageDispatcher here
+    markov: true
+    delete_messages: true
+```
+
+See [Docker Compose](./docker.md#docker-compose) for the matching `docker-compose.multiprocess.yml`.
+
+### Redis Stream keys
+
+| Key pattern | Direction | Description |
+|-------------|-----------|-------------|
+| `discord_bot:dispatch:input:shard:{shard_id}` | cog → dispatcher | Incoming request queue |
+| `discord_bot:dispatch:result:{process_id}` | dispatcher → cog | Result delivery for fetch requests |
+
+The input stream uses a consumer group (`discord_bot:dispatch:workers`) so that
+multiple dispatcher instances can compete for messages if needed. Result streams
+are read without a consumer group (simple XREAD) since only one cog process
+owns each result stream.
+
+### RedisDispatchClient
+
+`RedisDispatchClient` (`discord_bot/utils/redis_dispatch_client.py`) is a
+drop-in replacement for `MessageDispatcher` with the same public API surface.
+It is returned by `CogHelper._dispatcher` when `dispatch_cross_process=True`.
+
+| Method | Behaviour |
+|--------|-----------|
+| `update_mutable(...)` | Fire-and-forget XADD |
+| `remove_mutable(key)` | Fire-and-forget XADD |
+| `update_mutable_channel(...)` | Fire-and-forget XADD |
+| `send_message(...)` | Fire-and-forget XADD |
+| `delete_message(...)` | Fire-and-forget XADD |
+| `dispatch_channel_history(...)` | Awaitable; blocks on result stream |
+| `dispatch_guild_emojis(...)` | Awaitable; blocks on result stream |
+| `submit_request(request)` | Routes a typed request object |
+| `register_cog_queue(cog_name)` | Returns an `asyncio.Queue` for async result delivery |
+
+Call `await client.start()` to begin the background result-poller task.
+Call `client.stop()` to cancel it.
+
 ## Architecture notes
 
 - Workers are started lazily on the first work item for a guild and exit

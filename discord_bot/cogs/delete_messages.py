@@ -8,7 +8,7 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel
 from sqlalchemy.engine.base import Engine
 
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.utils.common import return_loop_runner

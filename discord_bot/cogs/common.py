@@ -1,18 +1,16 @@
 import asyncio
-from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import Optional
+import uuid
 
 from discord.ext.commands import Cog, Bot
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.ext.asyncio import AsyncEngine
-
-
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.utils.redis_client import get_redis_client
+from discord_bot.utils.redis_dispatch_client import RedisDispatchClient
 from discord_bot.utils.common import get_logger, LoggingConfig
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.utils.otel import capture_span_context
 from discord_bot.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
@@ -22,42 +20,43 @@ from discord_bot.types.dispatch_request import (
 
 _UNSET = object()
 
-class CogHelper(Cog):
+
+class CogHelperBase(Cog):
     '''
-    Cogs usually have the following bits
+    Base cog class without database dependencies.
+    Used by cogs that only need Discord and Redis (e.g. MessageDispatcher).
     '''
 
     _message_delete_after: int | None = None
     REQUIRED_TABLES: list[str] = []
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine,
+    def __init__(self, bot: Bot, settings: dict, db_engine=None,
                  settings_prefix: str = None,
                  config_model: Optional[type[BaseModel]] = None):
         '''
         Init a basic cog
         bot                 :   Discord bot object
-        logger              :   Common python logger obj
         settings            :   Common settings config
-        db_engine           :   (Optional) Sqlalchemy db engine
+        db_engine           :   Accepted but unused; present so load_cogs can call all
+                                cog constructors uniformly
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
-        config_model        :   (Optional) Pydantic model to use to validate config. settings_prefix must also be given
+        config_model        :   (Optional) Pydantic model to validate config against.
+                                settings_prefix must also be given.
         '''
-        # Check that prefix given if model also given
         if config_model and not settings_prefix:
             raise CogMissingRequiredArg('Config model given but settings prefix not given')
 
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
+        self.db_engine = db_engine
         logging_dict = settings.get('general', {}).get('logging', {})
         self.logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
         self.logger = get_logger(self._cog_name, self.logging_config)
         self.settings = settings
-        self.db_engine = db_engine
         self.config: Optional[BaseModel] = None
         self._init_task = None
         self._result_queue: asyncio.Queue | None = None
 
-        # Setup config validation
         if config_model:
             try:
                 self.config = config_model.model_validate(settings.get(settings_prefix, {}))
@@ -83,17 +82,16 @@ class CogHelper(Cog):
         self.logger.info(f'{type(self).__name__} :: Required tables restored, starting DB tasks')
         start_tasks_fn()
 
-    @asynccontextmanager
-    async def with_db_session(self):
-        '''
-        Yield an async db session from engine
-        '''
-        session_factory = async_sessionmaker(bind=self.db_engine, class_=AsyncSession, expire_on_commit=False)
-        async with session_factory() as db_session:
-            yield db_session
-
     @cached_property
     def _dispatcher(self):
+        settings_general = self.settings.get('general', {})
+        if settings_general.get('dispatch_cross_process', False):
+            redis_url = settings_general.get('redis_url')
+            process_id = settings_general.get('dispatch_process_id') or str(uuid.uuid4())
+            shard_id = int(settings_general.get('dispatch_shard_id', 0))
+            client = RedisDispatchClient(get_redis_client(redis_url), process_id, self.logging_config, shard_id=shard_id)
+            asyncio.get_running_loop().create_task(client.start())
+            return client
         dispatcher = self.bot.get_cog('MessageDispatcher')
         if dispatcher is None:
             raise RuntimeError('MessageDispatcher cog is required but not loaded')
@@ -132,6 +130,7 @@ class CogHelper(Cog):
             after_message_id=after_message_id,
             oldest_first=oldest_first,
             cog_name=self._cog_name,
+            span_context=capture_span_context(),
         ))
 
     async def dispatch_guild_emojis(self, guild_id: int, max_retries: int = 3) -> None:
@@ -145,6 +144,7 @@ class CogHelper(Cog):
             guild_id=guild_id,
             cog_name=self._cog_name,
             max_retries=max_retries,
+            span_context=capture_span_context(),
         ))
 
     async def dispatch_message(self, guild_id: int, channel_id: int, content: str,
@@ -164,6 +164,7 @@ class CogHelper(Cog):
             channel_id=channel_id,
             content=content,
             delete_after=delete_after,
+            span_context=capture_span_context(),
         ))
         return content
 
@@ -175,11 +176,5 @@ class CogHelper(Cog):
             guild_id=guild_id,
             channel_id=channel_id,
             message_id=message_id,
+            span_context=capture_span_context(),
         ))
-
-    async def retry_commit(self, db_session: AsyncSession):
-        '''
-        Common function to retry db_session commit
-        db_session: Sqlalchemy async db session
-        '''
-        await async_retry_database_commands(db_session, db_session.commit)

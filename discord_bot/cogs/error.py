@@ -1,15 +1,11 @@
 from discord.ext import commands
-from discord_bot.utils.common import get_logger, GeneralConfig
+from discord_bot.cogs.common import CogHelperBase
 
 # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
-class CommandErrorHandler(commands.Cog):
+class CommandErrorHandler(CogHelperBase):
     '''
     Handle command errors
     '''
-
-    def __init__(self, bot: commands.Bot, config: GeneralConfig):
-        self.bot = bot
-        self.logger = get_logger(type(self).__name__, config.logging)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -31,8 +27,10 @@ class CommandErrorHandler(commands.Cog):
         error_type = getattr(error, 'original', error)
 
         if isinstance(error_type, commands.CommandNotFound):
-            # Change this to 'error: {error}' instead
-            return await ctx.send(f'"{error}", use !help to show all commands')
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,
+                                               f'"{error}", use !help to show all commands')
         if isinstance(error_type, commands.MissingRequiredArgument):
-            return await ctx.send(f'Missing required arguments: {error}')
-        self.logger.exception('Exception on command, exception %s raised an exception: %s', ctx.command, type(error).__name__, exc_info=True)
+            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,
+                                               f'Missing required arguments: {error}')
+        self.logger.error('Exception on command "%s" in guild %s: %s',
+                          ctx.command, ctx.guild.id, str(error_type), exc_info=error_type)

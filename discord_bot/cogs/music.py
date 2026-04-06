@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
@@ -400,7 +400,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self.dispatcher = self.bot.get_cog('MessageDispatcher')
+        self.dispatcher = self._dispatcher
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
@@ -575,8 +575,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player.trigger_prefetch()
                 media_download.media_request.state_machine.mark_completed()
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-                self.dispatcher.update_mutable(key, player.guild.id,
+                req_id = self.dispatcher.update_mutable(key, player.guild.id,
                     self._get_play_order_content(player.guild.id), player.text_channel.id)
+                self.logger.debug('add_source_to_player: dispatched play order update key=%s dispatch.request_id=%s', key, req_id)
 
                 return True
             except QueueFull:
@@ -703,11 +704,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         so register_download is never called and the broker entry must be cleaned up here.
         '''
         bundle = self.multirequest_bundles.get(media_request.bundle_uuid) if media_request.bundle_uuid else None
-        if bundle:
+        if bundle and not bundle.is_shutdown:
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
             content, delete_after = self._get_bundle_content(bundle.uuid, bundle.guild_id, bundle.channel_id)
-            self.dispatcher.update_mutable(key, bundle.guild_id, content, bundle.channel_id,
+            req_id = self.dispatcher.update_mutable(key, bundle.guild_id, content, bundle.channel_id,
                                            sticky=False, delete_after=delete_after)
+            self.logger.debug('on_request_state_change: dispatched bundle update key=%s dispatch.request_id=%s', key, req_id)
         if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
             self.media_broker.remove(str(media_request.uuid))
         elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
@@ -844,7 +846,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.CONSUMER, attributes={DiscordContextNaming.GUILD.value: guild.id}):
             self.logger.info(f'Starting cleanup on guild {guild.id}, reason: {reason.value}')
             player = await self.get_player(guild.id, create_player=False)
-            if reason == CleanupReason.BOT_SHUTDOWN and player:
+            if reason == CleanupReason.BOT_SHUTDOWN and player and self.dispatcher:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                     'Bot is shutting down',
                     delete_after=self.config.general.message_delete_after)
@@ -863,6 +865,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Start disconnect in background (don't block here)
                 disconnect_task = create_task(voice_client.disconnect())
                 self.logger.debug(f'Started disconnect task for guild {guild.id}')
+
+            # Shut down all bundles for this guild before clearing queues so that
+            # mark_discarded() callbacks fired below see is_shutdown=True and skip
+            # sending UPDATE_MUTABLE — preventing late updates from arriving at the
+            # dispatcher after the REMOVE_MUTABLE has already been enqueued.
+            _terminal_stages = frozenset({
+                MediaRequestLifecycleStage.COMPLETED,
+                MediaRequestLifecycleStage.FAILED,
+                MediaRequestLifecycleStage.DISCARDED,
+            })
+            for _bundle in self.multirequest_bundles.values():
+                if int(_bundle.guild_id) != int(guild.id):
+                    continue
+                if reason == CleanupReason.BOT_SHUTDOWN or not any(
+                    not req.media_request.download_file
+                    and req.media_request.lifecycle_stage not in _terminal_stages
+                    for req in _bundle.bundled_requests
+                ):
+                    _bundle.shutdown()
 
             # Block download queue for later
             # Clear queues before blocking: clear_queue restores preserved items via
@@ -900,11 +921,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         self._get_play_order_content(guild.id), player.text_channel.id)
 
             # Clear all bundles
-            _terminal_stages = frozenset({
-                MediaRequestLifecycleStage.COMPLETED,
-                MediaRequestLifecycleStage.FAILED,
-                MediaRequestLifecycleStage.DISCARDED,
-            })
             for uuid, item in list(self.multirequest_bundles.items()):
                 if int(item.guild_id) != int(guild.id):
                     continue
@@ -918,14 +934,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 ):
                     self.logger.debug(f'Skipping shutdown of bundle {uuid} — has active playlist-add requests')
                     continue
-                self.logger.debug(f'Calling shutdown on media request bundle {uuid}, was associated with guild {guild.id}')
                 item.shutdown()
                 if reason != CleanupReason.BOT_SHUTDOWN:
                     key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{item.uuid}'
                     content, delete_after = self._get_bundle_content(item.uuid, item.guild_id, item.channel_id)
-                    self.dispatcher.update_mutable(key, item.guild_id, content, item.channel_id,
+                    req_id = self.dispatcher.update_mutable(key, item.guild_id, content, item.channel_id,
                                                    sticky=False, delete_after=delete_after)
-
+                    self.logger.debug('cleanup: dispatched bundle update key=%s dispatch.request_id=%s', key, req_id)
             if reason != CleanupReason.BOT_SHUTDOWN:
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
                 guild_player_path = self.player_dir / f'{guild.id}'
@@ -1100,11 +1115,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Make sure we note that all requests were added to bundle
         bundle.all_requests_added()
 
-        if bundle:
+        # Check shutdown in case bot was stopped in the middle here
+        if bundle and not bundle.is_shutdown:
             key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
             content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
-            self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+            req_id = self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                            sticky=False, delete_after=delete_after)
+            self.logger.debug('enqueue_media_requests: dispatched bundle update key=%s dispatch.request_id=%s', key, req_id)
         return True
 
     async def _generate_media_requests_from_search(self, ctx: Context, search: str, player: MusicPlayer = None,
@@ -1123,8 +1140,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         bundle.set_initial_search(search)
         key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
         content, delete_after = self._get_bundle_content(bundle.uuid, ctx.guild.id, ctx.channel.id)
-        self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
+        req_id = self.dispatcher.update_mutable(key, ctx.guild.id, content, ctx.channel.id,
                                        sticky=False, delete_after=delete_after)
+        self.logger.debug('generate_media_requests_from_search: dispatched bundle update key=%s dispatch.request_id=%s', key, req_id)
 
         try:
             collection = await self.search_client.check_source(search, self.bot.loop,

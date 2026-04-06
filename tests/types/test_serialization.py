@@ -1,10 +1,23 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
+from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.media_request import MediaRequest, RetryInformation
 from discord_bot.types.search import SearchResult
 
 from tests.helpers import fake_context, fake_source_dict  # noqa: F401  # pylint: disable=unused-import
+
+
+# ---------------------------------------------------------------------------
+# FetchedMessage
+# ---------------------------------------------------------------------------
+
+def test_fetched_message_roundtrip():
+    '''FetchedMessage survives a to_dict / from_dict roundtrip'''
+    msg = FetchedMessage(id=123, content='hello', created_at=datetime(2024, 1, 1, tzinfo=timezone.utc), author_bot=False)
+    assert FetchedMessage.from_dict(msg.to_dict()) == msg
 
 
 # ---------------------------------------------------------------------------

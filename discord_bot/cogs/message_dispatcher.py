@@ -1,20 +1,26 @@
 import asyncio
 from asyncio import QueueEmpty
-from dataclasses import dataclass, field
+import contextlib
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from enum import IntEnum
-from functools import partial
+from functools import cached_property, partial
 import itertools
+import uuid
 from typing import Any, Callable, List
 
 from discord import Message
 from discord.errors import NotFound
 from discord.ext.commands import Bot
-from sqlalchemy.engine.base import Engine
 
+from opentelemetry import trace
 from opentelemetry.metrics import Observation
+from opentelemetry.propagate import extract
+from opentelemetry.trace import Link
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.cogs.common import CogHelper
+from discord_bot.cogs.common import CogHelperBase
+from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.dispatch_request import (
     FetchChannelHistoryRequest,
@@ -24,7 +30,24 @@ from discord_bot.types.dispatch_request import (
 )
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, METER_PROVIDER, MetricNaming, create_observable_gauge
+from discord_bot.utils.dispatch_envelope import (
+    RequestType, ResultType,
+    StreamEnvelope, StreamResult,
+)
+from discord_bot.utils.redis_client import (
+    delete_bundle as redis_delete_bundle,
+    get_redis_client,
+    load_all_bundles,
+    save_bundle as redis_save_bundle,
+)
+from discord_bot.utils.redis_stream_helpers import (
+    StreamKey, ensure_consumer_group, input_stream_key, result_stream_key,
+    xadd as stream_xadd, xack, xreadgroup,
+)
+from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper, AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming, create_observable_gauge, span_links_from_context
+
+
+_DRAIN_TIMEOUT_SECONDS = 30
 
 
 class DispatchPriority(IntEnum):
@@ -196,6 +219,22 @@ class MessageMutableBundle:
         self.channel_id = new_channel_id
         return dispatch_functions
 
+    def to_dict(self) -> dict:
+        '''Serialize this bundle to a JSON-safe dict for Redis persistence.'''
+        return {
+            'guild_id': self.guild_id,
+            'channel_id': self.channel_id,
+            'sticky_messages': self.sticky_messages,
+            'message_contexts': [asdict(ctx) for ctx in self.message_contexts],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'MessageMutableBundle':
+        '''Restore a bundle from the dict produced by :meth:`to_dict`.'''
+        bundle = cls(data['guild_id'], data['channel_id'], data.get('sticky_messages', True))
+        bundle.message_contexts = [MessageContext(**ctx) for ctx in data.get('message_contexts', [])]
+        return bundle
+
 
 # ---------------------------------------------------------------------------
 # Internal work-item types.
@@ -221,6 +260,7 @@ class _DeleteItem:
     seq: int = field(default=0)
     channel_id: int = 0
     message_id: int = 0
+    span_context: dict | None = None
 
 
 @dataclass
@@ -232,6 +272,7 @@ class _SendItem:
     content: str = ''
     delete_after: int | None = None
     allow_404: bool = False
+    span_context: dict | None = None
 
 
 @dataclass
@@ -258,6 +299,7 @@ class _HistoryReadItem:
     after_message_id: int | None = None
     oldest_first: bool = True
     dedup_key: tuple = field(default_factory=tuple)
+    span_context: dict | None = None
 
 
 @dataclass
@@ -269,6 +311,7 @@ class _EmojiReadItem:
     guild_id: int = 0
     max_retries: int = 3
     dedup_key: tuple = field(default_factory=tuple)
+    span_context: dict | None = None
 
 
 @dataclass
@@ -281,7 +324,7 @@ class _MutablePending:
     delete_after: int | None
 
 
-class MessageDispatcher(CogHelper):
+class MessageDispatcher(CogHelperBase):
     '''
     App-wide Discord message dispatcher.
 
@@ -300,8 +343,10 @@ class MessageDispatcher(CogHelper):
     Results are delivered to per-cog result queues as typed result objects.
     '''
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, db_engine=None):
         super().__init__(bot, settings, db_engine)
+        if not settings.get('general', {}).get('include', {}).get('message_dispatcher', True):
+            raise CogMissingRequiredArg('MessageDispatcher not enabled')
 
         self._guilds: dict[int, asyncio.PriorityQueue] = {}
         self._workers: dict[int, asyncio.Task] = {}
@@ -324,6 +369,8 @@ class MessageDispatcher(CogHelper):
         self._pending_history: set[tuple] = set()
         self._pending_emojis: set[tuple] = set()
         self._cog_consumer_task: asyncio.Task | None = None
+        self._stream_consumer_task: asyncio.Task | None = None
+        self._stream_handler_tasks: set[asyncio.Task] = set()
 
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCHER_QUEUE_DEPTH.value,
                                 self.__queue_depth_callback, 'Message dispatcher total pending items')
@@ -333,24 +380,214 @@ class MessageDispatcher(CogHelper):
         depth = sum(q.qsize() for q in self._guilds.values())
         return [Observation(depth, attributes={AttributeNaming.BACKGROUND_JOB.value: 'message_dispatcher_queue'})]
 
+    @cached_property
+    def _redis(self):
+        '''Return an async Redis client if redis_url is configured, else None.'''
+        url = self.settings.get('general', {}).get('redis_url')
+        if not url:
+            return None
+        return get_redis_client(url)
+
     # ------------------------------------------------------------------
     # Cog lifecycle
     # ------------------------------------------------------------------
 
     async def cog_load(self):
-        '''Start the cog input consumer task.'''
+        '''Start the cog input consumer task and restore bundles from Redis if configured.'''
         self._cog_consumer_task = asyncio.create_task(self._cog_consumer())
+        if self._redis:
+            await self._restore_bundles()
+        if self._cross_process:
+            self._stream_consumer_task = asyncio.create_task(self._stream_consumer())
 
     async def cog_unload(self):
-        '''Shut down the consumer task and all guild workers.'''
-        self.logger.info('MessageDispatcher :: cog_unload called')
-        if self._cog_consumer_task:
-            self._cog_consumer_task.cancel()
+        '''Gracefully drain in-flight work and shut down.'''
+        self.logger.info('MessageDispatcher :: cog_unload called, draining...')
+
+        # Phase 1: stop accepting new cross-process input
+        if self._stream_consumer_task:
+            self._stream_consumer_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._stream_consumer_task
+
+        # Phase 2: wait for in-flight stream handler tasks (FETCH requests mid-flight)
+        if self._stream_handler_tasks:
+            _, pending = await asyncio.wait(
+                self._stream_handler_tasks, timeout=_DRAIN_TIMEOUT_SECONDS
+            )
+            for task in pending:
+                task.cancel()
+
+        # Phase 3: signal shutdown — _cog_consumer and workers exit when their queues empty
         self._shutdown.set()
-        for task in self._workers.values():
-            task.cancel()
+
+        # Phase 4: drain _cog_input into guild queues, then stop the consumer
+        if self._cog_consumer_task:
+            try:
+                await asyncio.wait_for(self._cog_consumer_task, timeout=_DRAIN_TIMEOUT_SECONDS)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._cog_consumer_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._cog_consumer_task
+
+        # Phase 5: wait for guild workers to drain their PriorityQueues
+        if self._workers:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._workers.values(), return_exceptions=True),
+                    timeout=_DRAIN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning('MessageDispatcher :: drain timeout, cancelling remaining workers')
+                for task in self._workers.values():
+                    task.cancel()
+
         self._workers.clear()
         self._guilds.clear()
+
+        # Phase 6: flush all in-memory bundles to Redis as a fallback
+        # (workers may have updated bundle state during drain without completing their save tasks)
+        if self._redis and self._bundles:
+            self.logger.info('MessageDispatcher :: flushing %d bundle(s) to Redis', len(self._bundles))
+            await asyncio.gather(
+                *[self._save_bundle_to_redis(key, bundle) for key, bundle in self._bundles.items()],
+                return_exceptions=True,
+            )
+
+        if self.__dict__.get('_redis') is not None:
+            await self._redis.aclose()
+        self.logger.info('MessageDispatcher :: shutdown complete')
+
+    async def _restore_bundles(self):
+        '''Load all persisted bundles from Redis into _bundles on startup.'''
+        async with async_otel_span_wrapper('message_dispatcher.restore_bundles') as span:
+            try:
+                data = await load_all_bundles(self._redis)
+                for key, bundle_dict in data.items():
+                    self._bundles[key] = MessageMutableBundle.from_dict(bundle_dict)
+                self.logger.info('MessageDispatcher :: restored %d bundle(s) from Redis', len(data))
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                self.logger.error('MessageDispatcher :: failed to restore bundles: %s', exc)
+
+    @cached_property
+    def _cross_process(self) -> bool:
+        return bool(self.settings.get('general', {}).get('dispatch_cross_process', False))
+
+    @cached_property
+    def _process_id(self) -> str:
+        return self.settings.get('general', {}).get('dispatch_process_id') or str(uuid.uuid4())
+
+    @cached_property
+    def _shard_id(self) -> int:
+        return int(self.settings.get('general', {}).get('dispatch_shard_id', 0))
+
+    # ------------------------------------------------------------------
+    # Stream consumer (cross-process mode)
+    # ------------------------------------------------------------------
+
+    async def _stream_consumer(self):
+        '''Read dispatch requests from the Redis input stream and route them.'''
+        stream_key = input_stream_key(self._shard_id)
+        await ensure_consumer_group(self._redis, stream_key)
+        # Re-deliver messages that were pending for a dead consumer (e.g. after a crash)
+        await self._redis.xautoclaim(
+            stream_key, StreamKey.CONSUMER_GROUP.value, self._process_id,
+            min_idle_time=60000, start_id='0',
+        )
+        while True:
+            messages = await xreadgroup(self._redis, stream_key, self._process_id)
+            for msg_id, fields in messages:
+                req_envelope = StreamEnvelope.decode(fields)
+                task = asyncio.create_task(self._handle_stream_request(req_envelope))
+                self._stream_handler_tasks.add(task)
+                task.add_done_callback(self._stream_handler_tasks.discard)
+                await asyncio.sleep(0)
+                await xack(self._redis, stream_key, msg_id)
+
+    async def _handle_stream_request(self, req_envelope: StreamEnvelope):
+        '''Route a decoded stream request to the appropriate internal method.'''
+        caller_ctx = extract(req_envelope.trace_context)
+        caller_span_ctx = trace.get_current_span(caller_ctx).get_span_context()
+        links = [Link(context=caller_span_ctx)] if caller_span_ctx.is_valid else []
+        async with async_otel_span_wrapper('message_dispatcher.stream_request',
+                                           attributes={
+                                               'req_type': req_envelope.req_type,
+                                               DispatchNaming.PROCESS_ID.value: req_envelope.process_id,
+                                               DispatchNaming.REQUEST_ID.value: req_envelope.request_id,
+                                           },
+                                           links=links) as span:
+            try:
+                if req_envelope.req_type == RequestType.UPDATE_MUTABLE:
+                    self.update_mutable(**req_envelope.payload)
+                    return
+                if req_envelope.req_type == RequestType.REMOVE_MUTABLE:
+                    self.remove_mutable(req_envelope.payload['key'])
+                    return
+                if req_envelope.req_type == RequestType.UPDATE_MUTABLE_CHANNEL:
+                    self.update_mutable_channel(**req_envelope.payload)
+                    return
+                if req_envelope.req_type == RequestType.SEND:
+                    self.send_message(**req_envelope.payload)
+                    return
+                if req_envelope.req_type == RequestType.DELETE:
+                    self.delete_message(**req_envelope.payload)
+                    return
+                res_key = result_stream_key(req_envelope.process_id)
+                if req_envelope.req_type == RequestType.FETCH_HISTORY:
+                    result = await self._dispatch_history_and_collect(req_envelope.payload)
+                    result_msg = StreamResult(req_envelope.req_type, req_envelope.request_id, ResultType.HISTORY, result).encode()
+                elif req_envelope.req_type == RequestType.FETCH_EMOJIS:
+                    result = await self._dispatch_emojis_and_collect(req_envelope.payload)
+                    result_msg = StreamResult(req_envelope.req_type, req_envelope.request_id, ResultType.EMOJIS, result).encode()
+                else:
+                    self.logger.warning('MessageDispatcher :: unknown stream request type: %s', req_envelope.req_type)
+                    return
+                await stream_xadd(self._redis, res_key, result_msg)
+            except Exception as exc:  # pylint: disable=broad-except
+                # Intentional broad catch: ensures callers always receive a result envelope
+                # rather than hanging on a pending future indefinitely.
+                span.set_status(StatusCode.ERROR, str(exc))
+                self.logger.error(
+                    'MessageDispatcher :: stream request %s failed: %s', req_envelope.req_type, exc, exc_info=True
+                )
+                res_key = result_stream_key(req_envelope.process_id)
+                await stream_xadd(self._redis, res_key, StreamResult(
+                    req_envelope.req_type, req_envelope.request_id, ResultType.ERROR, {'error': str(exc)}
+                ).encode())
+
+    async def _dispatch_history_and_collect(self, payload: dict) -> dict:
+        '''Execute a channel history fetch and return a JSON-safe result dict.'''
+        after_dt = datetime.fromisoformat(payload['after']) if payload.get('after') else None
+        item = _HistoryReadItem(
+            guild_id=int(payload['guild_id']),
+            channel_id=int(payload['channel_id']),
+            limit=int(payload['limit']),
+            after=after_dt,
+            after_message_id=int(payload['after_message_id']) if payload.get('after_message_id') is not None else None,
+            oldest_first=bool(payload.get('oldest_first', True)),
+        )
+        messages = await async_retry_discord_message_command(partial(self._fetch_channel_history, item))
+        return {
+            'guild_id': item.guild_id,
+            'channel_id': item.channel_id,
+            'after_message_id': item.after_message_id,
+            'messages': [m.to_dict() for m in messages],
+        }
+
+    async def _dispatch_emojis_and_collect(self, payload: dict) -> dict:
+        '''Execute a guild emoji fetch and return a JSON-safe result dict.'''
+        item = _EmojiReadItem(
+            guild_id=int(payload['guild_id']),
+            max_retries=int(payload.get('max_retries', 3)),
+        )
+        emojis = await async_retry_discord_message_command(
+            partial(self._fetch_guild_emojis, item), max_retries=item.max_retries
+        )
+        return {
+            'guild_id': item.guild_id,
+            'emojis': [{'id': e.id, 'name': e.name, 'animated': e.animated} for e in emojis],
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -396,7 +633,13 @@ class MessageDispatcher(CogHelper):
         result will arrive on the cog's result queue regardless.
         '''
         while True:
-            request = await self._cog_input.get()
+            try:
+                request = self._cog_input.get_nowait()
+            except QueueEmpty:
+                if self._shutdown.is_set():
+                    return
+                await asyncio.sleep(0.01)
+                continue
             if isinstance(request, FetchChannelHistoryRequest):
                 key = (request.cog_name, request.guild_id, request.channel_id)
                 if key not in self._pending_history:
@@ -411,6 +654,7 @@ class MessageDispatcher(CogHelper):
                         after_message_id=request.after_message_id,
                         oldest_first=request.oldest_first,
                         dedup_key=key,
+                        span_context=request.span_context,
                     )
                     queue = self._get_queue(request.guild_id)
                     queue.put_nowait((item.priority, item.seq, item))
@@ -425,15 +669,18 @@ class MessageDispatcher(CogHelper):
                         guild_id=request.guild_id,
                         max_retries=request.max_retries,
                         dedup_key=key,
+                        span_context=request.span_context,
                     )
                     queue = self._get_queue(request.guild_id)
                     queue.put_nowait((item.priority, item.seq, item))
                     self._ensure_worker(request.guild_id)
             elif isinstance(request, SendRequest):
                 self.send_message(request.guild_id, request.channel_id,
-                                  request.content, delete_after=request.delete_after)
+                                  request.content, delete_after=request.delete_after,
+                                  span_context=request.span_context)
             elif isinstance(request, DeleteRequest):
-                self.delete_message(request.guild_id, request.channel_id, request.message_id)
+                self.delete_message(request.guild_id, request.channel_id, request.message_id,
+                                    span_context=request.span_context)
 
     # ------------------------------------------------------------------
     # Fetch helpers (called from _dispatch)
@@ -470,6 +717,12 @@ class MessageDispatcher(CogHelper):
         Rapid-fire calls collapse: only the latest content is kept, and only
         one sentinel is placed on the queue per key.
         '''
+        if not content:
+            self.logger.debug('update_mutable: empty content for key=%s, routing to remove_mutable', key)
+            return self.remove_mutable(key)
+        request_uuid = uuid.uuid4()
+        trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, str(request_uuid))
+        self.logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, request_uuid)
         # Store the latest content (overwrite any previous pending)
         self._pending_mutable[key] = _MutablePending(
             content=content,
@@ -483,7 +736,7 @@ class MessageDispatcher(CogHelper):
         if key not in self._bundles:
             if channel_id is None:
                 self.logger.info(f'MessageDispatcher :: cannot create bundle "{key}" without channel')
-                return
+                return None
             self._create_bundle(key, guild_id, channel_id, sticky)
 
         # Add sentinel to queue only once per key
@@ -493,33 +746,42 @@ class MessageDispatcher(CogHelper):
             item = _MutableSentinel(seq=next(self._seq), key=key)
             queue.put_nowait((item.priority, item.seq, item))
             self._ensure_worker(guild_id)
+        # Return random uuid so we know what called from where
+        return request_uuid
 
     def remove_mutable(self, key: str):
         '''
         Delete all messages managed by *key* and remove its bundle.
         '''
-        bundle = self._bundles.pop(key, None)
-        if bundle:
-            delete_funcs = bundle.clear_all_messages(self.bot.get_channel)
-            # Fire-and-forget: schedule the deletions as a task
-            loop = asyncio.get_event_loop()
-            loop.create_task(self._execute_funcs(delete_funcs))
-        self._pending_mutable.pop(key, None)
-        self._sentinel_in_queue.discard(key)
+        with otel_span_wrapper('message_dispatcher.remove_mutable', attributes={'key': key}):
+            bundle = self._bundles.pop(key, None)
+            if bundle:
+                delete_funcs = bundle.clear_all_messages(self.bot.get_partial_messageable)
+                # Fire-and-forget: schedule the deletions as a task
+                loop = asyncio.get_event_loop()
+                loop.create_task(self._execute_funcs(delete_funcs))
+                if self._redis:
+                    loop.create_task(self._delete_bundle_from_redis(key))
+            self._pending_mutable.pop(key, None)
+            self._sentinel_in_queue.discard(key)
 
     def send_message(self, guild_id: int, channel_id: int, content: str,
-                     delete_after: int | None = None, allow_404: bool = False):
+                     delete_after: int | None = None, allow_404: bool = False,
+                     span_context: dict | None = None):
         '''Enqueue a text message send at NORMAL priority.'''
         queue = self._get_queue(guild_id)
         item = _SendItem(seq=next(self._seq), channel_id=channel_id,
-                         content=content, delete_after=delete_after, allow_404=allow_404)
+                         content=content, delete_after=delete_after, allow_404=allow_404,
+                         span_context=span_context)
         queue.put_nowait((item.priority, item.seq, item))
         self._ensure_worker(guild_id)
 
-    def delete_message(self, guild_id: int, channel_id: int, message_id: int):
+    def delete_message(self, guild_id: int, channel_id: int, message_id: int,
+                       span_context: dict | None = None):
         '''Enqueue a message deletion at NORMAL priority.'''
         queue = self._get_queue(guild_id)
-        item = _DeleteItem(seq=next(self._seq), channel_id=channel_id, message_id=message_id)
+        item = _DeleteItem(seq=next(self._seq), channel_id=channel_id, message_id=message_id,
+                           span_context=span_context)
         queue.put_nowait((item.priority, item.seq, item))
         self._ensure_worker(guild_id)
 
@@ -548,19 +810,22 @@ class MessageDispatcher(CogHelper):
         Immediately deletes old messages (fire-and-forget), then re-queues
         an update with the latest pending content in the new channel.
         '''
-        bundle = self._bundles.get(key)
-        if not bundle:
-            return
+        with otel_span_wrapper('message_dispatcher.update_mutable_channel',
+                               attributes={'key': key, 'discord.guild': guild_id,
+                                           'discord.channel': new_channel_id}):
+            bundle = self._bundles.get(key)
+            if not bundle:
+                return
 
-        delete_funcs = bundle.update_text_channel(guild_id, new_channel_id, self.bot.get_channel)
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._execute_funcs(delete_funcs))
+            delete_funcs = bundle.update_text_channel(guild_id, new_channel_id, self.bot.get_partial_messageable)
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._execute_funcs(delete_funcs))
 
-        # Re-queue with new channel_id if there's pending content
-        pending = self._pending_mutable.get(key)
-        if pending:
-            self.update_mutable(key, guild_id, pending.content, new_channel_id,
-                                sticky=pending.sticky, delete_after=pending.delete_after)
+            # Re-queue with new channel_id if there's pending content
+            pending = self._pending_mutable.get(key)
+            if pending:
+                self.update_mutable(key, guild_id, pending.content, new_channel_id,
+                                    sticky=pending.sticky, delete_after=pending.delete_after)
 
     # ------------------------------------------------------------------
     # Bundle creation helper
@@ -569,21 +834,16 @@ class MessageDispatcher(CogHelper):
     def _make_channel_funcs(self, channel_id: int):
         '''
         Build and return (check_last_message_func, send_function) as closures
-        that resolve the channel at call-time via self.bot.get_channel(channel_id).
+        that resolve the channel at call-time via self.bot.get_partial_messageable(channel_id).
         '''
         async def check_last_message_func(count: int):
-            channel = self.bot.get_channel(channel_id)
-            if channel is None:
-                return []
+            channel = self.bot.get_partial_messageable(channel_id)
             async def fetch_messages():
                 return [m async for m in channel.history(limit=count)]
             return await async_retry_discord_message_command(fetch_messages)
 
         async def send_function(**kwargs):
-            channel = self.bot.get_channel(channel_id)
-            if channel is None:
-                self.logger.info(f'MessageDispatcher :: channel {channel_id} not found for mutable send')
-                return None
+            channel = self.bot.get_partial_messageable(channel_id)
             return await async_retry_discord_message_command(partial(channel.send, **kwargs))
 
         return check_last_message_func, send_function
@@ -619,7 +879,8 @@ class MessageDispatcher(CogHelper):
         elif isinstance(item, _DeleteItem):
             self.logger.debug(f'MessageDispatcher :: deleting message {item.message_id} in channel {item.channel_id} for guild {guild_id}')
             async with async_otel_span_wrapper('message_dispatcher.delete',
-                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id},
+                                              links=span_links_from_context(item.span_context)):
                 try:
                     channel = await self.bot.fetch_channel(item.channel_id)
                     msg = channel.get_partial_message(item.message_id)
@@ -652,7 +913,8 @@ class MessageDispatcher(CogHelper):
         elif isinstance(item, _HistoryReadItem):
             self.logger.debug(f'MessageDispatcher :: fetching channel history {item.channel_id} for guild {guild_id}')
             async with async_otel_span_wrapper('message_dispatcher.channel_history',
-                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}) as span:
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id},
+                                              links=span_links_from_context(item.span_context)) as span:
                 try:
                     messages = await async_retry_discord_message_command(
                         partial(self._fetch_channel_history, item)
@@ -684,7 +946,8 @@ class MessageDispatcher(CogHelper):
         elif isinstance(item, _EmojiReadItem):
             self.logger.debug(f'MessageDispatcher :: fetching guild emojis for guild {guild_id}')
             async with async_otel_span_wrapper('message_dispatcher.guild_emojis',
-                                              attributes={'discord.guild': guild_id}) as span:
+                                              attributes={'discord.guild': guild_id},
+                                              links=span_links_from_context(item.span_context)) as span:
                 try:
                     emojis = await async_retry_discord_message_command(
                         partial(self._fetch_guild_emojis, item),
@@ -704,13 +967,11 @@ class MessageDispatcher(CogHelper):
                 if q:
                     await q.put(result)
         elif isinstance(item, _SendItem):
-            channel = self.bot.get_channel(item.channel_id)
-            if channel is None:
-                self.logger.info(f'MessageDispatcher :: channel {item.channel_id} not found for send')
-                return
+            channel = self.bot.get_partial_messageable(item.channel_id)
             self.logger.debug(f'MessageDispatcher :: sending to channel {item.channel_id} guild {guild_id}')
             async with async_otel_span_wrapper('message_dispatcher.send',
-                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id}):
+                                              attributes={'discord.channel': item.channel_id, 'discord.guild': guild_id},
+                                              links=span_links_from_context(item.span_context)):
                 await async_retry_discord_message_command(
                     partial(channel.send, content=item.content, delete_after=item.delete_after),
                     allow_404=item.allow_404,
@@ -733,7 +994,7 @@ class MessageDispatcher(CogHelper):
         # If the channel changed in the pending update, clear old messages
         if bundle.channel_id != pending.channel_id:
             self.logger.debug(f'MessageDispatcher :: channel changed for "{key}": {bundle.channel_id} -> {pending.channel_id}')
-            delete_funcs = bundle.update_text_channel(pending.guild_id, pending.channel_id, self.bot.get_channel)
+            delete_funcs = bundle.update_text_channel(pending.guild_id, pending.channel_id, self.bot.get_partial_messageable)
             await self._execute_funcs(delete_funcs)
 
         check_func, send_func = self._make_channel_funcs(bundle.channel_id)
@@ -748,7 +1009,7 @@ class MessageDispatcher(CogHelper):
                 partial(bundle.should_clear_messages, check_func)
             )
 
-        funcs = bundle.get_message_dispatch(content, send_func, self.bot.get_channel,
+        funcs = bundle.get_message_dispatch(content, send_func, self.bot.get_partial_messageable,
                                             clear_existing=should_clear, delete_after=delete_after)
 
         # Execute and collect new Message objects
@@ -779,10 +1040,12 @@ class MessageDispatcher(CogHelper):
             f'{len(results)} new message(s)'
         )
 
-        # If delete_after is set the bundle is ephemeral – pop it
         if delete_after is not None:
-            self.logger.debug(f'MessageDispatcher :: removing ephemeral bundle "{key}"')
             self._bundles.pop(key, None)
+            if self._redis:
+                asyncio.create_task(self._delete_bundle_from_redis(key))
+        elif self._redis:
+            asyncio.create_task(self._save_bundle_to_redis(key, bundle))
 
     # ------------------------------------------------------------------
     # Utility
@@ -791,3 +1054,17 @@ class MessageDispatcher(CogHelper):
     async def _execute_funcs(self, funcs: List[Callable]):
         for func in funcs:
             await async_retry_discord_message_command(func)
+
+    async def _save_bundle_to_redis(self, key: str, bundle: 'MessageMutableBundle') -> None:
+        '''Persist *bundle* to Redis; logs and swallows any error.'''
+        try:
+            await redis_save_bundle(self._redis, key, bundle.to_dict())
+        except Exception as exc:
+            self.logger.error('MessageDispatcher :: failed to save bundle "%s": %s', key, exc)
+
+    async def _delete_bundle_from_redis(self, key: str) -> None:
+        '''Remove *key* from Redis; logs and swallows any error.'''
+        try:
+            await redis_delete_bundle(self._redis, key)
+        except Exception as exc:
+            self.logger.error('MessageDispatcher :: failed to delete bundle "%s": %s', key, exc)
