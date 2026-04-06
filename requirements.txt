@@ -3,7 +3,7 @@ aiosqlite==0.22.1
 ijson==3.5.0
 async-timeout==5.0.1
 beautifulsoup4==4.14.3
-boto3==1.42.83
+boto3==1.42.84
 click==8.3.2
 croniter==6.2.2
 davey==0.1.5
