@@ -1,3 +1,5 @@
+import asyncio
+
 from bs4 import BeautifulSoup
 from dappertable import shorten_string
 from discord.ext.commands import Bot, command, Context
@@ -32,7 +34,7 @@ class UrbanDictionary(CogHelper):
         '''
         self.logger.debug(f'Looking up word string "{word}" in guild "{ctx.guild.id}"')
         word_url = f'{BASE_URL}define.php?term={word}'
-        result = requests_get(word_url, timeout=60)
+        result = await asyncio.to_thread(requests_get, word_url, timeout=60)
         if result.status_code != 200:
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Unable to lookup word "{word}"')
         soup = BeautifulSoup(result.content, 'html.parser')
