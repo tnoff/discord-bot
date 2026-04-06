@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from functools import partial
 import hashlib
 from pathlib import Path
-import logging
 import random
 from time import time
 from typing import List
@@ -101,9 +100,6 @@ class BotDownloadFlagged(RetryableException):
     Youtube flagged download as a bot
     '''
 
-
-logger = logging.getLogger(__name__)
-
 OTEL_SPAN_PREFIX = 'music.download_client'
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 
@@ -141,6 +137,7 @@ class DownloadClient():
         wait_period_minimum: int = 30,
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
+        normalize_audio: bool = False,
     ):
         '''
         Init download client
@@ -176,6 +173,9 @@ class DownloadClient():
         self._wait_period_max_variance = wait_period_max_variance
         self._wait_timestamp: float | None = None
         self.bucket_name: str | None = bucket_name
+        self.normalize_audio: bool = normalize_audio
+        self.logger = get_logger('download_client', logging_config)
+        self.logging_config = logging_config
 
     def _set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''
@@ -347,7 +347,7 @@ class DownloadClient():
                 computed_md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
                 ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
                 if ytdlp_md5 and ytdlp_md5 != computed_md5:
-                    logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
+                    self.logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
             return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None)
 
     def __upload_s3(self, file_path: Path):
@@ -376,9 +376,9 @@ class DownloadClient():
         self.update_tracking(result)
         if result.status.success and result.file_name is not None:
             try:
-                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name)
+                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
                 post_process_timestamp = datetime.now(timezone.utc)
-                logger.info(
+                self.logger.info(
                     'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',
                     pcm_path, result.download_timestamp, post_process_timestamp,
                 )
@@ -387,7 +387,7 @@ class DownloadClient():
                     'post_process_timestamp': post_process_timestamp,
                 })
             except AudioProcessingError as error:
-                logger.warning('Audio processing failed for %s', result.file_name)
+                self.logger.warning('Audio processing failed for %s', result.file_name)
                 result = result.model_copy(update={
                     'status': DownloadStatus(
                         success=False,

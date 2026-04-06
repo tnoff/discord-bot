@@ -1,12 +1,10 @@
-import logging
 import subprocess
 from pathlib import Path
 
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.utils.otel import otel_span_wrapper
-
-logger = logging.getLogger(__name__)
+from discord_bot.utils.common import get_logger, LoggingConfig
 
 class AudioProcessingError(Exception):
     '''Raised when audio conversion to PCM fails'''
@@ -27,7 +25,7 @@ def get_editing_path(path: Path) -> Path:
     '''
     return path.parent / (path.stem + '.edited.pcm')
 
-def edit_audio_file(file_path: Path) -> Path:
+def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: LoggingConfig) -> Path:
     '''
     Normalize audio for file and convert to PCM.
 
@@ -36,20 +34,24 @@ def edit_audio_file(file_path: Path) -> Path:
 
     file_path: Audio file to edit
     '''
+    logger = get_logger('audio_editing', logging_config)
     finished_path = get_finished_path(file_path)
     editing_path = get_editing_path(file_path)
     with otel_span_wrapper('audio.edit_file', attributes={'file_path': str(file_path)}) as span:
+        ffmpeg_args = [
+            'ffmpeg', '-y',
+            '-i', str(file_path),
+            '-f', 's16le',
+            '-ar', '48000',
+            '-ac', '2',
+            str(editing_path),
+        ]
+        if normalize_audio:
+            ffmpeg_args.insert(4, '-af')
+            ffmpeg_args.insert(5, 'loudnorm')
         try:
             subprocess.run(
-                [
-                    'ffmpeg', '-y',
-                    '-i', str(file_path),
-                    '-af', 'loudnorm',
-                    '-f', 's16le',
-                    '-ar', '48000',
-                    '-ac', '2',
-                    str(editing_path),
-                ],
+                ffmpeg_args,
                 capture_output=True,
                 check=True,
             )

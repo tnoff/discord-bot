@@ -186,7 +186,15 @@ This is to ensure:
 
 ### Audio Processing
 
-After download, each file is converted to raw PCM (16-bit little-endian stereo 48 kHz) and audio levels are normalized using ffmpeg's `loudnorm` filter (EBU R128 perceptual loudness normalization). The converted `.pcm` file replaces the original download before playback begins.
+After download, each file is converted to raw PCM (16-bit little-endian stereo 48 kHz). The converted `.pcm` file replaces the original download before playback begins.
+
+Audio normalization (EBU R128 loudness via ffmpeg's `loudnorm` filter) is available but disabled by default due to processing time. Enable it with:
+
+```yaml
+music:
+  download:
+    normalize_audio: true
+```
 
 Playback uses `discord.PCMAudio`, which reads the pre-converted file directly with no subprocess. The alternative, `discord.FFmpegPCMAudio`, keeps an FFmpeg subprocess alive for the entire duration of playback — one per active player. Converting ahead of time on the download side eliminates that per-player FFmpeg overhead entirely.
 

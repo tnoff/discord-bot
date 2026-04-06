@@ -23,10 +23,12 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from tests.helpers import fake_source_dict, generate_fake_context
 
 class MockYTDLP():
+    '''Mock yt-dlp client that returns a fake successful download result.'''
     def __init__(self, fake_file_path : Path = 'foo-bar.mp3'):
         self.fake_file_path = fake_file_path
 
     def extract_info(self, _search_string, download=True):
+        '''Return fake yt-dlp extract_info data.'''
         data = {
             'entries': [
                 {
@@ -49,20 +51,25 @@ class MockYTDLP():
         return data
 
 class MockYTDLPNoData():
+    '''Mock yt-dlp client that returns no entries.'''
     def __init__(self):
         pass
 
     def extract_info(self, _search_string, download=True): #pylint:disable=unused-argument
+        '''Return empty entries list.'''
         return {
             'entries': []
         }
 
 def yield_dlp_error(message):
+    '''Return a mock yt-dlp client that raises DownloadError with the given message.'''
     class MockYTDLPError():
+        '''Mock yt-dlp client that always raises a DownloadError.'''
         def __init__(self):
             pass
 
         def extract_info(self, _search_string, **_kwargs):
+            '''Raise DownloadError unconditionally.'''
             raise DownloadError(message)
     return MockYTDLPError()
 
@@ -74,15 +81,18 @@ def make_download_client(mock_ytdl=None, **kwargs):
     return client
 
 class MockYoutubeMusic():
+    '''Mock YouTube Music client.'''
     def __init__(self):
         pass
 
     def search(self, *_args, **_kwargs):
+        '''Return a fake video ID.'''
         return 'vid-1234'
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source():
+    '''Successful download returns a result with the post-processed PCM file.'''
     loop = asyncio.get_running_loop()
     with NamedTemporaryFile(delete=False) as tmp_file:
         fake_context = generate_fake_context()
@@ -115,7 +125,7 @@ async def test_prepare_source_s3_mode():
             result = await x.create_source(y, 3, loop)
     assert result.status.success
     # edit_audio_file was called with the local download file, not an S3 key
-    edit_mock.assert_called_once_with(download_path)
+    assert edit_mock.call_args[0][0] == download_path
     upload_mock.assert_called_once()
     call_args = upload_mock.call_args[0]
     assert call_args[0] == 'test-bucket'
@@ -158,7 +168,9 @@ async def test_prepare_source_empty_requested_downloads():
     loop = asyncio.get_running_loop()
 
     class MockYTDLPEmptyDownloads():
+        '''Mock yt-dlp returning an entry with an empty requested_downloads list.'''
         def extract_info(self, _search_string, **_kwargs):
+            '''Return entry with empty requested_downloads.'''
             return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': []}]}
@@ -177,7 +189,9 @@ async def test_prepare_source_filepath_does_not_exist():
     loop = asyncio.get_running_loop()
 
     class MockYTDLPMissingFile():
+        '''Mock yt-dlp returning a filepath that does not exist on disk.'''
         def extract_info(self, _search_string, **_kwargs):
+            '''Return entry pointing to a nonexistent file.'''
             return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': [{'filepath': '/nonexistent/no/such/file.mp3'}]}]}
@@ -194,20 +208,22 @@ async def test_prepare_source_filepath_does_not_exist():
 async def test_prepare_source_md5_match_no_warning(mocker):
     '''No warning when yt-dlp md5 matches the file on disk'''
     loop = asyncio.get_running_loop()
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
     correct_md5 = hashlib.md5(b'audio content').hexdigest()
 
     class MockYTDLPWithMd5:
+        '''Mock yt-dlp returning a matching md5 checksum.'''
         def extract_info(self, _search_string, **_kwargs):
+            '''Return entry with correct md5.'''
             return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': [{'filepath': str(file_path), 'md5': correct_md5}]}]}
 
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLPWithMd5())
+    mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
     with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
@@ -220,19 +236,21 @@ async def test_prepare_source_md5_match_no_warning(mocker):
 async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     '''Warning logged when yt-dlp md5 does not match the file on disk; download still succeeds'''
     loop = asyncio.get_running_loop()
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
 
     class MockYTDLPWithWrongMd5:
+        '''Mock yt-dlp returning a mismatched md5 checksum.'''
         def extract_info(self, _search_string, **_kwargs):
+            '''Return entry with incorrect md5.'''
             return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': [{'filepath': str(file_path), 'md5': 'deadbeef000000000000000000000000'}]}]}
 
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLPWithWrongMd5())
+    mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
     with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
@@ -247,10 +265,10 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
 async def test_prepare_source_no_md5_no_warning(mocker):
     '''No warning when yt-dlp does not provide an md5 field (most sources)'''
     loop = asyncio.get_running_loop()
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.download_client.logger')
     with NamedTemporaryFile(delete=False) as tmp_file:
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        mock_logger = mocker.patch.object(x, 'logger')
         y = fake_source_dict(fake_context)
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
@@ -261,6 +279,7 @@ async def test_prepare_source_no_md5_no_warning(mocker):
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_no_download():
+    '''PlaylistAddRequest skips file download and returns metadata only.'''
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLP())
@@ -274,6 +293,7 @@ async def test_prepare_source_no_download():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_errors():
+    '''Various yt-dlp DownloadError messages map to the correct DownloadErrorType.'''
     loop = asyncio.get_running_loop()
     fake_context = generate_fake_context()
 
@@ -328,8 +348,11 @@ async def test_prepare_source_errors():
     assert 'No videos found' in result.status.user_message
 
 def yield_metadata_check_error(exception):
+    '''Return a mock yt-dlp client that raises the given exception from extract_info.'''
     class MockYTDLPMetadataError():
+        '''Mock yt-dlp client that raises a metadata check exception.'''
         def extract_info(self, _search_string, **_kwargs):
+            '''Raise the configured exception.'''
             raise exception
     return MockYTDLPMetadataError()
 
@@ -520,6 +543,7 @@ def test_exception_hierarchy():
     """Test that BotDownloadFlagged is a RetryableException"""
     # Create a fake media_request
     class FakeMediaRequest:
+        '''Minimal fake media request for exception hierarchy testing.'''
         def __init__(self):
             self.retry_count = 0
 
