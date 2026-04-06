@@ -31,6 +31,8 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.cogs.delete_messages import DeleteMessages
@@ -175,10 +177,16 @@ def main(config_file): #pylint:disable=too-many-statements
         raise DiscordBotException('Invalid general config') from exc
 
     # Grab db engine for possible dump or load commands
+    sync_db_engine = None
     if general_config.sql_connection_statement:
-        db_engine = create_engine(general_config.sql_connection_statement, pool_pre_ping=True)
-        BASE.metadata.create_all(db_engine)
-        BASE.metadata.bind = db_engine
+        sync_db_engine = create_engine(general_config.sql_connection_statement, pool_pre_ping=True)
+        BASE.metadata.create_all(sync_db_engine)
+        url = make_url(general_config.sql_connection_statement)
+        if url.drivername.startswith('postgresql'):
+            url = url.set(drivername='postgresql+asyncpg')
+        elif url.drivername == 'sqlite':
+            url = url.set(drivername='sqlite+aiosqlite')
+        db_engine = create_async_engine(url, pool_pre_ping=True)
     else:
         print('Unable to find sql statement in settings, assuming no db', file=stderr)
         db_engine = None
@@ -253,13 +261,22 @@ def main(config_file): #pylint:disable=too-many-statements
             process_metrics_profiler.start()
 
         # Run main bot
-        main_runner(general_config, settings, db_engine)
+        main_runner(general_config, settings, db_engine, sync_db_engine)
     finally:
-        # Ensure database engine is properly disposed
+        # Ensure database engines are properly disposed
         if db_engine:
-            db_engine.dispose()
+            try:
+                loop = get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                loop.create_task(db_engine.dispose())
+            else:
+                asyncio.run(db_engine.dispose())
+        if sync_db_engine:
+            sync_db_engine.dispose()
 
-def main_runner(general_config: GeneralConfig, settings: dict, db_engine: Engine):
+def main_runner(general_config: GeneralConfig, settings: dict, db_engine: AsyncEngine | None, sync_db_engine: Engine | None = None):
     '''
     Main runner logic
     '''
@@ -285,7 +302,9 @@ def main_runner(general_config: GeneralConfig, settings: dict, db_engine: Engine
     ]
     for cog in POSSIBLE_COGS:
         try:
-            new_cog = cog(bot, settings, db_engine)
+            # DatabaseBackup uses its own sync engine; all other cogs use the async engine
+            engine_for_cog = sync_db_engine if cog == DatabaseBackup else db_engine
+            new_cog = cog(bot, settings, engine_for_cog)
             cog_list.append(new_cog)
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog)}, {str(e)}')

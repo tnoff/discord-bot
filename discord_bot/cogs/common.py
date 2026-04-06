@@ -1,19 +1,18 @@
 import asyncio
-from contextlib import contextmanager
-from functools import cached_property, partial
+from contextlib import asynccontextmanager
+from functools import cached_property
 from typing import Optional
 
 from discord.ext.commands import Cog, Bot
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.engine.base import Engine
-from sqlalchemy.orm.session import Session
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, LoggingConfig
-from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
@@ -31,7 +30,7 @@ class CogHelper(Cog):
     _message_delete_after: int | None = None
     REQUIRED_TABLES: list[str] = []
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine,
+    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine,
                  settings_prefix: str = None,
                  config_model: Optional[type[BaseModel]] = None):
         '''
@@ -84,16 +83,14 @@ class CogHelper(Cog):
         self.logger.info(f'{type(self).__name__} :: Required tables restored, starting DB tasks')
         start_tasks_fn()
 
-    @contextmanager
-    def with_db_session(self):
+    @asynccontextmanager
+    async def with_db_session(self):
         '''
-        Yield a db session from engine
+        Yield an async db session from engine
         '''
-        db_session = sessionmaker(bind=self.db_engine)()
-        try:
+        session_factory = async_sessionmaker(bind=self.db_engine, class_=AsyncSession, expire_on_commit=False)
+        async with session_factory() as db_session:
             yield db_session
-        finally:
-            db_session.close()
 
     @cached_property
     def _dispatcher(self):
@@ -180,12 +177,9 @@ class CogHelper(Cog):
             message_id=message_id,
         ))
 
-    def retry_commit(self, db_session: Session):
+    async def retry_commit(self, db_session: AsyncSession):
         '''
         Common function to retry db_session commit
-        db_session: Sqlalchmy db session
+        db_session: Sqlalchemy async db session
         '''
-        def commit_changes():
-            return db_session.commit()
-
-        return retry_database_commands(db_session, partial(commit_changes))
+        await async_retry_database_commands(db_session, db_session.commit)

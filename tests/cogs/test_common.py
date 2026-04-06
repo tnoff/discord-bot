@@ -81,11 +81,12 @@ async def test_await_restore_then_start_waits_then_calls(fake_context):  #pylint
 # with_db_session (lines 84-88)
 # ---------------------------------------------------------------------------
 
-def test_with_db_session_yields_and_closes(fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_with_db_session_yields_and_closes(fake_engine):  #pylint:disable=redefined-outer-name
     '''with_db_session yields a live session and closes it on exit'''
     ctx = generate_fake_context()
     cog = CogHelper(ctx['bot'], {}, fake_engine)
-    with cog.with_db_session() as session:
+    async with cog.with_db_session() as session:
         assert session is not None
 
 
@@ -201,9 +202,10 @@ async def test_dispatch_delete_removes_message(fake_context):  #pylint:disable=r
 # retry_commit (lines 161-164)
 # ---------------------------------------------------------------------------
 
-def test_retry_commit_calls_session_commit(fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_retry_commit_calls_session_commit(fake_engine):  #pylint:disable=redefined-outer-name
     '''retry_commit wraps session.commit in retry_database_commands'''
     ctx = generate_fake_context()
     cog = CogHelper(ctx['bot'], {}, fake_engine)
-    with cog.with_db_session() as session:
-        cog.retry_commit(session)
+    async with cog.with_db_session() as session:
+        await cog.retry_commit(session)

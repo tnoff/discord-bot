@@ -1,5 +1,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import AsyncMock
+
+import pytest
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
 
@@ -58,26 +61,28 @@ def test_register_request_idempotent():
     assert len(broker) == 1
 
 
-def test_register_download_transitions_to_available():
+@pytest.mark.asyncio
+async def test_register_download_transitions_to_available():
     broker = MediaBroker()
     mr = _make_request()
     broker.register_request(mr)
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             entry = broker.get_entry(str(mr.uuid))
             assert entry is not None
             assert entry.zone == Zone.AVAILABLE
             assert entry.download is md
 
 
-def test_register_download_without_prior_request_creates_available_entry():
+@pytest.mark.asyncio
+async def test_register_download_without_prior_request_creates_available_entry():
     # Cache-hit path: download arrives without a prior register_request call
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             key = str(mr.uuid)
             entry = broker.get_entry(key)
             assert entry is not None
@@ -89,13 +94,14 @@ def test_register_download_without_prior_request_creates_available_entry():
 # Checkout / remove
 # ---------------------------------------------------------------------------
 
-def test_checkout_transitions_to_checked_out():
+@pytest.mark.asyncio
+async def test_checkout_transitions_to_checked_out():
     broker = MediaBroker()
     mr = _make_request()
     guild_id = mr.guild_id
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             broker.checkout(str(mr.uuid), guild_id)
             entry = broker.get_entry(str(mr.uuid))
             assert entry is not None
@@ -103,7 +109,8 @@ def test_checkout_transitions_to_checked_out():
             assert entry.checked_out_by == guild_id
 
 
-def test_checkout_with_guild_path_copies_file():
+@pytest.mark.asyncio
+async def test_checkout_with_guild_path_copies_file():
     broker = MediaBroker()
     mr = _make_request()
     guild_id = mr.guild_id
@@ -111,7 +118,7 @@ def test_checkout_with_guild_path_copies_file():
         with TemporaryDirectory() as guild_dir:
             with fake_media_download(base_dir, media_request=mr) as md:
                 original_file_path = md.file_path
-                broker.register_download(md)
+                await broker.register_download(md)
                 guild_file_path = broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))
                 # guild_file_path should be in the guild directory
                 assert guild_file_path is not None
@@ -121,14 +128,15 @@ def test_checkout_with_guild_path_copies_file():
                 assert md.file_path == original_file_path
 
 
-def test_checkout_without_guild_path_does_not_copy():
+@pytest.mark.asyncio
+async def test_checkout_without_guild_path_does_not_copy():
     broker = MediaBroker()
     mr = _make_request()
     guild_id = mr.guild_id
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
             original_path = md.file_path
-            broker.register_download(md)
+            await broker.register_download(md)
             broker.checkout(str(mr.uuid), guild_id)
             # file_path unchanged when no guild_path given
             assert md.file_path == original_path
@@ -168,21 +176,23 @@ def test_can_evict_request_in_flight_returns_false():
     assert broker.can_evict_request(str(mr.uuid)) is False
 
 
-def test_can_evict_request_available_returns_true():
+@pytest.mark.asyncio
+async def test_can_evict_request_available_returns_true():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             assert broker.can_evict_request(str(mr.uuid)) is True
 
 
-def test_can_evict_request_checked_out_returns_false():
+@pytest.mark.asyncio
+async def test_can_evict_request_checked_out_returns_false():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             broker.checkout(str(mr.uuid), mr.guild_id)
             assert broker.can_evict_request(str(mr.uuid)) is False
 
@@ -204,26 +214,29 @@ def test_can_evict_base_in_flight_only_returns_true():
     assert broker.can_evict_base('https://example.com/video') is True
 
 
-def test_can_evict_base_available_returns_false():
+@pytest.mark.asyncio
+async def test_can_evict_base_available_returns_false():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             assert broker.can_evict_base(md.webpage_url) is False
 
 
-def test_can_evict_base_checked_out_returns_false():
+@pytest.mark.asyncio
+async def test_can_evict_base_checked_out_returns_false():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             broker.checkout(str(mr.uuid), mr.guild_id)
             assert broker.can_evict_base(md.webpage_url) is False
 
 
-def test_can_evict_base_shared_url_one_available_blocks_eviction():
+@pytest.mark.asyncio
+async def test_can_evict_base_shared_url_one_available_blocks_eviction():
     # Two requests for the same URL share the same base file.
     # As long as one is still AVAILABLE, the base file must not be evicted.
     broker = MediaBroker()
@@ -236,8 +249,8 @@ def test_can_evict_base_shared_url_one_available_blocks_eviction():
             md1.webpage_url = shared_url
             with fake_media_download(tmp_dir, media_request=mr2) as md2:
                 md2.webpage_url = shared_url
-                broker.register_download(md1)
-                broker.register_download(md2)
+                await broker.register_download(md1)
+                await broker.register_download(md2)
                 # Checkout and finish the first one
                 broker.checkout(str(mr1.uuid), mr1.guild_id)
                 broker.remove(str(mr1.uuid))
@@ -245,12 +258,13 @@ def test_can_evict_base_shared_url_one_available_blocks_eviction():
                 assert broker.can_evict_base(shared_url) is False
 
 
-def test_can_evict_base_after_all_removed_returns_true():
+@pytest.mark.asyncio
+async def test_can_evict_base_after_all_removed_returns_true():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             broker.checkout(str(mr.uuid), mr.guild_id)
             broker.remove(str(mr.uuid))
             assert broker.can_evict_base(md.webpage_url) is True
@@ -260,7 +274,8 @@ def test_can_evict_base_after_all_removed_returns_true():
 # get_checked_out_by
 # ---------------------------------------------------------------------------
 
-def test_get_checked_out_by_returns_entries_for_guild():
+@pytest.mark.asyncio
+async def test_get_checked_out_by_returns_entries_for_guild():
     broker = MediaBroker()
     fake_context = generate_fake_context()
     mr1 = fake_source_dict(fake_context)
@@ -269,8 +284,8 @@ def test_get_checked_out_by_returns_entries_for_guild():
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr1) as md1:
             with fake_media_download(tmp_dir, media_request=mr2) as md2:
-                broker.register_download(md1)
-                broker.register_download(md2)
+                await broker.register_download(md1)
+                await broker.register_download(md2)
                 broker.checkout(str(mr1.uuid), guild_id)
                 # Only first one is checked out
                 results = broker.get_checked_out_by(guild_id)
@@ -278,12 +293,13 @@ def test_get_checked_out_by_returns_entries_for_guild():
                 assert results[0].request is mr1
 
 
-def test_get_checked_out_by_empty_when_none_checked_out():
+@pytest.mark.asyncio
+async def test_get_checked_out_by_empty_when_none_checked_out():
     broker = MediaBroker()
     mr = _make_request()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, media_request=mr) as md:
-            broker.register_download(md)
+            await broker.register_download(md)
             assert broker.get_checked_out_by(mr.guild_id) == []
 
 
@@ -291,7 +307,8 @@ def test_get_checked_out_by_empty_when_none_checked_out():
 # Full lifecycle
 # ---------------------------------------------------------------------------
 
-def test_full_lifecycle():
+@pytest.mark.asyncio
+async def test_full_lifecycle():
     broker = MediaBroker()
     mr = _make_request()
     uuid = str(mr.uuid)
@@ -307,7 +324,7 @@ def test_full_lifecycle():
                 url = md.webpage_url
 
                 # Step 2: download completes, AVAILABLE
-                broker.register_download(md)
+                await broker.register_download(md)
                 assert broker.get_entry(uuid).zone == Zone.AVAILABLE
                 assert broker.can_evict_request(uuid)
                 assert not broker.can_evict_base(url)
@@ -327,3 +344,24 @@ def test_full_lifecycle():
                 assert broker.get_entry(uuid) is None
                 assert broker.can_evict_request(uuid)
                 assert broker.can_evict_base(url)
+
+
+# ---------------------------------------------------------------------------
+# get_cache_count
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_cache_count_no_video_cache_returns_zero():
+    broker = MediaBroker()
+    assert broker.video_cache is None
+    assert await broker.get_cache_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_get_cache_count_delegates_to_video_cache():
+    broker = MediaBroker()
+    mock_cache = AsyncMock()
+    mock_cache.get_cache_count.return_value = 42
+    broker.video_cache = mock_cache
+    assert await broker.get_cache_count() == 42
+    mock_cache.get_cache_count.assert_awaited_once()

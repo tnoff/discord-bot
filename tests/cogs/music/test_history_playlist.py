@@ -1,6 +1,8 @@
 from tempfile import TemporaryDirectory
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
 from discord_bot.cogs.music import Music
@@ -11,7 +13,7 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import mock_session, fake_source_dict, fake_media_download
+from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
@@ -26,10 +28,10 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
             await cog.post_play_processing()
 
-            with mock_session(fake_engine) as session:
-                assert session.query(Playlist).count() == 1
-                assert session.query(PlaylistItem).count() == 1
-                analytics = session.query(GuildVideoAnalytics).first()
+            async with async_mock_session(fake_engine) as session:
+                assert (await session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+                assert (await session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
+                analytics = (await session.execute(select(GuildVideoAnalytics))).scalars().first()
                 assert analytics is not None
                 assert analytics.total_plays == 1
                 assert analytics.total_duration_seconds == sd.duration #pylint:disable=no-member
@@ -38,10 +40,10 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
             await cog.post_play_processing()
 
-            with mock_session(fake_engine) as session:
-                assert session.query(Playlist).count() == 1
-                assert session.query(PlaylistItem).count() == 1
-                analytics = session.query(GuildVideoAnalytics).first()
+            async with async_mock_session(fake_engine) as session:
+                assert (await session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+                assert (await session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
+                analytics = (await session.execute(select(GuildVideoAnalytics))).scalars().first()
                 assert analytics is not None
                 assert analytics.total_plays == 2
                 assert analytics.total_duration_seconds == sd.duration * 2 #pylint:disable=no-member
@@ -70,10 +72,10 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd2))
             await cog.post_play_processing()
 
-            with mock_session(fake_engine) as session:
-                assert session.query(Playlist).count() == 1
-                assert session.query(PlaylistItem).count() == 1
-                analytics = session.query(GuildVideoAnalytics).first()
+            async with async_mock_session(fake_engine) as session:
+                assert (await session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+                assert (await session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
+                analytics = (await session.execute(select(GuildVideoAnalytics))).scalars().first()
                 assert analytics is not None
                 assert analytics.total_plays == 2
                 assert analytics.total_duration_seconds == sd.duration + sd2.duration #pylint:disable=no-member
@@ -114,5 +116,5 @@ async def test_post_play_processing_added_from_history(mocker, fake_engine, fake
             )
             await cog.post_play_processing()
             # No playlist item should have been created
-            with mock_session(fake_engine) as session:
-                assert session.query(PlaylistItem).count() == 0
+            async with async_mock_session(fake_engine) as session:
+                assert (await session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0

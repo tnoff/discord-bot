@@ -1,6 +1,5 @@
-from asyncio import sleep, to_thread
+from asyncio import sleep
 from datetime import datetime, timedelta, timezone
-from functools import partial
 from random import choice
 from re import match, sub, MULTILINE
 from typing import Optional, List
@@ -12,8 +11,8 @@ from discord.errors import NotFound, DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
-from sqlalchemy.engine.base import Engine
-from sqlalchemy.orm.session import Session
+from sqlalchemy import delete as sa_delete, select
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelper
@@ -21,7 +20,7 @@ from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.sql_retry import retry_database_commands
+from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for how many days to keep messages around
@@ -78,26 +77,32 @@ def clean_message(content: str, emojis: List[str]):
         corpus.append(word.lower())
     return corpus
 
-def get_matching_markov_channel(db_session: Session, ctx: Context):
+async def get_matching_markov_channel(db_session: AsyncSession, ctx: Context):
     '''
     Get channel that matches original context
     '''
-    return db_session.query(MarkovChannel).\
-        filter(MarkovChannel.channel_id == ctx.channel.id).\
-        filter(MarkovChannel.server_id == ctx.guild.id).first()
+    return (await db_session.execute(
+        select(MarkovChannel)
+        .where(MarkovChannel.channel_id == ctx.channel.id)
+        .where(MarkovChannel.server_id == ctx.guild.id)
+    )).scalars().first()
 
-def list_guild_channels(db_session: Session, ctx: Context):
+async def list_guild_channels(db_session: AsyncSession, ctx: Context):
     '''
     List guild channels
     '''
-    return db_session.query(MarkovChannel.channel_id).\
-        filter(MarkovChannel.server_id == ctx.guild.id)
+    return (await db_session.execute(
+        select(MarkovChannel.channel_id)
+        .where(MarkovChannel.server_id == ctx.guild.id)
+    )).all()
 
-def get_markov_channel_by_ids(db_session: Session, guild_id: int, channel_id: int):
+async def get_markov_channel_by_ids(db_session: AsyncSession, guild_id: int, channel_id: int):
     '''Get markov channel matching guild_id and channel_id.'''
-    return db_session.query(MarkovChannel).\
-        filter(MarkovChannel.channel_id == channel_id).\
-        filter(MarkovChannel.server_id == guild_id).first()
+    return (await db_session.execute(
+        select(MarkovChannel)
+        .where(MarkovChannel.channel_id == channel_id)
+        .where(MarkovChannel.server_id == guild_id)
+    )).scalars().first()
 
 class Markov(CogHelper):
     '''
@@ -105,7 +110,7 @@ class Markov(CogHelper):
     '''
     REQUIRED_TABLES = ['markov_channel', 'markov_relation']
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
         if not settings.get('general', {}).get('include', {}).get('markov', False):
@@ -160,7 +165,7 @@ class Markov(CogHelper):
             self._result_task.cancel()
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
-    def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
+    async def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
         '''
         Build and save relations to db
         corpus : List of strings from message, after cleaning
@@ -172,10 +177,6 @@ class Markov(CogHelper):
                 self.logger.debug(f'Markov :: Cannot add word "{word}", is too long')
                 return None
             return word
-
-        def add_word(db_session: Session, new_relation: MarkovRelation):
-            db_session.add(new_relation)
-            db_session.commit()
 
         for (k, word) in enumerate(corpus):
             if k != len(corpus) - 1: # Deal with last word
@@ -192,39 +193,36 @@ class Markov(CogHelper):
                                           leader_word=leader_word,
                                           follower_word=follower_word,
                                           created_at=message_timestamp)
-            with self.with_db_session() as db_session:
-                retry_database_commands(db_session, partial(add_word, db_session, new_relation))
+            async with self.with_db_session() as db_session:
+                db_session.add(new_relation)
+                await async_retry_database_commands(db_session, db_session.commit)
 
-    def delete_channel_relations(self, db_session: Session, channel_id: str):
+    async def delete_channel_relations(self, db_session: AsyncSession, channel_id: str):
         '''
         Delete all relations related to channel
 
-        db_session : Sqlalchemy db_session
+        db_session : Sqlalchemy async db_session
         channel_id: Markov Channel ID (DB ID)
         '''
-        def delete_records(db_session, channel_id):
-            db_session.query(MarkovRelation).filter(MarkovRelation.channel_id == channel_id).delete()
-            db_session.commit()
+        async def delete_records():
+            await db_session.execute(
+                sa_delete(MarkovRelation).where(MarkovRelation.channel_id == channel_id)
+            )
+            await db_session.commit()
 
-        retry_database_commands(db_session, partial(delete_records, db_session, channel_id))
+        await async_retry_database_commands(db_session, delete_records)
 
     async def _markov_request_loop(self):
         '''
         Producer loop: submit Discord fetch requests for each tracked channel.
         '''
-        def get_all_channels(db_session):
-            return db_session.query(MarkovChannel).all()
-
-        def delete_old_records(db_session):
-            db_session.query(MarkovRelation).filter(MarkovRelation.created_at < retention_cutoff).delete()
-            db_session.commit()
-
         await sleep(self.loop_sleep_interval)
         retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.history_retention_days)
         self.logger.debug(f'Entering message gather loop, using cutoff {retention_cutoff}')
 
-        with self.with_db_session() as db_session:
-            for markov_channel in retry_database_commands(db_session, partial(get_all_channels, db_session)):
+        async with self.with_db_session() as db_session:
+            markov_channels = (await db_session.execute(select(MarkovChannel))).scalars().all()
+            for markov_channel in markov_channels:
                 guild_id = markov_channel.server_id
                 async with async_otel_span_wrapper('markov.channel_check', kind=SpanKind.INTERNAL,
                                                    attributes={DiscordContextNaming.CHANNEL.value: markov_channel.channel_id,
@@ -246,14 +244,16 @@ class Markov(CogHelper):
                             after_message_id=markov_channel.last_message_id,
                         )
 
-        # Clean up old records in a separate thread with its own session,
-        # so the session is created and used in the same thread (required by SQLite,
-        # and avoids cross-thread session sharing with any DB).
+        # Delete old records
         async with async_otel_span_wrapper('markov.message_delete', kind=SpanKind.INTERNAL):
-            def _do_delete():
-                with self.with_db_session() as thread_session:
-                    retry_database_commands(thread_session, partial(delete_old_records, thread_session))
-            await to_thread(_do_delete)
+            async with self.with_db_session() as db_session:
+                await async_retry_database_commands(
+                    db_session,
+                    lambda: db_session.execute(
+                        sa_delete(MarkovRelation).where(MarkovRelation.created_at < retention_cutoff)
+                    )
+                )
+                await db_session.commit()
             self.logger.debug('Deleted expired/old markov relations')
 
     async def _markov_result_loop(self):
@@ -281,15 +281,15 @@ class Markov(CogHelper):
             if isinstance(result.error, NotFound) and result.after_message_id:
                 self.logger.info(f'Unable to find message {result.after_message_id}'
                                  f' in channel {channel_id}')
-                with self.with_db_session() as db_session:
-                    markov_channel = retry_database_commands(
+                async with self.with_db_session() as db_session:
+                    markov_channel = await async_retry_database_commands(
                         db_session,
-                        partial(get_markov_channel_by_ids, db_session, guild_id, channel_id)
+                        lambda: get_markov_channel_by_ids(db_session, guild_id, channel_id)
                     )
                     if markov_channel:
-                        self.delete_channel_relations(db_session, markov_channel.id)
+                        await self.delete_channel_relations(db_session, markov_channel.id)
                         markov_channel.last_message_id = None
-                        self.retry_commit(db_session)
+                        await self.retry_commit(db_session)
             else:
                 self.logger.error(
                     f'Markov :: Failed to fetch history for channel {channel_id}: {result.error}'
@@ -301,10 +301,10 @@ class Markov(CogHelper):
             return
 
         emojis = self._emoji_cache.get(guild_id, [])
-        with self.with_db_session() as db_session:
-            markov_channel = retry_database_commands(
+        async with self.with_db_session() as db_session:
+            markov_channel = await async_retry_database_commands(
                 db_session,
-                partial(get_markov_channel_by_ids, db_session, guild_id, channel_id)
+                lambda: get_markov_channel_by_ids(db_session, guild_id, channel_id)
             )
             if not markov_channel:
                 self.logger.debug(f'Markov channel {channel_id} not found in DB, skipping')
@@ -324,9 +324,9 @@ class Markov(CogHelper):
                 if corpus:
                     self.logger.info(f'Attempting to add corpus "{corpus}" '
                                      f'to channel {channel_id}')
-                    self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
+                    await self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
                 markov_channel.last_message_id = message.id
-                self.retry_commit(db_session)
+                await self.retry_commit(db_session)
             self.logger.debug(f'Done with channel {channel_id}')
 
     @group(name='markov', invoke_without_command=False)
@@ -343,17 +343,12 @@ class Markov(CogHelper):
         '''
         Turn markov on for channel
         '''
-
-        def add_channel(db_session: Session, new_channel: MarkovChannel):
-            db_session.add(new_channel)
-            db_session.commit()
-
         if ctx.guild.id in self.server_reject_list:
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Unable to turn on markov for server, in reject list')
 
-        with self.with_db_session() as db_session:
+        async with self.with_db_session() as db_session:
             # Ensure channel not already on
-            markov = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
+            markov = await async_retry_database_commands(db_session, lambda: get_matching_markov_channel(db_session, ctx))
 
             if markov:
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Channel already has markov turned on')
@@ -364,7 +359,8 @@ class Markov(CogHelper):
             new_markov = MarkovChannel(channel_id=ctx.channel.id,
                                        server_id=ctx.guild.id,
                                        last_message_id=None)
-            retry_database_commands(db_session, partial(add_channel, db_session, new_markov))
+            db_session.add(new_markov)
+            await async_retry_database_commands(db_session, db_session.commit)
             self.logger.info(f'Adding new markov channel {ctx.channel.id} from server {ctx.guild.id}')
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov turned on for channel')
 
@@ -374,20 +370,17 @@ class Markov(CogHelper):
         '''
         Turn markov off for channel
         '''
-        def delete_channels(db_session: Session, markov_channel: MarkovChannel):
-            db_session.delete(markov_channel)
-            db_session.commit()
-
-        with self.with_db_session() as db_session:
+        async with self.with_db_session() as db_session:
             # Ensure channel not already on
-            markov_channel = retry_database_commands(db_session, partial(get_matching_markov_channel, db_session, ctx))
+            markov_channel = await async_retry_database_commands(db_session, lambda: get_matching_markov_channel(db_session, ctx))
 
             if not markov_channel:
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Channel does not have markov turned on')
             self.logger.info(f'Turning off markov channel {ctx.channel.id} from server {ctx.guild.id}')
 
-            self.delete_channel_relations(db_session, markov_channel.id)
-            retry_database_commands(db_session, partial(delete_channels, db_session, markov_channel))
+            await self.delete_channel_relations(db_session, markov_channel.id)
+            await db_session.delete(markov_channel)
+            await async_retry_database_commands(db_session, db_session.commit)
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov turned off for channel')
 
     @markov.command(name='list-channels')
@@ -396,10 +389,10 @@ class Markov(CogHelper):
         '''
         List channels markov is enabled for in this server
         '''
-        with self.with_db_session() as db_session:
-            markov_channels = retry_database_commands(db_session, partial(list_guild_channels, db_session, ctx))
+        async with self.with_db_session() as db_session:
+            markov_channels = await async_retry_database_commands(db_session, lambda: list_guild_channels(db_session, ctx))
 
-            if not markov_channels.count():
+            if not markov_channels:
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Markov not enabled for any channels in server')
 
             headers = [
@@ -408,8 +401,8 @@ class Markov(CogHelper):
 
             table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                                 prefix='Channel List \n')
-            for channel_id in markov_channels:
-                table.add_row([f'<#{channel_id[0]}>'])
+            for row in markov_channels:
+                table.add_row([f'<#{row[0]}>'])
             for output in table.render():
                 await self.dispatch_message(ctx.guild.id, ctx.channel.id,output)
             return True
@@ -430,21 +423,6 @@ class Markov(CogHelper):
         Note that for first_word, multiple words can be given, but they must be in quotes
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
-
-        def get_possible_words(db_session: Session, ctx: Context, first_word: str = None):
-            query = db_session.query(MarkovRelation.id).\
-                        join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id).\
-                        filter(MarkovChannel.server_id == ctx.guild.id)
-            if first_word:
-                query = query.filter(MarkovRelation.leader_word == first_word)
-            return [word[0] for word in query]
-
-        def get_first_leader_word(db_session: Session, possible_words: List[int]):
-            return db_session.get(MarkovRelation, choice(possible_words)).leader_word
-
-        def get_first_follower_word(db_session: Session, possible_words: List[int]):
-            return db_session.get(MarkovRelation, choice(possible_words)).follower_word
-
         if ctx.guild.id in self.server_reject_list:
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'Unable to use markov for server, in reject list')
 
@@ -460,22 +438,36 @@ class Markov(CogHelper):
                 all_words.append(start_words.lower())
             first = starting_words[-1].lower()
 
-        with self.with_db_session() as db_session:
-            possible_words = retry_database_commands(db_session, partial(get_possible_words, db_session, ctx, first_word=first))
+        async with self.with_db_session() as db_session:
+            async def get_possible_words(first=None):
+                stmt = (
+                    select(MarkovRelation.id)
+                    .join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id)
+                    .where(MarkovChannel.server_id == ctx.guild.id)
+                )
+                if first:
+                    stmt = stmt.where(MarkovRelation.leader_word == first)
+                return (await db_session.execute(stmt)).scalars().all()
+
+            possible_words = await async_retry_database_commands(db_session, lambda: get_possible_words(first))
 
             if len(possible_words) == 0:
                 if first_word:
                     return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'No markov word matching "{first_word}"')
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'No markov words to pick from')
 
-            word = retry_database_commands(db_session, partial(get_first_leader_word, db_session, possible_words))
+            async def get_leader_word():
+                return (await db_session.get(MarkovRelation, choice(possible_words))).leader_word
+
+            async def get_follower_word(word_ids):
+                return (await db_session.get(MarkovRelation, choice(word_ids))).follower_word
+
+            word = await async_retry_database_commands(db_session, get_leader_word)
             all_words.append(word)
 
             remaining_word_num = sentence_length - len(all_words)
             for _ in range(remaining_word_num):
-                # Get all leader ids first so you can pass it in
-                relation_ids = retry_database_commands(db_session, partial(get_possible_words, db_session, ctx, first_word=word))
-                # Get random choice of leader ids
-                word = retry_database_commands(db_session, partial(get_first_follower_word, db_session, relation_ids))
+                relation_ids = await async_retry_database_commands(db_session, lambda w=word: get_possible_words(w))
+                word = await async_retry_database_commands(db_session, lambda r=relation_ids: get_follower_word(r))
                 all_words.append(word)
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,' '.join(markov_word for markov_word in all_words))

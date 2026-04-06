@@ -2,6 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import VideoCache
 from discord_bot.cogs.music import Music
@@ -10,7 +12,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import mock_session, fake_media_download
+from tests.helpers import async_mock_session, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
@@ -55,12 +57,12 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
             s3_key = f'cache/{sd.media_request.uuid}.mp3'
             upload_mock(cog.media_broker.bucket_name, sd.file_path, s3_key)
             sd.file_path = Path(s3_key)
-            cog.media_broker.register_download(sd)
+            await cog.media_broker.register_download(sd)
             upload_mock.assert_called_once()
-            with mock_session(fake_engine) as session:
-                assert session.query(VideoCache).count() == 1
+            async with async_mock_session(fake_engine) as session:
+                assert (await session.execute(select(sql_count()).select_from(VideoCache))).scalar() == 1
             # cleanup is a no-op when entry is still in broker registry (AVAILABLE)
-            result = cog.media_broker.cache_cleanup()
+            result = await cog.media_broker.cache_cleanup()
             assert result is False
 
 @pytest.mark.asyncio
@@ -87,9 +89,9 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
                 delete_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
-                cog.video_cache.iterate_file(sd)
-                cog.video_cache.iterate_file(sd2)
+                await cog.video_cache.iterate_file(sd)
+                await cog.video_cache.iterate_file(sd2)
                 # Neither is in the broker registry, so both are evictable
-                cog.media_broker.cache_cleanup()
+                await cog.media_broker.cache_cleanup()
                 delete_mock.assert_called_once()
-                assert not cog.media_broker.check_cache(sd.media_request)
+                assert not await cog.media_broker.check_cache(sd.media_request)

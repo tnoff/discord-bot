@@ -10,7 +10,7 @@ from sqlalchemy import text
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
 from discord_bot.database import MarkovChannel, MarkovRelation, Playlist
 
-from tests.helpers import fake_engine, mock_session  #pylint:disable=unused-import
+from tests.helpers import fake_sync_engine as fake_engine, mock_session  #pylint:disable=unused-import
 
 
 def test_database_backup_client_init(fake_engine):  #pylint:disable=redefined-outer-name
