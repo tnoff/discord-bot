@@ -94,7 +94,7 @@ discord_bot/
                                 # command_wrapper, METER_PROVIDER
     process_metrics.py          # ProcessMetricsProfiler — psutil RSS/CPU/FD metrics
     queue.py                    # AsyncQueue[T] — shuffleable asyncio queue with PutsBlocked
-    sql_retry.py                # retry_database_commands
+    sql_retry.py                # retry_database_commands (sync, backup only), async_retry_database_commands
     clients/                    # s3.py, spotify.py, youtube.py, youtube_music.py
 scripts/
   restore_database.py           # CLI: restore DB from local file or S3 (--config, --file/--s3-*)
@@ -139,7 +139,7 @@ class MyCogConfig(BaseModel):
     loop_sleep_interval: float = 300.0
 
 class MyCog(CogHelper):
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine):
         # Guard: raise CogMissingRequiredArg if not enabled or misconfigured
         if not settings.get('general', {}).get('include', {}).get('my_cog', False):
             raise CogMissingRequiredArg('MyCog not enabled')
@@ -150,7 +150,7 @@ class MyCog(CogHelper):
 ```
 
 `CogHelper.__init__` sets up:
-- `self.bot`, `self.settings`, `self.db_engine`
+- `self.bot`, `self.settings`, `self.db_engine` (`AsyncEngine | None`)
 - `self.logger` — configured via `general.logging` settings; logger name is the
   lowercase class name
 - `self.logging_config` — `LoggingConfig` instance
@@ -270,11 +270,11 @@ All spans and metrics use the enums in `discord_bot/utils/otel.py`.
 ### Spans
 
 ```python
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.otel import async_otel_span_wrapper
 from opentelemetry.trace import SpanKind
 
-with otel_span_wrapper('my_cog.operation', kind=SpanKind.INTERNAL,
-                       attributes={'discord.guild': guild_id}):
+async with async_otel_span_wrapper('my_cog.operation', kind=SpanKind.INTERNAL,
+                                   attributes={'discord.guild': guild_id}):
     ...
 
 # For command handlers, use the decorator instead:
@@ -285,6 +285,10 @@ from discord_bot.utils.otel import command_wrapper
 async def my_command(self, ctx):
     ...
 ```
+
+`async_otel_span_wrapper` is an `asynccontextmanager` and must be used with
+`async with`. The sync `otel_span_wrapper` is still available for sync-only
+contexts (e.g. the backup client).
 
 ### MetricNaming enum values
 
@@ -323,7 +327,10 @@ Prefer `self.dispatch_fetch` / `self.send_funcs` over calling this directly in c
 ## Database
 
 SQLAlchemy 2.x with `declarative_base()`. All models inherit from `BASE`
-(`discord_bot/database.py`).
+(`discord_bot/database.py`). All session work is **async** — the engine is an
+`AsyncEngine` backed by `asyncpg` (PostgreSQL) or `aiosqlite` (SQLite). The CLI
+automatically rewrites `postgresql://` → `postgresql+asyncpg` and `sqlite://` →
+`sqlite+aiosqlite` so the config URL does not need to change.
 
 ### Models
 
@@ -337,11 +344,51 @@ SQLAlchemy 2.x with `declarative_base()`. All models inherit from `BASE`
 | `VideoCacheBackup` | `video_cache_backup` | Music / DatabaseBackup |
 
 ```python
-# Session context manager from CogHelper
-with self.with_db_session() as db:
-    results = db.query(MarkovChannel).filter(...).all()
-    self.retry_commit(db)  # commit with retry on PendingRollbackError
+# Async session context manager from CogHelper
+async with self.with_db_session() as db:
+    result = (await db.execute(select(MarkovChannel).where(...))).scalars().all()
+    await self.retry_commit(db)  # commit with retry on PendingRollbackError
 ```
+
+All queries use the SQLAlchemy 2.x `select()` API. The legacy `session.query()`
+is **not** supported by `AsyncSession`.
+
+```python
+from sqlalchemy import select, delete
+
+# Fetch one
+row = (await db.execute(select(Model).where(Model.id == x))).scalars().first()
+
+# Fetch all
+rows = (await db.execute(select(Model).where(...))).scalars().all()
+
+# Count
+n = (await db.execute(select(func.count()).select_from(Model).where(...))).scalar()
+
+# Delete
+await db.execute(delete(Model).where(Model.id == x))
+await db.commit()
+```
+
+`DatabaseBackupClient` is the only component that retains a **sync** engine —
+it runs in a background thread and does its own session management.
+
+### DB retry
+
+`async_retry_database_commands` (`discord_bot/utils/sql_retry.py`) retries on
+`OperationalError` (with rollback + sleep) and `PendingRollbackError` (with
+rollback), up to 3 attempts:
+
+```python
+from discord_bot.utils.sql_retry import async_retry_database_commands
+
+result = await async_retry_database_commands(db_session, lambda: database_functions.get_x(db_session, ...))
+
+# Or for commit:
+await async_retry_database_commands(db_session, db_session.commit)
+```
+
+The sync `retry_database_commands` still exists for `DatabaseBackupClient` only.
 
 Migrations via Alembic (`DATABASE_URL` env var required):
 
@@ -506,22 +553,32 @@ All shared test infrastructure is in `tests/helpers.py`:
 
 ```python
 from tests.helpers import (
-    fake_context,      # pytest fixture → dict with bot/guild/author/channel/context
-    fake_engine,       # pytest fixture → in-memory SQLite engine with all tables created
-    FakeChannel,       # channel.send() records messages in channel.messages list
+    fake_context,        # pytest fixture → dict with bot/guild/author/channel/context
+    fake_engine,         # pytest fixture → async in-memory aiosqlite engine (AsyncEngine)
+    fake_sync_engine,    # pytest fixture → sync in-memory SQLite engine (backup tests only)
+    FakeChannel,         # channel.send() records messages in channel.messages list
     FakeGuild,
     FakeAuthor,
     FakeMessage,
     FakeVoiceClient,
     FakeContext,
-    fake_bot_yielder,  # factory: fake_bot_yielder(channels=[...])() → FakeBot instance
+    fake_bot_yielder,    # factory: fake_bot_yielder(channels=[...])() → FakeBot instance
     generate_fake_context,  # non-fixture version of fake_context
-    fake_source_dict,  # create a MediaRequest for music tests
-    fake_media_download,  # context manager: yields MediaDownload with a temp audio file
-    random_id,         # generate a random 12-digit integer
-    random_string,     # generate a random lowercase string
-    mock_session,      # context manager for a raw SQLAlchemy session
+    fake_source_dict,    # create a MediaRequest for music tests
+    fake_media_download, # context manager: yields MediaDownload with a temp audio file
+    random_id,           # generate a random 12-digit integer
+    random_string,       # generate a random lowercase string
+    async_mock_session,  # async context manager: yields AsyncSession bound to fake_engine
+    mock_session,        # sync context manager (backup tests only)
 )
+```
+
+`fake_engine` is an `AsyncEngine` (`sqlite+aiosqlite:///:memory:`). Use
+`async_mock_session` to open a session directly in tests:
+
+```python
+async with async_mock_session(fake_engine) as session:
+    rows = (await session.execute(select(MyModel))).scalars().all()
 ```
 
 `fake_context` returns a dict:

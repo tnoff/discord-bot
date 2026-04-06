@@ -1,20 +1,22 @@
 import asyncio
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from random import choice
 from pathlib import Path
 from string import digits, ascii_lowercase
 from tempfile import NamedTemporaryFile
-from typing import Any, Generator, Optional
+from typing import Any, AsyncGenerator, Generator, Optional
 from collections.abc import Callable
 
 from discord import ChannelType
 from discord.errors import NotFound
 import pytest
+import pytest_asyncio
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.database import BASE
@@ -115,8 +117,16 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
         media_request)
         yield media_download
 
+@pytest_asyncio.fixture(scope="function")
+async def fake_engine() -> AsyncGenerator[AsyncEngine, None]:
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as conn:
+        await conn.run_sync(BASE.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
 @pytest.fixture(scope="function")
-def fake_engine() -> Generator[Engine, None, None]:
+def fake_sync_engine() -> Generator[Engine, None, None]:
     engine = create_engine(
         'sqlite+pysqlite:///:memory:',
         connect_args={'check_same_thread': False},
@@ -124,7 +134,6 @@ def fake_engine() -> Generator[Engine, None, None]:
     )
     BASE.metadata.create_all(engine)
     BASE.metadata.bind = engine
-
     try:
         yield engine
     finally:
@@ -142,6 +151,12 @@ def mock_session(engine: Engine) -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+@asynccontextmanager
+async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    async with session_factory() as session:
+        yield session
 
 class AsyncIterator():
     def __init__(self, items: list[Any]) -> None:

@@ -6,7 +6,7 @@ from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.integrations.s3 import ObjectStorageException
 
-from tests.helpers import fake_context, fake_engine  #pylint:disable=unused-import
+from tests.helpers import fake_context, fake_sync_engine as fake_engine  #pylint:disable=unused-import
 
 
 BASE_CONFIG = {

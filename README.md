@@ -44,7 +44,7 @@ general:
 
 ### Database
 
-Certain cogs, such as markov or music, have functions that require database support. You can pass in a database connection string that will then be passed into sqlalchemy.
+Certain cogs, such as markov or music, have functions that require database support. You can pass in a standard SQLAlchemy connection string:
 
 ```
 ---
@@ -52,6 +52,8 @@ general:
   discord_token: blah-blah-blah-discord-token
   sql_connection_statement: sqlite:///home/user/db.sql
 ```
+
+The bot automatically selects an async driver at runtime (`asyncpg` for PostgreSQL, `aiosqlite` for SQLite), so the connection string format does not need to change. Standard `sqlite://` and `postgresql://` URLs both work as-is.
 
 The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run the migrations. To upgrade to the latest changes use:
 

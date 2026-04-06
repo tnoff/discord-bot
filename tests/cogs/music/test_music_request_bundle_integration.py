@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from unittest.mock import Mock, MagicMock, AsyncMock
 
 import pytest
 
@@ -287,26 +286,6 @@ async def test_request_bundle_playlist_item_add_invalid_playlist_error(fake_cont
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
-    # Mock database operations to return no playlists (simulating invalid ID)
-    @contextmanager
-    def mock_db_session_empty():
-        # Mock database session that returns no playlists
-        class MockDBEmpty:
-            def query(self, *_args):  #pylint:disable=unused-argument
-                return self
-            def filter(self, *_args):  #pylint:disable=unused-argument
-                return self
-            def order_by(self, *_args):  #pylint:disable=unused-argument
-                return self
-            def offset(self, *_args):  #pylint:disable=unused-argument
-                return self
-            def first(self):
-                return None  # No playlist found
-            def count(self):
-                return 1  # Has playlists, but index is invalid
-        yield MockDBEmpty()
-
-    cog.with_db_session = mock_db_session_empty
     cog.dispatcher = MagicMock()
 
     # Call playlist item-add with invalid playlist index
@@ -1083,22 +1062,18 @@ async def test_playlist_add_message_updates_use_channel_id(fake_engine, fake_con
     bundle.add_media_request(req)
 
     cog.dispatcher = MagicMock()
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
-        # Mock successful playlist add
-        mock_db.return_value = 456  # playlist_item_id
+    playlist_result = PlaylistAddResult(webpage_url='https://example.com/v', title='Test Title', uploader='Test Uploader')
 
-        playlist_result = PlaylistAddResult(webpage_url='https://example.com/v', title='Test Title', uploader='Test Uploader')
+    # Test the __add_playlist_item private method
+    # pylint: disable=protected-access
+    await cog._Music__add_playlist_item(req, playlist_result)
 
-        # Test the __add_playlist_item private method
-        # pylint: disable=protected-access
-        await cog._Music__add_playlist_item(req, playlist_result)
-
-        # Verify channel_id was used
-        cog.dispatcher.update_mutable.assert_called()
-        call_args = cog.dispatcher.update_mutable.call_args
-        assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
-        assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
-        assert call_args[1].get('sticky') is False
+    # Verify channel_id was used
+    cog.dispatcher.update_mutable.assert_called()
+    call_args = cog.dispatcher.update_mutable.call_args
+    assert call_args[0][0] == f'request_bundle-{bundle.uuid}'
+    assert call_args[0][3] == fake_context['channel'].id  # channel_id is 4th positional arg
+    assert call_args[1].get('sticky') is False
 
 
 

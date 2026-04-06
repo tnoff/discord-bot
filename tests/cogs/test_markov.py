@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 
 from freezegun import freeze_time
 import pytest
+from sqlalchemy import select
+from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
@@ -11,7 +13,7 @@ from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine #pylint:disable=unused-import
-from tests.helpers import mock_session
+from tests.helpers import async_mock_session
 from tests.helpers import FakeEmjoi, FakeChannel, FakeMessage
 
 GENERIC_CONFIG = {
@@ -86,8 +88,8 @@ async def test_turn_on(fake_engine, fake_context):  #pylint:disable=redefined-ou
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
     result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     assert result == 'Markov turned on for channel'
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovChannel).count() == 1
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovChannel))).scalar() == 1
     result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     assert result == 'Channel already has markov turned on'
 
@@ -159,8 +161,8 @@ async def test_turn_on_and_sync(mocker, fake_engine, fake_context):  #pylint:dis
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() > 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() > 0
 
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
@@ -170,8 +172,8 @@ async def test_turn_on_and_sync_no_messages(mocker, fake_engine, fake_context): 
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
 
 @pytest.mark.asyncio
 async def test_turn_on_and_sync_multiple_times(mocker, fake_engine, freezer, fake_context):  #pylint:disable=redefined-outer-name
@@ -191,8 +193,8 @@ async def test_turn_on_and_sync_multiple_times(mocker, fake_engine, freezer, fak
     fake_context['channel'].messages.append(new_fake_message)
     freezer.move_to('2024-12-02 12:00:00')
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 13
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 13
 
 @pytest.mark.asyncio
 async def test_turn_on_and_sync_message_dissapears(mocker, fake_engine, freezer, fake_context):  #pylint:disable=redefined-outer-name
@@ -209,8 +211,8 @@ async def test_turn_on_and_sync_message_dissapears(mocker, fake_engine, freezer,
     fake_context['channel'].messages = []
     freezer.move_to('2024-12-02 12:00:00')
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
 
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
@@ -223,8 +225,8 @@ async def test_turn_on_and_sync_bot_command(mocker, fake_engine, fake_context): 
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
 
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
@@ -237,8 +239,8 @@ async def test_turn_on_and_sync_no_content(mocker, fake_engine, fake_context):  
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
 
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
@@ -252,8 +254,8 @@ async def test_turn_on_and_sync_too_long_words(mocker, fake_engine, fake_context
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     await _run_markov_request_and_result(cog, mocker)
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 4
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 4
 
 def mock_random(input_list):
     '''Return the first element of the list (deterministic for tests).'''
@@ -453,10 +455,10 @@ async def test_process_history_result_not_found_clears_relations(fake_engine, fa
     )
     await cog._process_history_result(result)  #pylint:disable=protected-access
 
-    with mock_session(fake_engine) as session:
-        mc = session.query(MarkovChannel).filter(
-            MarkovChannel.channel_id == fake_context['channel'].id
-        ).first()
+    async with async_mock_session(fake_engine) as session:
+        mc = (await session.execute(
+            select(MarkovChannel).where(MarkovChannel.channel_id == fake_context['channel'].id)
+        )).scalars().first()
         assert mc is not None
         assert mc.last_message_id is None
 
@@ -497,8 +499,8 @@ async def test_process_history_result_saves_relations(fake_engine, fake_context)
     )
     await cog._process_history_result(result)  #pylint:disable=protected-access
 
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() > 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() > 0
 
 
 # ---------------------------------------------------------------------------
@@ -532,32 +534,27 @@ async def test_markov_result_loop_updates_emoji_cache(fake_engine, fake_context)
 # get_markov_channel_by_ids helper
 # ---------------------------------------------------------------------------
 
-def test_get_markov_channel_by_ids_returns_channel(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_markov_channel_by_ids_returns_channel(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''get_markov_channel_by_ids returns the matching MarkovChannel'''
-    from sqlalchemy.orm import sessionmaker  #pylint:disable=import-outside-toplevel
+    async with async_mock_session(fake_engine) as session:
+        mc = MarkovChannel(channel_id=fake_context['channel'].id,
+                           server_id=fake_context['guild'].id,
+                           last_message_id=None)
+        session.add(mc)
+        await session.commit()
 
-    engine = fake_engine
-    session = sessionmaker(bind=engine)()
-    mc = MarkovChannel(channel_id=fake_context['channel'].id,
-                       server_id=fake_context['guild'].id,
-                       last_message_id=None)
-    session.add(mc)
-    session.commit()
-
-    result = get_markov_channel_by_ids(session, fake_context['guild'].id, fake_context['channel'].id)
-    assert result is not None
-    assert result.channel_id == fake_context['channel'].id
-    session.close()
+        result = await get_markov_channel_by_ids(session, fake_context['guild'].id, fake_context['channel'].id)
+        assert result is not None
+        assert result.channel_id == fake_context['channel'].id
 
 
-def test_get_markov_channel_by_ids_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_markov_channel_by_ids_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''get_markov_channel_by_ids returns None when no matching channel exists'''
-    from sqlalchemy.orm import sessionmaker  #pylint:disable=import-outside-toplevel
-
-    session = sessionmaker(bind=fake_engine)()
-    result = get_markov_channel_by_ids(session, fake_context['guild'].id, 999999)
-    assert result is None
-    session.close()
+    async with async_mock_session(fake_engine) as session:
+        result = await get_markov_channel_by_ids(session, fake_context['guild'].id, 999999)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -606,5 +603,5 @@ async def test_process_history_result_channel_not_in_db(fake_engine, fake_contex
         )],
     )
     await cog._process_history_result(result)  #pylint:disable=protected-access
-    with mock_session(fake_engine) as session:
-        assert session.query(MarkovRelation).count() == 0
+    async with async_mock_session(fake_engine) as session:
+        assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0

@@ -13,7 +13,7 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.download import DownloadResult
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.utils.integrations.s3 import get_file, delete_file
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,16 @@ class MediaBroker:
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
 
-    def register_download_result(self, result: DownloadResult) -> MediaDownload:
+    async def register_download_result(self, result: DownloadResult) -> MediaDownload:
         '''
         Create a MediaDownload from a successful DownloadResult and register it.
         '''
         media_download = MediaDownload(result.file_name, result.ytdlp_data, result.media_request)
         media_download.file_size_bytes = result.file_size_bytes
-        self.register_download(media_download)
+        await self.register_download(media_download)
         return media_download
 
-    def register_download(self, media_download: MediaDownload):
+    async def register_download(self, media_download: MediaDownload):
         '''
         Associate a completed MediaDownload with its request entry and
         move it to the AVAILABLE zone.
@@ -96,7 +96,7 @@ class MediaBroker:
         If the entry does not yet exist (e.g. a cache hit that bypassed
         the normal pipeline) a new AVAILABLE entry is created.
         '''
-        with otel_span_wrapper('music.broker.register_download', kind=SpanKind.INTERNAL,
+        async with async_otel_span_wrapper('music.broker.register_download', kind=SpanKind.INTERNAL,
                                attributes=media_download_attributes(media_download)):
             key = str(media_download.media_request.uuid)
             entry = self._registry.get(key)
@@ -110,9 +110,9 @@ class MediaBroker:
                 entry.download = media_download
                 entry.zone = Zone.AVAILABLE
             if self.video_cache:
-                self.video_cache.iterate_file(media_download)
+                await self.video_cache.iterate_file(media_download)
 
-    def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:
+    async def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:
         '''
         Look up a completed download in the video cache.
 
@@ -121,9 +121,9 @@ class MediaBroker:
         '''
         if not self.video_cache:
             return None
-        return self.video_cache.get_webpage_url_item(media_request)
+        return await self.video_cache.get_webpage_url_item(media_request)
 
-    def cache_cleanup(self) -> bool:
+    async def cache_cleanup(self) -> bool:
         '''
         Mark old cache entries for deletion and evict those that are no
         longer referenced by any active player.
@@ -135,11 +135,11 @@ class MediaBroker:
         '''
         if not self.video_cache:
             return False
-        with otel_span_wrapper('music.broker.cache_cleanup', kind=SpanKind.INTERNAL) as span:
-            self.video_cache.ready_remove()
+        async with async_otel_span_wrapper('music.broker.cache_cleanup', kind=SpanKind.INTERNAL) as span:
+            await self.video_cache.ready_remove()
             to_delete = [
                 vc
-                for vc in self.video_cache.get_deletable_entries()
+                for vc in await self.video_cache.get_deletable_entries()
                 if self.can_evict_base(vc.video_url)
             ]
             span.set_attribute('music.broker.evicted_count', len(to_delete))
@@ -147,7 +147,7 @@ class MediaBroker:
                 return False
             for vc in to_delete:
                 delete_file(self.bucket_name, str(vc.base_path))
-            self.video_cache.remove_video_cache([vc.id for vc in to_delete])
+            await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
             return True
 
     # ------------------------------------------------------------------
@@ -296,6 +296,12 @@ class MediaBroker:
         Intended for inspection in tests and diagnostics.
         '''
         return self._registry.get(media_request_uuid)
+
+    async def get_cache_count(self) -> int:
+        '''Return the current VideoCache entry count, or 0 if no cache is configured.'''
+        if not self.video_cache:
+            return 0
+        return await self.video_cache.get_cache_count()
 
     def __len__(self) -> int:
         return len(self._registry)

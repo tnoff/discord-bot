@@ -72,7 +72,7 @@ The backup system uses boto3's default credential chain. Configure credentials v
    - If no backup exists or S3 is unreachable, logs a warning and continues
 3. **Scheduling**: Calculates next run time from cron expression
 4. **Backup process**:
-   - Opens a single database connection so all table reads share one consistent SQLite WAL snapshot
+   - Opens a single **synchronous** database connection (independent of the async engine used by other cogs) so all table reads share one consistent SQLite WAL snapshot
    - Queries all tables defined in SQLAlchemy models (`BASE.metadata`)
    - Streams rows in chunks of 1000 to minimize memory usage
    - Writes JSON incrementally to `/tmp/db_backup_YYYY-MM-DD_HH-MM-SS.json`

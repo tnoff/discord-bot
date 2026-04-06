@@ -85,7 +85,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as media_download:
             await cog.add_source_to_player(media_download, cog.players[fake_context['guild'].id])
             assert cog.players[fake_context['guild'].id].get_queue_items()
-            assert cog.video_cache.get_webpage_url_item(media_download.media_request)
+            assert await cog.video_cache.get_webpage_url_item(media_download.media_request)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -52,7 +52,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_engine)
             cog.dispatcher = MagicMock()
-            cog.media_broker.register_download(sd)
+            await cog.media_broker.register_download(sd)
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
             await cog.download_files()
@@ -282,7 +282,7 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             # Bypass DownloadClient: register directly (no S3 upload in this path)
-            cog.media_broker.register_download(sd)
+            await cog.media_broker.register_download(sd)
 
             # Create a PlaylistAddRequest for the same URL as the cached download
             search_result = SearchResult(
@@ -303,3 +303,26 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
             await cog.download_files()
             # __add_playlist_item should have been called (cache hit path)
             cog._Music__add_playlist_item.assert_called_once()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio()
+async def test_download_files_updates_cache_count_when_cleanup_returns_true(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''When cache_cleanup() returns True, _cache_count is refreshed (music.py line 841).'''
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
+            mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+            mocker.patch.object(MusicPlayer, 'start_tasks')
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+            cog.dispatcher = MagicMock()
+            await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+            # Force cache_cleanup to return True and get_cache_count to return a known value
+            cog.media_broker.cache_cleanup = AsyncMock(return_value=True)
+            cog.media_broker.get_cache_count = AsyncMock(return_value=7)
+
+            cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
+            await cog.download_files()
+
+            cog.media_broker.get_cache_count.assert_awaited_once()
+            assert cog._cache_count == 7  # pylint: disable=protected-access

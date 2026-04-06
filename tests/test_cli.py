@@ -731,3 +731,38 @@ async def test_main_with_health_server_monitoring(mocker):
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
         assert result.exception is None
+
+
+def test_run_config_with_postgresql_db(mocker):
+    '''postgresql URL is rewritten to postgresql+asyncpg and engine is disposed synchronously.
+
+    Covers cli.py lines 186 (url rewrite), 270-271 (RuntimeError → loop=None), 275 (asyncio.run).
+    This test is intentionally synchronous so there is no running event loop in the finally block,
+    exercising the asyncio.run(db_engine.dispose()) path.
+    '''
+    mock_sync_engine = MagicMock()
+    mock_async_engine = AsyncMock()
+    # Prevent actual DB connection
+    mocker.patch('discord_bot.cli.create_engine', return_value=mock_sync_engine)
+    mocker.patch('discord_bot.cli.BASE.metadata.create_all')
+    create_async_engine_mock = mocker.patch('discord_bot.cli.create_async_engine', return_value=mock_async_engine)
+    mocker.patch('discord_bot.cli.main_runner')
+
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'sql_connection_statement': 'postgresql://user:pass@localhost/testdb',
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+
+    assert result.exception is None
+    # Verify the URL was rewritten to use the asyncpg driver
+    called_url = create_async_engine_mock.call_args[0][0]
+    assert 'asyncpg' in str(called_url)
+    # asyncio.run disposed the async engine (no running loop in a sync test)
+    mock_async_engine.dispose.assert_awaited_once()

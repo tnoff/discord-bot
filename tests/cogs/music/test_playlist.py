@@ -1,22 +1,22 @@
-import asyncio
 from datetime import datetime, timezone, timedelta
 from tempfile import TemporaryDirectory
 from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import Playlist, PlaylistItem
 from discord_bot.cogs.music import Music
-
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_request import MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_client, yield_fake_search_client, yield_download_client_download_exception
-from tests.helpers import mock_session, fake_source_dict, fake_media_download
+from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
-from tests.helpers import  FakeVoiceClient
+from tests.helpers import FakeVoiceClient
 
 @pytest.mark.asyncio
 async def test_create_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -24,8 +24,8 @@ async def test_create_playlist(fake_engine, mocker, fake_context):  #pylint:disa
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).count()
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar()
 
 @pytest.mark.asyncio
 async def test_create_playlist_invalid_name(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -33,8 +33,8 @@ async def test_create_playlist_invalid_name(fake_engine, mocker, fake_context): 
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_create.callback(cog, fake_context['context'], name='__playhistory__derp')
-    with mock_session(fake_engine) as db_session:
-        assert not db_session.query(Playlist).count()
+    async with async_mock_session(fake_engine) as db_session:
+        assert not (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar()
 
 @pytest.mark.asyncio
 async def test_create_playlist_same_name_twice(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -43,8 +43,8 @@ async def test_create_playlist_same_name_twice(fake_engine, mocker, fake_context
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).count() == 1
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
 
 @pytest.mark.asyncio
 async def test_create_playlist_message_includes_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -62,8 +62,8 @@ async def test_create_playlist_message_includes_public_id(fake_engine, mocker, f
     assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Created playlist "second-playlist" with ID 2'
 
     # Verify playlists were actually created in database
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).count() == 2
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 2
 
 @pytest.mark.asyncio
 async def test_create_playlist_message_with_none_public_id(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -134,8 +134,8 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
     await cog.download_files()
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(PlaylistItem).count() == 1
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
 
 @pytest.mark.asyncio()
 async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -152,8 +152,8 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
     await cog.search_youtube_music()
     await cog.download_files()
     await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(PlaylistItem).count() == 0
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
 
 @pytest.mark.asyncio()
 async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -191,9 +191,9 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
     await cog.download_files()
 
     await cog.playlist_delete.callback(cog, fake_context['context'], 1)
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(PlaylistItem).count() == 0
-        assert db_session.query(Playlist).count() == 0
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 0
 
 @pytest.mark.asyncio()
 async def test_playlist_delete_history(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -219,9 +219,9 @@ async def test_playlist_rename(mocker, fake_engine, fake_context):  #pylint:disa
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_rename.callback(cog, fake_context['context'], 1, playlist_name='foo-bar-playlist')
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).count() == 1
-        item = db_session.query(Playlist).first()
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+        item = (await db_session.execute(select(Playlist))).scalars().first()
         assert item.name == 'foo-bar-playlist'
 
 @pytest.mark.asyncio
@@ -246,10 +246,10 @@ async def test_history_save(mocker, fake_engine, fake_context):  #pylint:disable
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
 
             await cog.playlist_history_save.callback(cog, fake_context['context'], name='foobar')
-            with mock_session(fake_engine) as db_session:
+            async with async_mock_session(fake_engine) as db_session:
                 # 2 since history playlist will have been created
-                assert db_session.query(Playlist).count() == 2
-                assert db_session.query(PlaylistItem).count() == 1
+                assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 2
+                assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
 
 @pytest.mark.asyncio
 async def test_queue_save(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -263,10 +263,10 @@ async def test_queue_save(mocker, fake_engine, fake_context):  #pylint:disable=r
             await cog.players[fake_context['guild'].id]._play_queue.put(sd) #pylint:disable=protected-access
 
             await cog.playlist_queue_save.callback(cog, fake_context['context'], name='foobar')
-            with mock_session(fake_engine) as db_session:
+            async with async_mock_session(fake_engine) as db_session:
                 # 2 since history playlist will have been created
-                assert db_session.query(Playlist).count() == 2
-                assert db_session.query(PlaylistItem).count() == 1
+                assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 2
+                assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
 
 
 
@@ -326,9 +326,9 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
             await cog.search_youtube_music()
             await cog.download_files()
-            with mock_session(fake_engine) as db_session:
-                assert db_session.query(Playlist).count() == 1
-                assert db_session.query(PlaylistItem).count() == 0
+            async with async_mock_session(fake_engine) as db_session:
+                assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+                assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
 
 @pytest.mark.asyncio()
 async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -346,9 +346,9 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
     await cog.search_youtube_music()
     await cog.download_files()
     await cog.playlist_merge.callback(cog, fake_context['context'], 1, 2)
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).count() == 1
-        assert db_session.query(PlaylistItem).count() == 1
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
+        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
 
 @pytest.mark.asyncio()
 async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -366,11 +366,12 @@ async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pyli
     # Index 0: playlist_create message; index 1: merge error message
     assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Cannot merge history playlist, is reserved'
 
-def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test __playlist_insert_item private method"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
-    with mock_session(fake_engine) as session:
+    async with async_mock_session(fake_engine) as session:
         # Create a playlist first
         playlist = Playlist(
             server_id=fake_context['guild'].id,
@@ -379,39 +380,43 @@ def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disabl
             is_history=False
         )
         session.add(playlist)
-        session.commit()
+        await session.commit()
+        await session.refresh(playlist)
         playlist_id = playlist.id
 
         # Insert an item
-        cog._Music__playlist_insert_item(  # pylint: disable=protected-access
+        await cog._Music__playlist_insert_item(  # pylint: disable=protected-access
+            session,
             playlist_id,
             'https://example.com/video',
             'Test Video Title',
             'Test Uploader'
         )
+        await session.commit()
 
         # Verify item was inserted
-        items = session.query(PlaylistItem).all()
+        items = (await session.execute(select(PlaylistItem))).scalars().all()
         assert len(items) == 1
         assert items[0].playlist_id == playlist_id
         assert items[0].video_url == 'https://example.com/video'
         assert items[0].title == 'Test Video Title'
         assert items[0].uploader == 'Test Uploader'
 
-def test_get_history_playlist_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_history_playlist_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test __get_history_playlist private method"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Call the private method - it returns playlist ID
-    result = cog._Music__get_history_playlist(fake_context['guild'].id)  # pylint: disable=protected-access
+    result = await cog._Music__get_history_playlist(fake_context['guild'].id)  # pylint: disable=protected-access
 
     # Verify a playlist ID was returned
     assert result is not None
     assert isinstance(result, int)
 
     # Verify it was saved to database
-    with mock_session(fake_engine) as session:
-        playlists = session.query(Playlist).all()
+    async with async_mock_session(fake_engine) as session:
+        playlists = (await session.execute(select(Playlist))).scalars().all()
         assert len(playlists) == 1
         assert playlists[0].server_id == fake_context['guild'].id
         assert playlists[0].name.startswith('__playhistory__')
@@ -429,7 +434,7 @@ async def test_playlist_queue_with_shuffle_and_max_num(fake_engine, mocker, fake
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -468,7 +473,7 @@ async def test_playlist_queue_with_only_shuffle(fake_engine, mocker, fake_contex
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -496,7 +501,7 @@ async def test_playlist_queue_with_only_max_num(fake_engine, mocker, fake_contex
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -524,7 +529,7 @@ async def test_playlist_queue_with_no_arguments(fake_engine, mocker, fake_contex
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -552,7 +557,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(fake_engine, mocker, 
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -604,7 +609,7 @@ async def test_playlist_queue_history_playlist_basic_command(fake_engine, mocker
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
 
     # Create a player to ensure history playlist exists
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -764,32 +769,35 @@ async def test_playlist_queue_empty_history_playlist_feedback(fake_engine, mocke
     assert 'Channel History' in message_text, \
            f"Message should contain 'Channel History', got: {message_text}"
 
-def test_get_playlist_public_view_history_playlist_returns_zero(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_history_playlist_returns_zero(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that history playlists return public view index 0"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create a test history playlist
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         history_playlist = Playlist(
             name="Channel History",
             server_id=fake_context['guild'].id,
             is_history=True
         )
         db_session.add(history_playlist)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(history_playlist)
 
         # Test the function
-        result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result = await cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result == 0
 
 
-def test_get_playlist_public_view_first_playlist_returns_one(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_first_playlist_returns_one(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that the first non-history playlist returns public view index 1"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create test playlists
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create the first playlist (should be index 1)
         playlist1 = Playlist(
             name="First Playlist",
@@ -797,20 +805,22 @@ def test_get_playlist_public_view_first_playlist_returns_one(fake_engine, fake_c
             is_history=False
         )
         db_session.add(playlist1)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(playlist1)
 
         # Test the function
-        result = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result == 1
 
 
-def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that multiple playlists return correct public view indices based on creation order"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create test playlists in specific order
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create playlists in order
         playlist1 = Playlist(
             name="First Playlist",
@@ -831,23 +841,27 @@ def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake_engin
         db_session.add(playlist1)  #pylint:disable=no-member
         db_session.add(playlist2)  #pylint:disable=no-member
         db_session.add(playlist3)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(playlist1)
+        await db_session.refresh(playlist2)
+        await db_session.refresh(playlist3)
 
         # Test each playlist returns correct index
-        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        result3 = asyncio.run(cog._Music__get_playlist_public_view(playlist3.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result1 = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result2 = await cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result3 = await cog._Music__get_playlist_public_view(playlist3.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result1 == 1
         assert result2 == 2
         assert result3 == 3
 
 
-def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that history playlists don't affect the public view ordering of regular playlists"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create a history playlist first
         history_playlist = Playlist(
             name="Channel History",
@@ -870,28 +884,32 @@ def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fake_eng
         db_session.add(history_playlist)  #pylint:disable=no-member
         db_session.add(playlist1)  #pylint:disable=no-member
         db_session.add(playlist2)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(history_playlist)
+        await db_session.refresh(playlist1)
+        await db_session.refresh(playlist2)
 
         # History playlist should return 0
-        history_result = asyncio.run(cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        history_result = await cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         # Regular playlists should be ordered 1, 2 (ignoring history)
-        result1 = asyncio.run(cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        result2 = asyncio.run(cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result1 = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result2 = await cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert history_result == 0
         assert result1 == 1
         assert result2 == 2
 
 
-def test_get_playlist_public_view_different_servers_isolated(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_different_servers_isolated(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that playlists from different servers don't affect each other's public view indices"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create second fake guild for testing
     other_guild_id = fake_context['guild'].id + 1
 
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create playlists for first server
         server1_playlist1 = Playlist(
             name="Server 1 - Playlist 1",
@@ -914,49 +932,54 @@ def test_get_playlist_public_view_different_servers_isolated(fake_engine, fake_c
         db_session.add(server1_playlist1)  #pylint:disable=no-member
         db_session.add(server1_playlist2)  #pylint:disable=no-member
         db_session.add(server2_playlist1)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(server1_playlist1)
+        await db_session.refresh(server1_playlist2)
+        await db_session.refresh(server2_playlist1)
 
         # Server 1 playlists should be ordered 1, 2
-        s1_result1 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist1.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        s1_result2 = asyncio.run(cog._Music__get_playlist_public_view(server1_playlist2.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        s1_result1 = await cog._Music__get_playlist_public_view(server1_playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        s1_result2 = await cog._Music__get_playlist_public_view(server1_playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         # Server 2 playlist should be index 1 (not affected by server 1)
-        s2_result1 = asyncio.run(cog._Music__get_playlist_public_view(server2_playlist1.id, other_guild_id))  #pylint:disable=protected-access
+        s2_result1 = await cog._Music__get_playlist_public_view(server2_playlist1.id, other_guild_id)  #pylint:disable=protected-access
 
         assert s1_result1 == 1
         assert s1_result2 == 2
         assert s2_result1 == 1
 
 
-def test_get_playlist_public_view_nonexistent_playlist_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_nonexistent_playlist_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that requesting a non-existent playlist returns None"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create a regular playlist for comparison
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         playlist = Playlist(
             name="Test Playlist",
             server_id=fake_context['guild'].id,
             is_history=False
         )
         db_session.add(playlist)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
 
         # Test with non-existent playlist ID
         nonexistent_id = 99999
-        result = asyncio.run(cog._Music__get_playlist_public_view(nonexistent_id, fake_context['guild'].id))  #pylint:disable=protected-access
+        result = await cog._Music__get_playlist_public_view(nonexistent_id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result is None
 
 
-def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that requesting a playlist from a different server returns None"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Create second fake guild
     other_guild_id = str(int(fake_context['guild'].id) + 1)
 
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create playlist for first server
         playlist = Playlist(
             name="Server 1 Playlist",
@@ -964,19 +987,21 @@ def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_engine
             is_history=False
         )
         db_session.add(playlist)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(playlist)
 
         # Try to get the playlist's public view from a different server
-        result = asyncio.run(cog._Music__get_playlist_public_view(playlist.id, str(other_guild_id)))  #pylint:disable=protected-access
+        result = await cog._Music__get_playlist_public_view(playlist.id, str(other_guild_id))  #pylint:disable=protected-access
 
         assert result is None
 
 
-def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that playlists are ordered by creation_at timestamp (DESC - newest first)"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         # Create playlists with specific creation timestamps
         base_time = datetime.now(timezone.utc)
 
@@ -1004,33 +1029,38 @@ def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_co
         db_session.add(playlist_newest)  #pylint:disable=no-member
         db_session.add(playlist_oldest)  #pylint:disable=no-member
         db_session.add(playlist_middle)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        await db_session.refresh(playlist_newest)
+        await db_session.refresh(playlist_oldest)
+        await db_session.refresh(playlist_middle)
 
         # Test that ordering is by creation_at DESC (newest first), not insert order
-        oldest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        middle_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_middle.id, fake_context['guild'].id))  #pylint:disable=protected-access
-        newest_result = asyncio.run(cog._Music__get_playlist_public_view(playlist_newest.id, fake_context['guild'].id))  #pylint:disable=protected-access
+        oldest_result = await cog._Music__get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        middle_result = await cog._Music__get_playlist_public_view(playlist_middle.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        newest_result = await cog._Music__get_playlist_public_view(playlist_newest.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert newest_result == 1   # Newest created = index 1
         assert middle_result == 2   # Second newest = index 2
         assert oldest_result == 3   # Oldest created = index 3
 
 
-def test_get_playlist_public_view_handles_empty_server(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_handles_empty_server(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test behavior when server has no playlists"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Try to get public view for non-existent playlist on server with no playlists
-    result = asyncio.run(cog._Music__get_playlist_public_view(1, fake_context['guild'].id))  #pylint:disable=protected-access
+    result = await cog._Music__get_playlist_public_view(1, fake_context['guild'].id)  #pylint:disable=protected-access
 
     assert result is None
 
 
-def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test complex scenario with mixed history and regular playlists"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
-    with cog.with_db_session() as db_session:  #pylint:disable=no-member
+    async with cog.with_db_session() as db_session:  #pylint:disable=no-member
         base_time = datetime.now(timezone.utc)
 
         # Create complex mix of playlists
@@ -1044,11 +1074,13 @@ def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_engine,
 
         for playlist in playlists:
             db_session.add(playlist)  #pylint:disable=no-member
-        db_session.commit()  #pylint:disable=no-member
+        await db_session.commit()  #pylint:disable=no-member
+        for playlist in playlists:
+            await db_session.refresh(playlist)
 
         results = []
         for playlist in playlists:
-            result = asyncio.run(cog._Music__get_playlist_public_view(playlist.id, fake_context['guild'].id))  #pylint:disable=protected-access
+            result = await cog._Music__get_playlist_public_view(playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
             results.append(result)
 
         # History playlists should return 0
@@ -1066,7 +1098,7 @@ async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_co
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Mock database operations
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         # Setup mock database responses
         playlist_name = "Test Playlist"
         mock_playlist_items = [
@@ -1108,7 +1140,7 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Mock database operations
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         playlist_name = "Test Playlist"
         mock_playlist_items = [
             MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
@@ -1172,7 +1204,7 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
     # Mock database operations for history playlist
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         mock_playlist_items = [
             MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
                      requester_name="user1", requester_id=456, title="Video 1"),
@@ -1245,10 +1277,10 @@ async def test_playlist_list_with_last_queued(fake_engine, fake_context):  #pyli
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     cog.dispatcher = MagicMock()
     await cog.playlist_create.callback(cog, fake_context['context'], name='dated-playlist')
-    with mock_session(fake_engine) as db_session:
-        p = db_session.query(Playlist).filter_by(is_history=False).first()
+    async with async_mock_session(fake_engine) as db_session:
+        p = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().first()  #pylint:disable=singleton-comparison
         p.last_queued = datetime(2024, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
-        db_session.commit()
+        await db_session.commit()
     cog.dispatcher.reset_mock()
     await cog.playlist_list.callback(cog, fake_context['context'])
     output = cog.dispatcher.send_message.call_args[0][2]
@@ -1260,11 +1292,11 @@ async def test_get_history_playlist_existing(fake_engine, fake_context):  #pylin
     """__get_history_playlist returns existing id on second call without creating a new one"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
     # pylint: disable=protected-access
-    playlist_id1 = cog._Music__get_history_playlist(fake_context['guild'].id)
-    playlist_id2 = cog._Music__get_history_playlist(fake_context['guild'].id)
+    playlist_id1 = await cog._Music__get_history_playlist(fake_context['guild'].id)
+    playlist_id2 = await cog._Music__get_history_playlist(fake_context['guild'].id)
     assert playlist_id1 == playlist_id2
-    with mock_session(fake_engine) as db_session:
-        assert db_session.query(Playlist).filter_by(is_history=True).count() == 1
+    async with async_mock_session(fake_engine) as db_session:
+        assert (await db_session.execute(select(sql_count()).select_from(Playlist).where(Playlist.is_history == True))).scalar() == 1  #pylint:disable=singleton-comparison
 
 
 @pytest.mark.asyncio
@@ -1494,7 +1526,7 @@ async def test_playlist_queue_internal_shuffle(fake_context):  #pylint:disable=r
         MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
         for i in range(3)
     ]
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         mock_db.side_effect = ['Playlist', mock_items, None]
         with patch.object(cog, 'enqueue_media_requests', return_value=True):
             # pylint: disable=protected-access
@@ -1509,7 +1541,7 @@ async def test_playlist_queue_internal_max_num_negative(fake_context):  #pylint:
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = MagicMock()
     mock_items = [MagicMock(id=1, video_url='https://ex.com/1', title='t1')]
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         mock_db.side_effect = ['Playlist', mock_items]
         with patch.object(cog, 'enqueue_media_requests', return_value=True):
             # pylint: disable=protected-access
@@ -1532,7 +1564,7 @@ async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint
         captured.extend(items)
         return True
 
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         mock_db.side_effect = ['Playlist', mock_items, None]
         with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
             # pylint: disable=protected-access
@@ -1555,7 +1587,7 @@ async def test_playlist_queue_internal_max_num_larger_than_list(fake_context):  
         captured.extend(items)
         return True
 
-    with patch('discord_bot.cogs.music.retry_database_commands') as mock_db:
+    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
         mock_db.side_effect = ['Playlist', mock_items, None]
         with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
             # pylint: disable=protected-access
@@ -1652,13 +1684,14 @@ async def test_playlist_merge_max_length(fake_engine, fake_context):  #pylint:di
     cog.dispatcher = MagicMock()
     await cog.playlist_create.callback(cog, fake_context['context'], name='p1')
     await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
-    with mock_session(fake_engine) as db_session:
-        playlists = db_session.query(Playlist).filter_by(is_history=False).all()
+    async with async_mock_session(fake_engine) as db_session:
+        playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
         p1_id = playlists[0].id
         p2_id = playlists[1].id
-    # pylint: disable=protected-access
-    cog._Music__playlist_insert_item(p1_id, 'https://ex.com/a', 'A', 'up')
-    cog._Music__playlist_insert_item(p2_id, 'https://ex.com/b', 'B', 'up')
+        # pylint: disable=protected-access
+        await cog._Music__playlist_insert_item(db_session, p1_id, 'https://ex.com/a', 'A', 'up')
+        await cog._Music__playlist_insert_item(db_session, p2_id, 'https://ex.com/b', 'B', 'up')
+        await db_session.commit()
     cog.dispatcher.reset_mock()
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
@@ -1672,9 +1705,12 @@ async def test_playlist_merge_duplicate(fake_engine, fake_context):  #pylint:dis
     cog.dispatcher = MagicMock()
     await cog.playlist_create.callback(cog, fake_context['context'], name='p1')
     await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
-    # pylint: disable=protected-access
-    cog._Music__playlist_insert_item(1, 'https://ex.com/same', 'Same', 'up')
-    cog._Music__playlist_insert_item(2, 'https://ex.com/same', 'Same', 'up')
+    async with async_mock_session(fake_engine) as db_session:
+        playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
+        # pylint: disable=protected-access
+        await cog._Music__playlist_insert_item(db_session, playlists[0].id, 'https://ex.com/same', 'Same', 'up')
+        await cog._Music__playlist_insert_item(db_session, playlists[1].id, 'https://ex.com/same', 'Same', 'up')
+        await db_session.commit()
     cog.dispatcher.reset_mock()
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
@@ -1753,8 +1789,8 @@ async def test_playlist_random_play_success(fake_engine, mocker, fake_context): 
     cog.dispatcher = MagicMock()
     mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
     # pylint: disable=protected-access
-    cog._Music__get_history_playlist(fake_context['guild'].id)
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    await cog._Music__get_history_playlist(fake_context['guild'].id)
+    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
     await cog.playlist_random_play.callback(cog, fake_context['context'])
     playlist_queue_mock.assert_called_once()
     _args, kwargs = playlist_queue_mock.call_args

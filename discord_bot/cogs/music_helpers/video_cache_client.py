@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from functools import partial
 from pathlib import Path
 from typing import Callable, List
 
@@ -7,12 +6,11 @@ from opentelemetry.trace import SpanKind
 
 
 from discord_bot.database import VideoCache
-from discord_bot.utils.common import run_commit
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.cogs.music_helpers import database_functions
-from discord_bot.utils.sql_retry import retry_database_commands
-from discord_bot.utils.otel import otel_span_wrapper, MusicVideoCacheNaming
+from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.utils.otel import async_otel_span_wrapper, MusicVideoCacheNaming
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 
@@ -33,15 +31,15 @@ class VideoCacheClient():
         self.max_cache_size_bytes: int | None = max_cache_size_bytes
         self.storage_type: str = storage_type
 
-    def iterate_file(self, media_download: MediaDownload) -> bool:
+    async def iterate_file(self, media_download: MediaDownload) -> bool:
         '''
         Insert or update the VideoCache record for a downloaded file.
         '''
         attributes = media_download_attributes(media_download)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.iterate_file', kind=SpanKind.INTERNAL, attributes=attributes):
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.iterate_file', kind=SpanKind.INTERNAL, attributes=attributes):
             now = datetime.now(timezone.utc)
-            with self.session_generator() as db_session:
-                video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_download.webpage_url))
+            async with self.session_generator() as db_session:
+                video_cache = await async_retry_database_commands(db_session, lambda: database_functions.get_video_cache_by_url(db_session, media_download.webpage_url))
                 if video_cache:
                     if video_cache.storage_type != self.storage_type:
                         # Storage type changed (or entry pre-dates this column): update
@@ -51,7 +49,7 @@ class VideoCacheClient():
                     video_cache.count += 1
                     video_cache.last_iterated_at = now
                     video_cache.ready_for_deletion = False
-                    retry_database_commands(db_session, partial(run_commit, db_session))
+                    await async_retry_database_commands(db_session, db_session.commit)
                     return True
                 cache_item = VideoCache(
                     video_id=media_download.id,
@@ -69,7 +67,7 @@ class VideoCacheClient():
                     file_size_bytes=media_download.file_size_bytes,
                 )
                 db_session.add(cache_item)
-                retry_database_commands(db_session, partial(run_commit, db_session))
+                await async_retry_database_commands(db_session, db_session.commit)
                 return True
 
     def __generate_source_download(self, video_cache: VideoCache, media_request: MediaRequest):
@@ -85,21 +83,21 @@ class VideoCacheClient():
         md.file_size_bytes = video_cache.file_size_bytes
         return md
 
-    def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
+    async def get_webpage_url_item(self, media_request: MediaRequest) -> MediaDownload:
         '''
         Look up a VideoCache record by URL and return a MediaDownload.
         Returns None if not found or if the entry was stored under a different
         storage type (stale entry is marked for deletion so it will be evicted).
         '''
         attributes = media_request_attributes(media_request)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
-            with self.session_generator() as db_session:
-                video_cache = retry_database_commands(db_session, partial(database_functions.get_video_cache_by_url, db_session, media_request.search_result.resolved_search_string))
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_webpage_url', kind=SpanKind.INTERNAL, attributes=attributes):
+            async with self.session_generator() as db_session:
+                video_cache = await async_retry_database_commands(db_session, lambda: database_functions.get_video_cache_by_url(db_session, media_request.search_result.resolved_search_string))
                 if not video_cache:
                     return None
                 if video_cache.storage_type is not None and video_cache.storage_type != self.storage_type:
                     video_cache.ready_for_deletion = True
-                    retry_database_commands(db_session, partial(run_commit, db_session))
+                    await async_retry_database_commands(db_session, db_session.commit)
                     return None
                 return self.__generate_source_download(video_cache, media_request)
 
@@ -109,43 +107,44 @@ class VideoCacheClient():
         '''
         attributes = media_request_attributes(media_request)
         attributes[MusicVideoCacheNaming.ID.value] = video_cache.id
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.generate_download', kind=SpanKind.INTERNAL, attributes=attributes):
-            return self.__generate_source_download(video_cache, media_request)
+        return self.__generate_source_download(video_cache, media_request)
 
-    def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
+    async def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
         '''
         Delete VideoCache DB records for the given IDs.
 
         S3 object deletion must be performed by the caller (MediaBroker)
         before invoking this method.
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.remove_video', kind=SpanKind.INTERNAL):
-            with self.session_generator() as db_session:
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.remove_video', kind=SpanKind.INTERNAL):
+            async with self.session_generator() as db_session:
                 for video_cache_id in video_cache_ids:
-                    retry_database_commands(db_session, partial(database_functions.delete_video_cache, db_session, video_cache_id))
+                    await async_retry_database_commands(db_session, lambda vid=video_cache_id: database_functions.delete_video_cache(db_session, vid))
             return True
 
-    def ready_remove(self):
+    async def ready_remove(self):
         '''
         Mark the oldest excess cache entries ready_for_deletion.
         '''
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ready_remove', kind=SpanKind.INTERNAL):
-            with self.session_generator() as db_session:
-                cache_count = retry_database_commands(db_session, partial(database_functions.count_video_cache, db_session))
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ready_remove', kind=SpanKind.INTERNAL):
+            async with self.session_generator() as db_session:
+                cache_count = await async_retry_database_commands(db_session, lambda: database_functions.count_video_cache(db_session))
                 num_to_remove = cache_count - self.max_cache_files
                 if num_to_remove >= 1:
-                    retry_database_commands(db_session, partial(database_functions.video_cache_mark_deletion, db_session, num_to_remove))
+                    await async_retry_database_commands(db_session, lambda: database_functions.video_cache_mark_deletion(db_session, num_to_remove))
             if self.max_cache_size_bytes is not None:
-                with self.session_generator() as db_session:
-                    retry_database_commands(db_session, partial(
-                        database_functions.video_cache_mark_deletion_for_size,
-                        db_session, self.max_cache_size_bytes
-                    ))
+                async with self.session_generator() as db_session:
+                    await async_retry_database_commands(db_session, lambda: database_functions.video_cache_mark_deletion_for_size(db_session, self.max_cache_size_bytes))
             return True
 
-    def get_deletable_entries(self) -> list:
+    async def get_deletable_entries(self) -> list:
         '''
         Return VideoCache entries marked ready_for_deletion.
         '''
-        with self.session_generator() as db_session:
-            return retry_database_commands(db_session, partial(database_functions.list_video_cache_where_delete_ready, db_session))
+        async with self.session_generator() as db_session:
+            return await async_retry_database_commands(db_session, lambda: database_functions.list_video_cache_where_delete_ready(db_session))
+
+    async def get_cache_count(self) -> int:
+        '''Return the current number of VideoCache records.'''
+        async with self.session_generator() as db_session:
+            return await async_retry_database_commands(db_session, lambda: database_functions.count_video_cache(db_session))
