@@ -12,6 +12,7 @@ The Discord bot includes comprehensive monitoring capabilities using OpenTelemet
 
 - **[OTLP Configuration](otlp_configuration.md)** - How to configure OpenTelemetry for the bot
 - **[Metrics Reference](metrics_reference.md)** - Complete list of available metrics and queries
+- **[Trace Linking](trace_linking.md)** - How span links connect the music request lifecycle across async task boundaries
 - **[Memory Profiling](memory_profiling.md)** - Guide to using the built-in memory profiler
 - **[Process Metrics](process_metrics.md)** - Guide to using the built-in process profiler
 - **[Health Server](health_server.md)** - HTTP liveness endpoint for Docker/Kubernetes probes

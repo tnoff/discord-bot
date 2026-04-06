@@ -1,11 +1,12 @@
 import asyncio
+from asyncio import QueueEmpty, sleep
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
 from pathlib import Path
 import random
 from time import time
-from typing import List
+from typing import Callable, List
 
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.trace import SpanKind
@@ -15,10 +16,13 @@ from yt_dlp.utils import DownloadError
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
-from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.types.download import (
+    DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate,
+)
+from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
 
 class DownloadClientException(Exception):
@@ -138,6 +142,9 @@ class DownloadClient():
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
         normalize_audio: bool = False,
+        broker=None,
+        max_retries: int = 3,
+        queue_max_size: int = 100,
     ):
         '''
         Init download client
@@ -149,6 +156,9 @@ class DownloadClient():
         bucket_name : S3 bucket to upload to immediately after download;
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
+        broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
+        max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
+        queue_max_size : Per-guild capacity for the input and result queues
         '''
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -168,6 +178,10 @@ class DownloadClient():
         if max_video_length or banned_video_list:
             ytdlopts['match_filter'] = match_generator(max_video_length, banned_video_list)
         self.ytdl = YoutubeDL(ytdlopts)
+        self._broker = broker
+        self._max_retries = max_retries
+        self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
+        self._result_queue: DistributedQueue[DownloadResult] = DistributedQueue(queue_max_size)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -177,7 +191,16 @@ class DownloadClient():
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
 
-    def _set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
+    @property
+    def wait_timestamp(self) -> float | None:
+        '''The Unix timestamp at which the current backoff period ends, or None.'''
+        return self._wait_timestamp
+
+    @wait_timestamp.setter
+    def wait_timestamp(self, value: float | None) -> None:
+        self._wait_timestamp = value
+
+    def set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''
         Set the next download wait timestamp with optional backoff multiplier.
         '''
@@ -200,7 +223,7 @@ class DownloadClient():
             # Only set backoff timestamp for youtube (or unknown extractor)
             extractor = (result.ytdlp_data or {}).get('extractor')
             if extractor is None or extractor == 'youtube':
-                self._set_wait_timestamp()
+                self.set_wait_timestamp()
             return self.backoff_seconds_remaining
 
         if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED, DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
@@ -213,11 +236,11 @@ class DownloadClient():
                 multiplier = 2 ** self.failure_queue.size
             else:
                 multiplier = 1
-            self._set_wait_timestamp(backoff_multiplier=multiplier)
+            self.set_wait_timestamp(backoff_multiplier=multiplier)
             return self.backoff_seconds_remaining
 
         # Terminal error — minimum wait, no failure item
-        self._set_wait_timestamp()
+        self.set_wait_timestamp()
         return self.backoff_seconds_remaining
 
     @property
@@ -269,6 +292,92 @@ class DownloadClient():
         except asyncio.TimeoutError:
             return
 
+    # ------------------------------------------------------------------
+    # Queue interface
+    # ------------------------------------------------------------------
+
+    def submit(self, guild_id: int, media_request: MediaRequest,
+               priority: int | None = None) -> None:
+        '''Enqueue a MediaRequest for download.'''
+        if media_request.span_context is None:
+            media_request.span_context = capture_span_context()
+        self._input_queue.put_nowait(guild_id, media_request, priority=priority)
+
+    def result_queue_depth(self) -> int:
+        '''Total number of completed results waiting to be processed across all guilds.'''
+        return sum(item.queue.size() for item in self._result_queue.queues.values())
+
+    def get_result_nowait(self) -> DownloadResult:
+        '''
+        Return the next completed DownloadResult, raising QueueEmpty if none available.
+        Results include both successes and terminal failures.
+        '''
+        return self._result_queue.get_nowait()
+
+    def block_guild(self, guild_id: int) -> bool:
+        '''Block new submissions for a guild (used during shutdown).'''
+        return self._input_queue.block(guild_id)
+
+    def clear_guild_queue(self, guild_id: int,
+                          preserve_predicate: Callable[[MediaRequest], bool] | None = None,
+                          ) -> list[MediaRequest]:
+        '''Clear the input queue for a guild, returning the dropped requests.'''
+        return self._input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
+
+    def queue_size(self, guild_id: int) -> int:
+        '''Return the number of pending requests for a guild, or 0 if none.'''
+        return self._input_queue.size(guild_id) or 0
+
+    def get_input_nowait(self) -> MediaRequest:
+        '''Return the next pending MediaRequest, raising QueueEmpty if none available.'''
+        return self._input_queue.get_nowait()
+
+    # ------------------------------------------------------------------
+    # Consumer loop
+    # ------------------------------------------------------------------
+
+    async def run(self, shutdown_event: asyncio.Event) -> None:
+        '''
+        Consumer loop: waits for any active backoff, then dequeues one
+        MediaRequest, downloads it, and puts a DownloadResult onto the
+        result queue.  Retryable errors are requeued without emitting to
+        the result queue.  Intended to be driven by return_loop_runner as
+        a background task.
+
+        Backoff wait is done BEFORE dequeuing so that a shutdown during
+        the wait never discards an item from the queue.
+        '''
+        await sleep(0.01)
+        await self.backoff_wait(shutdown_event)
+        try:
+            media_request = self._input_queue.get_nowait()
+        except QueueEmpty:
+            return
+
+        request_uuid = str(media_request.uuid)
+        if self._broker is not None:
+            self._broker.update_request_status(
+                request_uuid, DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
+            )
+        result = await self.create_source(media_request, self._max_retries)
+
+        if not result.status.success and result.status.error_type in {
+            DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED
+        }:
+            media_request.download_retry_information.retry_count += 1
+            self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
+            self.logger.info('Failure queue: %s', self.failure_summary)
+            if self._broker is not None:
+                self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
+                    event=DownloadEvent.RETRY,
+                    error_detail=result.status.error_detail,
+                    backoff_seconds=self.backoff_seconds_remaining,
+                ))
+            self._input_queue.put_nowait(media_request.guild_id, media_request)
+            return
+
+        self._result_queue.put_nowait(media_request.guild_id, result)
+
     def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
         '''
         Prepare source from youtube url
@@ -277,7 +386,7 @@ class DownloadClient():
         max_retries: Max retries before throwing hands up
         '''
         span_attributes = media_request_attributes(media_request)
-        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes) as span:
+        with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes, links=span_links_from_context(media_request.span_context)) as span:
             try:
                 data = self.ytdl.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
@@ -366,11 +475,12 @@ class DownloadClient():
             file_path = Path(s3_key)
         return file_path
 
-    async def create_source(self, media_request: MediaRequest, max_retries: int, loop):
+    async def create_source(self, media_request: MediaRequest, max_retries: int) -> DownloadResult:
         '''
         Download data from youtube search. Automatically calls update_tracking on the result.
         PCM conversion runs after update_tracking so the backoff timer reflects download time only.
         '''
+        loop = asyncio.get_running_loop()
         to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
         result = await loop.run_in_executor(None, to_run)
         self.update_tracking(result)

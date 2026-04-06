@@ -29,7 +29,7 @@ async def test_backoff_wait_elapsed(freezer, fake_context, mocker):  #pylint:dis
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     freezer.move_to('2025-01-01 12:00:00 UTC')
-    cog.download_client._set_wait_timestamp()  # pylint: disable=protected-access
+    cog.download_client.set_wait_timestamp()
     freezer.move_to('2025-01-01 16:00:00 UTC')
     await cog.download_client.backoff_wait(cog.bot_shutdown_event)
 
@@ -41,7 +41,7 @@ async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     freezer.move_to('2025-01-01 12:00:00 UTC')
-    cog.download_client._set_wait_timestamp()  # pylint: disable=protected-access
+    cog.download_client.set_wait_timestamp()
     cog.bot_shutdown_event.set()
     freezer.move_to('2025-01-01 16:00:00 UTC')
     with pytest.raises(ExitEarlyException) as exc:
@@ -52,35 +52,32 @@ async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
 async def test_set_wait_timestamp_backoff_multiplier(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """_set_wait_timestamp with backoff_multiplier=2 sets correct timestamp."""
+    """set_wait_timestamp with backoff_multiplier=2 sets correct timestamp."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     freezer.move_to('2025-01-01 12:00:00 UTC')
     # backoff_multiplier=2: now (1735732800) + 30*2 + 5 = 1735732865
-    cog.download_client._set_wait_timestamp(backoff_multiplier=2)  # pylint: disable=protected-access
-    assert cog.download_client._wait_timestamp == 1735732865  # pylint: disable=protected-access
+    cog.download_client.set_wait_timestamp(backoff_multiplier=2)
+    assert cog.download_client.wait_timestamp == 1735732865
     # backoff_multiplier=1 (default): now (1735732800) + 30*1 + 5 = 1735732835
-    cog.download_client._set_wait_timestamp()  # pylint: disable=protected-access
-    assert cog.download_client._wait_timestamp == 1735732835  # pylint: disable=protected-access
-
+    cog.download_client.set_wait_timestamp()
+    assert cog.download_client.wait_timestamp == 1735732835
 
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
 async def test_set_wait_timestamp_basic(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """_set_wait_timestamp sets correct timestamp with default multiplier."""
+    """set_wait_timestamp sets correct timestamp with default multiplier."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
 
     freezer.move_to('2025-01-01 12:00:00 UTC')
-    cog.download_client._set_wait_timestamp()  # pylint: disable=protected-access
+    cog.download_client.set_wait_timestamp()
     # Expected: now (1735732800) + 30*1 + 5 = 1735732835
-    assert cog.download_client._wait_timestamp is not None  # pylint: disable=protected-access
-    assert cog.download_client._wait_timestamp == 1735732835  # pylint: disable=protected-access
-
+    assert cog.download_client.wait_timestamp is not None
+    assert cog.download_client.wait_timestamp == 1735732835
     # With backoff_multiplier=2: now (1735732800) + 30*2 + 5 = 1735732865
-    cog.download_client._set_wait_timestamp(backoff_multiplier=2)  # pylint: disable=protected-access
-    assert cog.download_client._wait_timestamp == 1735732865  # pylint: disable=protected-access
-
+    cog.download_client.set_wait_timestamp(backoff_multiplier=2)
+    assert cog.download_client.wait_timestamp == 1735732865
 
 def yield_download_client_retryable_exception():
     """Fake download client that returns a retryable failure DownloadResult"""
@@ -125,6 +122,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
     """Test that RetryableException adds a failure to the download failure queue"""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.cogs.music_helpers.download_client.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_retryable_exception())
 
@@ -133,11 +131,12 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    cog.download_client.submit(fake_context['guild'].id, s)
 
     assert cog.download_client.failure_queue.size == 0
 
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     assert cog.download_client.failure_queue.size == 1
 
@@ -148,6 +147,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
     """Test that RetryableException applies exponential backoff based on failure queue size"""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.cogs.music_helpers.download_client.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_retryable_exception())
 
@@ -161,17 +161,17 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    cog.download_client.submit(fake_context['guild'].id, s)
 
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     # After failure, queue size is now 3
     assert cog.download_client.failure_queue.size == 3
 
     # Backoff multiplier should be 2^3 = 8 (since size is 3 after adding new failure)
     # Expected timestamp: now (1735732800) + 30*8 + 5 = 1735733045
-    assert cog.download_client._wait_timestamp == 1735733045  # pylint: disable=protected-access
-
+    assert cog.download_client.wait_timestamp == 1735733045
 
 @pytest.mark.asyncio
 @pytest.mark.freeze_time
@@ -179,6 +179,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
     """Test that BotDownloadFlagged (a RetryableException) applies proper backoff"""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.cogs.music_helpers.download_client.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_bot_flagged())
 
@@ -187,15 +188,15 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    cog.download_client.submit(fake_context['guild'].id, s)
 
-    assert cog.download_client._wait_timestamp is None  # pylint: disable=protected-access
-
-    await cog.download_files()
+    assert cog.download_client.wait_timestamp is None
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     # After BotDownloadFlagged, failure queue size is 1, so multiplier is 2^1 = 2
     # Expected timestamp: now (1735732800) + 30*2 + 5 = 1735732865
-    assert cog.download_client._wait_timestamp == 1735732865  # pylint: disable=protected-access
+    assert cog.download_client.wait_timestamp == 1735732865
     assert cog.download_client.failure_queue.size == 1
 
 
@@ -205,6 +206,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
     """Test that successful download removes one item from failure queue"""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.cogs.music_helpers.download_client.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     with TemporaryDirectory() as tmp_dir:
@@ -220,9 +222,10 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
             assert cog.download_client.failure_queue.size == 2
 
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_queue.put_nowait(fake_context['guild'].id, sd.media_request)
+            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
 
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
 
             # Successful download should remove one failure from queue
             assert cog.download_client.failure_queue.size == 1

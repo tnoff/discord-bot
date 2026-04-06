@@ -51,6 +51,10 @@ class MediaRequest(BaseModel):
     # Track bundle uuid later on
     bundle_uuid: str | None = None
 
+    # Serialised span context captured at submit() time for trace link propagation.
+    # Dict keys: trace_id (int), span_id (int), trace_flags (int).
+    span_context: dict | None = None
+
     # Track lifecycle stage
     lifecycle_stage: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
     # Retry info tracker — separate counters for each phase

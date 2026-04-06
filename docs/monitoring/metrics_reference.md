@@ -57,6 +57,16 @@ These metrics are exported by the Music cog when enabled.
 
 **Usage**: Monitor cache disk usage.
 
+### `music.download_result_queue_depth`
+
+**Type**: Observable Gauge
+**Unit**: dimensionless (1)
+**Description**: Total number of completed download results waiting to be routed to players, summed across all guilds
+**Labels**:
+- `background_job` = `process_download_results`
+
+**Usage**: A sustained non-zero value means the result consumer (`_result_task`) is falling behind or has stalled. Under normal load this should drain to zero quickly after each download completes.
+
 ## MessageDispatcher Metrics
 
 ### `message_dispatcher_queue_depth`
@@ -91,6 +101,7 @@ The bot exports heartbeat metrics for these loops:
 | `delete_message_check` | Automated message deletion loop |
 | `cleanup_players` | Inactive music player cleanup loop (Music) |
 | `download_files` | Audio file downloading loop (Music) |
+| `process_download_results` | Download result routing loop (Music) |
 | `post_play_processing` | Post-play history/playlist tracking loop (Music) |
 | `search_youtube_music` | YouTube Music search processing loop (Music) |
 

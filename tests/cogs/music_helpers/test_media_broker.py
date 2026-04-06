@@ -10,7 +10,9 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import VideoCache
+from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.media_request import MediaRequestLifecycleStage
 
 from tests.helpers import (
     async_mock_session, fake_media_download, generate_fake_context, fake_source_dict,
@@ -345,3 +347,60 @@ async def test_prefetch_skips_already_checked_out(mocker):
         broker.prefetch([md1, md2], 123, Path(guild_dir), limit=1)
         assert get_mock.call_count == 1  # md2 not staged
         assert broker.get_entry(str(md2.media_request.uuid)).zone == Zone.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# update_request_status
+# ---------------------------------------------------------------------------
+
+def test_update_request_status_backoff():
+    '''BACKOFF event calls mark_backoff on the request state machine'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    broker = MediaBroker()
+    broker.register_request(mr)
+    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.BACKOFF))
+    assert mr.lifecycle_stage == MediaRequestLifecycleStage.BACKOFF
+
+
+def test_update_request_status_in_progress():
+    '''IN_PROGRESS event calls mark_in_progress on the request state machine'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    broker = MediaBroker()
+    broker.register_request(mr)
+    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS))
+    assert mr.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
+
+
+def test_update_request_status_retry():
+    '''RETRY event calls mark_retry_download with error_detail and backoff_seconds'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    broker = MediaBroker()
+    broker.register_request(mr)
+    broker.update_request_status(
+        str(mr.uuid),
+        DownloadStatusUpdate(event=DownloadEvent.RETRY, error_detail='timeout', backoff_seconds=45),
+    )
+    assert mr.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    assert mr.download_retry_information.retry_reason == 'timeout'
+    assert mr.download_retry_information.retry_backoff_seconds == 45
+
+
+def test_update_request_status_discarded():
+    '''DISCARDED event calls mark_discarded on the request state machine'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    broker = MediaBroker()
+    broker.register_request(mr)
+    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.DISCARDED))
+    assert mr.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
+
+
+def test_update_request_status_unknown_uuid_logs_warning(mocker):
+    '''update_request_status logs a warning and does not raise for an unknown UUID'''
+    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    broker = MediaBroker()
+    broker.update_request_status('nonexistent-uuid', DownloadStatusUpdate(event=DownloadEvent.BACKOFF))
+    mock_logger.warning.assert_called_once()

@@ -79,36 +79,38 @@ def yield_fake_download_client(media_download: MediaDownload):
     return FakeDownloadClient
 
 def yield_download_client_download_exception():
-    class FakeDownloadClient():
-        def __init__(self, *_args, **_kwargs):
-            self.backoff_seconds_remaining = None
-            self.failure_summary = '0 failures in queue'
+    class FakeDownloadClient(DownloadClient):
+        def __init__(self, *_args, **kwargs):
+            super().__init__(
+                None,
+                Path('/tmp'),
+                failure_queue=kwargs.get('failure_queue'),
+                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
+                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+            )
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
-
-        def update_tracking(self, _result):
-            pass
-
-        async def backoff_wait(self, _shutdown_event):
-            pass
+            result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
+            self.update_tracking(result)
+            return result
 
     return FakeDownloadClient
 
 def yield_download_client_download_error():
-    class FakeDownloadClient():
-        def __init__(self, *_args, **_kwargs):
-            self.backoff_seconds_remaining = None
-            self.failure_summary = '0 failures in queue'
+    class FakeDownloadClient(DownloadClient):
+        def __init__(self, *_args, **kwargs):
+            super().__init__(
+                None,
+                Path('/tmp'),
+                failure_queue=kwargs.get('failure_queue'),
+                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
+                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+            )
 
         async def create_source(self, media_request, *_args, **_kwargs):
-            return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
-
-        def update_tracking(self, _result):
-            pass
-
-        async def backoff_wait(self, _shutdown_event):
-            pass
+            result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
+            self.update_tracking(result)
+            return result
 
     return FakeDownloadClient
 
@@ -152,7 +154,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
             await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
             assert fake_context['guild'].id not in cog.players
-            assert fake_context['guild'].id not in cog.download_queue.queues
+            assert cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 @pytest.mark.asyncio
 async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -162,9 +164,9 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     s = fake_source_dict(fake_context)
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
+    cog.download_client.submit(fake_context['guild'].id, s)
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-    assert fake_context['guild'].id not in cog.download_queue.queues
+    assert cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 
 @pytest.mark.asyncio
@@ -215,8 +217,8 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     await cog.play_(cog, fake_context['context'], search='foo bar')
     await cog.search_youtube_music()
     await cog.search_youtube_music()
-    item0 = cog.download_queue.get_nowait()
-    item1 = cog.download_queue.get_nowait()
+    item0 = cog.download_client.get_input_nowait()
+    item1 = cog.download_client.get_input_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
     assert item0.search_result.raw_search_string == s.search_result.raw_search_string
     assert item0.search_result.search_type == s.search_result.search_type
@@ -239,7 +241,8 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             # Mock current playing
             cog.players[fake_context['guild'].id].current_media_download = sd
             await cog.skip_(cog, fake_context['context'])
@@ -261,7 +264,8 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             await cog.clear(cog, fake_context['context'])
             assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -300,7 +304,8 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             await cog.shuffle_(cog, fake_context['context'])
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -320,7 +325,8 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             await cog.remove_item(cog, fake_context['context'], 1)
             assert not cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -340,7 +346,8 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             await cog.bump_item(cog, fake_context['context'], 1)
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
@@ -359,7 +366,7 @@ async def test_stop(fake_engine, mocker, fake_context):  #pylint:disable=redefin
             # After destroy(), the player should be marked for shutdown
             player = cog.players[fake_context['guild'].id]
             assert player.shutdown_called is True
-            assert fake_context['guild'].id not in cog.download_queue.queues
+            assert cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 @pytest.mark.asyncio()
 async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -379,7 +386,8 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             await cog.move_messages_here(cog, fake_context2)
             assert cog.players[fake_context['guild'].id].text_channel.id == fake_channel2.id
 
@@ -393,8 +401,8 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
     cog.dispatcher = Mock()
     # Put source dict so we can a download queue to block
-    cog.download_queue.put_nowait(fake_context['guild'].id, s)
-    cog.download_queue.block(fake_context['guild'].id)
+    cog.download_client.submit(fake_context['guild'].id, s)
+    cog.download_client.block_guild(fake_context['guild'].id)
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
 @pytest.mark.asyncio()
@@ -615,6 +623,17 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
     # Test cleanup_player callback with no task (None)
     cog._cleanup_task = None  # pylint: disable=protected-access
     result = cog._Music__cleanup_player_loop_active_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 0
+
+    # Test result_task callback with running task
+    cog._result_task = mock_task_running  # pylint: disable=protected-access
+    result = cog._Music__result_task_loop_active_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 1
+
+    # Test download result queue depth callback (empty queue)
+    result = cog._Music__download_result_queue_depth_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 0
 
@@ -937,12 +956,14 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Create mock tasks
     mock_cleanup_task = Mock()
     mock_download_task = Mock()
+    mock_result_task = Mock()
     mock_history_task = Mock()
     mock_search_task = Mock()
 
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
     cog._download_task = mock_download_task
+    cog._result_task = mock_result_task
     cog._post_play_processing_task = mock_history_task
     cog._youtube_search_task = mock_search_task
 
@@ -959,6 +980,7 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
     # Verify all tasks were cancelled
     mock_cleanup_task.cancel.assert_called_once()
     mock_download_task.cancel.assert_called_once()
+    mock_result_task.cancel.assert_called_once()
     mock_history_task.cancel.assert_called_once()
     mock_search_task.cancel.assert_called_once()
 

@@ -7,6 +7,28 @@ from pydantic import BaseModel, Field
 from discord_bot.types.media_request import MediaRequest
 
 
+class DownloadEvent(str, Enum):
+    '''
+    Lifecycle event emitted by the download worker for broker status updates.
+    Maps to a PUT /requests/{uuid}/status body in a future distributed deployment.
+    '''
+    BACKOFF = 'backoff'
+    IN_PROGRESS = 'in_progress'
+    RETRY = 'retry'
+    DISCARDED = 'discarded'
+
+
+class DownloadStatusUpdate(BaseModel):
+    '''
+    Status update payload from the download worker.
+    Passed to MediaBroker.update_request_status() today;
+    becomes a PUT /requests/{uuid}/status body in a future distributed deployment.
+    '''
+    event: DownloadEvent
+    error_detail: str | None = None
+    backoff_seconds: int | None = None
+
+
 class DownloadErrorType(str, Enum):
     '''Serializable error classification for download failures'''
     RETRYABLE = 'retryable'

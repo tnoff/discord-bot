@@ -133,7 +133,8 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
     async with async_mock_session(fake_engine) as db_session:
         assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
 
@@ -150,7 +151,8 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
     await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
     async with async_mock_session(fake_engine) as db_session:
         assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
@@ -168,7 +170,8 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     cog.dispatcher.reset_mock()
     await cog.playlist_show.callback(cog, fake_context['context'], 1)
@@ -188,7 +191,8 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     await cog.playlist_delete.callback(cog, fake_context['context'], 1)
     async with async_mock_session(fake_engine) as db_session:
@@ -285,10 +289,11 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
 
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
-    assert cog.download_queue.queues[fake_context['guild'].id]
+    assert cog.download_client.queue_size(fake_context['guild'].id) > 0
 
 
 @pytest.mark.asyncio
@@ -306,7 +311,7 @@ async def test_playlist_history_queue(mocker, fake_engine, fake_context):  #pyli
             await cog.post_play_processing()
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
-            assert cog.download_queue.queues[fake_context['guild'].id]
+            assert cog.download_client.queue_size(fake_context['guild'].id) > 0
 
 @pytest.mark.asyncio
 async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -325,7 +330,8 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
             await cog.search_youtube_music()
-            await cog.download_files()
+            await cog.download_client.run(cog.bot_shutdown_event)
+            await cog.process_download_results()
             async with async_mock_session(fake_engine) as db_session:
                 assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
                 assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
@@ -344,7 +350,8 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
     await cog.playlist_create.callback(cog, fake_context['context'], name='delete-me')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 2, search='https://foo.example')
     await cog.search_youtube_music()
-    await cog.download_files()
+    await cog.download_client.run(cog.bot_shutdown_event)
+    await cog.process_download_results()
     await cog.playlist_merge.callback(cog, fake_context['context'], 1, 2)
     async with async_mock_session(fake_engine) as db_session:
         assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
