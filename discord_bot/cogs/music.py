@@ -111,6 +111,7 @@ class MusicDownloadConfig(BaseModel):
     server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
     cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
     storage: Optional[MusicStorageConfig] = None
+    normalize_audio: bool = False
     max_download_retries: int = Field(default=3, ge=1)
     max_youtube_music_search_retries: int = Field(default=3, ge=1)
     # Mostly to keep a cap on the queue to avoid issues
@@ -250,6 +251,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             wait_period_minimum=self.config.download.youtube_wait_period_minimum,
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
             bucket_name=storage_bucket_name,
+            normalize_audio=self.config.download.normalize_audio,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,

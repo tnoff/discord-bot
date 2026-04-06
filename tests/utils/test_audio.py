@@ -40,9 +40,18 @@ def test_file_paths():
 
 
 def test_edit_audio_file():
-    '''Integration test: real ffmpeg normalises audio and produces a non-empty PCM file.'''
+    '''Integration test: real ffmpeg converts audio and produces a non-empty PCM file.'''
     with temp_audio_file() as tmp_audio:
-        new_path = edit_audio_file(Path(tmp_audio))
+        new_path = edit_audio_file(Path(tmp_audio), False, None)
+        assert new_path is not None
+        assert new_path.suffix == '.pcm'
+        assert new_path.stat().st_size > 0
+
+
+def test_edit_audio_file_with_normalize():
+    '''Integration test: real ffmpeg normalises and converts audio.'''
+    with temp_audio_file() as tmp_audio:
+        new_path = edit_audio_file(Path(tmp_audio), True, None)
         assert new_path is not None
         assert new_path.suffix == '.pcm'
         assert new_path.stat().st_size > 0
@@ -59,7 +68,7 @@ def test_edit_audio_file_converts_to_pcm(mocker, tmp_path):
 
     mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_pcm)
 
-    result = edit_audio_file(audio_file)
+    result = edit_audio_file(audio_file, False, None)
 
     assert result is not None
     assert result.suffix == '.pcm'
@@ -67,15 +76,53 @@ def test_edit_audio_file_converts_to_pcm(mocker, tmp_path):
     assert not audio_file.exists()
 
 
+def test_edit_audio_file_normalize_includes_loudnorm(mocker, tmp_path):
+    '''When normalize_audio=True, loudnorm filter is passed to ffmpeg.'''
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+    editing_path = tmp_path / 'audio.edited.pcm'
+
+    captured = {}
+
+    def capture_args(*args, **_kwargs):
+        captured['args'] = args[0]
+        editing_path.write_bytes(bytes(400))
+
+    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=capture_args)
+    edit_audio_file(audio_file, True, None)
+
+    assert 'loudnorm' in captured['args']
+    assert '-af' in captured['args']
+
+
+def test_edit_audio_file_no_normalize_excludes_loudnorm(mocker, tmp_path):
+    '''When normalize_audio=False, loudnorm filter is not passed to ffmpeg.'''
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+    editing_path = tmp_path / 'audio.edited.pcm'
+
+    captured = {}
+
+    def capture_args(*args, **_kwargs):
+        captured['args'] = args[0]
+        editing_path.write_bytes(bytes(400))
+
+    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=capture_args)
+    edit_audio_file(audio_file, False, None)
+
+    assert 'loudnorm' not in captured['args']
+
+
 def test_edit_audio_file_subprocess_error(mocker, tmp_path):
-    '''subprocess.CalledProcessError raises AudioProcessingError and logs a warning.'''
+    '''subprocess.CalledProcessError raises AudioProcessingError and logs an error.'''
     error = subprocess.CalledProcessError(1, 'ffmpeg', stderr=b'Invalid data found')
     mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=error)
-    mock_logger = mocker.patch('discord_bot.utils.audio.logger')
+    mock_logger = MagicMock()
+    mocker.patch('discord_bot.utils.audio.get_logger', return_value=mock_logger)
     audio_file = tmp_path / 'test.mp3'
     audio_file.touch()
     with pytest.raises(AudioProcessingError):
-        edit_audio_file(audio_file)
+        edit_audio_file(audio_file, False, None)
     mock_logger.error.assert_called_once()
 
 
@@ -91,7 +138,7 @@ def test_edit_audio_file_empty_output(mocker, tmp_path):
     mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_empty_pcm)
 
     with pytest.raises(AudioProcessingError, match='empty output'):
-        edit_audio_file(audio_file)
+        edit_audio_file(audio_file, False, None)
 
 
 def test_edit_audio_file_size_not_divisible_by_4(mocker, tmp_path):
@@ -106,13 +153,14 @@ def test_edit_audio_file_size_not_divisible_by_4(mocker, tmp_path):
     mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_odd_pcm)
 
     with pytest.raises(AudioProcessingError, match='not divisible by 4'):
-        edit_audio_file(audio_file)
+        edit_audio_file(audio_file, False, None)
 
 
 def test_edit_audio_file_subprocess_error_records_otel_span(mocker, tmp_path):
     '''CalledProcessError is recorded on the otel span and span status set to ERROR.'''
     error = subprocess.CalledProcessError(1, 'ffmpeg', stderr=b'error')
     mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=error)
+    mocker.patch('discord_bot.utils.audio.get_logger', return_value=MagicMock())
     mock_span = MagicMock()
     with patch('discord_bot.utils.audio.otel_span_wrapper') as mock_wrapper:
         mock_wrapper.return_value.__enter__ = MagicMock(return_value=mock_span)
@@ -120,6 +168,6 @@ def test_edit_audio_file_subprocess_error_records_otel_span(mocker, tmp_path):
         audio_file = tmp_path / 'test.mp3'
         audio_file.touch()
         with pytest.raises(AudioProcessingError):
-            edit_audio_file(audio_file)
+            edit_audio_file(audio_file, False, None)
     mock_span.record_exception.assert_called_once()
     mock_span.set_status.assert_called_once()
