@@ -81,7 +81,7 @@ discord_bot/
                                 #   media_request_attributes, chunk_list
     search.py                   # SearchResult, SearchCollection
   utils/
-    audio.py                    # edit_audio_file() — audio normalisation via moviepy/numpy
+    audio.py                    # edit_audio_file() — audio normalisation via ffmpeg subprocess (loudnorm)
     common.py                   # async_retry_discord_message_command, get_logger,
                                 # return_loop_runner, create_observable_gauge,
                                 # GeneralConfig and all other config models
@@ -476,7 +476,7 @@ cleanup and status summaries. Used by the music download pipeline.
 
 ### `discord_bot/utils/audio.py`
 
-`edit_audio_file(path)` — normalises audio via moviepy/numpy.
+`edit_audio_file(path)` — normalises audio via ffmpeg subprocess (`loudnorm` filter), outputs s16le PCM at 48 kHz stereo. Called via `loop.run_in_executor` in `download_client.py` so it doesn't block the event loop.
 Helpers: `get_finished_path()`, `get_editing_path()`.
 
 ### `discord_bot/utils/database_backup_client.py` — `DatabaseBackupClient`
