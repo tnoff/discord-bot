@@ -6,7 +6,7 @@ from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.integrations.s3 import ObjectStorageException
 
-from tests.helpers import fake_context, fake_sync_engine as fake_engine  #pylint:disable=unused-import
+from tests.helpers import fake_context, fake_engine  #pylint:disable=unused-import
 
 
 BASE_CONFIG = {
@@ -25,7 +25,8 @@ BASE_CONFIG = {
 }
 
 
-def test_database_backup_disabled(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_disabled(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that cog raises error when disabled'''
     config = {
         'general': {
@@ -39,7 +40,8 @@ def test_database_backup_disabled(fake_context, fake_engine):  #pylint:disable=r
     assert 'Database backup not enabled' in str(exc.value)
 
 
-def test_database_backup_requires_s3_backend(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_requires_s3_backend(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that cog requires s3 backend'''
     config = {
         'general': {
@@ -60,7 +62,8 @@ def test_database_backup_requires_s3_backend(fake_context, fake_engine):  #pylin
     assert 'Storage backend must be s3' in str(exc.value)
 
 
-def test_database_backup_missing_storage_config(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_missing_storage_config(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that cog requires storage backend to be configured'''
     config = {
         'general': {
@@ -78,7 +81,8 @@ def test_database_backup_missing_storage_config(fake_context, fake_engine):  #py
     assert 'Storage backend must be s3' in str(exc.value)
 
 
-def test_database_backup_requires_bucket_name(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_requires_bucket_name(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that bucket_name is required'''
     config = {
         'general': {
@@ -98,7 +102,8 @@ def test_database_backup_requires_bucket_name(fake_context, fake_engine):  #pyli
     assert 'Invalid config given' in str(exc.value)
 
 
-def test_database_backup_requires_cron_schedule(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_requires_cron_schedule(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that cron_schedule is required'''
     config = {
         'general': {
@@ -118,7 +123,8 @@ def test_database_backup_requires_cron_schedule(fake_context, fake_engine):  #py
     assert 'Invalid config given' in str(exc.value)
 
 
-def test_database_backup_init_success(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_init_success(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test successful initialization'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
 
@@ -129,7 +135,8 @@ def test_database_backup_init_success(fake_context, fake_engine):  #pylint:disab
     assert cog.db_engine == fake_engine
 
 
-def test_database_backup_init_with_custom_prefix(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_init_with_custom_prefix(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test initialization with custom object prefix'''
     config = BASE_CONFIG.copy()
     config['database_backup'] = {
@@ -142,7 +149,8 @@ def test_database_backup_init_with_custom_prefix(fake_context, fake_engine):  #p
     assert cog.object_prefix == 'custom/path/'
 
 
-def test_database_backup_heartbeat_callback_not_running(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_heartbeat_callback_not_running(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test heartbeat callback when task is not running'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
 
@@ -153,7 +161,8 @@ def test_database_backup_heartbeat_callback_not_running(fake_context, fake_engin
     assert observations[0].value == 0  # Not running
 
 
-def test_database_backup_heartbeat_callback_running(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_heartbeat_callback_running(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
     '''Test heartbeat callback when task is running'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
 
@@ -168,7 +177,8 @@ def test_database_backup_heartbeat_callback_running(fake_context, fake_engine, m
     assert observations[0].value == 1  # Running
 
 
-def test_database_backup_heartbeat_callback_done(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_heartbeat_callback_done(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
     '''Test heartbeat callback when task is done'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
 
@@ -308,7 +318,8 @@ async def test_database_backup_loop_success_flow(fake_context, fake_engine, mock
     assert 's3://test-backup-bucket/' in caplog.text
 
 
-def test_database_backup_restore_on_startup_config(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_restore_on_startup_config(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that restore_on_startup config is parsed correctly'''
     config = {
         'general': {
@@ -325,13 +336,15 @@ def test_database_backup_restore_on_startup_config(fake_context, fake_engine):  
     assert cog.config.restore_on_startup is True
 
 
-def test_database_backup_restore_on_startup_defaults_false(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_database_backup_restore_on_startup_defaults_false(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
     '''Test that restore_on_startup defaults to False'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     assert cog.config.restore_on_startup is False
 
 
-def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
     '''_restore_on_startup calls restore_from_s3 when a backup key is found'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
@@ -348,7 +361,8 @@ def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_e
                                          table_groups=None, on_table_restored=None)
 
 
-def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
     '''_restore_on_startup logs info and does not call restore_from_s3 when no backup exists'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value=None)
@@ -360,7 +374,8 @@ def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engi
     assert 'No backup found in S3' in caplog.text
 
 
-def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
     '''_restore_on_startup logs warning and does not raise on ObjectStorageException'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     mocker.patch.object(cog.backup_client, 'find_latest_backup',
