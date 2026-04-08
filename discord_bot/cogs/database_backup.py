@@ -4,7 +4,10 @@ from datetime import datetime
 from typing import Optional
 
 from discord.ext.commands import Bot
+from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.pool import NullPool
 from opentelemetry.metrics import Observation
 from opentelemetry.trace import SpanKind
 from croniter import croniter
@@ -52,9 +55,19 @@ class DatabaseBackup(CogHelper):
         self.cron_schedule = self.config.cron_schedule
         self.object_prefix = self.config.object_prefix if self.config.object_prefix else 'backups/db/'
 
-        # Initialize backup client
+        # Build a synchronous engine for the backup client.
+        # AsyncEngine.sync_engine still uses the async DBAPI (asyncpg/aiosqlite) and
+        # requires greenlet context, so we create a fresh sync engine from the URL.
+        async_url = make_url(str(self.db_engine.url))
+        if async_url.drivername == 'postgresql+asyncpg':
+            sync_url = async_url.set(drivername='postgresql')
+        elif async_url.drivername == 'sqlite+aiosqlite':
+            sync_url = async_url.set(drivername='sqlite')
+        else:
+            sync_url = async_url
+        self._backup_sync_engine = create_engine(sync_url, poolclass=NullPool)
         self.backup_client = DatabaseBackupClient(
-            db_engine=self.db_engine.sync_engine,
+            db_engine=self._backup_sync_engine,
         )
 
         self._task = None
@@ -157,6 +170,7 @@ class DatabaseBackup(CogHelper):
             self._restore_task.cancel()
         if self._task:
             self._task.cancel()
+        self._backup_sync_engine.dispose()
 
     async def database_backup_loop(self):
         '''Main backup loop - runs on cron schedule'''
