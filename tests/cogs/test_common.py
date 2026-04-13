@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.utils.redis_dispatch_client import RedisDispatchClient
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
@@ -104,8 +105,6 @@ def test_dispatcher_raises_when_not_loaded(fake_context, mocker):  #pylint:disab
 
 def test_dispatcher_returns_redis_client_when_cross_process(fake_context, mocker):  #pylint:disable=redefined-outer-name
     '''_dispatcher returns a RedisDispatchClient when dispatch_cross_process is true.'''
-    from discord_bot.utils.redis_dispatch_client import RedisDispatchClient  #pylint:disable=import-outside-toplevel
-
     mocker.patch('discord_bot.cogs.common.get_redis_client', return_value=MagicMock())
     fake_loop = MagicMock()
     def _close_coro(coro):

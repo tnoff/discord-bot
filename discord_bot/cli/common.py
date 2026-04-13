@@ -28,6 +28,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 
 from discord_bot.cogs.common import CogHelperBase
+from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, GeneralConfig
 from discord_bot.utils.memory_profiler import MemoryProfiler
@@ -239,7 +240,6 @@ def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot
         intents=intents,
     )
 
-    from discord_bot.cogs.error import CommandErrorHandler  #pylint:disable=import-outside-toplevel
     cog_list = [CommandErrorHandler(bot, settings or {})]
     return bot, cog_list
 

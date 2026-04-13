@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from discord_bot.cogs.role import RoleAssignment, RoleConfig
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -1163,7 +1164,6 @@ def test_role_config_model_validate_non_dict():
 def test_role_config_model_validate_nested_dict_without_manages_roles():
     '''Dict value for an unrecognised key with no manages_roles key hits line 59.
     RoleManagementConfig requires manages_roles, so the fallback path always raises.'''
-    from pydantic import ValidationError as PydanticValidationError  #pylint:disable=import-outside-toplevel
     config = {
         999: {
             12345: {'some_key': 'some_value'},  # dict, no manages_roles, not a special key

@@ -22,10 +22,14 @@ def result_stream_key(process_id: str) -> str:
     return StreamKey.RESULT.value.format(process_id=process_id)
 
 
-async def ensure_consumer_group(client: aioredis.Redis, stream_key: str) -> None:
+async def ensure_consumer_group(
+    client: aioredis.Redis,
+    stream_key: str,
+    group_name: str = StreamKey.CONSUMER_GROUP.value,
+) -> None:
     '''Create consumer group if it does not exist (MKSTREAM creates stream too).'''
     try:
-        await client.xgroup_create(stream_key, StreamKey.CONSUMER_GROUP.value, id='0', mkstream=True)
+        await client.xgroup_create(stream_key, group_name, id='0', mkstream=True)
     except Exception as exc:
         if 'BUSYGROUP' not in str(exc):
             raise
@@ -45,10 +49,11 @@ async def xreadgroup(
     consumer_name: str,
     count: int = 10,
     block_ms: int = 2000,
+    group_name: str = StreamKey.CONSUMER_GROUP.value,
 ) -> list:
     '''Read pending messages from consumer group. Returns list of (msg_id, fields).'''
     results = await client.xreadgroup(
-        StreamKey.CONSUMER_GROUP.value, consumer_name,
+        group_name, consumer_name,
         {stream_key: '>'},
         count=count, block=block_ms,
     )
@@ -58,9 +63,14 @@ async def xreadgroup(
     return messages
 
 
-async def xack(client: aioredis.Redis, stream_key: str, msg_id: str) -> None:
+async def xack(
+    client: aioredis.Redis,
+    stream_key: str,
+    msg_id: str,
+    group_name: str = StreamKey.CONSUMER_GROUP.value,
+) -> None:
     '''Acknowledge a message in the consumer group, removing it from pending.'''
-    await client.xack(stream_key, StreamKey.CONSUMER_GROUP.value, msg_id)
+    await client.xack(stream_key, group_name, msg_id)
 
 
 async def xread_latest(

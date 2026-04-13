@@ -1,6 +1,8 @@
 import asyncio
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
+from discord.errors import NotFound
 from freezegun import freeze_time
 import pytest
 from sqlalchemy import select
@@ -12,7 +14,7 @@ from discord_bot.types.fetched_message import FetchedMessage
 
 from discord_bot.database import MarkovChannel, MarkovRelation
 
-from tests.helpers import fake_context, fake_engine #pylint:disable=unused-import
+from tests.helpers import fake_context, fake_engine, FakeResponse #pylint:disable=unused-import
 from tests.helpers import async_mock_session
 from tests.helpers import FakeEmjoi, FakeChannel, FakeMessage
 
@@ -440,9 +442,6 @@ async def test_markov_group_no_subcommand(fake_engine, fake_context):  #pylint:d
 @pytest.mark.asyncio
 async def test_process_history_result_not_found_clears_relations(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''When a NotFound error occurs with after_message_id, channel relations are cleared'''
-    from discord.errors import NotFound  #pylint:disable=import-outside-toplevel
-    from tests.helpers import FakeResponse  #pylint:disable=import-outside-toplevel
-
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
 
@@ -510,8 +509,6 @@ async def test_process_history_result_saves_relations(fake_engine, fake_context)
 @pytest.mark.asyncio
 async def test_markov_result_loop_updates_emoji_cache(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''_markov_result_loop stores emojis in _emoji_cache on success'''
-    from unittest.mock import MagicMock  #pylint:disable=import-outside-toplevel
-
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
     cog.register_result_queue()
     fake_emoji = MagicMock()
@@ -589,8 +586,6 @@ async def test_markov_result_loop_emoji_error_skips_cache_update(fake_engine, fa
 @pytest.mark.asyncio
 async def test_markov_result_loop_emoji_success_updates_cache(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''_markov_result_loop stores emojis in _emoji_cache when GuildEmojisResult has no error.'''
-    from unittest.mock import MagicMock  #pylint:disable=import-outside-toplevel
-
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
     cog.register_result_queue()
     fake_emoji = MagicMock()

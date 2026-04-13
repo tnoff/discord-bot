@@ -1489,6 +1489,62 @@ async def test_cog_unload_preserves_configured_player_dir(mocker, fake_context):
         assert cog.player_dir not in called_paths
 
 
+def test_music_init_with_download_worker_redis(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''Music creates a Redis-backed DownloadClient when download_worker_redis is True'''
+    mock_redis = Mock()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=mock_redis)
+    config = {
+        'general': {
+            'include': {'music': True},
+            'download_worker_redis': True,
+            'redis_url': 'redis://localhost:6379',
+            'download_worker_process_id': 'test-worker',
+        }
+    }
+    cog = Music(fake_context['bot'], config, None)
+    assert cog.download_client.has_redis
+
+
+@pytest.mark.asyncio
+async def test_cog_load_starts_redis_feeder_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_load creates _redis_feeder_task when download_client.has_redis is True'''
+    mock_redis = Mock()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=mock_redis)
+    config = {
+        'general': {
+            'include': {'music': True},
+            'download_worker_redis': True,
+            'redis_url': 'redis://localhost:6379',
+            'download_worker_process_id': 'test-worker',
+        }
+    }
+    cog = Music(fake_context['bot'], config, None)
+
+    mock_task = Mock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=mock_task)
+    cog.bot.loop = mock_loop
+
+    await cog.cog_load()
+
+    assert cog._redis_feeder_task is mock_task  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_redis_feeder_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_unload cancels _redis_feeder_task when it is set'''
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    mock_task = Mock()
+    cog._redis_feeder_task = mock_task  # pylint: disable=protected-access
+
+    await cog.cog_unload()
+
+    mock_task.cancel.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test music_stats command when database is not available"""

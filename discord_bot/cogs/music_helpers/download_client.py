@@ -25,6 +25,13 @@ from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
+from discord_bot.utils.download_stream_helpers import (
+    download_input_stream_key, decode_download_request,
+    download_result_stream_key, encode_download_result,
+    DownloadStreamKey,
+)
+from discord_bot.utils.queue import PutsBlocked
+from discord_bot.utils.redis_stream_helpers import xadd, xreadgroup, xack, ensure_consumer_group
 
 class DirectItemAvailableException(Exception):
     '''Raised by backoff_wait when a DIRECT item arrives during the wait period.'''
@@ -149,6 +156,8 @@ class DownloadClient():
         broker=None,
         max_retries: int = 3,
         queue_max_size: int = 100,
+        redis_client=None,
+        redis_process_id: str | None = None,
     ):
         '''
         Init download client
@@ -196,6 +205,13 @@ class DownloadClient():
         self.normalize_audio: bool = normalize_audio
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
+        self._redis_client = redis_client
+        self._redis_process_id = redis_process_id
+
+    @property
+    def has_redis(self) -> bool:
+        '''True when a Redis client and process ID are configured.'''
+        return self._redis_client is not None and self._redis_process_id is not None
 
     @property
     def has_direct_pending(self) -> bool:
@@ -367,6 +383,43 @@ class DownloadClient():
     # Consumer loop
     # ------------------------------------------------------------------
 
+    async def run_redis_feeder(self, shutdown_event: asyncio.Event) -> None:
+        '''
+        Read one batch of MediaRequests from the Redis download input stream and submit
+        them to the local queue.  Intended to run alongside run() as a parallel background
+        task driven by return_loop_runner.
+
+        Returns immediately when Redis is not configured, making it a safe no-op in
+        non-Redis deployments.
+
+        ACKs each message immediately after submit() — durability guarantee matches the
+        existing in-memory queue (items are lost on process crash either way).
+        '''
+        if not self.has_redis:
+            return
+
+        stream_key = download_input_stream_key()
+        group_name = DownloadStreamKey.CONSUMER_GROUP.value
+        await ensure_consumer_group(self._redis_client, stream_key, group_name=group_name)
+
+        if shutdown_event.is_set():
+            raise ExitEarlyException('Exiting redis feeder loop')
+
+        messages = await xreadgroup(
+            self._redis_client, stream_key, self._redis_process_id, count=10, block_ms=100,
+            group_name=group_name,
+        )
+        for msg_id, fields in messages:
+            media_request, priority = decode_download_request(fields)
+            try:
+                self.submit(media_request.guild_id, media_request, priority=priority)
+            except PutsBlocked:
+                self.logger.warning(
+                    'run_redis_feeder: guild %s is blocked, discarding %s',
+                    media_request.guild_id, media_request.uuid,
+                )
+            await xack(self._redis_client, stream_key, msg_id, group_name=group_name)
+
     async def run(self, shutdown_event: asyncio.Event) -> None:
         '''
         Consumer loop: waits for any active backoff, then dequeues one
@@ -425,6 +478,12 @@ class DownloadClient():
             return
 
         self._result_queue.put_nowait(media_request.guild_id, result)
+        if self.has_redis:
+            await xadd(
+                self._redis_client,
+                download_result_stream_key(self._redis_process_id),
+                encode_download_result(result),
+            )
 
     def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
         '''

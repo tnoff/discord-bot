@@ -4,11 +4,10 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from yt_dlp.utils import DownloadError
-
 from discord_bot.cogs.music_helpers.download_client import (
     DownloadClient, VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
     DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator,
@@ -23,6 +22,9 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.utils.queue import PutsBlocked
+from discord_bot.utils.download_stream_helpers import (
+    decode_download_result, encode_download_request, encode_download_result,
+)
 from tests.helpers import fake_source_dict, generate_fake_context
 
 class MockYTDLP():
@@ -1248,3 +1250,188 @@ async def test_run_direct_retryable_requeues_to_direct_queue():
     # Item re-queued and direct event re-set
     assert client.queue_size(mr.guild_id) == 1
     assert client.has_direct_pending
+
+
+# ========== Redis feeder / result publishing tests ==========
+
+def test_has_redis_false_without_config():
+    '''has_redis is False when no redis_client is configured'''
+    client = make_download_client()
+    assert not client.has_redis
+
+
+def test_has_redis_true_with_config():
+    '''has_redis is True when both redis_client and process_id are provided'''
+    client = make_download_client(redis_client=object(), redis_process_id='worker-1')
+    assert client.has_redis
+
+
+def test_has_redis_false_without_process_id():
+    '''has_redis is False when redis_client is set but process_id is missing'''
+    client = make_download_client(redis_client=object(), redis_process_id=None)
+    assert not client.has_redis
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_feeder_no_op_without_redis():
+    '''run_redis_feeder returns immediately when has_redis is False'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    shutdown = asyncio.Event()
+    await client.run_redis_feeder(shutdown)  # Should not raise or block
+    assert client.queue_size(fake_context['guild'].id) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_feeder_submits_items_from_stream():
+    '''run_redis_feeder deserializes a Redis message and calls submit() with correct guild/priority'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+
+    mock_redis = AsyncMock()
+    mock_redis.xgroup_create = AsyncMock(side_effect=Exception('BUSYGROUP'))
+    mock_redis.expire = AsyncMock()
+    mock_redis.xreadgroup = AsyncMock(return_value=[
+        (None, [('msg-1', encode_download_request(mr, priority=50))])
+    ])
+    mock_redis.xack = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+    await client.run_redis_feeder(shutdown)
+
+    assert client.queue_size(mr.guild_id) == 1
+    mock_redis.xack.assert_called_once()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_publishes_result_to_redis():
+    '''run() publishes the final result to the Redis result stream when has_redis is True'''
+    fake_context = generate_fake_context()
+    mock_redis = AsyncMock()
+    mock_redis.xadd = AsyncMock(return_value='1-0')
+    mock_redis.expire = AsyncMock()
+
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(
+            MockYTDLP(fake_file_path=Path(tmp_file.name)),
+            redis_client=mock_redis,
+            redis_process_id='worker-1',
+        )
+        mr = fake_source_dict(fake_context)
+        client.submit(mr.guild_id, mr)
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            await client.run(shutdown)
+
+    result = client.get_result_nowait()
+    assert result.status.success
+    # xadd called once for the result stream
+    mock_redis.xadd.assert_called_once()
+    stream_key_arg = mock_redis.xadd.call_args[0][0]
+    assert 'worker-1' in stream_key_arg
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_still_puts_result_on_local_queue_with_redis():
+    '''run() still populates the local result queue even when Redis is configured'''
+    fake_context = generate_fake_context()
+    mock_redis = AsyncMock()
+    mock_redis.xadd = AsyncMock(return_value='1-0')
+    mock_redis.expire = AsyncMock()
+
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(
+            MockYTDLP(fake_file_path=Path(tmp_file.name)),
+            redis_client=mock_redis,
+            redis_process_id='worker-1',
+        )
+        mr = fake_source_dict(fake_context)
+        client.submit(mr.guild_id, mr)
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            await client.run(shutdown)
+
+    # Local result queue must still be populated
+    assert client.result_queue_depth() == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_does_not_publish_to_redis_without_config():
+    '''run() does not call xadd when Redis is not configured'''
+    fake_context = generate_fake_context()
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        mr = fake_source_dict(fake_context)
+        client.submit(mr.guild_id, mr)
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            with patch('discord_bot.utils.redis_stream_helpers.xadd') as mock_xadd:
+                await client.run(shutdown)
+    mock_xadd.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_feeder_raises_exit_early_on_shutdown():
+    '''run_redis_feeder raises ExitEarlyException when shutdown is already set'''
+    mock_redis = AsyncMock()
+    mock_redis.xgroup_create = AsyncMock(side_effect=Exception('BUSYGROUP'))
+    mock_redis.expire = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+    shutdown.set()
+    with pytest.raises(ExitEarlyException):
+        await client.run_redis_feeder(shutdown)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_feeder_discards_blocked_guild():
+    '''run_redis_feeder logs warning and ACKs message when guild is blocked (PutsBlocked)'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+
+    mock_redis = AsyncMock()
+    mock_redis.xgroup_create = AsyncMock(side_effect=Exception('BUSYGROUP'))
+    mock_redis.expire = AsyncMock()
+    mock_redis.xreadgroup = AsyncMock(return_value=[
+        (None, [('msg-1', encode_download_request(mr, priority=None))])
+    ])
+    mock_redis.xack = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    client.block_guild(mr.guild_id)
+    shutdown = asyncio.Event()
+    await client.run_redis_feeder(shutdown)
+
+    mock_redis.xack.assert_called_once()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_direct_event_race_returns_early():
+    '''run() returns without processing when DirectItemAvailableException fires but direct queue is empty'''
+    client = make_download_client()
+    shutdown = asyncio.Event()
+    # Set a future wait timestamp so backoff_wait enters asyncio.wait
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 60
+    # Set the event without putting anything in the direct queue (spurious wakeup)
+    client._direct_available.set()  # pylint: disable=protected-access
+    await client.run(shutdown)
+    # Nothing should land on the result queue
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+
+
+def test_decode_download_result_roundtrip():
+    '''decode_download_result correctly deserializes what encode_download_result produces'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    status = DlStatus(success=True)
+    result = DownloadResult(media_request=mr, status=status, ytdlp_data={}, file_name=None)
+    encoded = encode_download_result(result)
+    decoded = decode_download_result(encoded)
+    assert decoded.media_request.uuid == mr.uuid
+    assert decoded.status.success is True

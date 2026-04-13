@@ -12,6 +12,7 @@ from shutil import disk_usage
 from tempfile import TemporaryDirectory
 from time import time
 from typing import List, Optional
+import uuid
 
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
@@ -54,6 +55,7 @@ from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_bot.utils.redis_client import get_redis_client
 
 # GLOBALS
 
@@ -161,6 +163,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.players = {}
         self._cleanup_task = None
         self._download_task = None
+        self._redis_feeder_task = None
         self._result_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
@@ -246,6 +249,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
+        settings_general = self.settings.get('general', {})
+        download_redis_client = None
+        download_redis_process_id = None
+        if settings_general.get('download_worker_redis', False):
+            download_redis_client = get_redis_client(settings_general['redis_url'])
+            download_redis_process_id = settings_general.get('download_worker_process_id') or str(uuid.uuid4())
+
         self.download_client = DownloadClient(
             self.logging_config,
             self.download_dir,
@@ -260,6 +270,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             broker=self.media_broker,
             max_retries=self.config.download.max_download_retries,
             queue_max_size=self.config.player.queue_max_size,
+            redis_client=download_redis_client,
+            redis_process_id=download_redis_process_id,
         )
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -403,6 +415,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher = self._dispatcher
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+        if self.download_client.has_redis:
+            self._redis_feeder_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run_redis_feeder, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
@@ -434,6 +448,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._cleanup_task.cancel()
             if self._download_task:
                 self._download_task.cancel()
+            if self._redis_feeder_task:
+                self._redis_feeder_task.cancel()
             if self._result_task:
                 self._result_task.cancel()
             if self._post_play_processing_task:
@@ -921,7 +937,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         self._get_play_order_content(guild.id), player.text_channel.id)
 
             # Clear all bundles
-            for uuid, item in list(self.multirequest_bundles.items()):
+            for bundle_uuid, item in list(self.multirequest_bundles.items()):
                 if int(item.guild_id) != int(guild.id):
                     continue
                 # Skip bundles that still have active PlaylistAddRequest items —
@@ -932,7 +948,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     and req.media_request.lifecycle_stage not in _terminal_stages
                     for req in item.bundled_requests
                 ):
-                    self.logger.debug(f'Skipping shutdown of bundle {uuid} — has active playlist-add requests')
+                    self.logger.debug(f'Skipping shutdown of bundle {bundle_uuid} — has active playlist-add requests')
                     continue
                 item.shutdown()
                 if reason != CleanupReason.BOT_SHUTDOWN:
