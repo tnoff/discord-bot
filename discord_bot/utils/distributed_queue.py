@@ -74,6 +74,32 @@ class DistributedQueue(Generic[T]):
         except KeyError:
             return 0
 
+    def total_size(self) -> int:
+        '''Total number of items across all guild queues.'''
+        return sum(item.queue.size() for item in self.queues.values())
+
+    def next_timestamp(self) -> datetime | None:
+        '''
+        Return the comparison timestamp of the item that get_nowait() would select,
+        without dequeuing it. Returns None if the queue is empty.
+        '''
+        check_priority = None
+        check_timestamp = None
+        for item in self.queues.values():
+            if item.queue.size() < 1:
+                continue
+            comparison_value = item.iterated_at or item.created_at
+            if check_priority is None:
+                check_timestamp = comparison_value
+                check_priority = item.priority
+                continue
+            if check_priority > item.priority:
+                continue
+            if check_priority < item.priority or comparison_value < check_timestamp:
+                check_timestamp = comparison_value
+                check_priority = item.priority
+        return check_timestamp
+
     def get_nowait(self) -> T:
         '''
         Get download item from server thats been waiting longest
