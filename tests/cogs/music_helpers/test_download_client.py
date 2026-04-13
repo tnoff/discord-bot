@@ -11,7 +11,8 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.cogs.music_helpers.download_client import (
     DownloadClient, VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
-    DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator
+    DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator,
+    DirectItemAvailableException,
 )
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import ExitEarlyException
@@ -1115,3 +1116,135 @@ async def test_result_queue_depth():
     assert client.result_queue_depth() == 1
     client.get_result_nowait()
     assert client.result_queue_depth() == 0
+
+
+# ========== DIRECT item bypass tests ==========
+
+def test_clear_guild_queue_clears_direct_event_when_no_direct_remain():
+    '''Clearing all DIRECT items disarms _direct_available so backoff_wait is not spuriously interrupted'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context, is_direct_search=True)
+    client.submit(mr.guild_id, mr)
+    assert client.has_direct_pending
+    client.clear_guild_queue(mr.guild_id)
+    assert not client.has_direct_pending
+
+
+def test_clear_guild_queue_keeps_direct_event_when_other_guild_has_direct():
+    '''_direct_available stays set if another guild still has DIRECT items after a clear'''
+    fake_context_a = generate_fake_context()
+    fake_context_b = generate_fake_context()
+    client = make_download_client()
+    mr_a = fake_source_dict(fake_context_a, is_direct_search=True)
+    mr_b = fake_source_dict(fake_context_b, is_direct_search=True)
+    client.submit(mr_a.guild_id, mr_a)
+    client.submit(mr_b.guild_id, mr_b)
+    # Clear only guild A's queue; guild B's DIRECT item still present
+    client.clear_guild_queue(mr_a.guild_id)
+    assert client.has_direct_pending
+
+
+def test_submit_direct_routes_to_direct_queue():
+    '''DIRECT items go to the direct queue; queue_size counts both queues'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr_search = fake_source_dict(fake_context)
+    mr_direct = fake_source_dict(fake_context, is_direct_search=True)
+    client.submit(mr_search.guild_id, mr_search)
+    client.submit(mr_direct.guild_id, mr_direct)
+    assert client.queue_size(mr_search.guild_id) == 2
+    assert client.has_direct_pending
+
+
+def test_submit_non_direct_does_not_set_direct_event():
+    '''Submitting a non-DIRECT item does not set the direct_available event'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    assert not client.has_direct_pending
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_backoff_wait_raises_direct_item_available():
+    '''backoff_wait raises DirectItemAvailableException when a DIRECT item is pending'''
+    fake_context = generate_fake_context()
+    shutdown = asyncio.Event()
+    client = make_download_client(wait_period_minimum=60, wait_period_max_variance=10)
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 120
+    mr = fake_source_dict(fake_context, is_direct_search=True)
+    client.submit(mr.guild_id, mr)
+    with pytest.raises(DirectItemAvailableException):
+        await client.backoff_wait(shutdown)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_direct_item_bypasses_active_backoff():
+    '''DIRECT item already queued is processed immediately even when backoff is active'''
+    fake_context = generate_fake_context()
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        mr = fake_source_dict(fake_context, is_direct_search=True)
+        client.submit(mr.guild_id, mr)
+        client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            await client.run(shutdown)
+    result = client.get_result_nowait()
+    assert result.status.success
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_direct_item_interrupts_mid_wait():
+    '''DIRECT item submitted while run() is mid-backoff-wait interrupts the wait'''
+    fake_context = generate_fake_context()
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
+        shutdown = asyncio.Event()
+        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+
+        async def submit_after_delay():
+            await asyncio.sleep(0.05)
+            mr = fake_source_dict(fake_context, is_direct_search=True)
+            client.submit(mr.guild_id, mr)
+
+        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            await asyncio.gather(client.run(shutdown), submit_after_delay())
+
+    result = client.get_result_nowait()
+    assert result.status.success
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_non_direct_still_waits_backoff():
+    '''Non-DIRECT items still wait out the backoff; run() returns without processing if shutdown fires'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Private video'))
+    mr = fake_source_dict(fake_context)
+    client.submit(mr.guild_id, mr)
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
+    shutdown = asyncio.Event()
+    shutdown.set()
+    with pytest.raises(ExitEarlyException):
+        await client.run(shutdown)
+    assert client.queue_size(mr.guild_id) == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_direct_retryable_requeues_to_direct_queue():
+    '''Retryable DIRECT errors go back to the direct queue (not _input_queue)'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Read timed out.'))
+    mr = fake_source_dict(fake_context, is_direct_search=True)
+    client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    # Result queue should be empty
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+    # Item re-queued and direct event re-set
+    assert client.queue_size(mr.guild_id) == 1
+    assert client.has_direct_pending

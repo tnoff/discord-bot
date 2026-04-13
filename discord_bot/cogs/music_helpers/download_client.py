@@ -15,6 +15,7 @@ from yt_dlp.utils import DownloadError
 
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
+from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate,
@@ -24,6 +25,9 @@ from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
+
+class DirectItemAvailableException(Exception):
+    '''Raised by backoff_wait when a DIRECT item arrives during the wait period.'''
 
 class DownloadClientException(Exception):
     '''
@@ -181,6 +185,8 @@ class DownloadClient():
         self._broker = broker
         self._max_retries = max_retries
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
+        self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
+        self._direct_available: asyncio.Event = asyncio.Event()
         self._result_queue: DistributedQueue[DownloadResult] = DistributedQueue(queue_max_size)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
@@ -190,6 +196,11 @@ class DownloadClient():
         self.normalize_audio: bool = normalize_audio
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
+
+    @property
+    def has_direct_pending(self) -> bool:
+        '''True when at least one DIRECT item is waiting to bypass backoff.'''
+        return self._direct_available.is_set()
 
     @property
     def wait_timestamp(self) -> float | None:
@@ -263,13 +274,11 @@ class DownloadClient():
 
     async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
         '''
-        Wait until the backoff timestamp elapses or the shutdown event fires.
+        Wait until the backoff timestamp elapses, the shutdown event fires, or a
+        DIRECT item becomes available.
 
-        Raises ExitEarlyException (imported by caller) if shutdown is signalled.
-        Instead of importing ExitEarlyException here, we re-raise via the caller
-        after returning — callers check shutdown_event themselves after this returns.
-        Actually, we mirror the existing youtube_backoff_time logic: raise on shutdown.
-        We import lazily to avoid circular imports.
+        Raises ExitEarlyException if shutdown is signalled.
+        Raises DirectItemAvailableException if _direct_available fires during the wait.
         '''
         if self._wait_timestamp is None:
             return
@@ -283,14 +292,21 @@ class DownloadClient():
         if sleep_duration == 0:
             return
 
-        try:
-            await asyncio.wait_for(
-                shutdown_event.wait(),
-                timeout=sleep_duration,
-            )
+        _, pending = await asyncio.wait(
+            {
+                asyncio.ensure_future(shutdown_event.wait()),
+                asyncio.ensure_future(self._direct_available.wait()),
+            },
+            timeout=sleep_duration,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+
+        if shutdown_event.is_set():
             raise ExitEarlyException('Exiting bot wait loop')
-        except asyncio.TimeoutError:
-            return
+        if self._direct_available.is_set():
+            raise DirectItemAvailableException()
 
     # ------------------------------------------------------------------
     # Queue interface
@@ -301,7 +317,11 @@ class DownloadClient():
         '''Enqueue a MediaRequest for download.'''
         if media_request.span_context is None:
             media_request.span_context = capture_span_context()
-        self._input_queue.put_nowait(guild_id, media_request, priority=priority)
+        if media_request.search_result.search_type == SearchType.DIRECT:
+            self._direct_input_queue.put_nowait(guild_id, media_request, priority=priority)
+            self._direct_available.set()
+        else:
+            self._input_queue.put_nowait(guild_id, media_request, priority=priority)
 
     def result_queue_depth(self) -> int:
         '''Total number of completed results waiting to be processed across all guilds.'''
@@ -316,21 +336,32 @@ class DownloadClient():
 
     def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
-        return self._input_queue.block(guild_id)
+        a = self._input_queue.block(guild_id)
+        b = self._direct_input_queue.block(guild_id)
+        return a and b
 
     def clear_guild_queue(self, guild_id: int,
                           preserve_predicate: Callable[[MediaRequest], bool] | None = None,
                           ) -> list[MediaRequest]:
         '''Clear the input queue for a guild, returning the dropped requests.'''
-        return self._input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
+        dropped = self._input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
+        dropped += self._direct_input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
+        # If no DIRECT items remain across any guild, disarm the wakeup event so
+        # backoff_wait does not spuriously raise DirectItemAvailableException.
+        if not self._direct_input_queue.queues:
+            self._direct_available.clear()
+        return dropped
 
     def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
-        return self._input_queue.size(guild_id) or 0
+        return (self._input_queue.size(guild_id) or 0) + (self._direct_input_queue.size(guild_id) or 0)
 
     def get_input_nowait(self) -> MediaRequest:
         '''Return the next pending MediaRequest, raising QueueEmpty if none available.'''
-        return self._input_queue.get_nowait()
+        try:
+            return self._direct_input_queue.get_nowait()
+        except QueueEmpty:
+            return self._input_queue.get_nowait()
 
     # ------------------------------------------------------------------
     # Consumer loop
@@ -344,15 +375,28 @@ class DownloadClient():
         the result queue.  Intended to be driven by return_loop_runner as
         a background task.
 
-        Backoff wait is done BEFORE dequeuing so that a shutdown during
-        the wait never discards an item from the queue.
+        DIRECT items always run without waiting: they are checked first before
+        any backoff.  If a DIRECT item arrives mid-wait, backoff_wait raises
+        DirectItemAvailableException to interrupt the wait early.
         '''
         await sleep(0.01)
-        await self.backoff_wait(shutdown_event)
         try:
-            media_request = self._input_queue.get_nowait()
+            media_request = self._direct_input_queue.get_nowait()
+            self._direct_available.clear()
         except QueueEmpty:
-            return
+            try:
+                await self.backoff_wait(shutdown_event)
+            except DirectItemAvailableException:
+                self._direct_available.clear()
+                try:
+                    media_request = self._direct_input_queue.get_nowait()
+                except QueueEmpty:
+                    return
+            else:
+                try:
+                    media_request = self._input_queue.get_nowait()
+                except QueueEmpty:
+                    return
 
         request_uuid = str(media_request.uuid)
         if self._broker is not None:
@@ -373,7 +417,11 @@ class DownloadClient():
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,
                 ))
-            self._input_queue.put_nowait(media_request.guild_id, media_request)
+            if media_request.search_result.search_type == SearchType.DIRECT:
+                self._direct_input_queue.put_nowait(media_request.guild_id, media_request)
+                self._direct_available.set()
+            else:
+                self._input_queue.put_nowait(media_request.guild_id, media_request)
             return
 
         self._result_queue.put_nowait(media_request.guild_id, result)
