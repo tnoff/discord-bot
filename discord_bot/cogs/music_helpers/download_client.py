@@ -18,7 +18,7 @@ from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
-    DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate,
+    DownloadErrorType, DownloadResult, DownloadStatus,
 )
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
@@ -153,7 +153,6 @@ class DownloadClient():
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
         normalize_audio: bool = False,
-        broker=None,
         max_retries: int = 3,
         queue_max_size: int = 100,
         redis_client=None,
@@ -169,7 +168,6 @@ class DownloadClient():
         bucket_name : S3 bucket to upload to immediately after download;
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
-        broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
         queue_max_size : Per-guild capacity for the input and result queues
         '''
@@ -191,7 +189,6 @@ class DownloadClient():
         if max_video_length or banned_video_list:
             ytdlopts['match_filter'] = match_generator(max_video_length, banned_video_list)
         self.ytdl = YoutubeDL(ytdlopts)
-        self._broker = broker
         self._max_retries = max_retries
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
@@ -451,11 +448,6 @@ class DownloadClient():
                 except QueueEmpty:
                     return
 
-        request_uuid = str(media_request.uuid)
-        if self._broker is not None:
-            self._broker.update_request_status(
-                request_uuid, DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
-            )
         result = await self.create_source(media_request, self._max_retries)
 
         if not result.status.success and result.status.error_type in {
@@ -464,18 +456,11 @@ class DownloadClient():
             media_request.download_retry_information.retry_count += 1
             self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
             self.logger.info('Failure queue: %s', self.failure_summary)
-            if self._broker is not None:
-                self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
-                    event=DownloadEvent.RETRY,
-                    error_detail=result.status.error_detail,
-                    backoff_seconds=self.backoff_seconds_remaining,
-                ))
             if media_request.search_result.search_type == SearchType.DIRECT:
                 self._direct_input_queue.put_nowait(media_request.guild_id, media_request)
                 self._direct_available.set()
             else:
                 self._input_queue.put_nowait(media_request.guild_id, media_request)
-            return
 
         self._result_queue.put_nowait(media_request.guild_id, result)
         if self.has_redis:

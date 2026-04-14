@@ -12,14 +12,14 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.types.download import DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
 from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
 
-from tests.helpers import fake_source_dict, fake_media_download
+from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 
@@ -1563,3 +1563,71 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
 
     # Verify no message was sent (function returned early)
     cog.dispatcher.send_message.assert_not_called()
+
+
+# ========== process_download_results — retryable branch ==========
+
+def _make_retryable_result(fakes, error_type=DownloadErrorType.RETRYABLE, error_detail=None):
+    '''Build a failed DownloadResult with the given retryable error_type.'''
+    mr = fake_source_dict(fakes)
+    return DownloadResult(
+        status=DownloadStatus(success=False, error_type=error_type, error_detail=error_detail),
+        media_request=mr,
+        ytdlp_data=None,
+        file_name=None,
+    )
+
+
+@pytest.mark.asyncio()
+async def test_process_download_results_retryable_notifies_broker(mocker):
+    '''process_download_results calls broker with RETRY event for RETRYABLE errors'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
+    result = _make_retryable_result(fakes)
+    cog.download_client._result_queue.put_nowait(result.media_request.guild_id, result)  #pylint:disable=protected-access
+    mock_broker = Mock()
+    cog.media_broker = mock_broker
+    await cog.process_download_results()
+    assert mock_broker.update_request_status.called
+    status_update = mock_broker.update_request_status.call_args[0][1]
+    assert isinstance(status_update, DownloadStatusUpdate)
+    assert status_update.event == DownloadEvent.RETRY
+
+
+@pytest.mark.asyncio()
+async def test_process_download_results_bot_flagged_notifies_broker(mocker):
+    '''process_download_results calls broker with RETRY event for BOT_FLAGGED errors'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
+    result = _make_retryable_result(fakes, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='bot check')
+    cog.download_client._result_queue.put_nowait(result.media_request.guild_id, result)  #pylint:disable=protected-access
+    mock_broker = Mock()
+    cog.media_broker = mock_broker
+    await cog.process_download_results()
+    assert mock_broker.update_request_status.called
+    status_update = mock_broker.update_request_status.call_args[0][1]
+    assert status_update.event == DownloadEvent.RETRY
+    assert status_update.error_detail == 'bot check'
+
+
+@pytest.mark.asyncio()
+async def test_process_download_results_retryable_does_not_add_to_player(mocker):
+    '''process_download_results returns early for retryable errors — no player enqueue'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
+    result = _make_retryable_result(fakes)
+    cog.download_client._result_queue.put_nowait(result.media_request.guild_id, result)  #pylint:disable=protected-access
+    mock_broker = Mock()
+    cog.media_broker = mock_broker
+    await cog.process_download_results()
+    # No player created / no items enqueued — retryable returns early
+    assert fakes['guild'].id not in cog.players or not cog.players[fakes['guild'].id].get_queue_items()

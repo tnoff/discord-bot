@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from yt_dlp.utils import DownloadError
@@ -15,7 +15,7 @@ from discord_bot.cogs.music_helpers.download_client import (
 )
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.types.download import DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus as DlStatus
+from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus as DlStatus
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -1008,11 +1008,10 @@ def test_get_result_nowait_raises_when_empty():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_run_success_puts_result_on_result_queue():
-    '''run() downloads and puts result on result queue; broker gets IN_PROGRESS (no backoff active)'''
+    '''run() downloads and puts result on result queue'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         mr = fake_source_dict(fake_context)
         client.submit(mr.guild_id, mr)
         shutdown = asyncio.Event()
@@ -1022,40 +1021,33 @@ async def test_run_success_puts_result_on_result_queue():
     result = client.get_result_nowait()
     assert result.status.success
     assert result.file_name == pcm_path
-    broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
-    # No backoff active → no BACKOFF status emitted; only IN_PROGRESS
-    assert DownloadEvent.BACKOFF not in broker_events
-    assert DownloadEvent.IN_PROGRESS in broker_events
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_run_retryable_requeues_and_increments_retry_count():
-    '''run() requeues retryable errors and increments retry_count'''
+    '''run() requeues retryable errors, increments retry_count, and puts result on result queue'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
-    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
+    client = make_download_client(yield_dlp_error('Read timed out.'))
     mr = fake_source_dict(fake_context)
     assert mr.download_retry_information.retry_count == 0
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    # Result queue should be empty — retryable goes back to input queue
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
     # retry_count incremented
     assert mr.download_retry_information.retry_count == 1
-    # Input queue has the request again
+    # Input queue has the request again (requeued for retry)
     assert client.queue_size(mr.guild_id) == 1
-    broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
-    assert DownloadEvent.RETRY in broker_events
+    # Retryable result now lands on result queue so music.py can notify the broker
+    result = client.get_result_nowait()
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_run_terminal_error_puts_result_on_result_queue():
     '''run() puts terminal failures on the result queue for music.py to handle'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
-    client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
+    client = make_download_client(yield_dlp_error('Private video'))
     mr = fake_source_dict(fake_context)
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
@@ -1093,16 +1085,20 @@ async def test_run_shutdown_during_backoff_does_not_lose_item():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_run_without_broker_still_works():
-    '''run() works correctly when no broker is configured'''
+async def test_run_bot_flagged_requeues_and_puts_result_on_result_queue():
+    '''run() requeues BOT_FLAGGED errors and puts result on result queue (same as RETRYABLE)'''
     fake_context = generate_fake_context()
-    client = make_download_client(yield_dlp_error('Private video'))
+    client = make_download_client(yield_dlp_error('Sign in to confirm you are not a bot'))
     mr = fake_source_dict(fake_context)
+    assert mr.download_retry_information.retry_count == 0
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
+    assert mr.download_retry_information.retry_count == 1
+    assert client.queue_size(mr.guild_id) == 1
     result = client.get_result_nowait()
     assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.BOT_FLAGGED
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1244,12 +1240,13 @@ async def test_run_direct_retryable_requeues_to_direct_queue():
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    # Result queue should be empty
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
     # Item re-queued and direct event re-set
     assert client.queue_size(mr.guild_id) == 1
     assert client.has_direct_pending
+    # Retryable result lands on result queue so music.py can notify broker
+    result = client.get_result_nowait()
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
 
 
 # ========== Redis feeder / result publishing tests ==========

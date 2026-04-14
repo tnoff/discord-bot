@@ -29,7 +29,7 @@ from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
+from discord_bot.types.download import DownloadErrorType, DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -267,7 +267,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
             bucket_name=storage_bucket_name,
             normalize_audio=self.config.download.normalize_audio,
-            broker=self.media_broker,
             max_retries=self.config.download.max_download_retries,
             queue_max_size=self.config.player.queue_max_size,
             redis_client=download_redis_client,
@@ -773,8 +772,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def process_download_results(self):
         '''
         Result consumer: routes completed DownloadResults to players or playlist handlers.
-        Retryable errors are handled inside download_client.run(); only successes and
-        terminal failures reach this method.
+        Retryable errors also reach this method (item is already requeued in download_client);
+        the broker is notified and the result is otherwise ignored.
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
@@ -790,6 +789,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         attributes = media_request_attributes(media_request)
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_download_results', kind=SpanKind.CONSUMER, attributes=attributes, links=span_links_from_context(media_request.span_context)) as span:
+            if not result.status.success and result.status.error_type in {
+                DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED,
+            }:
+                self.media_broker.update_request_status(
+                    str(media_request.uuid),
+                    DownloadStatusUpdate(
+                        event=DownloadEvent.RETRY,
+                        error_detail=result.status.error_detail,
+                        backoff_seconds=self.download_client.backoff_seconds_remaining,
+                    ),
+                )
+                span.set_status(StatusCode.OK)
+                return
+
             if not result.status.success:
                 self.logger.info(f'Terminal error on "{str(media_request)}": {result.status.error_detail or ""}')
                 span.set_status(StatusCode.ERROR)
