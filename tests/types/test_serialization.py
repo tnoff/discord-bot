@@ -30,7 +30,7 @@ def test_search_result_roundtrip_minimal():
 
 def test_search_result_roundtrip_full():
     sr = SearchResult(
-        search_type=SearchType.SPOTIFY,
+        search_type=SearchType.SEARCH,
         raw_search_string='spotify:track:abc',
         proper_name='Lofi Hip Hop',
         youtube_music_search_string='https://youtube.com/watch?v=abc',

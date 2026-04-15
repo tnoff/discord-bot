@@ -1076,7 +1076,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 media_request.span_context = ctx_span_context
             self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {str(bundle)}')
             # Unless a direct or youtube url, pass into the search queue
-            if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE, SearchType.YOUTUBE_PLAYLIST]:
+            if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
                 try:
                     self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     bundle.add_media_request(media_request)
