@@ -1,12 +1,15 @@
 import asyncio
 from functools import cached_property
-from typing import Optional
+from logging import RootLogger
+from typing import Callable, Optional
 import uuid
 
 from discord.ext.commands import Cog, Bot
+from opentelemetry.trace import get_current_span
+from opentelemetry.trace.status import StatusCode
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
-from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.redis_client import get_redis_client
 from discord_bot.utils.redis_dispatch_client import RedisDispatchClient
 from discord_bot.utils.common import get_logger, LoggingConfig
@@ -178,3 +181,34 @@ class CogHelperBase(Cog):
             message_id=message_id,
             span_context=capture_span_context(),
         ))
+
+
+def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
+    '''
+    Return a basic standard bot loop
+
+    function : Function to run, must by async
+    bot : Bot object
+    logger : Logger for exceptions
+    continue_exceptions: Do not exit on these exceptions
+    exit_exceptions : Exit on these exceptions
+    '''
+    continue_exceptions = continue_exceptions or ()
+    async def loop_runner(): #pylint:disable=duplicate-code
+        await bot.wait_until_ready()
+
+        while not bot.is_closed():
+            try:
+                await function()
+            except continue_exceptions as e:
+                logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
+                continue
+            except exit_exceptions:
+                # Set status code because we know these ones are fine
+                span = get_current_span()
+                span.set_status(StatusCode.OK)
+                return False
+            except Exception as e:
+                logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
+                return False
+    return loop_runner

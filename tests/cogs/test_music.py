@@ -1631,3 +1631,212 @@ async def test_process_download_results_retryable_does_not_add_to_player(mocker)
     await cog.process_download_results()
     # No player created / no items enqueued — retryable returns early
     assert fakes['guild'].id not in cog.players or not cog.players[fakes['guild'].id].get_queue_items()
+
+
+# ========== remote download worker mode ==========
+
+REMOTE_WORKER_CONFIG = {
+    'general': {
+        'include': {'music': True},
+        'download_worker_redis': True,
+        'redis_url': 'redis://localhost:6379',
+        'download_worker_process_id': 'test-worker',
+        'remote_download_worker': True,
+    }
+}
+
+
+def test_remote_download_worker_flag_defaults_false():
+    '''_remote_download_worker is False when remote_download_worker is not set in config.'''
+    fakes = generate_fake_context()
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+    assert not cog._remote_download_worker  # pylint: disable=protected-access
+
+
+def test_remote_download_worker_flag_false_without_redis_flag():
+    '''_remote_download_worker stays False when download_worker_redis is absent even if remote flag is set.'''
+    fakes = generate_fake_context()
+    config = {
+        'general': {
+            'include': {'music': True},
+            'remote_download_worker': True,
+        }
+    }
+    cog = Music(fakes['bot'], config, None)
+    assert not cog._remote_download_worker  # pylint: disable=protected-access
+
+
+def test_remote_download_worker_flag_true_when_both_flags_set(mocker):
+    '''_remote_download_worker is True when both download_worker_redis and remote_download_worker are set.'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=Mock())
+    cog = Music(fakes['bot'], REMOTE_WORKER_CONFIG, None)
+    assert cog._remote_download_worker  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cog_load_remote_mode_starts_result_reader_task(mocker):
+    '''cog_load in remote mode creates _result_reader_task, not _download_task.'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=Mock())
+    cog = Music(fakes['bot'], REMOTE_WORKER_CONFIG, None)
+
+    mock_task = Mock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=mock_task)
+    cog.bot.loop = mock_loop
+
+    await cog.cog_load()
+
+    assert cog._result_reader_task is not None  # pylint: disable=protected-access
+    assert cog._download_task is None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cog_load_local_mode_starts_download_task():
+    '''cog_load in local mode creates _download_task, not _result_reader_task.'''
+    fakes = generate_fake_context()
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+
+    mock_task = Mock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=mock_task)
+    cog.bot.loop = mock_loop
+
+    await cog.cog_load()
+
+    assert cog._download_task is not None  # pylint: disable=protected-access
+    assert cog._result_reader_task is None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_search_youtube_music_remote_mode_calls_submit_to_redis(mocker):
+    '''In remote mode, search_youtube_music routes via submit_to_redis instead of submit.'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=Mock())
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], REMOTE_WORKER_CONFIG, None)
+    cog.dispatcher = Mock()
+
+    mr = fake_source_dict(fakes)
+    cog.youtube_music_search_queue.put_nowait(mr.guild_id, mr)
+
+    mock_submit = AsyncMock()
+    mocker.patch.object(cog.download_client, 'submit_to_redis', mock_submit)
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', AsyncMock(return_value=False))
+    mocker.patch.object(cog, 'youtube_music_backoff_time', AsyncMock())
+    cog.youtube_music_client = Mock()
+    cog.youtube_music_client.search = Mock(return_value=None)
+
+    await cog.search_youtube_music()
+
+    mock_submit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_search_youtube_music_local_mode_calls_submit(mocker):
+    '''In local mode, search_youtube_music routes via submit instead of submit_to_redis.'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
+
+    mr = fake_source_dict(fakes)
+    cog.youtube_music_search_queue.put_nowait(mr.guild_id, mr)
+
+    mock_submit = Mock()
+    mocker.patch.object(cog.download_client, 'submit', mock_submit)
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', AsyncMock(return_value=False))
+    mocker.patch.object(cog, 'youtube_music_backoff_time', AsyncMock())
+    cog.youtube_music_client = Mock()
+    cog.youtube_music_client.search = Mock(return_value=None)
+
+    await cog.search_youtube_music()
+
+    mock_submit.assert_called_once()
+
+
+# ========== cog_unload cancels _result_reader_task ==========
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_result_reader_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''cog_unload cancels _result_reader_task when it is set'''
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    mock_task = Mock()
+    cog._result_reader_task = mock_task  # pylint: disable=protected-access
+
+    await cog.cog_unload()
+
+    mock_task.cancel.assert_called_once()
+
+
+# ========== process_download_results — register_download_result returns None ==========
+
+@pytest.mark.asyncio
+async def test_process_download_results_none_media_download(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''process_download_results marks request failed when register_download_result returns None'''
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog.dispatcher = Mock()
+
+    # Create a player so the player-gone branch is not taken
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
+            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            cog2 = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog2.dispatcher = Mock()
+            player = await cog2.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+            mocker.patch.object(player, 'cleanup', return_value=None)
+
+            # Put a successful result directly on the queue
+            mr = fake_source_dict(fake_context, is_direct_search=True)
+            result = DownloadResult(
+                status=DownloadStatus(success=True),
+                media_request=mr,
+                ytdlp_data={'id': 'x', 'title': 'T', 'webpage_url': 'http://x', 'uploader': 'U', 'duration': 10, 'extractor': 'youtube'},
+                file_name=sd.file_path,
+            )
+            cog2.download_client._result_queue.put_nowait(mr.guild_id, result)  # pylint: disable=protected-access
+
+            # register_download_result returns None → __ensure_video_download_result returns False
+            mock_broker = AsyncMock()
+            mock_broker.register_download_result = AsyncMock(return_value=None)
+            mock_broker.update_request_status = Mock()
+            cog2.media_broker = mock_broker
+
+            await cog2.process_download_results()
+
+    # No items added to player
+    assert not player.get_queue_items()
+
+
+# ========== enqueue_media_requests — remote worker mode ==========
+
+@pytest.mark.asyncio
+async def test_enqueue_media_requests_remote_mode_calls_submit_to_redis(mocker):
+    '''enqueue_media_requests calls submit_to_redis in remote worker mode for direct search requests'''
+    fakes = generate_fake_context()
+    mocker.patch('discord_bot.cogs.music.get_redis_client', return_value=Mock())
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fakes['bot'], REMOTE_WORKER_CONFIG, None)
+    cog.dispatcher = Mock()
+
+    mr = fake_source_dict(fakes, is_direct_search=True)
+    bundle = MultiMediaRequestBundle(guild_id=fakes['guild'].id, channel_id=fakes['channel'].id)
+
+    mock_submit = AsyncMock()
+    mocker.patch.object(cog.download_client, 'submit_to_redis', mock_submit)
+    mocker.patch.object(cog, '_enqueue_media_download_from_cache', AsyncMock(return_value=False))
+
+    await cog.enqueue_media_requests(fakes['context'], [mr], bundle)
+
+    mock_submit.assert_called_once_with(mr)

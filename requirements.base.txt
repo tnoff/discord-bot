@@ -1,6 +1,5 @@
 redis==7.4.0
 async-timeout==5.0.1
-discord.py==2.7.1
 pydantic==2.12.5
 pydantic-yaml==1.6.0
 opentelemetry-sdk==1.41.0

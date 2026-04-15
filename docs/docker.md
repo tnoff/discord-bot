@@ -147,6 +147,72 @@ docker compose -f docker/docker-compose.yml up -d
 
 The `bot` service mounts `./cnf/discord.cnf` and exposes port 8080 for the health check.
 
+### Setup C — remote download worker (`Dockerfile.download_worker`)
+
+`docker/Dockerfile.download_worker` builds a minimal image that runs only the standalone download worker. It contains ffmpeg, yt-dlp, and the worker entrypoint — no Discord.py, no database drivers.
+
+```bash
+docker build -f docker/Dockerfile.download_worker -t discord-bot-download-worker .
+```
+
+Run the worker alongside your bot container by adding a service that shares the same Redis instance:
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  bot:
+    image: discord-bot
+    volumes:
+      - ./cnf/discord.bot.cnf:/opt/discord/cnf/discord.cnf:ro
+      - discord_data:/opt/discord
+      - discord_logs:/var/log/discord
+
+  download-worker:
+    image: discord-bot-download-worker
+    volumes:
+      - ./cnf/discord.worker.cnf:/opt/discord/cnf/discord.cnf:ro
+      - worker_downloads:/opt/discord/downloads
+      - discord_logs:/var/log/discord
+
+volumes:
+  redis_data:
+  discord_data:
+  discord_logs:
+  worker_downloads:
+```
+
+`cnf/discord.worker.cnf` — worker config:
+
+```yaml
+general:
+  redis_url: "redis://redis:6379/0"
+  download_worker_process_id: "worker-1"
+  logging:
+    log_level: INFO
+
+download:
+  download_dir_path: /opt/discord/downloads
+```
+
+`cnf/discord.bot.cnf` — bot config with remote worker mode enabled:
+
+```yaml
+general:
+  discord_token: "YOUR_TOKEN"
+  redis_url: "redis://redis:6379/0"
+  download_worker_redis: true
+  remote_download_worker: true
+  download_worker_process_id: "worker-1"
+```
+
+See [Remote Download Worker](./music.md#remote-download-worker) for the full set of config options.
+
+---
+
 ### Setup B — multi-process with Redis (`docker-compose.multiprocess.yml`)
 
 Runs the dispatcher and bot as separate containers connected via Redis Streams.

@@ -21,7 +21,7 @@ from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
@@ -40,12 +40,14 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.cogs.music_helpers.config import MusicDownloadConfig
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner
+from discord_bot.cogs.common import return_loop_runner
+from discord_bot.utils.common import rm_tree
 from discord_bot.utils.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
@@ -79,55 +81,6 @@ class MusicPlayerConfig(BaseModel):
 class MusicPlaylistConfig(BaseModel):
     '''Music playlist configuration'''
     server_playlist_max_size: int = Field(default=64, ge=1)
-
-class SpotifyCredentialsConfig(BaseModel):
-    '''Spotify API credentials configuration'''
-    client_id: str
-    client_secret: str
-
-class ServerQueuePriorityConfig(BaseModel):
-    '''Server queue priority configuration'''
-    server_id: int
-    priority: int
-
-class MusicCacheConfig(BaseModel):
-    '''Music cache configuration'''
-    enable_cache_files: bool = False
-    max_cache_files: int = Field(default=2048, ge=1)
-    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)
-
-class MusicStorageConfig(BaseModel):
-    '''Music storage backend configuration'''
-    bucket_name: str
-    prefetch_limit: int = Field(default=5, ge=0)
-
-class MusicDownloadConfig(BaseModel):
-    '''Music download configuration'''
-    download_dir_path: Optional[str] = None
-    max_video_length: int = Field(default=900, ge=1)
-    extra_ytdlp_options: dict = Field(default_factory=dict)
-    banned_videos_list: list[str] = Field(default_factory=list)
-    youtube_wait_period_minimum: int = Field(default=30, ge=1)
-    youtube_wait_period_max_variance: int = Field(default=10, ge=1)
-    spotify_credentials: Optional[SpotifyCredentialsConfig] = None
-    youtube_api_key: Optional[str] = None
-    server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
-    cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
-    storage: Optional[MusicStorageConfig] = None
-    normalize_audio: bool = False
-    max_download_retries: int = Field(default=3, ge=1)
-    max_youtube_music_search_retries: int = Field(default=3, ge=1)
-    # Mostly to keep a cap on the queue to avoid issues
-    failure_tracking_max_size: int = Field(default=100, ge=1)
-    # Recommended to be at least an hour
-    failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
-
-    @model_validator(mode='after')
-    def validate_cache_requires_storage(self) -> 'MusicDownloadConfig':
-        '''Require storage when enable_cache_files is set.'''
-        if self.cache.enable_cache_files and self.storage is None:  #pylint:disable=no-member
-            raise ValueError('enable_cache_files requires storage to be configured')
-        return self
 
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
@@ -164,6 +117,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._download_task = None
         self._redis_feeder_task = None
+        self._result_reader_task = None
         self._result_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
@@ -252,9 +206,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         settings_general = self.settings.get('general', {})
         download_redis_client = None
         download_redis_process_id = None
+        self._remote_download_worker = False
         if settings_general.get('download_worker_redis', False):
             download_redis_client = get_redis_client(settings_general['redis_url'])
             download_redis_process_id = settings_general.get('download_worker_process_id') or str(uuid.uuid4())
+            self._remote_download_worker = bool(settings_general.get('remote_download_worker', False))
 
         self.download_client = DownloadClient(
             self.logging_config,
@@ -413,9 +369,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.dispatcher = self._dispatcher
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
-        if self.download_client.has_redis:
-            self._redis_feeder_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run_redis_feeder, self.bot_shutdown_event), self.bot, self.logger)())
+        if self._remote_download_worker:
+            self._result_reader_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run_redis_result_reader, self.bot_shutdown_event), self.bot, self.logger)())
+        else:
+            self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+            if self.download_client.has_redis:
+                self._redis_feeder_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run_redis_feeder, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
@@ -449,6 +408,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._download_task.cancel()
             if self._redis_feeder_task:
                 self._redis_feeder_task.cancel()
+            if self._result_reader_task:
+                self._result_reader_task.cancel()
             if self._result_task:
                 self._result_task.cancel()
             if self._post_play_processing_task:
@@ -698,16 +659,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if await self._enqueue_media_download_from_cache(media_request):
                 return True
 
-            try:
-                self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
-                self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-            except PutsBlocked:
-                self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
-                media_request.state_machine.mark_discarded()
-                return False
-            except QueueFull:
-                self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
-                media_request.state_machine.mark_discarded()
+            self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
+            if self._remote_download_worker:
+                await self.download_client.submit_to_redis(media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+            else:
+                try:
+                    self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+                except PutsBlocked:
+                    self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
+                    media_request.state_machine.mark_discarded()
+                    return False
+                except QueueFull:
+                    self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
+                    media_request.state_machine.mark_discarded()
         return True
 
     def _on_request_state_change(self, media_request: MediaRequest, _new_stage: MediaRequestLifecycleStage):
@@ -1126,20 +1090,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 media_request.state_machine.mark_completed()
                 bundle.add_media_request(media_request)
                 continue
-            try:
-                self.download_client.submit(media_request.guild_id, media_request)
+            if self._remote_download_worker:
+                await self.download_client.submit_to_redis(media_request)
                 media_request.state_machine.mark_queued()
                 bundle.add_media_request(media_request)
-            except PutsBlocked:
-                # Call bundle shutdown just in case
-                bundle.shutdown()
-                self.logger.info(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                return False
-            except QueueFull:
-                self.logger.info(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
-                media_request.state_machine.mark_discarded()
-                bundle.add_media_request(media_request)
-                break
+            else:
+                try:
+                    self.download_client.submit(media_request.guild_id, media_request)
+                    media_request.state_machine.mark_queued()
+                    bundle.add_media_request(media_request)
+                except PutsBlocked:
+                    # Call bundle shutdown just in case
+                    bundle.shutdown()
+                    self.logger.info(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
+                    return False
+                except QueueFull:
+                    self.logger.info(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
+                    media_request.state_machine.mark_discarded()
+                    bundle.add_media_request(media_request)
+                    break
 
         # Make sure we note that all requests were added to bundle
         bundle.all_requests_added()

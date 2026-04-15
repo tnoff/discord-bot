@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.database import BASE
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.common import return_loop_runner
+from discord_bot.cogs.common import return_loop_runner
 from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
 from discord_bot.utils.integrations.s3 import upload_file, ObjectStorageException
 from discord_bot.utils.database_backup_client import DatabaseBackupClient

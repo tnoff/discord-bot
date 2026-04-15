@@ -45,14 +45,14 @@ Split the music system into independently deployable, horizontally scalable comp
 
 All steps below are prerequisites for the HA split. They are ordered by dependency — each step makes the next one possible or significantly easier. Steps 1 and 2 are the immediate focus.
 
-| # | Step | Why it unblocks |
-|---|---|---|
-| 1 | Enable YouTube Music search by default | Every item entering any queue has a canonical video ID — prerequisite for a clean cache check at the broker |
-| 2 | Broker owns files; download worker is stateless | Establishes the clean handoff boundary between workers and broker; workers become disposable |
-| 3 | Broker gets Redis backing store | State survives pod restarts; enables multiple broker instances |
-| 4 | External queues (download, search) | Download workers can run as separate pods with no bot process dependency |
-| 5 | Player prefetch buffer | Players stop needing a shared filesystem; broker serves files directly |
-| 6 | Player guild partitioning + graceful drain | Operators can split players across pods via config; pods can be replaced without dropping tracks |
+| # | Step | Status | Why it unblocks |
+|---|---|---|---|
+| 1 | Enable YouTube Music search by default | ✅ Done | Every item entering any queue has a canonical video ID — prerequisite for a clean cache check at the broker |
+| 2 | Broker owns files; download worker is stateless | Not started | Establishes the clean handoff boundary between workers and broker; workers become disposable |
+| 3 | Broker gets Redis backing store | Not started | State survives pod restarts; enables multiple broker instances |
+| 4 | External download queue (Redis Streams) | ✅ Partially done | Download workers can run as separate pods with no bot process dependency |
+| 5 | Player prefetch buffer | Not started | Players stop needing a shared filesystem; broker serves files directly |
+| 6 | Player guild partitioning + graceful drain | Not started | Operators can split players across pods via config; pods can be replaced without dropping tracks |
 
 ---
 
@@ -189,13 +189,17 @@ Replace the in-memory dict in `MediaBroker._registry` with Redis hash operations
 
 The `youtube_download_wait_timestamp` and `youtube_music_wait_timestamp` backoff floats on the cog also move to Redis keys at this point — shared backoff state prevents multiple download workers from independently 429-storming YouTube.
 
-### Step 4 — External queues
+### Step 4 — External queues ✅ (download side implemented)
 
-Replace `DistributedQueue` with Redis Streams for both `download_queue` and `youtube_music_search_queue`. One consumer group per queue; workers claim items via `XREADGROUP`. The `DistributedQueue` abstraction already provides the interface boundary for this swap.
+The download queue is now backed by Redis Streams. The `discord-bot-download-worker` process reads `MediaRequest` objects from `discord_bot:download:input` via `XREADGROUP`, downloads them via yt-dlp, and writes `DownloadResult` objects to `discord_bot:download:result:<process_id>`. The bot reads the result stream and routes results to the player queue.
 
-After this step, download workers have no bot process dependency. They need only:
+Enable with `download_worker_redis: true` and `remote_download_worker: true` in the bot config. See [Remote Download Worker](../music.md#remote-download-worker) for full details.
+
+**Remaining**: The `youtube_music_search_queue` is not yet externalised — search still runs in-process. A future step would replace `DistributedQueue` for the search queue with a Redis Stream, allowing search workers to scale independently from the bot process.
+
+After the search queue is also externalised, download and search workers need only:
 - Redis connection (queues + backoff state)
-- Broker HTTP endpoint (file upload)
+- Broker HTTP endpoint (file upload — Step 2)
 - No Discord token or gateway connection
 
 ### Step 5 — Player prefetch (completes Step 2)

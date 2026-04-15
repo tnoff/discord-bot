@@ -59,6 +59,23 @@ $ pytest --cov=discord_bot --cov-report=html tests
 
 This will drop html files of coverage into the `htmlcov` directory.
 
+## Entrypoints
+
+The package exposes two CLI entrypoints defined in `setup.py`:
+
+| Command | Module | Description |
+|---------|--------|-------------|
+| `discord-bot` | `discord_bot.cli:main` | Full bot (Discord gateway + all cogs) |
+| `discord-bot-download-worker` | `discord_bot.cli:download_worker` | Standalone download worker (no Discord gateway) |
+
+Run the download worker locally:
+
+```bash
+discord-bot-download-worker /path/to/worker.cnf
+```
+
+See [CLI documentation](./docs/cli.md#standalone-download-worker) for config details.
+
 ## Alembic Database Upgrades
 
 Generate a revision

@@ -38,7 +38,9 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ## The Four Background Loops
 
-### 1. **Download Files Loop** (`download_files()`)
+### 1. **Download Files Loop** (`download_files()`) — local mode
+
+> This loop only runs in **local mode** (`remote_download_worker: false`). In remote worker mode the bot starts a **Redis Result Reader** loop instead (see below).
 
 **Purpose**: Download media files from YouTube using yt-dlp
 
@@ -73,6 +75,29 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 - `ExistingFileException`: Video already cached, skip download
 - `BotDownloadFlagged`: Video flagged/unavailable, mark as failed
 - `DownloadClientException`: General download errors, retry or fail
+
+---
+
+### 2. **Redis Result Reader Loop** (`run_redis_result_reader()`) — remote mode only
+
+**Purpose**: Receive completed `DownloadResult` objects from the remote download worker via Redis Streams
+
+**Active when**: `remote_download_worker: true` in bot config
+
+**Key Responsibilities**:
+- Read from `discord_bot:download:result:<process_id>` via `xread_latest`
+- Decode each message into a `DownloadResult`
+- Push results to the local `_result_queue` for `process_download_results` to handle
+- Track `_result_stream_last_id` to avoid reprocessing old messages
+
+**Processing Flow**:
+1. Raise `ExitEarlyException` if shutdown event is set
+2. Call `xread_latest(stream_key, last_id)` (blocking read)
+3. For each message: decode → put on `_result_queue`
+4. Advance `_result_stream_last_id` to the last message ID seen
+5. Loop
+
+**Shutdown Behavior**: Exits on `ExitEarlyException` when shutdown event is set before or after read
 
 ---
 
@@ -176,6 +201,39 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ---
 
+---
+
+## Standalone Worker Loops
+
+These loops run inside `discord-bot-download-worker`, not inside the Music cog.
+
+### **Redis Feeder Loop** (`run_redis_feeder()`)
+
+**Purpose**: Feed the local `DownloadClient` input queue from the Redis Stream
+
+**Key Responsibilities**:
+- Read `MediaRequest` items from `discord_bot:download:input` via `XREADGROUP` (consumer group `discord_bot:download:workers`)
+- Skip items whose guild is currently blocked (rate-limited)
+- Submit items to the local `_input_queue` via `DownloadClient.submit()`
+- Acknowledge processed messages
+
+**Shutdown Behavior**: Raises `ExitEarlyException` when shutdown event is set
+
+### **Worker Run Loop** (`run()`)
+
+**Purpose**: Process items from the local input queue, download them, and publish results
+
+**Key Responsibilities**:
+- Pull `MediaRequest` items from `_input_queue`
+- Apply backoff / wait period
+- Execute yt-dlp download via `create_source()`
+- Publish `DownloadResult` to `discord_bot:download:result:<process_id>` via `xadd`
+- Handle retries and permanent failures
+
+**Shutdown Behavior**: Raises `ExitEarlyException` when shutdown event is set mid-wait or between iterations
+
+---
+
 ## Queue Systems
 
 ### Standard Queue (`Queue`)
@@ -233,7 +291,7 @@ Then:            req4 (Guild B - now oldest timestamp)
 
 ## Loop Coordination
 
-### Message Flow
+### Message Flow — local mode
 
 ```
 User Command → MediaRequest Created
@@ -243,6 +301,24 @@ YouTube Search Loop → Convert search to URL
 Download Loop → Download file
     ↓
 Player Queue → Play audio
+    ↓
+Post-Play Processing Loop → Record to database + cache cleanup
+```
+
+### Message Flow — remote worker mode
+
+```
+User Command → MediaRequest Created
+    ↓
+YouTube Search Loop → submit_to_redis() → discord_bot:download:input (Redis Stream)
+    ↓
+                    [remote discord-bot-download-worker process]
+                    Redis Feeder Loop → DownloadClient.run()
+                    → DownloadResult written to discord_bot:download:result:<id>
+    ↓
+Redis Result Reader Loop → _result_queue
+    ↓
+process_download_results() → Player Queue → Play audio
     ↓
 Post-Play Processing Loop → Record to database + cache cleanup
 ```

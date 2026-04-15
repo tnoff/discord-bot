@@ -19,7 +19,7 @@ from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.utils.common import return_loop_runner
+from discord_bot.cogs.common import return_loop_runner
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
 

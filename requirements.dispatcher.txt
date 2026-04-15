@@ -1,1 +1,2 @@
 -r requirements.base.txt
+discord.py==2.7.1

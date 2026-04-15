@@ -10,7 +10,7 @@ from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_bot.cli import main
+from discord_bot.cli import main, download_worker
 from discord_bot.cli.common import main_loop, FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
@@ -23,6 +23,19 @@ def test_run_with_no_args():
     result = runner.invoke(main, [])
     assert "Error: Missing argument 'CONFIG_FILE'" in result.output
 
+
+def test_download_worker_command(mocker):
+    '''download_worker command parses config and calls worker run.'''
+    mock_run = mocker.patch('discord_bot.cli.main.download_worker_run')
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(download_worker, [temp_config.name])
+    assert result.exception is None
+    mock_run.assert_called_once()
+
 def test_run_no_file():
     '''
     Test with no config file
@@ -34,11 +47,14 @@ def test_run_no_file():
 
 def test_run_config_but_no_data():
     '''
-    Test with empty config
+    Test that an invalid nested config section triggers validation failure.
+    An empty logging section is missing the required log_level field.
     '''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
-            'general': {},
+            'general': {
+                'logging': {},  # log_level is required, so this fails validation
+            },
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)

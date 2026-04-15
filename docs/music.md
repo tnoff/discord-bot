@@ -349,6 +349,38 @@ music:
       prefetch_limit: 5  # default: 5; 0 = fully lazy
 ```
 
+## Remote Download Worker
+
+By default, the Music cog downloads files in-process. You can offload all yt-dlp work to a separate `discord-bot-download-worker` process by enabling remote worker mode.
+
+### How it works
+
+When remote worker mode is active:
+- `enqueue_media_requests` and `search_youtube_music` call `submit_to_redis()` instead of submitting directly to the local download queue
+- The bot publishes `MediaRequest` objects to the `discord_bot:download:input` Redis Stream
+- The remote worker consumes from that stream, downloads the file, and publishes a `DownloadResult` to `discord_bot:download:result:<process_id>`
+- The bot's result reader loop reads from the result stream and pushes results to the local player queue
+
+### Configuration
+
+Enable on the bot side:
+
+```yaml
+general:
+  redis_url: "redis://localhost:6379/0"
+  download_worker_redis: true        # enable Redis stream routing
+  remote_download_worker: true       # send requests to remote worker
+  download_worker_process_id: "worker-1"  # must match the worker's process_id
+```
+
+- `download_worker_redis` must be `true` for any Redis stream download functionality.
+- `remote_download_worker` can only be `true` when `download_worker_redis` is also `true`. Setting it without Redis has no effect.
+- `download_worker_process_id` identifies which result stream to read. If omitted, a random UUID is used (fine for single-worker setups, but explicit IDs are recommended).
+
+Configure the worker separately — see [Standalone Download Worker](./cli.md#standalone-download-worker) and [Docker Setup C](./docker.md#setup-c--remote-download-worker-dockerfiledownload_worker) for deployment details.
+
+---
+
 ### Additonal Reads
 
 For additonal reading:

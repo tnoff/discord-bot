@@ -1,0 +1,5 @@
+-r requirements.base.txt
+boto3==1.42.88
+yt-dlp==2026.3.17
+# Dont pin, let yt-dlp install
+yt-dlp-ejs

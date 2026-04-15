@@ -26,12 +26,12 @@ from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.download_stream_helpers import (
-    download_input_stream_key, decode_download_request,
-    download_result_stream_key, encode_download_result,
+    download_input_stream_key, decode_download_request, encode_download_request,
+    download_result_stream_key, encode_download_result, decode_download_result,
     DownloadStreamKey,
 )
 from discord_bot.utils.queue import PutsBlocked
-from discord_bot.utils.redis_stream_helpers import xadd, xreadgroup, xack, ensure_consumer_group
+from discord_bot.utils.redis_stream_helpers import xadd, xreadgroup, xack, ensure_consumer_group, xread_latest
 
 class DirectItemAvailableException(Exception):
     '''Raised by backoff_wait when a DIRECT item arrives during the wait period.'''
@@ -204,6 +204,7 @@ class DownloadClient():
         self.logging_config = logging_config
         self._redis_client = redis_client
         self._redis_process_id = redis_process_id
+        self._result_stream_last_id: str = '$'
 
     @property
     def has_redis(self) -> bool:
@@ -469,6 +470,59 @@ class DownloadClient():
                 download_result_stream_key(self._redis_process_id),
                 encode_download_result(result),
             )
+
+    async def submit_to_redis(
+        self,
+        media_request: MediaRequest,
+        priority: int | None = None,
+    ) -> None:
+        '''
+        Write a MediaRequest to the Redis download input stream.
+        Used by the bot in remote-worker mode in place of submit().
+        Requires has_redis to be True; callers are responsible for checking.
+        '''
+        if media_request.span_context is None:
+            media_request.span_context = capture_span_context()
+        await xadd(
+            self._redis_client,
+            download_input_stream_key(),
+            encode_download_request(media_request, priority),
+        )
+
+    async def run_redis_result_reader(self, shutdown_event: asyncio.Event) -> None:
+        '''
+        Read new DownloadResults from the Redis result stream and push them onto
+        the local _result_queue so process_download_results() can consume them
+        unchanged.  Tracks stream position in _result_stream_last_id so each call
+        resumes where the previous one ended.
+
+        Uses xread_latest (no consumer group) because there is exactly one bot
+        process reading results — no competing consumer.
+
+        Returns immediately when Redis is not configured.
+        Raises ExitEarlyException on shutdown.
+        '''
+        if not self.has_redis:
+            return
+
+        if shutdown_event.is_set():
+            raise ExitEarlyException('Exiting redis result reader loop')
+
+        stream_key = download_result_stream_key(self._redis_process_id)
+        messages = await xread_latest(
+            self._redis_client,
+            stream_key,
+            last_id=self._result_stream_last_id,
+            count=50,
+            block_ms=100,
+        )
+        for msg_id, fields in messages:
+            result = decode_download_result(fields)
+            self._result_queue.put_nowait(result.media_request.guild_id, result)
+            self._result_stream_last_id = msg_id
+
+        if shutdown_event.is_set():
+            raise ExitEarlyException('Exiting redis result reader loop')
 
     def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
         '''

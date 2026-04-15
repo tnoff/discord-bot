@@ -908,6 +908,23 @@ async def test_backoff_wait_returns_when_elapsed():
     await client.backoff_wait(shutdown)  # Should return immediately, not raise
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_backoff_wait_raises_on_shutdown_during_wait():
+    """backoff_wait raises ExitEarlyException when shutdown fires during asyncio.wait."""
+    shutdown = asyncio.Event()
+    client = make_download_client(wait_period_minimum=60, wait_period_max_variance=10)
+    # Set a future timestamp so backoff_wait enters asyncio.wait
+    client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 120
+
+    async def _set_shutdown():
+        await asyncio.sleep(0)
+        shutdown.set()
+
+    asyncio.create_task(_set_shutdown())
+    with pytest.raises(ExitEarlyException):
+        await client.backoff_wait(shutdown)
+
+
 # ========== Queue Interface Tests ==========
 
 def test_submit_and_queue_size():
@@ -1400,6 +1417,9 @@ async def test_run_redis_feeder_discards_blocked_guild():
     mock_redis.xack = AsyncMock()
 
     client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    # Submit first so the guild queue is created in DistributedQueue, then block it.
+    # block_guild() is a no-op when the queue doesn't exist yet (KeyError path).
+    client.submit(mr.guild_id, mr)
     client.block_guild(mr.guild_id)
     shutdown = asyncio.Event()
     await client.run_redis_feeder(shutdown)
@@ -1432,3 +1452,162 @@ def test_decode_download_result_roundtrip():
     decoded = decode_download_result(encoded)
     assert decoded.media_request.uuid == mr.uuid
     assert decoded.status.success is True
+
+
+# --- submit_to_redis tests ---
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_submit_to_redis_calls_xadd_with_correct_key():
+    '''submit_to_redis writes the request to the input stream key.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    mr.span_context = {}  # pre-set so capture_span_context is not called
+    mock_redis = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    with patch('discord_bot.cogs.music_helpers.download_client.xadd', new_callable=AsyncMock) as mock_xadd:
+        await client.submit_to_redis(mr)
+
+    mock_xadd.assert_called_once()
+    call_args = mock_xadd.call_args[0]
+    assert call_args[1] == 'discord_bot:download:input'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_submit_to_redis_sets_span_context_when_none():
+    '''submit_to_redis sets span_context on the request if it is None.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    mr.span_context = None
+    mock_redis = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    injected_ctx = {'traceparent': 'fake-trace'}
+    with patch('discord_bot.cogs.music_helpers.download_client.xadd', new_callable=AsyncMock):
+        with patch('discord_bot.cogs.music_helpers.download_client.capture_span_context', return_value=injected_ctx) as mock_capture:
+            await client.submit_to_redis(mr)
+
+    mock_capture.assert_called_once()
+    assert mr.span_context == injected_ctx
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_submit_to_redis_does_not_overwrite_existing_span_context():
+    '''submit_to_redis leaves span_context alone when one is already set.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    mr.span_context = {'traceparent': 'existing-trace'}
+    mock_redis = AsyncMock()
+
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    with patch('discord_bot.cogs.music_helpers.download_client.xadd', new_callable=AsyncMock):
+        with patch('discord_bot.cogs.music_helpers.download_client.capture_span_context') as mock_capture:
+            await client.submit_to_redis(mr)
+
+    mock_capture.assert_not_called()
+    assert mr.span_context == {'traceparent': 'existing-trace'}
+
+
+# --- run_redis_result_reader tests ---
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_noop_without_redis():
+    '''run_redis_result_reader returns immediately when Redis is not configured.'''
+    client = make_download_client()
+    assert not client.has_redis
+    shutdown = asyncio.Event()
+    # Should return without calling anything or raising
+    await client.run_redis_result_reader(shutdown)
+    with pytest.raises(QueueEmpty):
+        client.get_result_nowait()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_raises_on_shutdown_before_read():
+    '''run_redis_result_reader raises ExitEarlyException immediately when shutdown is set.'''
+    mock_redis = AsyncMock()
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+    shutdown.set()
+    with pytest.raises(ExitEarlyException):
+        await client.run_redis_result_reader(shutdown)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_puts_results_on_queue():
+    '''run_redis_result_reader decodes messages and pushes them onto _result_queue.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    status = DlStatus(success=True)
+    result = DownloadResult(media_request=mr, status=status, ytdlp_data={}, file_name=None)
+    encoded = encode_download_result(result)
+
+    mock_redis = AsyncMock()
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+
+    with patch('discord_bot.cogs.music_helpers.download_client.xread_latest', new_callable=AsyncMock,
+               return_value=[('msg-42', encoded)]):
+        await client.run_redis_result_reader(shutdown)
+
+    got = client.get_result_nowait()
+    assert got.media_request.uuid == mr.uuid
+    assert got.status.success is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_advances_last_id():
+    '''run_redis_result_reader updates _result_stream_last_id to the last message ID.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    status = DlStatus(success=True)
+    result = DownloadResult(media_request=mr, status=status, ytdlp_data={}, file_name=None)
+    encoded = encode_download_result(result)
+
+    mock_redis = AsyncMock()
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    assert client._result_stream_last_id == '$'  # pylint: disable=protected-access
+    shutdown = asyncio.Event()
+
+    with patch('discord_bot.cogs.music_helpers.download_client.xread_latest', new_callable=AsyncMock,
+               return_value=[('1234-0', encoded)]):
+        await client.run_redis_result_reader(shutdown)
+
+    assert client._result_stream_last_id == '1234-0'  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_empty_response_does_not_advance_id():
+    '''run_redis_result_reader leaves _result_stream_last_id unchanged when no messages arrive.'''
+    mock_redis = AsyncMock()
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+
+    with patch('discord_bot.cogs.music_helpers.download_client.xread_latest', new_callable=AsyncMock,
+               return_value=[]):
+        await client.run_redis_result_reader(shutdown)
+
+    assert client._result_stream_last_id == '$'  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_redis_result_reader_raises_on_shutdown_after_read():
+    '''run_redis_result_reader raises ExitEarlyException after processing messages if shutdown is set.'''
+    fake_context = generate_fake_context()
+    mr = fake_source_dict(fake_context)
+    status = DlStatus(success=True)
+    result = DownloadResult(media_request=mr, status=status, ytdlp_data={}, file_name=None)
+    encoded = encode_download_result(result)
+
+    mock_redis = AsyncMock()
+    client = make_download_client(redis_client=mock_redis, redis_process_id='worker-1')
+    shutdown = asyncio.Event()
+
+    def _set_shutdown_and_return(*_args, **_kwargs):
+        shutdown.set()
+        return [('msg-1', encoded)]
+
+    with patch('discord_bot.cogs.music_helpers.download_client.xread_latest',
+               new_callable=AsyncMock, side_effect=_set_shutdown_and_return):
+        with pytest.raises(ExitEarlyException):
+            await client.run_redis_result_reader(shutdown)

@@ -88,6 +88,46 @@ If any cog encounters an error during shutdown, it will be logged but won't prev
 Main :: Error during cog_unload for Music: <error details>
 ```
 
+## Standalone Download Worker
+
+The `discord-bot-download-worker` command runs a lightweight download-only process. It has no Discord gateway connection and no database dependency — it reads `MediaRequest` objects from a Redis Stream, downloads them via yt-dlp, and writes `DownloadResult` objects back to a per-process result stream.
+
+```bash
+discord-bot-download-worker /path/to/worker.cnf
+```
+
+### Worker Configuration
+
+```yaml
+general:
+  redis_url: "redis://localhost:6379/0"
+  download_worker_process_id: "worker-1"   # must be unique per worker instance
+  logging:
+    log_level: INFO
+
+download:
+  download_dir_path: /tmp/discord/downloads  # optional; temp dir used if omitted
+  extra_ytdlp_options: {}
+  max_song_length: 3600
+  youtube_wait_period_minimum: 30
+  youtube_wait_period_max_variance: 10
+  normalize_audio: false
+  max_download_retries: 3
+```
+
+`download_worker_process_id` must be set explicitly — there is no automatic fallback. Each worker writes results to `discord_bot:download:result:<process_id>`, so unique IDs are required when running multiple workers.
+
+### Worker Shutdown
+
+The worker handles `SIGTERM` and `SIGINT` identically: the shutdown event is set, both internal loops (`run_redis_feeder` and `run`) drain their current iteration, and the process exits cleanly.
+
+```
+Download worker received SIGTERM, shutting down
+Download worker shutdown complete
+```
+
+---
+
 ## Docker Integration
 
 When running in Docker, the graceful shutdown process is triggered by `docker stop`:

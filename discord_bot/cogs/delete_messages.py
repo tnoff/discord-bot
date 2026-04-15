@@ -11,7 +11,7 @@ from sqlalchemy.engine.base import Engine
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
-from discord_bot.utils.common import return_loop_runner
+from discord_bot.cogs.common import return_loop_runner
 from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
 
 # Default for deleting messages after X days

@@ -17,7 +17,7 @@ from discord_bot.utils.discord_retry import async_retry_command
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.discord_utils import discord_format_string_embed
 from discord_bot.utils.common import rm_tree
-from discord_bot.utils.common import return_loop_runner
+from discord_bot.cogs.common import return_loop_runner
 
 from tests.helpers import fake_bot_yielder
 
@@ -341,7 +341,7 @@ async def test_return_loop_runner_exit_exception_sets_span_ok(mocker):
 
     # Mock the span
     mock_span = mocker.MagicMock()
-    mocker.patch('discord_bot.utils.common.get_current_span', return_value=mock_span)
+    mocker.patch('discord_bot.cogs.common.get_current_span', return_value=mock_span)
 
     fake_bot = fake_bot_yielder()()
     runner = return_loop_runner(fake_func, fake_bot, logging)
@@ -361,7 +361,7 @@ async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker
 
     # Mock the span
     mock_span = mocker.MagicMock()
-    mocker.patch('discord_bot.utils.common.get_current_span', return_value=mock_span)
+    mocker.patch('discord_bot.cogs.common.get_current_span', return_value=mock_span)
 
     fake_bot = fake_bot_yielder()()
     runner = return_loop_runner(fake_func, fake_bot, logging)

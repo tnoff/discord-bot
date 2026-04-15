@@ -1,18 +1,14 @@
-from logging import getLogger, Formatter, StreamHandler, RootLogger
+from logging import getLogger, Formatter, StreamHandler
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sys import stdout
-from typing import Callable, Optional, Literal
+from typing import Optional, Literal
 
-from discord.ext.commands import Bot
-from opentelemetry.trace import get_current_span
-from opentelemetry.trace.status import StatusCode
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from pydantic import BaseModel, Field, model_validator
 
 
 from discord_bot.cogs.schema import StorageConfig
-from discord_bot.exceptions import ExitEarlyException
 
 OTEL_SPAN_PREFIX = 'utils'
 
@@ -87,7 +83,7 @@ class IncludeConfig(BaseModel):
 
 class GeneralConfig(BaseModel):
     '''General bot configuration'''
-    discord_token: str
+    discord_token: Optional[str] = None
     sql_connection_statement: Optional[str] = None
     storage: Optional[StorageConfig] = None
     monitoring: Optional[MonitoringConfig] = None
@@ -143,34 +139,3 @@ def rm_tree(pth: Path) -> bool:
             rm_tree(child)
     pth.rmdir()
     return True
-
-def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
-    '''
-    Return a basic standard bot loop
-
-    function : Function to run, must by async
-    bot : Bot object
-    logger : Logger for exceptions
-    checkfile: Writes 1 to file when loop active, writes 0 when its not
-    continue_exceptions: Do not exit on these exceptions
-    exit_exceptions : Exit on these exceptions
-    '''
-    continue_exceptions = continue_exceptions or ()
-    async def loop_runner(): #pylint:disable=duplicate-code
-        await bot.wait_until_ready()
-
-        while not bot.is_closed():
-            try:
-                await function()
-            except continue_exceptions as e:
-                logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
-                continue
-            except exit_exceptions:
-                # Set status code because we know these ones are fine
-                span = get_current_span()
-                span.set_status(StatusCode.OK)
-                return False
-            except Exception as e:
-                logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
-                return False
-    return loop_runner
