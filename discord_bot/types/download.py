@@ -66,3 +66,4 @@ class DownloadResult(BaseModel):
     download_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     post_process_timestamp: datetime | None = None
     file_size_bytes: int | None = None
+    span_context: dict | None = None

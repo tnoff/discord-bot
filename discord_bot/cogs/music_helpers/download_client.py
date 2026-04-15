@@ -457,48 +457,49 @@ class DownloadClient():
         '''
         span_attributes = media_request_attributes(media_request)
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes, links=span_links_from_context(media_request.span_context)) as span:
+            span_context = capture_span_context()
             try:
                 data = self.ytdl.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
                 error_type = DownloadErrorType.BANNED if isinstance(error, VideoBanned) else DownloadErrorType.TOO_LONG
-                return DownloadResult(status=DownloadStatus(success=False, error_type=error_type, user_message=error.user_message, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                return DownloadResult(status=DownloadStatus(success=False, error_type=error_type, user_message=error.user_message, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
             except DownloadError as error:
                 if 'Private video' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.PRIVATE_VIDEO, user_message='Video is private, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.PRIVATE_VIDEO, user_message='Video is private, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 if 'This video has been removed for violating' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.TERMS_VIOLATION, user_message='Video is unvailable due to violating terms of service, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.TERMS_VIOLATION, user_message='Video is unvailable due to violating terms of service, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 if 'Video unavailable' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='Video is unavailable, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='Video is unavailable, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 if 'Sign in to confirm your age. This video may be inappropriate for some users' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.AGE_RESTRICTED, user_message='Video is age restricted, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.AGE_RESTRICTED, user_message='Video is age restricted, cannot download', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 if 'Requested format is not available' in str(error):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.INVALID_FORMAT, user_message='Video is not available in requested format', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.INVALID_FORMAT, user_message='Video is not available in requested format', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 if 'Sign in to confirm you' in str(error) and 'not a bot' in str(error):
                     span.record_exception(error)
                     if media_request.download_retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
-                        return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                        return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                     span.set_status(StatusCode.OK)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 # Fallback
                 span.record_exception(error)
                 if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 span.set_status(StatusCode.OK)
-                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:
@@ -506,7 +507,7 @@ class DownloadClient():
             except IndexError as error:
                 span.set_status(StatusCode.OK)
                 span.record_exception(error)
-                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.NOT_FOUND, user_message=f'No videos found for search "{str(media_request)}"', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None)
+                return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.NOT_FOUND, user_message=f'No videos found for search "{str(media_request)}"', error_detail=str(error)), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
             # Key Error if a single video is passed
             except KeyError:
                 pass
@@ -521,13 +522,13 @@ class DownloadClient():
                     file_path = None
                 if file_path is None:
                     span.set_status(StatusCode.ERROR)
-                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail='No file path returned from download'), media_request=media_request, ytdlp_data=None, file_name=None)
+                    return DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.FILE_NOT_FOUND, error_detail='No file path returned from download'), media_request=media_request, ytdlp_data=None, file_name=None, span_context=span_context)
                 file_size_bytes = file_path.stat().st_size
                 computed_md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
                 ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
                 if ytdlp_md5 and ytdlp_md5 != computed_md5:
                     self.logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
-            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None)
+            return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None, span_context=span_context)
 
     def __upload_s3(self, file_path: Path):
         if not self.bucket_name:
