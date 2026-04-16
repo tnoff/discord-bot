@@ -23,6 +23,7 @@ from discord_bot.types.download import (
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
+from discord_bot.utils.broker_client import BrokerClient
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
 
@@ -146,7 +147,7 @@ class DownloadClient():
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
         normalize_audio: bool = False,
-        broker=None,
+        broker: BrokerClient | None = None,
         max_retries: int = 3,
         queue_max_size: int = 100,
     ):
@@ -427,7 +428,7 @@ class DownloadClient():
 
         request_uuid = str(media_request.uuid)
         if self._broker is not None:
-            self._broker.update_request_status(
+            await self._broker.update_request_status(
                 request_uuid, DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
             )
         result = await self.create_source(media_request, self._max_retries)
@@ -439,7 +440,7 @@ class DownloadClient():
             self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
             self.logger.info('Failure queue: %s', self.failure_summary)
             if self._broker is not None:
-                self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
+                await self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
                     event=DownloadEvent.RETRY,
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,

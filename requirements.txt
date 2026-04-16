@@ -1,4 +1,5 @@
 -r requirements.base.txt
+aiohttp>=3.9
 dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0
 opentelemetry-instrumentation-sqlalchemy
 alembic==1.18.4

@@ -14,6 +14,7 @@ from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundl
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
+from discord_bot.utils.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
@@ -1507,3 +1508,39 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
 
     # Verify no message was sent (function returned early)
     cog.dispatcher.send_message.assert_not_called()
+
+
+def test_music_init_with_broker_client_config(fake_context):  #pylint:disable=redefined-outer-name
+    """HttpBrokerClient is created when broker_client config is present."""
+    config = {
+        'music': {
+            'broker_client': {'url': 'http://broker-host:8081'}
+        }
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, None)
+    assert isinstance(cog.broker_client, HttpBrokerClient)
+
+
+def test_music_init_without_broker_client_config_uses_in_memory(fake_context):  #pylint:disable=redefined-outer-name
+    """InMemoryBrokerClient is used by default when no broker_client config is set."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    assert isinstance(cog.broker_client, InMemoryBrokerClient)
+
+
+@pytest.mark.asyncio
+async def test_cog_load_starts_broker_server_when_configured(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """BrokerHttpServer task is scheduled when broker_server config is set."""
+    config = {
+        'music': {
+            'broker_server': {'host': '127.0.0.1', 'port': 19100}
+        }
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, None)
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    mocker.patch('discord_bot.cogs.music.BrokerHttpServer.serve', new_callable=AsyncMock)
+    await cog.cog_load()
+    # cog_load schedules 4 background tasks normally; +1 for the broker server = 5 total
+    assert mock_loop.create_task.call_count == 5

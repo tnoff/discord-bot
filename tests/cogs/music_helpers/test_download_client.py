@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from yt_dlp.utils import DownloadError
@@ -1038,7 +1038,7 @@ def test_get_result_nowait_raises_when_empty():
 async def test_run_success_puts_result_on_result_queue():
     '''run() downloads and puts result on result queue; broker gets IN_PROGRESS (no backoff active)'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr = fake_source_dict(fake_context)
@@ -1060,7 +1060,7 @@ async def test_run_success_puts_result_on_result_queue():
 async def test_run_retryable_requeues_and_increments_retry_count():
     '''run() requeues retryable errors and increments retry_count'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
+    mock_broker = AsyncMock()
     client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
     assert mr.download_retry_information.retry_count == 0
@@ -1082,7 +1082,7 @@ async def test_run_retryable_requeues_and_increments_retry_count():
 async def test_run_terminal_error_puts_result_on_result_queue():
     '''run() puts terminal failures on the result queue for music.py to handle'''
     fake_context = generate_fake_context()
-    mock_broker = MagicMock()
+    mock_broker = AsyncMock()
     client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
     client.submit(mr.guild_id, mr)
