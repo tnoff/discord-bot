@@ -78,41 +78,18 @@ class DistributedQueue(Generic[T]):
         '''Total number of items across all guild queues.'''
         return sum(item.queue.size() for item in self.queues.values())
 
-    def next_timestamp(self) -> datetime | None:
+    def _find_next_guild(self) -> tuple[int | None, datetime | None]:
         '''
-        Return the comparison timestamp of the item that get_nowait() would select,
-        without dequeuing it. Returns None if the queue is empty.
-        '''
-        check_priority = None
-        check_timestamp = None
-        for item in self.queues.values():
-            if item.queue.size() < 1:
-                continue
-            comparison_value = item.iterated_at or item.created_at
-            if check_priority is None:
-                check_timestamp = comparison_value
-                check_priority = item.priority
-                continue
-            if check_priority > item.priority:
-                continue
-            if check_priority < item.priority or comparison_value < check_timestamp:
-                check_timestamp = comparison_value
-                check_priority = item.priority
-        return check_timestamp
-
-    def get_nowait(self) -> T:
-        '''
-        Get download item from server thats been waiting longest
+        Return the (guild_id, comparison_timestamp) of the item get_nowait() would select,
+        or (None, None) if all queues are empty.
         '''
         check_priority = None
         check_timestamp = None
         check_guild_id = None
         for guild_id, item in self.queues.items():
-            # If no queue data, continue
             if item.queue.size() < 1:
                 continue
             comparison_value = item.iterated_at or item.created_at
-            # If no item, priority higher, or timestamp before current, set result
             if check_priority is None:
                 check_timestamp = comparison_value
                 check_guild_id = guild_id
@@ -124,15 +101,28 @@ class DistributedQueue(Generic[T]):
                 check_timestamp = comparison_value
                 check_guild_id = guild_id
                 check_priority = item.priority
-                continue
-        if not check_guild_id:
-            raise QueueEmpty('No items in queue')
+        return check_guild_id, check_timestamp
 
-        self.queues[check_guild_id].iterated_at = datetime.now(timezone.utc)
-        result = self.queues[check_guild_id].queue.get_nowait()
+    def next_timestamp(self) -> datetime | None:
+        '''
+        Return the comparison timestamp of the item that get_nowait() would select,
+        without dequeuing it. Returns None if the queue is empty.
+        '''
+        _, timestamp = self._find_next_guild()
+        return timestamp
+
+    def get_nowait(self) -> T:
+        '''
+        Get download item from server thats been waiting longest
+        '''
+        guild_id, _ = self._find_next_guild()
+        if guild_id is None:
+            raise QueueEmpty('No items in queue')
+        self.queues[guild_id].iterated_at = datetime.now(timezone.utc)
+        result = self.queues[guild_id].queue.get_nowait()
         # Clear queue if nothing present
-        if self.queues[check_guild_id].queue.size() == 0:
-            self.queues.pop(check_guild_id, None)
+        if self.queues[guild_id].queue.size() == 0:
+            self.queues.pop(guild_id, None)
         return result
 
     def clear_queue(self, guild_id: int, preserve_predicate: Callable[[T], bool] | None = None) -> list[T]:
