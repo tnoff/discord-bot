@@ -100,7 +100,7 @@ async def test_spotify_album_get():
     x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert result.search_results[0].raw_search_string == 'foo track foo artists'
-    assert result.search_results[0].search_type == SearchType.SPOTIFY
+    assert result.search_results[0].search_type == SearchType.SEARCH
     assert result.collection_name == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -111,7 +111,7 @@ async def test_spotify_album_with_cache_miss_and_youtube_fallback():
     result = await x.check_source('https://open.spotify.com/album/1111', loop, 5)
     assert result.search_results[0].resolved_search_string == 'foo track foo artists'
     assert result.search_results[0].raw_search_string == 'foo track foo artists'
-    assert result.search_results[0].search_type == SearchType.SPOTIFY
+    assert result.search_results[0].search_type == SearchType.SEARCH
     assert result.collection_name == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -120,7 +120,7 @@ async def test_spotify_album_get_shuffle():
     x = SearchClient(spotify_client=MockSpotifyClient())
     result = await x.check_source('https://open.spotify.com/album/1111 shuffle', loop, 5)
     assert result.search_results[0].raw_search_string == 'foo track foo artists'
-    assert result.search_results[0].search_type == SearchType.SPOTIFY
+    assert result.search_results[0].search_type == SearchType.SEARCH
     assert result.collection_name == 'Mock Album Name'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -161,7 +161,7 @@ async def test_youtube_playlist():
     x = SearchClient(youtube_client=MockYoutubeClient())
     result = await x.check_source('https://www.youtube.com/playlist?list=11111', loop, 5)
     assert result.search_results[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
-    assert result.search_results[0].search_type == SearchType.YOUTUBE_PLAYLIST
+    assert result.search_results[0].search_type == SearchType.YOUTUBE
     assert result.collection_name == 'Mock YouTube Playlist'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -170,7 +170,7 @@ async def test_youtube_playlist_shuffle():
     x = SearchClient(youtube_client=MockYoutubeClient())
     result = await x.check_source('https://www.youtube.com/playlist?list=11111 shuffle', loop, 5)
     assert result.search_results[0].raw_search_string == 'https://www.youtube.com/watch?v=aaaaaaaaaaaaaa'
-    assert result.search_results[0].search_type == SearchType.YOUTUBE_PLAYLIST
+    assert result.search_results[0].search_type == SearchType.YOUTUBE
     assert result.collection_name == 'Mock YouTube Playlist'
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -242,10 +242,10 @@ def test_search_result_creation():
 
 def test_search_collection_creation():
     """Test SearchCollection separates collection name from individual results"""
-    result = SearchResult(search_type=SearchType.SPOTIFY, raw_search_string='track search')
+    result = SearchResult(search_type=SearchType.SEARCH, raw_search_string='track search')
     collection = SearchCollection(search_results=[result], collection_name='My Album')
     assert collection.collection_name == 'My Album'
-    assert collection.search_results[0].search_type == SearchType.SPOTIFY
+    assert collection.search_results[0].search_type == SearchType.SEARCH
     assert collection.search_results[0].raw_search_string == 'track search'
 
 
@@ -463,9 +463,9 @@ def test_check_youtube_video_invalid_id_returns_none():
 @pytest.mark.asyncio(loop_scope="session")
 async def test_youtube_playlist_regex_no_dot_wildcard():
     """youtube.com in playlist URL must not match arbitrary characters in place of the dot.
-    Falls through to DIRECT (starts with https://) rather than matching as YOUTUBE_PLAYLIST."""
+    Falls through to DIRECT (starts with https://) rather than matching as a YouTube playlist."""
     loop = asyncio.get_running_loop()
     x = SearchClient()
     # 'youtubeXcom' — dot replaced by a non-dot character; must not match as a playlist
     result = await x.check_source('https://www.youtubeXcom/playlist?list=PLabc123', loop, 5)
-    assert result.search_results[0].search_type != SearchType.YOUTUBE_PLAYLIST
+    assert result.search_results[0].search_type == SearchType.DIRECT

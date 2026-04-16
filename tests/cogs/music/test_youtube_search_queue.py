@@ -552,15 +552,15 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     # Create requests of different types
     search_request = create_test_media_request(fake_context, 'search term', bundle.uuid)
 
-    spotify_request = create_test_media_request(fake_context, 'spotify track', bundle.uuid, SearchType.SPOTIFY)
+    spotify_search_request = create_test_media_request(fake_context, 'spotify track', bundle.uuid, SearchType.SEARCH)
 
     direct_request = create_test_media_request(fake_context, 'https://direct.url', bundle.uuid, SearchType.DIRECT)
 
     youtube_request = create_test_media_request(fake_context, 'https://youtube.com/watch?v=123', bundle.uuid, SearchType.YOUTUBE)
 
-    youtube_playlist_request = create_test_media_request(fake_context, 'https://youtube.com/playlist?list=123', bundle.uuid, SearchType.YOUTUBE_PLAYLIST)
+    youtube_playlist_request = create_test_media_request(fake_context, 'https://youtube.com/playlist?list=123', bundle.uuid, SearchType.YOUTUBE)
 
-    entries = [search_request, spotify_request, direct_request, youtube_request, youtube_playlist_request]
+    entries = [search_request, spotify_search_request, direct_request, youtube_request, youtube_playlist_request]
 
     # Mock cache misses
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -577,10 +577,10 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
 
     assert result is True
 
-    # Verify search and spotify requests went to search queue
+    # Verify search requests (including spotify-originated) went to search queue
     assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 2
 
-    # Verify direct, youtube, and youtube playlist went to download queue
+    # Verify direct and youtube requests went to download queue
     assert cog.download_client.queue_size(fake_context['guild'].id) == 3
 
     # Verify correct items in each queue
@@ -594,11 +594,11 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
         item = cog.download_client.get_input_nowait()
         download_queue_items.append(item)
 
-    # Check search queue has search and spotify requests
+    # Check search queue has search requests (including spotify-originated)
     assert search_request in search_queue_items
-    assert spotify_request in search_queue_items
+    assert spotify_search_request in search_queue_items
 
-    # Check download queue has direct, youtube, and youtube playlist requests
+    # Check download queue has direct and youtube requests
     assert direct_request in download_queue_items
     assert youtube_request in download_queue_items
     assert youtube_playlist_request in download_queue_items

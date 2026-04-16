@@ -1,3 +1,5 @@
 * @tnoff
 requirements.txt @tnoff @tnoff-robot
+requirements.base.txt @tnoff @tnoff-robot
+requirements.dispatcher.txt @tnoff @tnoff-robot
 tests/requirements.txt @tnoff @tnoff-robot

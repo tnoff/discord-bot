@@ -142,7 +142,7 @@ class SearchClient():
                 collection_name = catalog_result.collection_name or search.replace(' shuffle', '')
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(search_type=SearchType.SPOTIFY, raw_search_string=item.search_string, proper_name=item.title))
+                    results.append(SearchResult(search_type=SearchType.SEARCH, raw_search_string=item.search_string, proper_name=item.title))
                 return SearchCollection(search_results=results, collection_name=collection_name)
 
             if youtube_playlist_matcher:
@@ -161,7 +161,7 @@ class SearchClient():
                     random.shuffle(catalog_result.items)
                 results = []
                 for item in catalog_result.items:
-                    results.append(SearchResult(search_type=SearchType.YOUTUBE_PLAYLIST, raw_search_string=item.search_string, proper_name=item.title))
+                    results.append(SearchResult(search_type=SearchType.YOUTUBE, raw_search_string=item.search_string, proper_name=item.title))
                 return SearchCollection(search_results=results, collection_name=catalog_result.collection_name)
 
             if youtube_short_match:

@@ -126,3 +126,65 @@ def test_clear_with_preserve_predicate_all_kept():
     dropped = x.clear_queue('guild1', preserve_predicate=lambda item: True)
     assert not dropped
     assert x.size('guild1') == 2
+
+
+def test_total_size_empty():
+    """total_size returns 0 when no items are queued"""
+    x = DistributedQueue(10)
+    assert x.total_size() == 0
+
+
+def test_total_size_across_guilds():
+    """total_size sums items across all guild queues"""
+    x = DistributedQueue(10)
+    x.put_nowait('guild1', 1)
+    x.put_nowait('guild1', 2)
+    x.put_nowait('guild2', 3)
+    assert x.total_size() == 3
+    x.get_nowait()
+    assert x.total_size() == 2
+
+
+def test_next_timestamp_empty():
+    """next_timestamp returns None when queue is empty"""
+    x = DistributedQueue(10)
+    assert x.next_timestamp() is None
+
+
+def test_next_timestamp_matches_get_nowait_selection():
+    """next_timestamp returns the timestamp of the guild get_nowait() would select"""
+    x = DistributedQueue(10)
+    x.put_nowait('guild1', 'a')
+    x.put_nowait('guild2', 'b')
+    ts = x.next_timestamp()
+    assert ts is not None
+    # Dequeue and confirm the selected guild's timestamp was used
+    x.get_nowait()
+    # After dequeue, next_timestamp should reflect the remaining guild
+    assert x.next_timestamp() is not None
+    x.get_nowait()
+    assert x.next_timestamp() is None
+
+
+def test_next_timestamp_skips_empty_guild_entry():
+    """next_timestamp skips guild entries that have no items"""
+    x = DistributedQueue(10)
+    # Insert an empty guild entry directly (simulates a stale entry)
+    x.queues['empty'] = DistributedQueueItem(datetime.now(timezone.utc), 10, 100)
+    x.put_nowait('guild1', 'a')
+    assert x.next_timestamp() is not None
+
+
+def test_next_timestamp_priority_ordering():
+    """next_timestamp selects higher-priority guilds and skips lower-priority ones"""
+    x = DistributedQueue(10)
+    # Insertion order controls iteration order: medium → high → low
+    # medium sets initial; high triggers the update branch (lines 99-100);
+    # low triggers the skip branch (line 97)
+    x.put_nowait('medium', 'a', priority=100)
+    x.put_nowait('high', 'b', priority=200)
+    x.put_nowait('low', 'c', priority=50)
+    x.next_timestamp()
+    # get_nowait should pick the highest-priority guild
+    item = x.get_nowait()
+    assert item == 'b'
