@@ -10,8 +10,8 @@ from discord_bot.types.dispatch_request import (
     SendRequest,
     DeleteRequest,
 )
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.utils.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.utils.dispatch_helpers import decode_history_result, decode_emojis_result
 from discord_bot.utils.dispatch_envelope import (
     RequestType, ResultType,
     StreamEnvelope, StreamResult, new_request_id,
@@ -23,28 +23,7 @@ from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.otel import async_otel_span_wrapper, DispatchNaming
 
 
-class DispatchRemoteError(Exception):
-    '''Raised when the dispatcher process returned an error result.'''
-
-
-def _decode_history_result(payload: dict) -> ChannelHistoryResult:
-    messages = [FetchedMessage.from_dict(m) for m in payload.get('messages', [])]
-    return ChannelHistoryResult(
-        guild_id=payload['guild_id'],
-        channel_id=payload['channel_id'],
-        messages=messages,
-        after_message_id=payload.get('after_message_id'),
-    )
-
-
-def _decode_emojis_result(payload: dict) -> GuildEmojisResult:
-    return GuildEmojisResult(
-        guild_id=payload['guild_id'],
-        emojis=payload.get('emojis', []),
-    )
-
-
-class RedisDispatchClient:
+class RedisDispatchClient(DispatchClientBase):
     '''Drop-in replacement for MessageDispatcher for use in cog processes.'''
 
     def __init__(self, redis_client: aioredis.Redis, process_id: str, logging_config: LoggingConfig = None, shard_id: int = 0):
@@ -102,12 +81,6 @@ class RedisDispatchClient:
                 return await fut
             return None
 
-    def register_cog_queue(self, cog_name: str) -> asyncio.Queue:
-        '''Register a result delivery queue for the named cog.'''
-        q: asyncio.Queue = asyncio.Queue()
-        self._cog_queues[cog_name] = q
-        return q
-
     async def submit_request(self, request) -> None:
         '''Submit a typed cog request, routing to appropriate handler.'''
         if isinstance(request, SendRequest):
@@ -120,54 +93,15 @@ class RedisDispatchClient:
         elif isinstance(request, FetchGuildEmojisRequest):
             asyncio.create_task(self._submit_emojis_request(request))
 
-    async def _submit_history_request(self, request: FetchChannelHistoryRequest) -> None:
-        q = self._cog_queues.get(request.cog_name)
-        if q is None:
-            return
-        async with async_otel_span_wrapper('dispatch_client.fetch_history',
-                                           kind=trace.SpanKind.CLIENT,
-                                           attributes={
-                                               'discord.guild': request.guild_id,
-                                               'discord.channel': request.channel_id,
-                                           }) as span:
-            try:
-                _, payload = await self._send_request(RequestType.FETCH_HISTORY, {
-                    'guild_id': request.guild_id,
-                    'channel_id': request.channel_id,
-                    'limit': request.limit,
-                    'after': request.after.isoformat() if request.after else None,
-                    'after_message_id': request.after_message_id,
-                    'oldest_first': request.oldest_first,
-                }, expect_result=True)
-                result = _decode_history_result(payload)
-            except DispatchRemoteError as exc:
-                span.record_exception(exc)
-                result = ChannelHistoryResult(
-                    guild_id=request.guild_id,
-                    channel_id=request.channel_id,
-                    messages=[],
-                    after_message_id=request.after_message_id,
-                    error=exc,
-                )
-            await q.put(result)
+    # ── transport implementations for DispatchClientBase ─────────────────────
 
-    async def _submit_emojis_request(self, request: FetchGuildEmojisRequest) -> None:
-        q = self._cog_queues.get(request.cog_name)
-        if q is None:
-            return
-        async with async_otel_span_wrapper('dispatch_client.fetch_emojis',
-                                           kind=trace.SpanKind.CLIENT,
-                                           attributes={'discord.guild': request.guild_id}) as span:
-            try:
-                _, payload = await self._send_request(RequestType.FETCH_EMOJIS, {
-                    'guild_id': request.guild_id,
-                    'max_retries': request.max_retries,
-                }, expect_result=True)
-                result = _decode_emojis_result(payload)
-            except DispatchRemoteError as exc:
-                span.record_exception(exc)
-                result = GuildEmojisResult(guild_id=request.guild_id, emojis=[], error=exc)
-            await q.put(result)
+    async def _do_fetch_history(self, params: dict) -> dict:
+        _, payload = await self._send_request(RequestType.FETCH_HISTORY, params, expect_result=True)
+        return payload
+
+    async def _do_fetch_emojis(self, params: dict) -> dict:
+        _, payload = await self._send_request(RequestType.FETCH_EMOJIS, params, expect_result=True)
+        return payload
 
     # ── fire-and-forget ──────────────────────────────────────────────────────
 
@@ -222,11 +156,11 @@ class RedisDispatchClient:
             'after': after.isoformat() if after else None,
             'after_message_id': after_message_id, 'oldest_first': oldest_first,
         }, expect_result=True)
-        return _decode_history_result(payload)
+        return decode_history_result(payload)
 
     async def dispatch_guild_emojis(self, guild_id, max_retries=3):
         '''Fetch guild emojis via the dispatcher process and return a GuildEmojisResult.'''
         _, payload = await self._send_request(RequestType.FETCH_EMOJIS, {
             'guild_id': guild_id, 'max_retries': max_retries,
         }, expect_result=True)
-        return _decode_emojis_result(payload)
+        return decode_emojis_result(payload)

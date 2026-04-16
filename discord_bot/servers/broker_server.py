@@ -2,7 +2,6 @@
 HTTP server exposing MediaBroker over aiohttp for cross-process communication.
 Schedule with asyncio.create_task(server.serve()).
 '''
-import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +11,7 @@ from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
 from discord_bot.utils.otel import otel_span_wrapper
 
@@ -33,7 +33,7 @@ class _QueueItemProxy:
         return self
 
 
-class BrokerHttpServer:
+class BrokerHttpServer(AiohttpServerBase):
     '''
     aiohttp HTTP server wrapping a MediaBroker instance.
 
@@ -63,20 +63,6 @@ class BrokerHttpServer:
         app.router.add_post('/requests/{uuid}/release', self._handle_release)
         app.router.add_post('/prefetch', self._handle_prefetch)
         return app
-
-    async def serve(self) -> None:
-        '''Asyncio coroutine — schedule with asyncio.create_task().'''
-        app = self.build_app()
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, self._host, self._port)
-        await site.start()
-        logger.info('Broker HTTP server listening on %s:%s', self._host, self._port)
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            await runner.cleanup()
 
     # ------------------------------------------------------------------
     # Route handlers

@@ -21,6 +21,12 @@ async def delete_bundle(client: aioredis.Redis, key: str) -> None:
     await client.delete(f'{BUNDLE_KEY_PREFIX}{key}')
 
 
+async def load_bundle(client: aioredis.Redis, key: str) -> dict | None:
+    '''Return the bundle dict stored under *key*, or None if not found.'''
+    raw = await client.get(f'{BUNDLE_KEY_PREFIX}{key}')
+    return json.loads(raw) if raw else None
+
+
 async def load_all_bundles(client: aioredis.Redis) -> dict[str, dict]:
     '''Return all persisted bundles keyed by their bundle key (prefix stripped).'''
     keys = [k async for k in client.scan_iter(f'{BUNDLE_KEY_PREFIX}*')]

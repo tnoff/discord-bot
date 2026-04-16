@@ -21,6 +21,7 @@ from discord_bot.utils.dispatch_envelope import (
     RequestType, ResultType,
     StreamEnvelope,
 )
+from discord_bot.utils.dispatch_queue import RedisDispatchQueue
 from discord_bot.utils.redis_client import BUNDLE_KEY_PREFIX, save_bundle as redis_save_bundle
 from discord_bot.utils.redis_stream_helpers import result_stream_key
 
@@ -1789,3 +1790,670 @@ async def test_dispatch_emojis_and_collect():
 
     assert result['guild_id'] == fake_guild.id
     assert result['emojis'] == [{'id': 42, 'name': 'wave', 'animated': True}]
+
+
+# ---------------------------------------------------------------------------
+# HTTP mode — shared helpers
+# ---------------------------------------------------------------------------
+
+class FakeHttpRedisQueue:
+    '''Minimal RedisDispatchQueue stand-in for HTTP mode unit tests.'''
+
+    def __init__(self):
+        self.enqueued: list = []   # (method, member, payload, priority)
+        self.results: dict = {}
+        self._lock_held: set = set()
+        self._dequeue_items: list = []
+
+    async def enqueue(self, member: str, payload: dict, priority: int) -> None:
+        '''Record a non-unique enqueue call.'''
+        self.enqueued.append(('enqueue', member, payload, priority))
+
+    async def enqueue_unique(self, member: str, payload: dict, priority: int) -> None:
+        '''Record a NX enqueue call.'''
+        self.enqueued.append(('enqueue_unique', member, payload, priority))
+
+    async def dequeue(self, timeout: float = 1.0):
+        '''Return and remove the next pre-seeded item, or None (never blocks past timeout=0).'''
+        await asyncio.sleep(min(timeout, 0))  # yield control; clamp to 0 so tests stay fast
+        if self._dequeue_items:
+            return self._dequeue_items.pop(0)
+        return None
+
+    async def acquire_lock(self, key: str) -> bool:
+        '''Acquire lock: returns True first time, False if already held.'''
+        if key in self._lock_held:
+            return False
+        self._lock_held.add(key)
+        return True
+
+    async def release_lock(self, key: str) -> None:
+        '''Release lock.'''
+        self._lock_held.discard(key)
+
+    async def store_result(self, request_id: str, result: dict) -> None:
+        '''Store a fetch result.'''
+        self.results[request_id] = result
+
+    async def get_result(self, request_id: str):
+        '''Retrieve a stored fetch result.'''
+        return self.results.get(request_id)
+
+
+def make_http_dispatcher(channels=None):
+    '''Return a (dispatcher, fake_queue) pair configured in HTTP mode.'''
+    dispatcher = make_dispatcher(channels=channels or [])
+    dispatcher.__dict__['_http_mode'] = True
+    fake_queue = FakeHttpRedisQueue()
+    dispatcher.__dict__['_redis_queue'] = fake_queue
+    return dispatcher, fake_queue
+
+
+# ---------------------------------------------------------------------------
+# MessageContext.edit_message — channel not found (line 107)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_message_context_edit_message_channel_not_found():
+    '''edit_message returns False when get_channel returns None.'''
+    ctx = MessageContext(guild_id=1, channel_id=100, message_id=999)
+    result = await ctx.edit_message(lambda _: None, content='new')
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _redis_queue and _num_redis_workers cached properties (lines 529, 534)
+# ---------------------------------------------------------------------------
+
+def test_redis_queue_property_returns_redis_dispatch_queue():
+    '''_redis_queue returns a RedisDispatchQueue when redis is configured.'''
+    bot = fake_bot_yielder()()
+    settings = {'general': {'dispatch_server': {'port': 8082}}}
+    dispatcher = MessageDispatcher(bot, settings, None)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    queue = dispatcher._redis_queue  # pylint: disable=protected-access
+    assert isinstance(queue, RedisDispatchQueue)
+
+
+def test_num_redis_workers_default_is_4():
+    '''_num_redis_workers defaults to 4 when not configured.'''
+    assert make_dispatcher()._num_redis_workers == 4  # pylint: disable=protected-access
+
+
+def test_num_redis_workers_from_settings():
+    '''_num_redis_workers reads dispatch_worker_count from settings.'''
+    bot = fake_bot_yielder()()
+    dispatcher = MessageDispatcher(bot, {'general': {'dispatch_worker_count': 8}}, None)
+    assert dispatcher._num_redis_workers == 8  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# HTTP mode — public API fire-and-forget branches (lines 779-922)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_http_mode_update_mutable_enqueues_unique():
+    '''update_mutable in HTTP mode enqueues a unique mutable: item.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.update_mutable('mykey', 1, ['msg'], 100)
+    await asyncio.sleep(0)
+    assert any(e[1] == 'mutable:mykey' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_http_mode_remove_mutable_enqueues_unique():
+    '''remove_mutable in HTTP mode enqueues a unique remove: item.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.remove_mutable('mykey')
+    await asyncio.sleep(0)
+    assert any(e[1] == 'remove:mykey' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_http_mode_send_message_enqueues():
+    '''send_message in HTTP mode enqueues a send: item.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.send_message(1, 100, 'hello')
+    await asyncio.sleep(0)
+    assert any(e[1].startswith('send:') for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_http_mode_delete_message_enqueues():
+    '''delete_message in HTTP mode enqueues a delete: item.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.delete_message(1, 100, 999)
+    await asyncio.sleep(0)
+    assert any(e[1].startswith('delete:') for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_http_mode_update_mutable_channel_enqueues():
+    '''update_mutable_channel in HTTP mode enqueues a unique update_channel: item.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.update_mutable_channel('mykey', 1, 200)
+    await asyncio.sleep(0)
+    assert any(e[1] == 'update_channel:mykey' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_fetch_history_adds_to_queue():
+    '''enqueue_fetch_history adds a fetch_history: item to the Redis queue.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    await dispatcher.enqueue_fetch_history('req-1', 1, 100, 10, None, None, True)
+    assert any(e[1] == 'fetch_history:req-1' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_fetch_emojis_adds_to_queue():
+    '''enqueue_fetch_emojis adds a fetch_emojis: item to the Redis queue.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    await dispatcher.enqueue_fetch_emojis('req-2', 1, 3)
+    assert any(e[1] == 'fetch_emojis:req-2' for e in fake_queue.enqueued)
+
+
+# ---------------------------------------------------------------------------
+# cog_load HTTP mode — starts Redis workers + server (lines 413-423)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_load_http_mode_starts_workers_and_server(mocker):
+    '''cog_load in HTTP mode creates redis worker tasks and schedules serve().'''
+    bot = fake_bot_yielder()()
+    settings = {'general': {'dispatch_server': {'host': '0.0.0.0', 'port': 9099}, 'dispatch_worker_count': 2}}
+    dispatcher = MessageDispatcher(bot, settings, None)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis_queue'] = FakeHttpRedisQueue()
+
+    mocker.patch('discord_bot.servers.dispatch_server.DispatchHttpServer.serve', new=AsyncMock())
+
+    await dispatcher.cog_load()
+
+    assert len(dispatcher._redis_worker_tasks) == 2  # pylint: disable=protected-access
+    # Cleanup
+    dispatcher._shutdown.set()  # pylint: disable=protected-access
+    for t in dispatcher._redis_worker_tasks:  # pylint: disable=protected-access
+        t.cancel()
+    dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
+    await asyncio.sleep(0)
+
+
+# ---------------------------------------------------------------------------
+# cog_unload — Redis worker drain paths (lines 433-443)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cog_unload_drains_redis_worker_tasks():
+    '''cog_unload sets shutdown and waits for redis worker tasks to complete.'''
+    dispatcher, _ = make_http_dispatcher()
+
+    task = asyncio.create_task(dispatcher._redis_worker())  # pylint: disable=protected-access
+    dispatcher._redis_worker_tasks.append(task)  # pylint: disable=protected-access
+
+    await dispatcher.cog_unload()
+
+    assert not dispatcher._redis_worker_tasks  # pylint: disable=protected-access
+    assert dispatcher._shutdown.is_set()  # pylint: disable=protected-access
+    assert task.done()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_cancels_redis_workers_on_drain_timeout(mocker):
+    '''cog_unload cancels redis worker tasks that exceed the drain timeout.'''
+    dispatcher = make_dispatcher()
+    mocker.patch('discord_bot.cogs.message_dispatcher._DRAIN_TIMEOUT_SECONDS', 0.05)
+
+    async def _blocking():
+        await asyncio.sleep(9999)
+
+    task = asyncio.create_task(_blocking())
+    dispatcher._redis_worker_tasks.append(task)  # pylint: disable=protected-access
+
+    await dispatcher.cog_unload()
+
+    assert task.cancelled() or task.done()
+
+
+# ---------------------------------------------------------------------------
+# _redis_worker loop (lines 1166-1171)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_redis_worker_dequeues_and_dispatches_item():
+    '''_redis_worker pops an item from the queue and calls _dispatch_redis_item.'''
+    channel = FakeChannel(id=100)
+    dispatcher, fake_queue = make_http_dispatcher(channels=[channel])
+
+    call_count = 0
+
+    async def _dequeue(timeout=1.0):
+        nonlocal call_count
+        await asyncio.sleep(min(timeout, 0))
+        call_count += 1
+        if call_count == 1:
+            return ('send:uuid-1', {'guild_id': 1, 'channel_id': 100,
+                                    'content': 'hi', 'delete_after': None,
+                                    'allow_404': False, 'span_context': None})
+        dispatcher._shutdown.set()  # pylint: disable=protected-access
+        return None
+
+    fake_queue.dequeue = _dequeue
+
+    await dispatcher._redis_worker()  # pylint: disable=protected-access
+
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'hi'
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_redis_item routing (lines 1175-1190)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_mutable(mocker):
+    '''_dispatch_redis_item with mutable: prefix calls _process_mutable_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_mutable_redis', new=mock_handler)
+    await dispatcher._dispatch_redis_item('mutable:mykey', {'key': 'mykey'})  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with('mykey', {'key': 'mykey'})
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_remove(mocker):
+    '''_dispatch_redis_item with remove: prefix calls _remove_mutable_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_remove_mutable_redis', new=mock_handler)
+    await dispatcher._dispatch_redis_item('remove:mykey', {})  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with('mykey')
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_send(mocker):
+    '''_dispatch_redis_item with send: prefix calls _process_send_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_send_redis', new=mock_handler)
+    payload = {'guild_id': 1}
+    await dispatcher._dispatch_redis_item('send:uuid', payload)  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with(payload)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_delete(mocker):
+    '''_dispatch_redis_item with delete: prefix calls _process_delete_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_delete_redis', new=mock_handler)
+    payload = {'guild_id': 1}
+    await dispatcher._dispatch_redis_item('delete:uuid', payload)  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with(payload)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_update_channel(mocker):
+    '''_dispatch_redis_item with update_channel: prefix calls _process_update_channel_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_update_channel_redis', new=mock_handler)
+    payload = {'guild_id': 1}
+    await dispatcher._dispatch_redis_item('update_channel:mykey', payload)  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with('mykey', payload)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_fetch_history(mocker):
+    '''_dispatch_redis_item with fetch_history: prefix calls _process_fetch_history_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_fetch_history_redis', new=mock_handler)
+    payload = {'guild_id': 1}
+    await dispatcher._dispatch_redis_item('fetch_history:req-1', payload)  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with('req-1', payload)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_routes_fetch_emojis(mocker):
+    '''_dispatch_redis_item with fetch_emojis: prefix calls _process_fetch_emojis_redis.'''
+    dispatcher, _ = make_http_dispatcher()
+    mock_handler = AsyncMock()
+    mocker.patch.object(dispatcher, '_process_fetch_emojis_redis', new=mock_handler)
+    payload = {'guild_id': 1}
+    await dispatcher._dispatch_redis_item('fetch_emojis:req-2', payload)  # pylint: disable=protected-access
+    mock_handler.assert_called_once_with('req-2', payload)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_redis_item_unknown_prefix_logs_warning():
+    '''_dispatch_redis_item with an unknown prefix logs a warning and does nothing.'''
+    dispatcher, _ = make_http_dispatcher()
+    # Should not raise
+    await dispatcher._dispatch_redis_item('unknown:whatever', {})  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# _process_mutable_redis (lines 1194-1261)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_lock_not_acquired_reenqueues():
+    '''_process_mutable_redis re-enqueues when the bundle lock is already held.'''
+    dispatcher, fake_queue = make_http_dispatcher()
+    fake_queue._lock_held.add('mykey')  # pylint: disable=protected-access
+
+    await dispatcher._process_mutable_redis('mykey', {'key': 'mykey', 'guild_id': 1,  # pylint: disable=protected-access
+                                                       'content': ['hi'], 'channel_id': 100})
+    assert any(e[1] == 'mutable:mykey' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_no_channel_id_and_no_bundle_returns_early():
+    '''_process_mutable_redis returns early when no bundle exists and channel_id is absent.'''
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    # No bundle in Redis, no channel_id in payload → early return, lock released
+    await dispatcher._process_mutable_redis('newkey', {'key': 'newkey', 'guild_id': 1,  # pylint: disable=protected-access
+                                                        'content': ['hi']})
+    assert 'newkey' not in fake_queue._lock_held  # pylint: disable=protected-access  # lock released in finally
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_creates_new_bundle_and_sends():
+    '''_process_mutable_redis creates a bundle and sends when none exists in Redis.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['hello'], 'channel_id': 100,
+                                                   'sticky': False})
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'hello'
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_loads_existing_bundle():
+    '''_process_mutable_redis loads an existing bundle from Redis and sends.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    # Pre-seed a bundle in Redis
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['world'], 'channel_id': 100})
+    assert len(channel.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_channel_changed_clears_old():
+    '''_process_mutable_redis migrates to a new channel when channel_id differs from bundle.'''
+    old_channel = FakeChannel(id=100)
+    new_channel = FakeChannel(id=200)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[old_channel, new_channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    # Bundle exists on old channel
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    # Payload says new channel_id=200
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['new'], 'channel_id': 200})
+    assert len(new_channel.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_truncates_long_content():
+    '''_process_mutable_redis truncates messages over 2000 chars to 1900.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    long_content = 'x' * 2500
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': [long_content], 'channel_id': 100,
+                                                   'sticky': False})
+    assert len(channel.messages) == 1
+    assert len(channel.messages[0].content) == 1900
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_delete_after_removes_bundle():
+    '''_process_mutable_redis deletes the bundle from Redis when delete_after is set.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['bye'], 'channel_id': 100,
+                                                   'sticky': False, 'delete_after': 5})
+    # Bundle should not be saved to Redis (no key)
+    raw = await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k')
+    assert raw is None
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_sticky_check_runs():
+    '''_process_mutable_redis runs the sticky check when bundle.sticky_messages is True.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    # Pre-seed a sticky bundle
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=True)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['hi'], 'channel_id': 100})
+    assert len(channel.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_redis_saves_bundle_when_no_delete_after():
+    '''_process_mutable_redis saves the bundle to Redis when delete_after is absent.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
+                                                   'content': ['hi'], 'channel_id': 100,
+                                                   'sticky': False})
+    raw = await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k')
+    assert raw is not None
+
+
+# ---------------------------------------------------------------------------
+# _remove_mutable_redis (lines 1265-1271)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_remove_mutable_redis_clears_messages_and_deletes_key():
+    '''_remove_mutable_redis deletes tracked messages and removes the Redis key.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    await dispatcher._remove_mutable_redis('k')  # pylint: disable=protected-access
+
+    raw = await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k')
+    assert raw is None
+
+
+@pytest.mark.asyncio
+async def test_remove_mutable_redis_no_bundle_still_deletes_key():
+    '''_remove_mutable_redis succeeds even when no bundle exists in Redis.'''
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher()
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    await dispatcher._remove_mutable_redis('missing')  # pylint: disable=protected-access  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_send_redis (lines 1275-1280)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_send_redis_sends_to_channel():
+    '''_process_send_redis delivers a message to the target channel.'''
+    channel = FakeChannel(id=100)
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+
+    await dispatcher._process_send_redis({'guild_id': 1, 'channel_id': 100,  # pylint: disable=protected-access
+                                          'content': 'hello', 'delete_after': None,
+                                          'allow_404': False, 'span_context': None})
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'hello'
+
+
+# ---------------------------------------------------------------------------
+# _process_delete_redis (lines 1287-1296)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_delete_redis_deletes_message():
+    '''_process_delete_redis calls delete() on the target message.'''
+    channel = FakeChannel(id=100)
+    msg = FakeMessage(channel=channel)
+    channel.messages = [msg]
+    dispatcher, _ = make_http_dispatcher(channels=[channel])
+
+    await dispatcher._process_delete_redis({'guild_id': 1, 'channel_id': 100,  # pylint: disable=protected-access
+                                            'message_id': msg.id, 'span_context': None})
+    assert msg.deleted
+
+
+@pytest.mark.asyncio
+async def test_process_delete_redis_not_found_is_ignored():
+    '''_process_delete_redis swallows NotFound when the message is already gone.'''
+    mock_msg = AsyncMock()
+    mock_msg.delete.side_effect = NotFound(FakeResponse(), 'unknown message')
+    mock_channel = MagicMock()
+    mock_channel.id = 100
+    mock_channel.get_partial_message.return_value = mock_msg
+
+    dispatcher, _ = make_http_dispatcher(channels=[mock_channel])
+
+    await dispatcher._process_delete_redis({'guild_id': 1, 'channel_id': 100,  # pylint: disable=protected-access
+                                            'message_id': 999, 'span_context': None})
+    # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_update_channel_redis (lines 1300-1311)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_update_channel_redis_migrates_bundle():
+    '''_process_update_channel_redis moves the bundle to the new channel and saves.'''
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher()
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    await dispatcher._process_update_channel_redis('k', {'guild_id': 1, 'new_channel_id': 200})  # pylint: disable=protected-access
+
+    raw = await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k')
+    assert raw is not None
+    import json  # pylint: disable=import-outside-toplevel
+    saved = json.loads(raw)
+    assert saved['channel_id'] == 200
+
+
+@pytest.mark.asyncio
+async def test_process_update_channel_redis_no_bundle_returns():
+    '''_process_update_channel_redis returns without error when bundle does not exist.'''
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, _ = make_http_dispatcher()
+    dispatcher.__dict__['_redis'] = fake_redis
+
+    await dispatcher._process_update_channel_redis('missing', {'guild_id': 1, 'new_channel_id': 200})  # pylint: disable=protected-access
+    # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_fetch_history_redis (lines 1315-1325)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_fetch_history_redis_stores_result():
+    '''_process_fetch_history_redis stores a successful history result in the queue.'''
+    channel = FakeChannel(id=100)
+    msg = FakeMessage(channel=channel)
+    channel.messages = [msg]
+    dispatcher, fake_queue = make_http_dispatcher(channels=[channel])
+
+    await dispatcher._process_fetch_history_redis('req-1', {  # pylint: disable=protected-access
+        'guild_id': channel.guild.id, 'channel_id': 100,
+        'limit': 10, 'after': None, 'after_message_id': None, 'oldest_first': True,
+    })
+
+    assert 'req-1' in fake_queue.results
+    assert 'messages' in fake_queue.results['req-1']
+
+
+@pytest.mark.asyncio
+async def test_process_fetch_history_redis_stores_error_on_exception():
+    '''_process_fetch_history_redis stores an error result when the fetch raises.'''
+    dispatcher, fake_queue = make_http_dispatcher()  # no channels → fetch_channel returns None
+
+    await dispatcher._process_fetch_history_redis('req-err', {  # pylint: disable=protected-access
+        'guild_id': 1, 'channel_id': 99999,
+        'limit': 10, 'after': None, 'after_message_id': None, 'oldest_first': True,
+    })
+
+    assert 'req-err' in fake_queue.results
+    assert 'error' in fake_queue.results['req-err']
+
+
+# ---------------------------------------------------------------------------
+# _process_fetch_emojis_redis (lines 1329-1337)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_fetch_emojis_redis_stores_result():
+    '''_process_fetch_emojis_redis stores a successful emoji result in the queue.'''
+    fake_guild = FakeGuild()
+    fake_emoji = MagicMock()
+    fake_emoji.id = 1
+    fake_emoji.name = 'wave'
+    fake_emoji.animated = False
+    fake_guild.emojis = [fake_emoji]
+
+    dispatcher, fake_queue = make_http_dispatcher()
+    dispatcher.bot.guilds = [fake_guild]
+
+    await dispatcher._process_fetch_emojis_redis('req-e1', {'guild_id': fake_guild.id, 'max_retries': 1})  # pylint: disable=protected-access
+
+    assert 'req-e1' in fake_queue.results
+    assert 'emojis' in fake_queue.results['req-e1']
+
+
+@pytest.mark.asyncio
+async def test_process_fetch_emojis_redis_stores_error_on_exception():
+    '''_process_fetch_emojis_redis stores an error result when the fetch raises.'''
+    dispatcher, fake_queue = make_http_dispatcher()  # no guilds → fetch_guild returns None
+
+    await dispatcher._process_fetch_emojis_redis('req-e-err', {'guild_id': 99999, 'max_retries': 1})  # pylint: disable=protected-access
+
+    assert 'req-e-err' in fake_queue.results
+    assert 'error' in fake_queue.results['req-e-err']

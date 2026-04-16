@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import Protocol
 
 import aiohttp
-from opentelemetry.propagate import inject
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.utils.discord_retry import async_retry_broker_command
+from discord_bot.utils.http_client_base import HttpClientMixin
 
 
 class BrokerClient(Protocol):
@@ -60,7 +60,7 @@ class InMemoryBrokerClient:
         self._broker.prefetch(queue_items, guild_id, Path(guild_path) if guild_path else None, limit)
 
 
-class HttpBrokerClient:
+class HttpBrokerClient(HttpClientMixin):
     '''
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
@@ -68,23 +68,6 @@ class HttpBrokerClient:
     def __init__(self, base_url: str, session: aiohttp.ClientSession | None = None):
         self._base_url = base_url.rstrip('/')
         self._session = session
-
-    def _get_session(self) -> aiohttp.ClientSession:
-        '''Return the shared session, creating it lazily on first use.'''
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
-    async def close(self) -> None:
-        '''Close the underlying aiohttp session.'''
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-    def _trace_headers(self) -> dict[str, str]:
-        '''Return headers dict with W3C traceparent injected from the active span, if any.'''
-        headers: dict[str, str] = {}
-        inject(headers)
-        return headers
 
     async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''

@@ -51,6 +51,15 @@ def test_dispatcher_raises_when_not_loaded(fake_context, mocker):  #pylint:disab
         getattr(cog, '_dispatcher')
 
 
+def test_dispatcher_returns_http_client_when_dispatch_http_url_set(fake_context):  #pylint:disable=redefined-outer-name
+    '''_dispatcher returns an HttpDispatchClient when dispatch_http_url is configured.'''
+    from discord_bot.utils.http_dispatch_client import HttpDispatchClient  #pylint:disable=import-outside-toplevel
+
+    settings = {'general': {'dispatch_http_url': 'http://dispatcher:8082'}}
+    cog = CogHelper(fake_context['bot'], settings, None)
+    assert isinstance(cog._dispatcher, HttpDispatchClient)  #pylint:disable=protected-access
+
+
 def test_dispatcher_returns_redis_client_when_cross_process(fake_context, mocker):  #pylint:disable=redefined-outer-name
     '''_dispatcher returns a RedisDispatchClient when dispatch_cross_process is true.'''
     from discord_bot.utils.redis_dispatch_client import RedisDispatchClient  #pylint:disable=import-outside-toplevel

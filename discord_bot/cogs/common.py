@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.redis_client import get_redis_client
 from discord_bot.utils.redis_dispatch_client import RedisDispatchClient
+from discord_bot.utils.http_dispatch_client import HttpDispatchClient
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.otel import capture_span_context
 from discord_bot.types.dispatch_request import (
@@ -65,6 +66,8 @@ class CogHelperBase(Cog):
     @cached_property
     def _dispatcher(self):
         settings_general = self.settings.get('general', {})
+        if url := settings_general.get('dispatch_http_url'):
+            return HttpDispatchClient(url)
         if settings_general.get('dispatch_cross_process', False):
             redis_url = settings_general.get('redis_url')
             process_id = settings_general.get('dispatch_process_id') or str(uuid.uuid4())
