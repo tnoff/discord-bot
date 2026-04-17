@@ -1,7 +1,7 @@
 redis==7.4.0
 async-timeout==5.0.1
 discord.py==2.7.1
-pydantic==2.13.1
+pydantic==2.13.2
 pydantic-yaml==1.6.0
 opentelemetry-sdk==1.41.0
 # Dont pin these so dependabot updates are easier
