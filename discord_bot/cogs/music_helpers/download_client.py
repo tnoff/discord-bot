@@ -23,7 +23,7 @@ from discord_bot.types.download import (
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
-from discord_bot.utils.broker_client import BrokerClient
+from discord_bot.clients.broker_client import BrokerClient
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
 from discord_bot.utils.common import get_logger, LoggingConfig
 

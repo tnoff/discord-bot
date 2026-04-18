@@ -20,7 +20,7 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
 

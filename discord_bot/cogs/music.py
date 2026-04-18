@@ -32,7 +32,7 @@ from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
-from discord_bot.utils.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
@@ -47,13 +47,13 @@ from discord_bot.cogs.music_helpers import database_functions
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 

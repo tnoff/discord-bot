@@ -53,34 +53,12 @@ def test_dispatcher_raises_when_not_loaded(fake_context, mocker):  #pylint:disab
 
 def test_dispatcher_returns_http_client_when_dispatch_http_url_set(fake_context):  #pylint:disable=redefined-outer-name
     '''_dispatcher returns an HttpDispatchClient when dispatch_http_url is configured.'''
-    from discord_bot.utils.http_dispatch_client import HttpDispatchClient  #pylint:disable=import-outside-toplevel
+    from discord_bot.clients.http_dispatch_client import HttpDispatchClient  #pylint:disable=import-outside-toplevel
 
     settings = {'general': {'dispatch_http_url': 'http://dispatcher:8082'}}
     cog = CogHelper(fake_context['bot'], settings, None)
     assert isinstance(cog._dispatcher, HttpDispatchClient)  #pylint:disable=protected-access
 
-
-def test_dispatcher_returns_redis_client_when_cross_process(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''_dispatcher returns a RedisDispatchClient when dispatch_cross_process is true.'''
-    from discord_bot.utils.redis_dispatch_client import RedisDispatchClient  #pylint:disable=import-outside-toplevel
-
-    mocker.patch('discord_bot.cogs.common.get_redis_client', return_value=MagicMock())
-    fake_loop = MagicMock()
-    def _close_coro(coro):
-        if hasattr(coro, 'close'):
-            coro.close()
-        return MagicMock()
-    fake_loop.create_task.side_effect = _close_coro
-    mocker.patch('discord_bot.cogs.common.asyncio').get_running_loop.return_value = fake_loop
-
-    settings = {'general': {
-        'dispatch_cross_process': True,
-        'redis_url': 'redis://localhost:6379/0',
-        'dispatch_process_id': 'test-proc',
-        'dispatch_shard_id': 0,
-    }}
-    cog = CogHelper(fake_context['bot'], settings, None)
-    assert isinstance(cog._dispatcher, RedisDispatchClient)  #pylint:disable=protected-access
 
 
 # ---------------------------------------------------------------------------

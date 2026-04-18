@@ -1,15 +1,12 @@
 import asyncio
 from functools import cached_property
 from typing import Optional
-import uuid
 
 from discord.ext.commands import Cog, Bot
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.redis_client import get_redis_client
-from discord_bot.utils.redis_dispatch_client import RedisDispatchClient
-from discord_bot.utils.http_dispatch_client import HttpDispatchClient
+from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.otel import capture_span_context
 from discord_bot.types.dispatch_request import (
@@ -68,13 +65,6 @@ class CogHelperBase(Cog):
         settings_general = self.settings.get('general', {})
         if url := settings_general.get('dispatch_http_url'):
             return HttpDispatchClient(url)
-        if settings_general.get('dispatch_cross_process', False):
-            redis_url = settings_general.get('redis_url')
-            process_id = settings_general.get('dispatch_process_id') or str(uuid.uuid4())
-            shard_id = int(settings_general.get('dispatch_shard_id', 0))
-            client = RedisDispatchClient(get_redis_client(redis_url), process_id, self.logging_config, shard_id=shard_id)
-            asyncio.get_running_loop().create_task(client.start())
-            return client
         dispatcher = self.bot.get_cog('MessageDispatcher')
         if dispatcher is None:
             raise RuntimeError('MessageDispatcher cog is required but not loaded')

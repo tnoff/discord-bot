@@ -171,13 +171,13 @@ Three services are started:
 general:
   discord_token: "YOUR_TOKEN"
   redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
+  dispatch_server:
+    host: 0.0.0.0
+    port: 8082
   dispatch_process_id: "dispatcher"
-  dispatch_gateway: false
   dispatch_shard_id: 0
+  dispatch_worker_count: 4
   monitoring:
-    otlp:
-      enabled: false
     health_server:
       enabled: true
       port: 8080
@@ -190,10 +190,7 @@ general:
 ```yaml
 general:
   discord_token: "YOUR_TOKEN"
-  redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
-  dispatch_process_id: "bot-main"
-  dispatch_shard_id: 0
+  dispatch_http_url: "http://dispatcher:8082"
   include:
     default: true
     message_dispatcher: false
@@ -201,7 +198,9 @@ general:
     delete_messages: true
 ```
 
-> **Note:** Both containers connect to the Discord gateway with the same token. The dispatcher container has all non-dispatcher cogs disabled so it will not respond to commands.
+> **Note:** Only the dispatcher container connects to the Discord gateway. The bot container forwards all Discord API calls to the dispatcher over HTTP — it does not need `redis_url` or a gateway connection of its own.
+
+See [HA architecture](./ha.md) for a full explanation of how the pods communicate.
 
 ## Debug Builds
 

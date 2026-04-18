@@ -20,7 +20,7 @@ def dispatch_request_id(params: dict) -> str:
 
 
 _PAYLOAD_TTL = 86400  # 1 day — fallback expiry for orphaned payloads
-_RESULT_TTL = 300     # 5 minutes — how long completed fetch results are kept
+_RESULT_TTL = 86400   # 1 day — fallback expiry for orphaned fetch results
 _LOCK_TTL = 30        # seconds — execution lock for mutable bundle updates
 
 

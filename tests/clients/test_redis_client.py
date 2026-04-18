@@ -1,7 +1,7 @@
 import pytest
 import fakeredis.aioredis
 
-from discord_bot.utils.redis_client import (
+from discord_bot.clients.redis_client import (
     BUNDLE_KEY_PREFIX,
     save_bundle,
     delete_bundle,

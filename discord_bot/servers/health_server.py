@@ -6,9 +6,7 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import text
-
-from discord_bot.utils.redis_client import get_redis_client
+from discord_bot.clients.redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -18,24 +16,11 @@ class HealthServer:
 
     Responds 200 {"status": "ok"} when the bot is ready and not closed,
     503 {"status": "unavailable"} otherwise.
-
-    If db_engine is provided, also runs a SELECT 1 ping against the database.
-    A DB failure returns 503 with {"status": "unavailable", "db": "unavailable"}.
     """
 
-    def __init__(self, bot, port=8080, db_engine=None):
+    def __init__(self, bot, port=8080):
         self.bot = bot
         self.port = port
-        self._db_engine = db_engine
-
-    async def _db_ping(self):
-        """Return True if the database responds to SELECT 1."""
-        try:
-            async with self._db_engine.connect() as conn:
-                await conn.execute(text('SELECT 1'))
-            return True
-        except Exception:
-            return False
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
@@ -55,24 +40,13 @@ class HealthServer:
                 if line in (b'\r\n', b'\n', b''):
                     break
 
-            bot_ok = self.bot.is_ready() and not self.bot.is_closed()
-
-            if self._db_engine is not None:
-                db_ok = await self._db_ping()
-            else:
-                db_ok = True
-
-            if bot_ok and db_ok:
+            if self.bot.is_ready() and not self.bot.is_closed():
                 status_line = b'HTTP/1.1 200 OK\r\n'
-                payload = {'status': 'ok'}
+                body = json.dumps({'status': 'ok'}).encode()
             else:
                 status_line = b'HTTP/1.1 503 Service Unavailable\r\n'
-                payload = {'status': 'unavailable'}
+                body = json.dumps({'status': 'unavailable'}).encode()
 
-            if self._db_engine is not None:
-                payload['db'] = 'ok' if db_ok else 'unavailable'
-
-            body = json.dumps(payload).encode()
             headers = (
                 b'Content-Type: application/json\r\n'
                 + b'Content-Length: ' + str(len(body)).encode() + b'\r\n'

@@ -22,7 +22,7 @@ from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 from tests.helpers import fake_source_dict, generate_fake_context
 
 class MockYTDLP():

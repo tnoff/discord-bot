@@ -2,6 +2,8 @@
 import aiohttp
 from opentelemetry.propagate import inject
 
+from discord_bot.utils.discord_retry import async_retry_broker_command
+
 
 class HttpClientMixin:
     '''Mixin providing lazy aiohttp session management and trace header injection.'''
@@ -23,3 +25,18 @@ class HttpClientMixin:
         headers: dict[str, str] = {}
         inject(headers)
         return headers
+
+    async def _http(self, method: str, url: str, body: dict | None = None):
+        '''Execute an HTTP request with retry; returns parsed JSON or None.'''
+        session = self._get_session()
+        async def _call():
+            async with session.request(
+                method, url,
+                headers=self._trace_headers(),
+                json=body,
+            ) as resp:
+                resp.raise_for_status()
+                if resp.content_type == 'application/json':
+                    return await resp.json()
+                return None
+        return await async_retry_broker_command(_call)

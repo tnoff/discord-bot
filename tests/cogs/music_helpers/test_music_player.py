@@ -11,7 +11,7 @@ from discord.errors import ClientException
 from discord_bot.exceptions import ExitEarlyException
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 
 from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 

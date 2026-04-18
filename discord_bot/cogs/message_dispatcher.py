@@ -15,8 +15,6 @@ from discord.ext.commands import Bot
 
 from opentelemetry import trace
 from opentelemetry.metrics import Observation
-from opentelemetry.propagate import extract
-from opentelemetry.trace import Link
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.common import CogHelperBase
@@ -30,21 +28,13 @@ from discord_bot.types.dispatch_request import (
 )
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.utils.dispatch_envelope import (
-    RequestType, ResultType,
-    StreamEnvelope, StreamResult,
-)
 from discord_bot.utils.dispatch_queue import RedisDispatchQueue
-from discord_bot.utils.redis_client import (
+from discord_bot.clients.redis_client import (
     delete_bundle as redis_delete_bundle,
     get_redis_client,
     load_all_bundles,
     load_bundle as redis_load_bundle,
     save_bundle as redis_save_bundle,
-)
-from discord_bot.utils.redis_stream_helpers import (
-    StreamKey, ensure_consumer_group, input_stream_key, result_stream_key,
-    xadd as stream_xadd, xack, xreadgroup,
 )
 from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper, AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming, create_observable_gauge, span_links_from_context
 
@@ -380,8 +370,6 @@ class MessageDispatcher(CogHelperBase):
         self._pending_history: set[tuple] = set()
         self._pending_emojis: set[tuple] = set()
         self._cog_consumer_task: asyncio.Task | None = None
-        self._stream_consumer_task: asyncio.Task | None = None
-        self._stream_handler_tasks: set[asyncio.Task] = set()
         self._redis_worker_tasks: list[asyncio.Task] = []
 
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCHER_QUEUE_DEPTH.value,
@@ -421,8 +409,6 @@ class MessageDispatcher(CogHelperBase):
                 port=int(cfg['port']),
             )
             asyncio.create_task(server.serve())
-        elif self._cross_process:
-            self._stream_consumer_task = asyncio.create_task(self._stream_consumer())
 
     async def cog_unload(self):
         '''Gracefully drain in-flight work and shut down.'''
@@ -441,20 +427,7 @@ class MessageDispatcher(CogHelperBase):
                 for task in self._redis_worker_tasks:
                     task.cancel()
             self._redis_worker_tasks.clear()
-        if self._stream_consumer_task:
-            self._stream_consumer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._stream_consumer_task
-
-        # Phase 2: wait for in-flight stream handler tasks (FETCH requests mid-flight)
-        if self._stream_handler_tasks:
-            _, pending = await asyncio.wait(
-                self._stream_handler_tasks, timeout=_DRAIN_TIMEOUT_SECONDS
-            )
-            for task in pending:
-                task.cancel()
-
-        # Phase 3: signal shutdown — _cog_consumer and workers exit when their queues empty
+        # Phase 2: signal shutdown — _cog_consumer and workers exit when their queues empty
         self._shutdown.set()
 
         # Phase 4: drain _cog_input into guild queues, then stop the consumer
@@ -507,10 +480,6 @@ class MessageDispatcher(CogHelperBase):
                 self.logger.error('MessageDispatcher :: failed to restore bundles: %s', exc)
 
     @cached_property
-    def _cross_process(self) -> bool:
-        return bool(self.settings.get('general', {}).get('dispatch_cross_process', False))
-
-    @cached_property
     def _process_id(self) -> str:
         return self.settings.get('general', {}).get('dispatch_process_id') or str(uuid.uuid4())
 
@@ -532,80 +501,6 @@ class MessageDispatcher(CogHelperBase):
     def _num_redis_workers(self) -> int:
         '''Number of Redis worker coroutines to run per pod (default 4).'''
         return int(self.settings.get('general', {}).get('dispatch_worker_count', 4))
-
-    # ------------------------------------------------------------------
-    # Stream consumer (cross-process mode)
-    # ------------------------------------------------------------------
-
-    async def _stream_consumer(self):
-        '''Read dispatch requests from the Redis input stream and route them.'''
-        stream_key = input_stream_key(self._shard_id)
-        await ensure_consumer_group(self._redis, stream_key)
-        # Re-deliver messages that were pending for a dead consumer (e.g. after a crash)
-        await self._redis.xautoclaim(
-            stream_key, StreamKey.CONSUMER_GROUP.value, self._process_id,
-            min_idle_time=60000, start_id='0',
-        )
-        while True:
-            messages = await xreadgroup(self._redis, stream_key, self._process_id)
-            for msg_id, fields in messages:
-                req_envelope = StreamEnvelope.decode(fields)
-                task = asyncio.create_task(self._handle_stream_request(req_envelope))
-                self._stream_handler_tasks.add(task)
-                task.add_done_callback(self._stream_handler_tasks.discard)
-                await asyncio.sleep(0)
-                await xack(self._redis, stream_key, msg_id)
-
-    async def _handle_stream_request(self, req_envelope: StreamEnvelope):
-        '''Route a decoded stream request to the appropriate internal method.'''
-        caller_ctx = extract(req_envelope.trace_context)
-        caller_span_ctx = trace.get_current_span(caller_ctx).get_span_context()
-        links = [Link(context=caller_span_ctx)] if caller_span_ctx.is_valid else []
-        async with async_otel_span_wrapper('message_dispatcher.stream_request',
-                                           attributes={
-                                               'req_type': req_envelope.req_type,
-                                               DispatchNaming.PROCESS_ID.value: req_envelope.process_id,
-                                               DispatchNaming.REQUEST_ID.value: req_envelope.request_id,
-                                           },
-                                           links=links) as span:
-            try:
-                if req_envelope.req_type == RequestType.UPDATE_MUTABLE:
-                    self.update_mutable(**req_envelope.payload)
-                    return
-                if req_envelope.req_type == RequestType.REMOVE_MUTABLE:
-                    self.remove_mutable(req_envelope.payload['key'])
-                    return
-                if req_envelope.req_type == RequestType.UPDATE_MUTABLE_CHANNEL:
-                    self.update_mutable_channel(**req_envelope.payload)
-                    return
-                if req_envelope.req_type == RequestType.SEND:
-                    self.send_message(**req_envelope.payload)
-                    return
-                if req_envelope.req_type == RequestType.DELETE:
-                    self.delete_message(**req_envelope.payload)
-                    return
-                res_key = result_stream_key(req_envelope.process_id)
-                if req_envelope.req_type == RequestType.FETCH_HISTORY:
-                    result = await self._dispatch_history_and_collect(req_envelope.payload)
-                    result_msg = StreamResult(req_envelope.req_type, req_envelope.request_id, ResultType.HISTORY, result).encode()
-                elif req_envelope.req_type == RequestType.FETCH_EMOJIS:
-                    result = await self._dispatch_emojis_and_collect(req_envelope.payload)
-                    result_msg = StreamResult(req_envelope.req_type, req_envelope.request_id, ResultType.EMOJIS, result).encode()
-                else:
-                    self.logger.warning('MessageDispatcher :: unknown stream request type: %s', req_envelope.req_type)
-                    return
-                await stream_xadd(self._redis, res_key, result_msg)
-            except Exception as exc:  # pylint: disable=broad-except
-                # Intentional broad catch: ensures callers always receive a result envelope
-                # rather than hanging on a pending future indefinitely.
-                span.set_status(StatusCode.ERROR, str(exc))
-                self.logger.error(
-                    'MessageDispatcher :: stream request %s failed: %s', req_envelope.req_type, exc, exc_info=True
-                )
-                res_key = result_stream_key(req_envelope.process_id)
-                await stream_xadd(self._redis, res_key, StreamResult(
-                    req_envelope.req_type, req_envelope.request_id, ResultType.ERROR, {'error': str(exc)}
-                ).encode())
 
     async def _dispatch_history_and_collect(self, payload: dict) -> dict:
         '''Execute a channel history fetch and return a JSON-safe result dict.'''

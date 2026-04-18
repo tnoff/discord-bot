@@ -10,8 +10,7 @@ import asyncio
 from opentelemetry import trace
 
 from discord_bot.types.dispatch_request import FetchChannelHistoryRequest, FetchGuildEmojisRequest
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.utils.dispatch_helpers import decode_history_result, decode_emojis_result
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, decode_history_result, decode_emojis_result
 from discord_bot.utils.otel import async_otel_span_wrapper
 
 

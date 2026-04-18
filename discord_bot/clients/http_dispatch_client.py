@@ -1,9 +1,4 @@
-'''
-HTTP client for cross-process dispatch via DispatchHttpServer.
-
-Drop-in replacement for RedisDispatchClient: same public API, zero Redis dependency
-on the calling side.  Polling for awaitable results uses short exponential backoff.
-'''
+'''HTTP client for cross-process dispatch via DispatchHttpServer (HA mode).'''
 import asyncio
 import logging
 
@@ -16,10 +11,10 @@ from discord_bot.types.dispatch_request import (
     FetchGuildEmojisRequest,
     SendRequest,
 )
-from discord_bot.utils.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.discord_retry import async_retry_broker_command
-from discord_bot.utils.http_client_base import HttpClientMixin
+from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.utils.otel import DispatchNaming
 
 logger = logging.getLogger(__name__)

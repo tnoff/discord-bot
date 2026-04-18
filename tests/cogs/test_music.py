@@ -14,7 +14,7 @@ from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundl
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
-from discord_bot.utils.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType

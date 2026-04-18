@@ -11,7 +11,7 @@ from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate
-from discord_bot.utils.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -176,21 +176,23 @@ class TestHttpBrokerClient:
         assert broker.get_entry(str(mr.uuid)) is None
 
     async def test_prefetch(self):
+        '''prefetch with empty list is a no-op that does not raise.'''
         broker = _make_broker()
         server = BrokerHttpServer(broker)
-        # prefetch with empty list is a no-op
         queue_items: list = []
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.prefetch(queue_items, 123, None, 5)
 
     async def test_close_session(self):
+        '''close() closes the underlying aiohttp session.'''
         session = aiohttp.ClientSession()
         hc = HttpBrokerClient('http://localhost:9999', session=session)
         await hc.close()
         assert session.closed
 
     async def test_lazy_session_creation(self):
+        '''_get_session() creates a session lazily on first call.'''
         hc = HttpBrokerClient('http://localhost:9999')
         session = hc._get_session()  # pylint:disable=protected-access
         assert session is not None

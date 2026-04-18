@@ -10,7 +10,7 @@ from discord_bot.types.media_request import MultiMediaRequestBundle, MediaReques
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.search import SearchResult, SearchCollection
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_source_dict, random_string

@@ -6,8 +6,7 @@ import aiohttp
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.utils.discord_retry import async_retry_broker_command
-from discord_bot.utils.http_client_base import HttpClientMixin
+from discord_bot.clients.http_client_base import HttpClientMixin
 
 
 class BrokerClient(Protocol):
@@ -71,72 +70,28 @@ class HttpBrokerClient(HttpClientMixin):
 
     async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''
-        session = self._get_session()
-        async def _call():
-            async with session.put(
-                f'{self._base_url}/requests/{uuid}/status',
-                headers=self._trace_headers(),
-                json=update.model_dump(),
-            ) as resp:
-                resp.raise_for_status()
-        await async_retry_broker_command(_call)
+        await self._http('PUT', f'{self._base_url}/requests/{uuid}/status', update.model_dump())
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
         '''POST /downloads — returns None; the broker processes the result server-side.'''
-        session = self._get_session()
-        async def _call():
-            async with session.post(
-                f'{self._base_url}/downloads',
-                headers=self._trace_headers(),
-                json=result.model_dump(mode='json'),
-            ) as resp:
-                resp.raise_for_status()
-        await async_retry_broker_command(_call)
+        await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
         return None
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
         '''POST /requests/{uuid}/checkout — returns staged file path string or None.'''
-        session = self._get_session()
         body: dict = {'guild_id': guild_id}
         if guild_path:
             body['guild_path'] = guild_path
-        async def _call():
-            async with session.post(
-                f'{self._base_url}/requests/{uuid}/checkout',
-                headers=self._trace_headers(),
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-                return await resp.json()
-        data = await async_retry_broker_command(_call)
-        return data.get('guild_file_path')
+        data = await self._http('POST', f'{self._base_url}/requests/{uuid}/checkout', body)
+        return data.get('guild_file_path') if data else None
 
     async def release(self, uuid: str) -> None:
         '''POST /requests/{uuid}/release.'''
-        session = self._get_session()
-        async def _call():
-            async with session.post(
-                f'{self._base_url}/requests/{uuid}/release',
-                headers=self._trace_headers(),
-            ) as resp:
-                resp.raise_for_status()
-        await async_retry_broker_command(_call)
+        await self._http('POST', f'{self._base_url}/requests/{uuid}/release')
 
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''POST /prefetch — sends UUIDs extracted from queue_items.'''
-        session = self._get_session()
         uuids = [str(item.media_request.uuid) for item in queue_items]
-        body: dict = {
-            'uuids': uuids,
-            'guild_id': guild_id,
-            'guild_path': guild_path,
-            'limit': limit,
-        }
-        async def _call():
-            async with session.post(
-                f'{self._base_url}/prefetch',
-                headers=self._trace_headers(),
-                json=body,
-            ) as resp:
-                resp.raise_for_status()
-        await async_retry_broker_command(_call)
+        await self._http('POST', f'{self._base_url}/prefetch', {
+            'uuids': uuids, 'guild_id': guild_id, 'guild_path': guild_path, 'limit': limit,
+        })

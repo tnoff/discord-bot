@@ -7,7 +7,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 from sqlalchemy import text
 
-from discord_bot.utils.database_backup_client import DatabaseBackupClient
+from discord_bot.clients.database_backup_client import DatabaseBackupClient
 from discord_bot.database import MarkovChannel, MarkovRelation, Playlist
 
 from tests.helpers import fake_async_file_engine as fake_engine, async_mock_session  #pylint:disable=unused-import
@@ -201,7 +201,7 @@ async def test_create_backup_logging(fake_engine, mocker):  #pylint:disable=rede
         await session.commit()
 
     client = DatabaseBackupClient(fake_engine)
-    with patch('discord_bot.utils.database_backup_client.logger', logger):
+    with patch('discord_bot.clients.database_backup_client.logger', logger):
         backup_file = await client.create_backup()
 
     # Check that debug logging was called for table backup
@@ -222,7 +222,7 @@ async def test_create_backup_file_size(fake_engine, mocker):  #pylint:disable=re
     logger = mocker.Mock()
 
     client = DatabaseBackupClient(fake_engine)
-    with patch('discord_bot.utils.database_backup_client.logger', logger):
+    with patch('discord_bot.clients.database_backup_client.logger', logger):
         backup_file = await client.create_backup()
 
     # Verify file size is logged
@@ -255,7 +255,7 @@ async def test_find_latest_backup_returns_key(fake_engine, mocker):  #pylint:dis
     t1 = datetime(2025, 6, 1, tzinfo=timezone.utc)
     t2 = datetime(2025, 5, 1, tzinfo=timezone.utc)
     mocker.patch(
-        'discord_bot.utils.database_backup_client.list_objects',
+        'discord_bot.clients.database_backup_client.list_objects',
         return_value=[
             {'key': 'backups/new.json', 'last_modified': t1},
             {'key': 'backups/old.json', 'last_modified': t2},
@@ -272,7 +272,7 @@ async def test_find_latest_backup_returns_key(fake_engine, mocker):  #pylint:dis
 async def test_find_latest_backup_returns_none_when_empty(fake_engine, mocker):  #pylint:disable=redefined-outer-name
     '''Returns None when no objects exist under prefix'''
     mocker.patch(
-        'discord_bot.utils.database_backup_client.list_objects',
+        'discord_bot.clients.database_backup_client.list_objects',
         return_value=[]
     )
     client = DatabaseBackupClient(fake_engine)
@@ -292,7 +292,7 @@ async def test_restore_from_s3_calls_restore_backup(fake_engine, mocker):  #pyli
         shutil.copy(backup_file, path)
         return True
 
-    mocker.patch('discord_bot.utils.database_backup_client.get_file', side_effect=fake_get_file)
+    mocker.patch('discord_bot.clients.database_backup_client.get_file', side_effect=fake_get_file)
     mock_restore = mocker.patch.object(client, 'restore_backup', wraps=client.restore_backup)
 
     stats = await client.restore_from_s3('my-bucket', 'backups/latest.json')
@@ -318,8 +318,8 @@ async def test_restore_from_s3_cleans_up_temp_file(fake_engine, mocker):  #pylin
         tmp_paths.append(Path(f.name))
         return f
 
-    mocker.patch('discord_bot.utils.database_backup_client.tempfile.NamedTemporaryFile', side_effect=tracking_named_temp)
-    mocker.patch('discord_bot.utils.database_backup_client.get_file', return_value=True)
+    mocker.patch('discord_bot.clients.database_backup_client.tempfile.NamedTemporaryFile', side_effect=tracking_named_temp)
+    mocker.patch('discord_bot.clients.database_backup_client.get_file', return_value=True)
     mocker.patch.object(
         DatabaseBackupClient,
         'restore_backup',
@@ -437,7 +437,7 @@ async def test_restore_backup_skips_unknown_table(fake_engine, caplog):  #pylint
     with open(backup_file, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-    with caplog.at_level(logging.INFO, logger='discord_bot.utils.database_backup_client'):
+    with caplog.at_level(logging.INFO, logger='discord_bot.clients.database_backup_client'):
         stats = await client.restore_backup(backup_file)
 
     assert 'unknown_table' not in stats['tables']
@@ -590,7 +590,7 @@ async def test_restore_backup_table_groups_skips_unknown_table(fake_engine, capl
     with open(backup_file, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-    with caplog.at_level(logging.INFO, logger='discord_bot.utils.database_backup_client'):
+    with caplog.at_level(logging.INFO, logger='discord_bot.clients.database_backup_client'):
         stats = await client.restore_backup(backup_file, table_groups=[['ghost_table']])
 
     assert 'ghost_table' not in stats['tables']
@@ -723,7 +723,7 @@ async def test_truncate_tables_handles_delete_exception(fake_engine, caplog):  #
 
     mock_conn.execute = execute_side_effect
     table_names = list(__import__('discord_bot.database', fromlist=['BASE']).BASE.metadata.tables.keys())
-    with caplog.at_level(logging.DEBUG, logger='discord_bot.utils.database_backup_client'):
+    with caplog.at_level(logging.DEBUG, logger='discord_bot.clients.database_backup_client'):
         await client._truncate_tables(mock_conn, table_names)  #pylint:disable=protected-access
 
     assert 'Failed to truncate' in caplog.text
@@ -879,7 +879,7 @@ async def test_reset_sequences_warns_when_no_sequence_found(caplog):
     mock_engine.begin = MagicMock(return_value=mock_ctx)
 
     client = DatabaseBackupClient(mock_engine)
-    with caplog.at_level(logging.WARNING, logger='discord_bot.utils.database_backup_client'):
+    with caplog.at_level(logging.WARNING, logger='discord_bot.clients.database_backup_client'):
         await client._reset_sequences()  #pylint:disable=protected-access
 
     assert 'No sequence found' in caplog.text

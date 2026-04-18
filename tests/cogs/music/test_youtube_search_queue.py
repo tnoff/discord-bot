@@ -15,7 +15,7 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.utils.failure_queue import FailureStatus
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_media_download

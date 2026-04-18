@@ -15,8 +15,8 @@ from discord_bot.types.dispatch_request import (
     SendRequest,
 )
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.utils.dispatch_client_base import DispatchRemoteError
-from discord_bot.utils.http_dispatch_client import HttpDispatchClient
+from discord_bot.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 
@@ -255,10 +255,27 @@ async def test_fetch_emojis_error_delivers_error_result_to_queue():
 
 
 @pytest.mark.asyncio
+async def test_http_returns_none_for_non_json_response(mocker):
+    '''_http returns None when the response content-type is not application/json.'''
+    mock_resp = mocker.AsyncMock()
+    mock_resp.content_type = 'text/plain'
+    mock_resp.raise_for_status = mocker.Mock()
+    mock_resp.__aenter__ = mocker.AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = mocker.AsyncMock(return_value=False)
+    mock_session = mocker.MagicMock()
+    mock_session.closed = False
+    mock_session.request = mocker.MagicMock(return_value=mock_resp)
+    client = HttpDispatchClient('http://localhost:9999')
+    client._session = mock_session  # pylint: disable=protected-access
+    result = await client._http('POST', 'http://localhost:9999/test', {})  # pylint: disable=protected-access
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_post_failure_logs_error_and_does_not_raise(mocker):
     '''_post swallows and logs exceptions so fire-and-forget callers are not affected.'''
     mocker.patch(
-        'discord_bot.utils.http_dispatch_client.async_retry_broker_command',
+        'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
     )
     client = HttpDispatchClient('http://localhost:9999')
@@ -270,7 +287,7 @@ async def test_post_failure_logs_error_and_does_not_raise(mocker):
 @pytest.mark.asyncio
 async def test_poll_result_raises_dispatch_remote_error_on_timeout(mocker):
     '''_poll_result raises DispatchRemoteError after _POLL_TIMEOUT elapses with no result.'''
-    mocker.patch('discord_bot.utils.http_dispatch_client._POLL_TIMEOUT', 0)
+    mocker.patch('discord_bot.clients.http_dispatch_client._POLL_TIMEOUT', 0)
     _, server = _make_setup()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
@@ -281,7 +298,7 @@ async def test_poll_result_raises_dispatch_remote_error_on_timeout(mocker):
 @pytest.mark.asyncio
 async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
     '''_poll_result retries with backoff (lines 194-195) when the result is not yet ready.'''
-    mocker.patch('discord_bot.utils.http_dispatch_client._POLL_INTERVAL_BASE', 0)
+    mocker.patch('discord_bot.clients.http_dispatch_client._POLL_INTERVAL_BASE', 0)
 
     result_store: dict = {}
 
@@ -292,6 +309,7 @@ async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
             self._count = 0
 
         async def get_result(self, _request_id):
+            '''Return None until the second call, then the ready result.'''
             self._count += 1
             return result_store.get('ready') if self._count >= 2 else None
 
