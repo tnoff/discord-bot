@@ -23,6 +23,54 @@ def test_base_build_app_raises_not_implemented():
         server.build_app()
 
 
+@pytest.mark.asyncio
+class TestDrain:
+    async def test_draining_returns_503(self):
+        '''While draining, new requests receive 503.'''
+        _, server = _make_server()
+        async with TestClient(TestServer(server.build_app())) as client:
+            server.start_draining()
+            resp = await client.post('/dispatch/send', json={
+                'guild_id': 1, 'channel_id': 2, 'content': 'hello',
+            })
+            assert resp.status == 503
+
+    async def test_not_draining_passes_through(self):
+        '''Normal requests pass through when not draining.'''
+        _, server = _make_server()
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post('/dispatch/send', json={
+                'guild_id': 1, 'channel_id': 2, 'content': 'hello',
+            })
+            assert resp.status == 202
+
+    async def test_drain_and_stop_unblocks_serve(self):
+        '''drain_and_stop() with no in-flight requests sets the shutdown event immediately.'''
+        _, server = _make_server()
+        task = asyncio.create_task(server.serve())
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            try:
+                _, writer = await asyncio.open_connection('0.0.0.0', 8082)
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except OSError:
+                    pass
+                break
+            except OSError:
+                if asyncio.get_event_loop().time() >= deadline:
+                    raise
+                await asyncio.sleep(0.02)
+        try:
+            await asyncio.wait_for(server.drain_and_stop(), timeout=5.0)
+            await asyncio.wait_for(task, timeout=5.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+            await task
+            raise
+
+
 def _make_server(dispatcher=None, result_store=None):
     if result_store is None:
         result_store = {}

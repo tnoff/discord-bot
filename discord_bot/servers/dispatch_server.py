@@ -39,6 +39,7 @@ class DispatchHttpServer(AiohttpServerBase):
 
     def __init__(self, dispatcher, redis_queue: RedisDispatchQueue,
                  host: str = '0.0.0.0', port: int = 8082):
+        super().__init__()
         self._dispatcher = dispatcher
         self._redis_queue = redis_queue
         self._host = host
@@ -46,7 +47,7 @@ class DispatchHttpServer(AiohttpServerBase):
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
-        app = web.Application()
+        app = web.Application(middlewares=[self._get_drain_middleware()])
         app.router.add_post('/dispatch/send', self._handle_send)
         app.router.add_post('/dispatch/delete', self._handle_delete)
         app.router.add_post('/dispatch/update_mutable', self._handle_update_mutable)

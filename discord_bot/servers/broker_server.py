@@ -52,6 +52,7 @@ class BrokerHttpServer(AiohttpServerBase):
 
     def __init__(self, broker: MediaBroker, host: str = '0.0.0.0', port: int = 8081,
                  result_queue: asyncio.Queue | None = None):
+        super().__init__()
         self._broker = broker
         self._host = host
         self._port = port
@@ -59,7 +60,7 @@ class BrokerHttpServer(AiohttpServerBase):
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
-        app = web.Application()
+        app = web.Application(middlewares=[self._get_drain_middleware()])
         app.router.add_put('/requests/{uuid}/status', self._handle_update_status)
         app.router.add_post('/downloads', self._handle_register_download)
         app.router.add_post('/requests/{uuid}/checkout', self._handle_checkout)
