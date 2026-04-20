@@ -78,7 +78,7 @@ def yield_dlp_error(message):
 
 def make_download_client(mock_ytdl=None, **kwargs):
     '''Create a DownloadClient with an optional mock ytdl injected post-init.'''
-    client = DownloadClient(None, Path('/tmp'), **kwargs)
+    client = DownloadClient(Path('/tmp'), **kwargs)
     if mock_ytdl is not None:
         client.ytdl = mock_ytdl
     return client

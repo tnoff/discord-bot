@@ -54,7 +54,6 @@ def yield_fake_download_client(media_download: MediaDownload):
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(
-                None,
                 Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
@@ -83,7 +82,6 @@ def yield_download_client_download_exception():
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(
-                None,
                 Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
@@ -101,7 +99,6 @@ def yield_download_client_download_error():
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(
-                None,
                 Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),

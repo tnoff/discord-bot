@@ -31,9 +31,9 @@ def main(config_file):
 
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the dispatcher process.'''
-    logger_provider = setup_otlp(general_config)
+    setup_otlp(general_config)
     RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
-    logger = setup_logging(general_config, logger_provider)
+    logger = setup_logging(general_config)
     setup_profiling(general_config, logger)
 
     bot, cog_list = build_bot(general_config, settings)

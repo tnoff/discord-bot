@@ -171,7 +171,7 @@ def setup_otlp(general_config: GeneralConfig):
     return logger_provider
 
 
-def setup_logging(general_config: GeneralConfig, logger_provider=None):
+def setup_logging(general_config: GeneralConfig):
     '''Configure application loggers and return the main logger.'''
     print('Starting logging', file=sys.stderr)
     logger = get_logger('main', general_config.logging)
@@ -179,7 +179,7 @@ def setup_logging(general_config: GeneralConfig, logger_provider=None):
     root_logger = logging.getLogger()
     third_party_level = general_config.logging.third_party_log_level if general_config.logging else 30
     root_logger.setLevel(third_party_level)
-    discord_logger = get_logger('discord', general_config.logging, otlp_logger=logger_provider)
+    discord_logger = get_logger('discord', general_config.logging)
     discord_logger.setLevel(third_party_level)
     return logger
 

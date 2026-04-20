@@ -262,7 +262,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
         self.download_client = DownloadClient(
-            self.logging_config,
             self.download_dir,
             extra_ytdlp_options=self.config.download.extra_ytdlp_options,
             max_video_length=self.config.download.max_video_length,
@@ -1007,7 +1006,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Generate and start player
                 history_playlist_id = await self.__get_history_playlist(ctx.guild.id)
                 player = MusicPlayer(ctx,
-                                     self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,

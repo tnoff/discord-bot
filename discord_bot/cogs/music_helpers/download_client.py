@@ -3,6 +3,7 @@ from asyncio import QueueEmpty, sleep
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
+import logging
 from pathlib import Path
 import random
 from time import time
@@ -25,7 +26,6 @@ from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.clients.broker_client import BrokerClient
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
-from discord_bot.utils.common import get_logger, LoggingConfig
 
 class DirectItemAvailableException(Exception):
     '''Raised by backoff_wait when a DIRECT item arrives during the wait period.'''
@@ -137,7 +137,6 @@ class DownloadClient():
     '''
     def __init__(
         self,
-        logging_config: LoggingConfig,
         download_dir: Path,
         extra_ytdlp_options: dict | None = None,
         max_video_length: int | None = None,
@@ -172,7 +171,7 @@ class DownloadClient():
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'logtostderr': False,
-            'logger': get_logger('ytdlp', logging_config),
+            'logger': logging.getLogger('ytdlp'),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
@@ -195,8 +194,7 @@ class DownloadClient():
         self._wait_timestamp: float | None = None
         self.bucket_name: str | None = bucket_name
         self.normalize_audio: bool = normalize_audio
-        self.logger = get_logger('download_client', logging_config)
-        self.logging_config = logging_config
+        self.logger = logging.getLogger(__name__)
 
     @property
     def has_direct_pending(self) -> bool:
@@ -577,7 +575,7 @@ class DownloadClient():
         self.update_tracking(result)
         if result.status.success and result.file_name is not None:
             try:
-                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
+                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio)
                 post_process_timestamp = datetime.now(timezone.utc)
                 self.logger.info(
                     'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',

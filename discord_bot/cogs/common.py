@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from functools import cached_property
 from typing import Optional
 
@@ -7,7 +8,6 @@ from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
-from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.otel import capture_span_context
 from discord_bot.types.dispatch_request import (
     FetchChannelHistoryRequest,
@@ -46,9 +46,7 @@ class CogHelperBase(Cog):
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
         self.db_engine = db_engine
-        logging_dict = settings.get('general', {}).get('logging', {})
-        self.logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
-        self.logger = get_logger(self._cog_name, self.logging_config)
+        self.logger = logging.getLogger(f'discord_bot.cogs.{self._cog_name}')
         self.settings = settings
         self.config: Optional[BaseModel] = None
         self._init_task = None

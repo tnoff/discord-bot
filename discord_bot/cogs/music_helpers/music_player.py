@@ -2,6 +2,7 @@ import asyncio
 from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
 from datetime import timedelta
 from io import BytesIO
+import logging
 from pathlib import Path
 from re import sub
 from time import time
@@ -21,8 +22,8 @@ from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.types.queue import Queue
+
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.common import get_logger, LoggingConfig
 
 
 
@@ -48,7 +49,6 @@ class MusicPlayer:
     '''
 
     def __init__(self, ctx: Context,
-                 logging_config: LoggingConfig,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  dispatcher,
                  history_playlist_id: int,
@@ -58,7 +58,7 @@ class MusicPlayer:
         '''
         Music Player to sit in voice chat
         '''
-        self.logger = get_logger(__name__, logging_config)
+        self.logger = logging.getLogger(__name__)
         self.bot = ctx.bot
         self.guild = ctx.guild
         self.text_channel = ctx.channel

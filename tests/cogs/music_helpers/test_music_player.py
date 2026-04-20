@@ -21,7 +21,7 @@ def with_music_player(fake_context): #pylint:disable=redefined-outer-name
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], {}, 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
         yield player
 
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name
@@ -477,7 +477,7 @@ def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
         player = MusicPlayer(
-            fake_context['context'], {}, queue_max_size, 0.01, Path(tmp_dir),
+            fake_context['context'], queue_max_size, 0.01, Path(tmp_dir),
             dispatcher, history_playlist_id, history_queue, broker=broker,
         )
         yield player
@@ -529,7 +529,7 @@ async def test_player_loop_history_playlist_id(fake_context): #pylint:disable=re
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], {}, 10, 0.01, Path(tmp_dir),
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir),
                              dispatcher, 999, history_queue)
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.add_to_play_queue(media_download)
@@ -548,7 +548,7 @@ async def test_player_loop_history_queue_full_evicts_oldest(fake_context): #pyli
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
         # maxsize=1 means _history also holds at most 1 entry
-        player = MusicPlayer(fake_context['context'], {}, 1, 0.01, Path(tmp_dir),
+        player = MusicPlayer(fake_context['context'], 1, 0.01, Path(tmp_dir),
                              dispatcher, None, history_queue)
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd1:
             with fake_media_download(player.file_dir, fake_context=fake_context) as sd2:

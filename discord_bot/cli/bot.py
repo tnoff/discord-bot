@@ -76,7 +76,7 @@ def run(settings: dict, general_config: GeneralConfig):
                 enable_commenter=True,
                 commenter_options={},
             )
-        logger = setup_logging(general_config, logger_provider)
+        logger = setup_logging(general_config)
         setup_profiling(general_config, logger)
 
         bot, cog_list = build_bot(general_config, settings)
