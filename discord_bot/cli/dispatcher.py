@@ -2,6 +2,10 @@
 Dispatcher process — HTTP-only, Redis health check, MessageDispatcher cog only.
 No SQLAlchemy, no gateway connection.
 '''
+import click
+from opentelemetry import trace
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+
 from discord_bot.cogs.message_dispatcher import MessageDispatcher
 from discord_bot.servers.health_server import DispatchHealthServer
 from discord_bot.utils.common import GeneralConfig
@@ -9,6 +13,7 @@ from discord_bot.utils.common import GeneralConfig
 from discord_bot.cli.common import (
     build_bot, load_cogs, run_bot,
     setup_logging, setup_otlp, setup_profiling,
+    parse_and_validate_config,
 )
 
 POSSIBLE_COGS = [
@@ -16,9 +21,18 @@ POSSIBLE_COGS = [
 ]
 
 
+@click.command()
+@click.argument('config_file', type=click.Path(dir_okay=False))
+def main(config_file):
+    '''Run the dispatcher process (HTTP-only, no gateway connection).'''
+    settings, general_config = parse_and_validate_config(config_file)
+    run(settings, general_config)
+
+
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the dispatcher process.'''
     logger_provider = setup_otlp(general_config)
+    RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
     logger = setup_logging(general_config, logger_provider)
     setup_profiling(general_config, logger)
 
@@ -34,4 +48,4 @@ def run(settings: dict, general_config: GeneralConfig):
             port=general_config.monitoring.health_server.port,
         )
 
-    run_bot(general_config, bot, cog_list, health_server=health_server)
+    run_bot(general_config, bot, cog_list, health_server=health_server, dispatch_gateway=False)

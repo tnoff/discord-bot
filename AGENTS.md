@@ -5,9 +5,9 @@ Agent and developer guide for the discord-bot project.
 ## Setup
 
 ```bash
-pip install -r requirements.txt
-pip install -e .          # editable install (picks up local changes)
-discord-bot /path/to/config.yml   # run the bot
+pip install -e ".[all]"               # full install (editable, picks up local changes)
+discord-bot /path/to/config.yml       # run the full bot (gateway + all cogs)
+discord-dispatcher /path/to/config.yml  # run the dispatcher process only
 ```
 
 ## Testing
@@ -22,7 +22,7 @@ venv/bin/pytest tests/path/to/test_file.py -q  # single file
 The system environment has an older `dappertable` (0.2.4) that is missing kwargs
 used throughout the tests, causing ~27 false failures. The venv has the correct version.
 
-Test configuration lives in `pytest.ini`. All async tests must be decorated with
+Test configuration lives in `pyproject.toml` (`[tool.pytest.ini_options]`). All async tests must be decorated with
 `@pytest.mark.asyncio` (mode is `strict`).
 
 Coverage threshold is 90%. Tox runs py311–py314:

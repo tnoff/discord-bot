@@ -10,7 +10,8 @@ from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_bot.cli import main
+from discord_bot.cli.bot import main
+from discord_bot.cli.dispatcher import main as dispatcher_main
 from discord_bot.cli.common import main_loop, FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
@@ -630,13 +631,14 @@ def test_main_runner_no_event_loop(mocker):
 def _patch_otlp(mocker):
     '''Patch all OpenTelemetry symbols to avoid real network connections'''
     for name in [
-        'TracerProvider', 'RequestsInstrumentor', 'RedisInstrumentor',
+        'TracerProvider', 'RequestsInstrumentor',
         'OTLPSpanExporter', 'BatchSpanProcessor', 'get_aggregated_resources',
         'OTELResourceDetector', 'OTLPMetricExporter', 'PeriodicExportingMetricReader',
         'MeterProvider', 'set_meter_provider', 'LoggerProvider', 'set_logger_provider',
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
         mocker.patch(f'discord_bot.cli.common.{name}')
+    mocker.patch('discord_bot.cli.dispatcher.RedisInstrumentor')
     mocker.patch('discord_bot.cli.bot.SQLAlchemyInstrumentor')
     mocker.patch('discord_bot.cli.common.trace')
     mocker.patch('discord_bot.cli.bot.trace')
@@ -761,12 +763,11 @@ async def test_main_with_health_server_monitoring(mocker):
 
 @pytest.mark.asyncio
 async def test_main_with_dispatch_health_server(mocker):
-    '''DispatchHealthServer is used when dispatch_gateway=False and redis_url is set (line 306)'''
+    '''DispatchHealthServer is used by discord-dispatcher when redis_url is set'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
             'general': {
                 'discord_token': 'foo',
-                'dispatch_gateway': False,
                 'redis_url': 'redis://localhost:6379/0',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -781,7 +782,7 @@ async def test_main_with_dispatch_health_server(mocker):
         mocker.patch('discord_bot.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
+        result = runner.invoke(dispatcher_main, [temp_config.name])
         await asyncio.sleep(.01)
         assert result.exception is None
 
@@ -819,11 +820,11 @@ def test_run_config_with_postgresql_db(mocker):
 
 
 def test_main_dunder_main(mocker):
-    '''Executing cli/main.py as __main__ invokes the main() click command.'''
+    '''Executing cli/bot.py as __main__ invokes the main() click command.'''
     import pathlib  # pylint: disable=import-outside-toplevel
     import discord_bot.cli as cli_pkg  # pylint: disable=import-outside-toplevel
     mocker.patch.object(sys, 'argv', ['main', '--help'])
-    main_file = pathlib.Path(cli_pkg.__file__).parent / 'main.py'
+    main_file = pathlib.Path(cli_pkg.__file__).parent / 'bot.py'
     spec = importlib.util.spec_from_file_location('__main__', main_file)
     new_mod = importlib.util.module_from_spec(spec)
     new_mod.__name__ = '__main__'

@@ -26,7 +26,6 @@ from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
 
 from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
@@ -150,7 +149,6 @@ def setup_otlp(general_config: GeneralConfig):
     tracer_provider = TracerProvider()
     trace.set_tracer_provider(tracer_provider)
     RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
-    RedisInstrumentor().instrument(tracer_provider=tracer_provider)
     span_exporter = OTLPSpanExporter()
     trace_provider = trace.get_tracer_provider()
     batch_processor = BatchSpanProcessor(span_exporter)
@@ -202,7 +200,8 @@ def setup_profiling(general_config: GeneralConfig, logger):
         ProcessMetricsProfiler(interval_seconds=interval_seconds).start()
 
 
-def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_server=None):
+def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_server=None,
+            dispatch_gateway: bool = True):
     '''Schedule main_loop on an existing event loop or start a new one.'''
     logger = logging.getLogger('main')
     token = general_config.discord_token
@@ -215,11 +214,11 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
     if loop and loop.is_running():
         logger.debug('Main :: Async event loop already running. Adding coroutine to the event loop.')
         loop.create_task(main_loop(bot, cog_list, token, health_server=health_server,
-                                   dispatch_gateway=general_config.dispatch_gateway))
+                                   dispatch_gateway=dispatch_gateway))
     else:
         logger.debug('Main :: Starting new discord bot instance')
         run(main_loop(bot, cog_list, token, health_server=health_server,
-                      dispatch_gateway=general_config.dispatch_gateway))
+                      dispatch_gateway=dispatch_gateway))
 
 
 def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot, list]:

@@ -1,14 +1,24 @@
 FROM python:3.14-slim-bookworm
 
 
+# Base packages
+# Update to latest for security fixes
+ARG INSTALL_HEAPTRACK=false
+RUN apt-get update && \
+    apt-get install -y gcc cmake git ffmpeg curl unzip sqlite3 && \
+    if [ "$INSTALL_HEAPTRACK" = "true" ]; then apt-get install -y heaptrack; fi && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
 # Setup venv
 ENV APPDIR="/opt/packages/discord-bot"
 ENV WORKDIR="/opt/discord"
 ENV VENVDIR="/opt/discord-venv"
 ENV LOGFILE="/var/log/discord"
+ENV DENO_INSTALL_ROOT="/opt/discord/.deno"
 
 # Setup installs and create directory structure
-RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/scripts" \
     "${WORKDIR}/cnf" "${WORKDIR}/downloads" "${WORKDIR}/db"
 
 # Create non-root user and group
@@ -23,15 +33,25 @@ COPY alembic.ini "${APPDIR}/"
 COPY pyproject.toml VERSION "${APPDIR}/"
 COPY scripts/ "${WORKDIR}/scripts/"
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install "${APPDIR}[dispatcher]" && \
-    apt-get remove -y git && apt-get autoremove -y
+RUN pip install "${APPDIR}[bot]"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
 RUN chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
+
+# Install Deno as non-root user
+# https://github.com/yt-dlp/yt-dlp/issues/14404
+USER discord
+RUN curl -fsSL https://deno.land/install.sh | sh
+
+# Switch back to root to finish setup
+USER root
+
+# Uninstall build dependencies
+RUN apt-get remove -y git unzip gcc cmake curl && apt-get autoremove -y
+
+# Make sure deno in path
+ENV PATH="$PATH:/opt/discord/.deno/bin"
 
 EXPOSE 8080
 
@@ -46,5 +66,5 @@ RUN mkdir -p /opt/discord/.cache
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
 
-ENTRYPOINT ["discord-dispatcher"]
+ENTRYPOINT ["discord-bot"]
 CMD ["/opt/discord/cnf/discord.cnf"]

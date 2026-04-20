@@ -98,7 +98,6 @@ class GeneralConfig(BaseModel):
     dispatch_cross_process: bool = False
     dispatch_process_id: Optional[str] = None
     dispatch_shard_id: int = 0
-    dispatch_gateway: bool = True
 
 def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
     '''

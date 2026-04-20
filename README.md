@@ -12,12 +12,14 @@ Includes some pre-written cogs for:
 
 ## Setup
 
-To install the python package, install the pip file within the repo
+To install the python package, clone the repo and install with pip:
 
 ```
 $ git clone https://github.com/tnoff/discord-bot.git
-$ pip install discord-bot/
+$ pip install "discord-bot/[all]"
 ```
+
+The `[all]` extra installs the full set of dependencies. For slim installs targeting a specific deployment role, use `[dispatcher]` (dispatcher service only) or `[bot]` (bot in HA mode, no Redis/dispatcher deps).
 
 ## Docker
 
@@ -143,13 +145,16 @@ general:
     role: true
 ```
 
-## Running bot
+## Running
 
-To run the bot via the command line
+Two commands are available depending on your deployment model:
 
 ```
-$ discord-bot /path/to/config/file
+$ discord-bot /path/to/config/file        # full bot (gateway + all cogs)
+$ discord-dispatcher /path/to/config/file # dispatcher process only (HA mode)
 ```
+
+For a standard single-container setup, `discord-bot` is all you need. In HA mode, run `discord-dispatcher` on one container and `discord-bot` (pointing at the dispatcher via `dispatch_http_url`) on the others.
 
 ## Help Page
 

@@ -5,6 +5,7 @@ import asyncio
 import concurrent.futures
 import sys
 
+import click
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry import trace
 
@@ -25,6 +26,7 @@ from discord_bot.utils.common import GeneralConfig
 from discord_bot.cli.common import (
     build_bot, load_cogs, make_async_db_url, run_bot,
     setup_logging, setup_otlp, setup_profiling,
+    parse_and_validate_config,
 )
 
 POSSIBLE_COGS = [
@@ -52,6 +54,14 @@ def _setup_db(general_config: GeneralConfig):
         return engine
     print('Unable to find sql statement in settings, assuming no db', file=sys.stderr)
     return None
+
+
+@click.command()
+@click.argument('config_file', type=click.Path(dir_okay=False))
+def main(config_file):
+    '''Run the full Discord bot (gateway connection, all cogs).'''
+    settings, general_config = parse_and_validate_config(config_file)
+    run(settings, general_config)
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -92,7 +102,7 @@ def run(settings: dict, general_config: GeneralConfig):
                     continue
                 logger.info(f'Main :: Bot associated with guild {guild.id} with name "{guild.name}"')
 
-        run_bot(general_config, bot, cog_list, health_server=health_server)
+        run_bot(general_config, bot, cog_list, health_server=health_server, dispatch_gateway=True)
     finally:
         if db_engine:
             try:
@@ -103,3 +113,7 @@ def run(settings: dict, general_config: GeneralConfig):
                 loop.create_task(db_engine.dispose())
             else:
                 asyncio.run(db_engine.dispose())
+
+
+if __name__ == '__main__':
+    main()  # pylint: disable=no-value-for-parameter

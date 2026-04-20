@@ -2,12 +2,28 @@
 
 Build docker file for discord-bot to run however you want.
 
+## Docker Images
+
+Three images are provided:
+
+| Dockerfile | Use case | pip extra | Entrypoint |
+|------------|----------|-----------|------------|
+| `docker/Dockerfile` | Standalone — bot + dispatcher in one container | `[all]` | `discord-bot` |
+| `docker/Dockerfile.bot` | HA mode — bot only, connects to a separate dispatcher | `[bot]` | `discord-bot` |
+| `docker/Dockerfile.dispatcher` | HA mode — dispatcher only | `[dispatcher]` | `discord-dispatcher` |
+
 ## Build Docker Image Locally
 
-Build just the discord-bot docker image:
+Build the standalone image:
 
 ```bash
 docker build -f docker/Dockerfile .
+```
+
+Build the HA bot image:
+
+```bash
+docker build -f docker/Dockerfile.bot .
 ```
 
 ## Security
@@ -158,11 +174,13 @@ docker compose -f docker/docker-compose.multiprocess.yml up -d
 
 Three services are started:
 
-| Service | Purpose |
-|---------|---------|
-| `redis` | Redis 7 (Alpine), persisted via named volume |
-| `dispatcher` | Loads only `MessageDispatcher`; reads the input stream and executes Discord API calls |
-| `bot` | Loads all desired cogs; routes dispatch calls to Redis instead of in-process |
+| Service | Command | pip extra |
+|---------|---------|-----------|
+| `redis` | — | — |
+| `dispatcher` | `discord-dispatcher` | `[dispatcher]` |
+| `bot` | `discord-bot` | `[bot]` |
+
+Each image installs only the dependencies it needs. The dispatcher image uses `pip install ".[dispatcher]"` (includes Redis client, excludes heavy media deps). The bot image uses `pip install ".[bot]"` (includes media/database deps, excludes Redis). For a standalone single-container deployment, `pip install ".[all]"` installs everything.
 
 **Required config files:**
 

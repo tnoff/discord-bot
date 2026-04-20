@@ -13,7 +13,7 @@ jobs:
       actions: read
     with:
       coverage_source: discord_bot
-      install_command: pip install -r requirements.txt -r requirements.sqlite.txt -r tests/requirements.txt
+      install_command: pip install ".[all,test,sqlite]"
       python_version: 3.14
       pre_install_command: sudo apt-get update && sudo apt-get install -y sqlite3 ffmpeg
   build:
@@ -61,6 +61,12 @@ jobs:
         file: ./docker/Dockerfile
         push: false
         build-args: DB_TYPE=postgres
+    - name: Build bot image (HA)
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+      with:
+        context: .
+        file: ./docker/Dockerfile.bot
+        push: false
     - name: Build dispatcher image
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
