@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -16,6 +17,15 @@ from discord_bot.utils.integrations.s3 import get_file, delete_file
 from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
+
+
+def _copy_and_checksum(src: Path, dst: Path) -> tuple[str, str]:
+    '''Copy src to dst and return (src_md5, dst_md5). Runs inside asyncio.to_thread.'''
+    copyfile(str(src), str(dst))
+    return (
+        hashlib.md5(src.read_bytes()).hexdigest(),
+        hashlib.md5(dst.read_bytes()).hexdigest(),
+    )
 
 
 class Zone(Enum):
@@ -70,7 +80,7 @@ class MediaBroker:
     # Registration
     # ------------------------------------------------------------------
 
-    def register_request(self, media_request: MediaRequest):
+    async def register_request(self, media_request: MediaRequest):
         '''
         Register a new MediaRequest entering the pipeline.
         Idempotent: a second call for the same UUID is ignored.
@@ -79,7 +89,7 @@ class MediaBroker:
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
 
-    def update_request_status(self, request_uuid: str, update: DownloadStatusUpdate) -> None:
+    async def update_request_status(self, request_uuid: str, update: DownloadStatusUpdate) -> None:
         '''
         Apply a lifecycle status update from the download worker.
         Looks up the request by UUID and drives the state machine transition.
@@ -161,7 +171,7 @@ class MediaBroker:
             to_delete = [
                 vc
                 for vc in await self.video_cache.get_deletable_entries()
-                if self.can_evict_base(vc.video_url)
+                if await self.can_evict_base(vc.video_url)
             ]
             span.set_attribute('music.broker.evicted_count', len(to_delete))
             if not to_delete:
@@ -175,7 +185,8 @@ class MediaBroker:
     # Player lifecycle
     # ------------------------------------------------------------------
 
-    def checkout(self, media_request_uuid: str, guild_id: int, guild_path: Path | None = None) -> Path | None:
+    async def checkout(self, media_request_uuid: str, guild_id: int,
+                       guild_path: Path | None = None) -> Path | None:
         '''
         Mark an entry as CHECKED_OUT when a player dequeues it to play.
 
@@ -202,13 +213,15 @@ class MediaBroker:
                 guild_path.mkdir(exist_ok=True)
                 uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
                 if self.bucket_name:
-                    get_file(self.bucket_name, str(entry.download.file_path), uuid_path)
+                    await asyncio.to_thread(
+                        get_file, self.bucket_name, str(entry.download.file_path), uuid_path
+                    )
                 else:
                     if not entry.download.file_path.exists():
                         raise FileNotFoundError('Unable to locate base path')
-                    copyfile(str(entry.download.file_path), str(uuid_path))
-                    src_md5 = hashlib.md5(entry.download.file_path.read_bytes()).hexdigest()
-                    dst_md5 = hashlib.md5(uuid_path.read_bytes()).hexdigest()
+                    src_md5, dst_md5 = await asyncio.to_thread(
+                        _copy_and_checksum, entry.download.file_path, uuid_path
+                    )
                     if src_md5 != dst_md5:
                         logger.warning('Checksum mismatch after copyfile: src=%s dst=%s src_md5=%s dst_md5=%s',
                                        entry.download.file_path, uuid_path, src_md5, dst_md5)
@@ -217,7 +230,7 @@ class MediaBroker:
             entry.checked_out_by = guild_id
             return entry.guild_file_path
 
-    def remove(self, media_request_uuid: str):
+    async def remove(self, media_request_uuid: str):
         '''
         Remove an entry from the registry without touching any files.
 
@@ -226,7 +239,7 @@ class MediaBroker:
         '''
         self._registry.pop(media_request_uuid, None)
 
-    def release(self, media_request_uuid: str):
+    async def release(self, media_request_uuid: str):
         '''
         Release a CHECKED_OUT entry: delete the guild-specific copy and
         remove from the registry.
@@ -235,9 +248,9 @@ class MediaBroker:
         '''
         entry = self._registry.pop(media_request_uuid, None)
         if entry and entry.guild_file_path:
-            entry.guild_file_path.unlink(missing_ok=True)
+            await asyncio.to_thread(entry.guild_file_path.unlink, missing_ok=True)
 
-    def discard(self, media_request_uuid: str):
+    async def discard(self, media_request_uuid: str):
         '''
         Remove an entry that was registered but could not be enqueued.
 
@@ -250,11 +263,11 @@ class MediaBroker:
         if entry and entry.download and not self.video_cache:
             if entry.download.file_path:
                 if self.bucket_name:
-                    delete_file(self.bucket_name, str(entry.download.file_path))
+                    await asyncio.to_thread(delete_file, self.bucket_name, str(entry.download.file_path))
                 else:
-                    entry.download.file_path.unlink(missing_ok=True)
+                    await asyncio.to_thread(entry.download.file_path.unlink, missing_ok=True)
 
-    def prefetch(self, queue_items: list, guild_id: int, guild_path: 'Path | None', limit: int):
+    async def prefetch(self, queue_items: list, guild_id: int, guild_path: 'Path | None', limit: int):
         '''
         Pre-stage the next `limit` AVAILABLE items from the queue to local disk.
         Already-staged (CHECKED_OUT) items count toward the limit.
@@ -273,14 +286,14 @@ class MediaBroker:
                 if entry.zone == Zone.CHECKED_OUT:
                     staged += 1
                 elif entry.zone == Zone.AVAILABLE:
-                    self.checkout(str(item.media_request.uuid), guild_id, guild_path)
+                    await self.checkout(str(item.media_request.uuid), guild_id, guild_path)
                     staged += 1
 
     # ------------------------------------------------------------------
     # Eviction queries
     # ------------------------------------------------------------------
 
-    def can_evict_request(self, media_request_uuid: str) -> bool:
+    async def can_evict_request(self, media_request_uuid: str) -> bool:
         '''
         True if the guild-specific copy for this request is safe to delete.
 
@@ -294,7 +307,7 @@ class MediaBroker:
             return True
         return entry.zone == Zone.AVAILABLE
 
-    def can_evict_base(self, webpage_url: str) -> bool:
+    async def can_evict_base(self, webpage_url: str) -> bool:
         '''
         True if the shared cached base file for this URL is safe to delete.
 
@@ -311,7 +324,7 @@ class MediaBroker:
     # Queries
     # ------------------------------------------------------------------
 
-    def get_entry(self, media_request_uuid: str) -> 'BrokerEntry | None':
+    async def get_entry(self, media_request_uuid: str) -> 'BrokerEntry | None':
         '''
         Return the registry entry for a given UUID, or None if not present.
         Intended for inspection in tests and diagnostics.
@@ -327,7 +340,7 @@ class MediaBroker:
     def __len__(self) -> int:
         return len(self._registry)
 
-    def get_checked_out_by(self, guild_id: int) -> List[BrokerEntry]:
+    async def get_checked_out_by(self, guild_id: int) -> List[BrokerEntry]:
         '''
         Return all entries currently checked out by the given guild.
         Used for player restart / queue refresh.

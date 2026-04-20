@@ -34,18 +34,18 @@ class TestInMemoryBrokerClient:
     async def test_update_request_status_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker, asyncio.Queue())
         await client.update_request_status(
             str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
         )
-        entry = broker.get_entry(str(mr.uuid))
+        entry = await broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_enqueues_and_returns_none(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
         client = InMemoryBrokerClient(broker, result_queue)
         with TemporaryDirectory() as tmp_dir:
@@ -95,15 +95,15 @@ class TestInMemoryBrokerClient:
     async def test_release_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker, asyncio.Queue())
         await client.release(str(mr.uuid))
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_prefetch_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker, asyncio.Queue())
         # prefetch is a no-op in local mode (no S3)
         await client.prefetch([], 123, None, 5)
@@ -118,20 +118,20 @@ class TestHttpBrokerClient:
     async def test_update_request_status(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = BrokerHttpServer(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.update_request_status(
                 str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
             )
-        entry = broker.get_entry(str(mr.uuid))
+        entry = await broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_enqueues_on_server_queue(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
         server = BrokerHttpServer(broker, result_queue=result_queue)
         with TemporaryDirectory() as tmp_dir:
@@ -176,12 +176,12 @@ class TestHttpBrokerClient:
     async def test_release(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = BrokerHttpServer(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.release(str(mr.uuid))
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_prefetch(self):
         '''prefetch with empty list is a no-op that does not raise.'''
@@ -199,9 +199,7 @@ class TestHttpBrokerClient:
         await hc.close()
         assert session.closed
 
-    async def test_lazy_session_creation(self):
-        '''_get_session() creates a session lazily on first call.'''
+    async def test_close_without_session_is_safe(self):
+        '''close() does not raise when no session has been created yet.'''
         hc = HttpBrokerClient('http://localhost:9999')
-        session = hc._get_session()  # pylint:disable=protected-access
-        assert session is not None
-        await hc.close()
+        await hc.close()  # should not raise

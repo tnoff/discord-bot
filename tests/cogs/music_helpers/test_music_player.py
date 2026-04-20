@@ -162,12 +162,13 @@ def test_music_clear_queue_messages(fake_context): #pylint:disable=redefined-out
             item = player.remove_queue_item(1)
             assert item is not None
 
-def test_music_clear_queue_messages_clear(fake_context): #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_music_clear_queue_messages_clear(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
-            player.clear_queue()
+            await player.clear_queue()
             result = player.get_queue_items()
             assert len(result) == 0
 
@@ -469,10 +470,10 @@ async def test_start_tasks_idempotent(fake_context): #pylint:disable=redefined-o
 def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10): #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
         broker = Mock()
-        broker.checkout.return_value = None
-        broker.release = Mock()
-        broker.remove = Mock()
-        broker.prefetch = Mock()
+        broker.checkout = AsyncMock(return_value=None)
+        broker.release = AsyncMock()
+        broker.remove = AsyncMock()
+        broker.prefetch = AsyncMock()
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
@@ -685,11 +686,12 @@ async def test_cleanup_cancels_player_task(fake_context): #pylint:disable=redefi
         assert player._player_task is None  #pylint:disable=protected-access
 
 
-def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disable=redefined-outer-name
     """clear_queue calls broker.remove for each queued item"""
     with with_broker_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
-            items = player.clear_queue()
+            items = await player.clear_queue()
             assert len(items) == 1
             player.broker.remove.assert_called_once_with(str(sd.media_request.uuid))

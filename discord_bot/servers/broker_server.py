@@ -81,7 +81,7 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.update_status', context=ctx, kind=SpanKind.SERVER):
-            self._broker.update_request_status(uuid, update)
+            await self._broker.update_request_status(uuid, update)
         return web.json_response({'status': 'ok'})
 
     async def _handle_register_download(self, request: web.Request) -> web.Response:
@@ -108,14 +108,14 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
-            path = self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+            path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
         return web.json_response({'guild_file_path': str(path) if path else None})
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.release', context=ctx, kind=SpanKind.SERVER):
-            self._broker.release(uuid)
+            await self._broker.release(uuid)
         return web.json_response({'status': 'ok'})
 
     async def _handle_prefetch(self, request: web.Request) -> web.Response:
@@ -130,5 +130,5 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         items = [_QueueItemProxy(uuid=u) for u in uuids]
         with otel_span_wrapper('broker.prefetch', context=ctx, kind=SpanKind.SERVER):
-            self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
+            await self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
         return web.json_response({'status': 'ok'})

@@ -78,7 +78,7 @@ class TestUpdateStatus:
     async def test_valid_request_calls_broker(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
@@ -92,7 +92,7 @@ class TestUpdateStatus:
     async def test_retry_event_with_detail(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
@@ -132,7 +132,7 @@ class TestRegisterDownload:
     async def test_valid_download_result_accepted(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
@@ -153,7 +153,7 @@ class TestRegisterDownload:
     async def test_result_enqueued_when_result_queue_provided(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
         server = BrokerHttpServer(broker, result_queue=result_queue)
         with TemporaryDirectory() as tmp_dir:
@@ -175,7 +175,7 @@ class TestRegisterDownload:
         queued = result_queue.get_nowait()
         assert str(queued.media_request.uuid) == str(mr.uuid)
         # broker registry should NOT have a completed download (queue path skips broker.register_download_result)
-        assert broker.get_entry(str(mr.uuid)).download is None
+        assert (await broker.get_entry(str(mr.uuid))).download is None
 
     async def test_invalid_body_returns_422(self):
         broker = _make_broker()
@@ -229,7 +229,7 @@ class TestRelease:
     async def test_release_known_entry(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.post(f'/requests/{mr.uuid}/release')
@@ -237,7 +237,7 @@ class TestRelease:
             data = await resp.json()
             assert data['status'] == 'ok'
         # Entry should be gone after release
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_release_unknown_uuid_is_no_op(self):
         broker = _make_broker()
