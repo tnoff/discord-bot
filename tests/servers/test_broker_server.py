@@ -150,6 +150,33 @@ class TestRegisterDownload:
                     )
                     assert resp.status == 202
 
+    async def test_result_enqueued_when_result_queue_provided(self):
+        broker = _make_broker()
+        mr = _make_request()
+        broker.register_request(mr)
+        result_queue: asyncio.Queue = asyncio.Queue()
+        server = BrokerHttpServer(broker, result_queue=result_queue)
+        with TemporaryDirectory() as tmp_dir:
+            with fake_media_download(tmp_dir, media_request=mr) as md:
+                result = DownloadResult(
+                    status=DownloadStatus(success=True),
+                    media_request=mr,
+                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
+                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
+                    file_name=md.file_path,
+                )
+                async with TestClient(TestServer(server.build_app())) as client:
+                    resp = await client.post(
+                        '/downloads',
+                        json=result.model_dump(mode='json'),
+                    )
+                    assert resp.status == 202
+        assert not result_queue.empty()
+        queued = result_queue.get_nowait()
+        assert str(queued.media_request.uuid) == str(mr.uuid)
+        # broker registry should NOT have a completed download (queue path skips broker.register_download_result)
+        assert broker.get_entry(str(mr.uuid)).download is None
+
     async def test_invalid_body_returns_422(self):
         broker = _make_broker()
         server = _make_server(broker)

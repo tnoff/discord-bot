@@ -1,6 +1,7 @@
 '''
 Tests for InMemoryBrokerClient and HttpBrokerClient.
 '''
+import asyncio
 from tempfile import TemporaryDirectory
 
 import pytest
@@ -34,18 +35,19 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         broker.register_request(mr)
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         await client.update_request_status(
             str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
         )
         entry = broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
-    async def test_register_download_result_returns_media_download(self):
+    async def test_register_download_result_enqueues_and_returns_none(self):
         broker = _make_broker()
         mr = _make_request()
         broker.register_request(mr)
-        client = InMemoryBrokerClient(broker)
+        result_queue: asyncio.Queue = asyncio.Queue()
+        client = InMemoryBrokerClient(broker, result_queue)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 result = DownloadResult(
@@ -56,13 +58,15 @@ class TestInMemoryBrokerClient:
                     file_name=md.file_path,
                 )
                 returned = await client.register_download_result(result)
-        assert returned is not None
-        assert returned.media_request is mr
+        assert returned is None
+        assert not result_queue.empty()
+        queued = result_queue.get_nowait()
+        assert queued.media_request is mr
 
     async def test_checkout_returns_str_path(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -73,14 +77,14 @@ class TestInMemoryBrokerClient:
 
     async def test_checkout_returns_none_for_unknown(self):
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         result = await client.checkout('nonexistent', 123)
         assert result is None
 
     async def test_checkout_no_guild_path(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -92,7 +96,7 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         broker.register_request(mr)
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         await client.release(str(mr.uuid))
         assert broker.get_entry(str(mr.uuid)) is None
 
@@ -100,7 +104,7 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         broker.register_request(mr)
-        client = InMemoryBrokerClient(broker)
+        client = InMemoryBrokerClient(broker, asyncio.Queue())
         # prefetch is a no-op in local mode (no S3)
         await client.prefetch([], 123, None, 5)
 
@@ -124,11 +128,12 @@ class TestHttpBrokerClient:
         entry = broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
-    async def test_register_download_result_returns_none(self):
+    async def test_register_download_result_enqueues_on_server_queue(self):
         broker = _make_broker()
         mr = _make_request()
         broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        result_queue: asyncio.Queue = asyncio.Queue()
+        server = BrokerHttpServer(broker, result_queue=result_queue)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 result = DownloadResult(
@@ -142,6 +147,9 @@ class TestHttpBrokerClient:
                     hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                     returned = await hc.register_download_result(result)
         assert returned is None
+        assert not result_queue.empty()
+        queued = result_queue.get_nowait()
+        assert str(queued.media_request.uuid) == str(mr.uuid)
 
     async def test_checkout_unknown_returns_none(self):
         broker = _make_broker()

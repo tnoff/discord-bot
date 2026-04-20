@@ -69,6 +69,7 @@ def yield_download_client_bot_flagged():
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):
@@ -195,6 +196,7 @@ def yield_download_client_retry_limit_exceeded():
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):
@@ -247,6 +249,7 @@ def yield_download_client_success_no_data():
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):

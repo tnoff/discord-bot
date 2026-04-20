@@ -58,6 +58,7 @@ def yield_fake_download_client(media_download: MediaDownload):
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):
@@ -86,6 +87,7 @@ def yield_download_client_download_exception():
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):
@@ -103,6 +105,7 @@ def yield_download_client_download_error():
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
             )
 
         async def create_source(self, media_request, *_args, **_kwargs):

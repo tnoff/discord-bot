@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Protocol
 
@@ -33,17 +34,24 @@ class InMemoryBrokerClient:
     '''
     BrokerClient backed by a local MediaBroker instance.
     Used when all components run in the same process.
+
+    result_queue: asyncio.Queue that completed DownloadResults are pushed onto so
+    that Music.process_download_results can consume them. The queue is injected here
+    (and into BrokerHttpServer) rather than held by DownloadClient, which means the
+    same routing path works whether the download worker is in-process or remote.
     '''
-    def __init__(self, broker: MediaBroker):
+    def __init__(self, broker: MediaBroker, result_queue: asyncio.Queue):
         self._broker = broker
+        self._result_queue = result_queue
 
     async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
         '''Delegate to broker.update_request_status.'''
         self._broker.update_request_status(uuid, update)
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
-        '''Delegate to broker.register_download_result.'''
-        return await self._broker.register_download_result(result)
+        '''Enqueue the raw DownloadResult for Music.process_download_results to route.'''
+        self._result_queue.put_nowait(result)
+        return None
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
         '''Delegate to broker.checkout, converting path to/from str.'''

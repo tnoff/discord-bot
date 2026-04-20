@@ -2,6 +2,7 @@
 HTTP server exposing MediaBroker over aiohttp for cross-process communication.
 Schedule with asyncio.create_task(server.serve()).
 '''
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,10 +50,12 @@ class BrokerHttpServer(AiohttpServerBase):
         POST /prefetch                  prefetch
     '''
 
-    def __init__(self, broker: MediaBroker, host: str = '0.0.0.0', port: int = 8081):
+    def __init__(self, broker: MediaBroker, host: str = '0.0.0.0', port: int = 8081,
+                 result_queue: asyncio.Queue | None = None):
         self._broker = broker
         self._host = host
         self._port = port
+        self._result_queue = result_queue
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
@@ -88,7 +91,10 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.register_download', context=ctx, kind=SpanKind.SERVER):
-            await self._broker.register_download_result(result)
+            if self._result_queue is not None:
+                self._result_queue.put_nowait(result)
+            else:
+                await self._broker.register_download_result(result)
         return web.json_response({'status': 'ok'}, status=202)
 
     async def _handle_checkout(self, request: web.Request) -> web.Response:

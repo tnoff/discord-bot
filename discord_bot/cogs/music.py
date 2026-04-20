@@ -245,10 +245,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             bucket_name=storage_bucket_name,
         )
 
+        self._pending_download_results: asyncio.Queue = asyncio.Queue()
+
         if self.config.broker_client:
             self.broker_client = HttpBrokerClient(self.config.broker_client.url)
         else:
-            self.broker_client = InMemoryBrokerClient(self.media_broker)
+            self.broker_client = InMemoryBrokerClient(self.media_broker, self._pending_download_results)
 
         # Multi Request bundles
         self.multirequest_bundles = {}
@@ -348,7 +350,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Total pending download results waiting to be routed to players
         '''
         return [
-            Observation(self.download_client.result_queue_depth(), attributes={
+            Observation(self._pending_download_results.qsize(), attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
             })
         ]
@@ -424,6 +426,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.media_broker,
                 host=self.config.broker_server.host,
                 port=self.config.broker_server.port,
+                result_queue=self._pending_download_results,
             )
             self.bot.loop.create_task(broker_server.serve())
         if self.db_engine:
@@ -786,7 +789,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         try:
-            result = self.download_client.get_result_nowait()
+            result = self._pending_download_results.get_nowait()
         except QueueEmpty:
             return
 

@@ -83,7 +83,7 @@ def yield_download_client_retryable_exception():
     """Fake download client that returns a retryable failure DownloadResult"""
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
-            super().__init__(Path("/tmp"), failure_queue=kwargs.get('failure_queue'),
+            super().__init__(Path("/tmp"), broker=kwargs.get('broker'), failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
             )
@@ -102,6 +102,7 @@ def yield_download_client_bot_flagged():
         def __init__(self, *_args, **kwargs):
             super().__init__(
                 Path('/tmp'),
+                broker=kwargs.get('broker'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),

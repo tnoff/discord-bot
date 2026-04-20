@@ -76,9 +76,11 @@ def yield_dlp_error(message):
             raise DownloadError(message)
     return MockYTDLPError()
 
-def make_download_client(mock_ytdl=None, **kwargs):
+def make_download_client(mock_ytdl=None, broker=None, **kwargs):
     '''Create a DownloadClient with an optional mock ytdl injected post-init.'''
-    client = DownloadClient(Path('/tmp'), **kwargs)
+    if broker is None:
+        broker = AsyncMock()
+    client = DownloadClient(Path('/tmp'), broker=broker, **kwargs)
     if mock_ytdl is not None:
         client.ytdl = mock_ytdl
     return client
@@ -1025,18 +1027,17 @@ def test_clear_guild_queue_with_predicate():
     assert client.queue_size(mr.guild_id) == 1
 
 
-def test_get_result_nowait_raises_when_empty():
-    '''get_result_nowait raises QueueEmpty when no results are available'''
+def test_queue_size_empty_on_init():
+    '''queue_size returns 0 before any submissions'''
     client = make_download_client()
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
+    assert client.queue_size(1) == 0
 
 
 # ========== DownloadClient.run() Tests ==========
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_run_success_puts_result_on_result_queue():
-    '''run() downloads and puts result on result queue; broker gets IN_PROGRESS (no backoff active)'''
+async def test_run_success_calls_broker_register_download_result():
+    '''run() downloads successfully and calls broker.register_download_result; broker gets IN_PROGRESS'''
     fake_context = generate_fake_context()
     mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
@@ -1047,7 +1048,8 @@ async def test_run_success_puts_result_on_result_queue():
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
-    result = client.get_result_nowait()
+    mock_broker.register_download_result.assert_called_once()
+    result = mock_broker.register_download_result.call_args.args[0]
     assert result.status.success
     assert result.file_name == pcm_path
     broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
@@ -1067,9 +1069,8 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    # Result queue should be empty — retryable goes back to input queue
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
+    # Retryable errors re-enqueue — register_download_result not called
+    mock_broker.register_download_result.assert_not_called()
     # retry_count incremented
     assert mr.download_retry_information.retry_count == 1
     # Input queue has the request again
@@ -1079,8 +1080,8 @@ async def test_run_retryable_requeues_and_increments_retry_count():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_run_terminal_error_puts_result_on_result_queue():
-    '''run() puts terminal failures on the result queue for music.py to handle'''
+async def test_run_terminal_error_calls_broker_register_download_result():
+    '''run() calls broker.register_download_result for terminal failures'''
     fake_context = generate_fake_context()
     mock_broker = AsyncMock()
     client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
@@ -1088,7 +1089,8 @@ async def test_run_terminal_error_puts_result_on_result_queue():
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    result = client.get_result_nowait()
+    mock_broker.register_download_result.assert_called_once()
+    result = mock_broker.register_download_result.call_args.args[0]
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.PRIVATE_VIDEO
 
@@ -1099,8 +1101,6 @@ async def test_run_empty_queue_returns_immediately():
     client = make_download_client()
     shutdown = asyncio.Event()
     await client.run(shutdown)  # Should not raise or block
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1121,31 +1121,29 @@ async def test_run_shutdown_during_backoff_does_not_lose_item():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_run_without_broker_still_works():
-    '''run() works correctly when no broker is configured'''
+async def test_run_broker_receives_terminal_and_success_results():
+    '''run() always calls broker.register_download_result for both success and terminal failures'''
     fake_context = generate_fake_context()
-    client = make_download_client(yield_dlp_error('Private video'))
+    mock_broker = AsyncMock()
+    client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    result = client.get_result_nowait()
-    assert not result.status.success
+    mock_broker.register_download_result.assert_called_once()
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_result_queue_depth():
-    '''result_queue_depth returns total pending results across all guilds'''
+async def test_run_terminal_error_broker_called_once():
+    '''run() calls broker.register_download_result exactly once for a terminal error'''
     fake_context = generate_fake_context()
-    client = make_download_client(yield_dlp_error('Private video'))
-    assert client.result_queue_depth() == 0
+    mock_broker = AsyncMock()
+    client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    assert client.result_queue_depth() == 1
-    client.get_result_nowait()
-    assert client.result_queue_depth() == 0
+    assert mock_broker.register_download_result.call_count == 1
 
 
 # ========== DIRECT item bypass tests ==========
@@ -1213,8 +1211,9 @@ async def test_backoff_wait_raises_direct_item_available():
 async def test_run_direct_item_bypasses_active_backoff():
     '''DIRECT item already queued is processed immediately even when backoff is active'''
     fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr = fake_source_dict(fake_context, is_direct_search=True)
         client.submit(mr.guild_id, mr)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
@@ -1222,7 +1221,8 @@ async def test_run_direct_item_bypasses_active_backoff():
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
-    result = client.get_result_nowait()
+    mock_broker.register_download_result.assert_called_once()
+    result = mock_broker.register_download_result.call_args.args[0]
     assert result.status.success
 
 
@@ -1230,8 +1230,9 @@ async def test_run_direct_item_bypasses_active_backoff():
 async def test_run_direct_item_interrupts_mid_wait():
     '''DIRECT item submitted while run() is mid-backoff-wait interrupts the wait'''
     fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
@@ -1244,7 +1245,8 @@ async def test_run_direct_item_interrupts_mid_wait():
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
             await asyncio.gather(client.run(shutdown), submit_after_delay())
 
-    result = client.get_result_nowait()
+    mock_broker.register_download_result.assert_called_once()
+    result = mock_broker.register_download_result.call_args.args[0]
     assert result.status.success
 
 
@@ -1267,14 +1269,14 @@ async def test_run_non_direct_still_waits_backoff():
 async def test_run_direct_retryable_requeues_to_direct_queue():
     '''Retryable DIRECT errors go back to the direct queue (not _input_queue)'''
     fake_context = generate_fake_context()
-    client = make_download_client(yield_dlp_error('Read timed out.'))
+    mock_broker = AsyncMock()
+    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
     mr = fake_source_dict(fake_context, is_direct_search=True)
     client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
-    # Result queue should be empty
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
+    # Retryable errors re-enqueue — register_download_result not called
+    mock_broker.register_download_result.assert_not_called()
     # Item re-queued and direct event re-set
     assert client.queue_size(mr.guild_id) == 1
     assert client.has_direct_pending
@@ -1284,8 +1286,9 @@ async def test_run_direct_retryable_requeues_to_direct_queue():
 async def test_run_three_direct_items_all_processed_with_backoff():
     '''Three DIRECT items pre-queued are all processed and event is clear after the last one'''
     fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mrs = [fake_source_dict(fake_context, is_direct_search=True) for _ in range(3)]
         for mr in mrs:
             client.submit(mr.guild_id, mr)
@@ -1295,7 +1298,7 @@ async def test_run_three_direct_items_all_processed_with_backoff():
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
             for _ in range(3):
                 await client.run(shutdown)
-    assert client.result_queue_depth() == 3
+    assert mock_broker.register_download_result.call_count == 3
     assert not client.has_direct_pending
 
 
@@ -1303,8 +1306,9 @@ async def test_run_three_direct_items_all_processed_with_backoff():
 async def test_run_three_direct_items_arriving_mid_backoff():
     '''Three DIRECT items submitted one at a time mid-backoff are each processed in turn'''
     fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
@@ -1317,12 +1321,12 @@ async def test_run_three_direct_items_arriving_mid_backoff():
 
         async def run_until_three_results():
             with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
-                while client.result_queue_depth() < 3:
+                while mock_broker.register_download_result.call_count < 3:
                     await client.run(shutdown)
 
         await asyncio.gather(submit_three_with_delays(), run_until_three_results())
 
-    assert client.result_queue_depth() == 3
+    assert mock_broker.register_download_result.call_count == 3
     assert not client.has_direct_pending
 
 
@@ -1366,17 +1370,16 @@ async def test_run_backoff_expires_empty_queue_returns_without_processing():
     client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
     shutdown = asyncio.Event()
     with patch.object(client, 'backoff_wait', new=AsyncMock(return_value=None)):
-        await client.run(shutdown)
-    with pytest.raises(QueueEmpty):
-        client.get_result_nowait()
+        await client.run(shutdown)  # Should not raise
 
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_run_no_backoff_preserves_submission_order():
     '''Without backoff, a DIRECT item submitted after a non-DIRECT item is processed second'''
     fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
     with NamedTemporaryFile(delete=False) as tmp_file:
-        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
+        client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr_search = fake_source_dict(fake_context)
         mr_direct = fake_source_dict(fake_context, is_direct_search=True)
         client.submit(mr_search.guild_id, mr_search)
@@ -1386,7 +1389,7 @@ async def test_run_no_backoff_preserves_submission_order():
         with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
             await client.run(shutdown)
-    first = client.get_result_nowait()
-    second = client.get_result_nowait()
-    assert first.media_request.uuid == mr_search.uuid
-    assert second.media_request.uuid == mr_direct.uuid
+    calls = mock_broker.register_download_result.call_args_list
+    assert len(calls) == 2
+    assert calls[0].args[0].media_request.uuid == mr_search.uuid
+    assert calls[1].args[0].media_request.uuid == mr_direct.uuid

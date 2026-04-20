@@ -138,6 +138,7 @@ class DownloadClient():
     def __init__(
         self,
         download_dir: Path,
+        broker: BrokerClient,
         extra_ytdlp_options: dict | None = None,
         max_video_length: int | None = None,
         banned_video_list: List[str] | None = None,
@@ -146,7 +147,6 @@ class DownloadClient():
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
         normalize_audio: bool = False,
-        broker: BrokerClient | None = None,
         max_retries: int = 3,
         queue_max_size: int = 100,
     ):
@@ -154,15 +154,15 @@ class DownloadClient():
         Init download client
 
         ytdl : YoutubeDL Client
+        broker : BrokerClient for lifecycle status updates and result delivery; required
         failure_queue : Optional FailureQueue for tracking download failures
         wait_period_minimum : Minimum backoff wait time in seconds
         wait_period_max_variance : Maximum extra random variance in seconds
         bucket_name : S3 bucket to upload to immediately after download;
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
-        broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
-        queue_max_size : Per-guild capacity for the input and result queues
+        queue_max_size : Per-guild capacity for the input queues
         '''
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -187,7 +187,6 @@ class DownloadClient():
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_available: asyncio.Event = asyncio.Event()
-        self._result_queue: DistributedQueue[DownloadResult] = DistributedQueue(queue_max_size)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -329,17 +328,6 @@ class DownloadClient():
             media_request.span_context = capture_span_context()
         self._enqueue_request(guild_id, media_request, priority=priority)
 
-    def result_queue_depth(self) -> int:
-        '''Total number of completed results waiting to be processed across all guilds.'''
-        return sum(item.queue.size() for item in self._result_queue.queues.values())
-
-    def get_result_nowait(self) -> DownloadResult:
-        '''
-        Return the next completed DownloadResult, raising QueueEmpty if none available.
-        Results include both successes and terminal failures.
-        '''
-        return self._result_queue.get_nowait()
-
     def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
         a = self._input_queue.block(guild_id)
@@ -446,7 +434,7 @@ class DownloadClient():
             self._enqueue_request(media_request.guild_id, media_request)
             return
 
-        self._result_queue.put_nowait(media_request.guild_id, result)
+        await self._broker.register_download_result(result)
 
     @staticmethod
     def _make_error_result(
