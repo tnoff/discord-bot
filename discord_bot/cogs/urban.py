@@ -18,10 +18,10 @@ class UrbanDictionary(CogHelper):
     Class that looks up urban dictionary definitions
     '''
 
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
-        super().__init__(bot, settings, None)
+        super().__init__(bot, settings, None, redis_manager=redis_manager)
 
     @command(name='urban')
     @command_wrapper

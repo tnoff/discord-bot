@@ -36,11 +36,12 @@ class DeleteMessages(CogHelper):
     '''
     Delete Messages in Channels after X days
     '''
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('delete_messages', False):
             raise CogMissingRequiredArg('Delete messages not enabled')
 
-        super().__init__(bot, settings, None, settings_prefix='delete_messages', config_model=DeleteMessagesConfig)
+        super().__init__(bot, settings, None, settings_prefix='delete_messages', config_model=DeleteMessagesConfig,
+                         redis_manager=redis_manager)
         self.loop_sleep_interval = self.config.loop_sleep_interval
         self.discord_channels = [channel.model_dump() for channel in self.config.discord_channels]
         self._task = None

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 
-from discord_bot.clients.redis_client import get_redis_client
+from discord_bot.clients.redis_client import RedisManager
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +73,16 @@ class DispatchHealthServer:
     503 {"status": "unavailable"} otherwise.
     """
 
-    def __init__(self, redis_url: str, port: int = 8080):
-        self._redis_url = redis_url
+    def __init__(self, redis_manager: RedisManager, port: int = 8080):
+        self.redis_manager = redis_manager
         self.port = port
-        self._client = None
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
-        self._client = get_redis_client(self._redis_url)
-        try:
-            server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
-            logger.info(f'Redis health server listening on port {self.port}')
-            async with server:
-                await server.serve_forever()
-        finally:
-            await self._client.aclose()
+        server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
+        logger.info(f'Redis health server listening on port {self.port}')
+        async with server:
+            await server.serve_forever()
 
     async def _handle(self, reader, writer):
         """Handle a single HTTP request and write the response."""
@@ -99,7 +94,7 @@ class DispatchHealthServer:
                     break
 
             try:
-                await self._client.ping()
+                await self.redis_manager.client.ping()
                 status_line = b'HTTP/1.1 200 OK\r\n'
                 body = json.dumps({'status': 'ok'}).encode()
             except Exception:

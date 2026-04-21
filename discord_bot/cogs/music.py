@@ -163,8 +163,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
-        super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
+    REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
+                       'video_cache_backup', 'guild', 'server_video_analytics']
+
+    def __init__(self, bot: Bot, settings: dict, db_engine: Engine, redis_manager=None): #pylint:disable=too-many-statements
+        super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig,
+                         redis_manager=redis_manager)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
 

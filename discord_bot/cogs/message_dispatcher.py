@@ -31,7 +31,6 @@ from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.dispatch_queue import RedisDispatchQueue
 from discord_bot.clients.redis_client import (
     delete_bundle as redis_delete_bundle,
-    get_redis_client,
     load_all_bundles,
     load_bundle as redis_load_bundle,
     save_bundle as redis_save_bundle,
@@ -344,8 +343,8 @@ class MessageDispatcher(CogHelperBase):
     Results are delivered to per-cog result queues as typed result objects.
     '''
 
-    def __init__(self, bot: Bot, settings: dict, db_engine=None):
-        super().__init__(bot, settings, db_engine)
+    def __init__(self, bot: Bot, settings: dict, db_engine=None, redis_manager=None):
+        super().__init__(bot, settings, db_engine, redis_manager=redis_manager)
         if not settings.get('general', {}).get('include', {}).get('message_dispatcher', True):
             raise CogMissingRequiredArg('MessageDispatcher not enabled')
 
@@ -380,13 +379,12 @@ class MessageDispatcher(CogHelperBase):
         depth = sum(q.qsize() for q in self._guilds.values())
         return [Observation(depth, attributes={AttributeNaming.BACKGROUND_JOB.value: 'message_dispatcher_queue'})]
 
-    @cached_property
+    @property
     def _redis(self):
-        '''Return an async Redis client if redis_url is configured, else None.'''
-        url = self.settings.get('general', {}).get('redis_url')
-        if not url:
-            return None
-        return get_redis_client(url)
+        '''Return the shared Redis client if a RedisManager was injected, else None.'''
+        if self.redis_manager is not None:
+            return self.redis_manager.client
+        return None
 
     # ------------------------------------------------------------------
     # Cog lifecycle
@@ -463,8 +461,6 @@ class MessageDispatcher(CogHelperBase):
                 return_exceptions=True,
             )
 
-        if self.__dict__.get('_redis') is not None:
-            await self._redis.aclose()
         self.logger.info('MessageDispatcher :: shutdown complete')
 
     async def _restore_bundles(self):

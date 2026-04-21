@@ -12,6 +12,7 @@ from opentelemetry import trace
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from discord_bot.clients.redis_client import RedisManager
 from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.cogs.general import General
 from discord_bot.cogs.markov import Markov
@@ -79,8 +80,10 @@ def run(settings: dict, general_config: GeneralConfig):
         logger = setup_logging(general_config)
         setup_profiling(general_config, logger)
 
+        redis_manager = RedisManager(general_config.redis_url) if general_config.redis_url else None
+
         bot, cog_list = build_bot(general_config, settings)
-        cog_list += load_cogs(bot, POSSIBLE_COGS, settings, db_engine)
+        cog_list += load_cogs(bot, POSSIBLE_COGS, settings, db_engine, redis_manager=redis_manager)
 
         health_server = None
         if general_config.monitoring and general_config.monitoring.health_server \
@@ -102,7 +105,8 @@ def run(settings: dict, general_config: GeneralConfig):
                     continue
                 logger.info(f'Main :: Bot associated with guild {guild.id} with name "{guild.name}"')
 
-        run_bot(general_config, bot, cog_list, health_server=health_server, dispatch_gateway=True)
+        run_bot(general_config, bot, cog_list, health_server=health_server, dispatch_gateway=True,
+                redis_manager=redis_manager)
     finally:
         if db_engine:
             try:

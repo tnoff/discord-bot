@@ -108,13 +108,16 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine):
+    REQUIRED_TABLES = ['markov_channel', 'markov_relation']
+
+    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine, redis_manager=None):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, settings, db_engine, settings_prefix='markov', config_model=MarkovConfig)
+        super().__init__(bot, settings, db_engine, settings_prefix='markov', config_model=MarkovConfig,
+                         redis_manager=redis_manager)
 
         # Access config values through self.config (Pydantic model)
         self.loop_sleep_interval = self.config.loop_sleep_interval

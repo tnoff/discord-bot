@@ -81,7 +81,7 @@ def read_config(config_file: str) -> dict:
 
 
 async def main_loop(bot: Bot, cog_list: List[CogHelperBase], token: str, health_server=None,
-                    dispatch_gateway: bool = True):
+                    dispatch_gateway: bool = True, redis_manager=None):
     '''
     Main loop for starting bot
     Includes logic to handle stops and cog removals
@@ -103,6 +103,9 @@ async def main_loop(bot: Bot, cog_list: List[CogHelperBase], token: str, health_
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
+
+    if redis_manager is not None:
+        await redis_manager.start()
 
     try:
         async with bot:
@@ -135,6 +138,8 @@ async def main_loop(bot: Bot, cog_list: List[CogHelperBase], token: str, health_
                         logger.exception(f'Main :: Error during cog_unload for {cog.__class__.__name__}: {str(e)}')
             if not bot.is_closed():
                 await bot.close()
+            if redis_manager is not None:
+                await redis_manager.close()
             logger.info('Main :: Graceful shutdown complete')
 
 
@@ -201,7 +206,7 @@ def setup_profiling(general_config: GeneralConfig, logger):
 
 
 def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_server=None,
-            dispatch_gateway: bool = True):
+            dispatch_gateway: bool = True, redis_manager=None):
     '''Schedule main_loop on an existing event loop or start a new one.'''
     logger = logging.getLogger('main')
     token = general_config.discord_token
@@ -214,11 +219,13 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
     if loop and loop.is_running():
         logger.debug('Main :: Async event loop already running. Adding coroutine to the event loop.')
         loop.create_task(main_loop(bot, cog_list, token, health_server=health_server,
-                                   dispatch_gateway=dispatch_gateway))
+                                   dispatch_gateway=dispatch_gateway,
+                                   redis_manager=redis_manager))
     else:
         logger.debug('Main :: Starting new discord bot instance')
         run(main_loop(bot, cog_list, token, health_server=health_server,
-                      dispatch_gateway=dispatch_gateway))
+                      dispatch_gateway=dispatch_gateway,
+                      redis_manager=redis_manager))
 
 
 def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot, list]:
@@ -244,13 +251,13 @@ def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot
     return bot, cog_list
 
 
-def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine) -> list:
+def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine, redis_manager=None) -> list:
     '''Attempt to instantiate each cog class; skip those missing required args.'''
     logger = logging.getLogger('main')
     cogs = []
     for cog_cls in cog_classes:
         try:
-            cogs.append(cog_cls(bot, settings, db_engine))
+            cogs.append(cog_cls(bot, settings, db_engine, redis_manager=redis_manager))
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog_cls)}, {str(e)}')
     return cogs

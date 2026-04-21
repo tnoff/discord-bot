@@ -29,7 +29,8 @@ class CogHelperBase(Cog):
 
     def __init__(self, bot: Bot, settings: dict, db_engine=None,
                  settings_prefix: str = None,
-                 config_model: Optional[type[BaseModel]] = None):
+                 config_model: Optional[type[BaseModel]] = None,
+                 redis_manager=None):
         '''
         Init a basic cog
         bot                 :   Discord bot object
@@ -39,6 +40,7 @@ class CogHelperBase(Cog):
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
         config_model        :   (Optional) Pydantic model to validate config against.
                                 settings_prefix must also be given.
+        redis_manager       :   (Optional) Shared RedisManager instance for the process
         '''
         if config_model and not settings_prefix:
             raise CogMissingRequiredArg('Config model given but settings prefix not given')
@@ -51,6 +53,7 @@ class CogHelperBase(Cog):
         self.config: Optional[BaseModel] = None
         self._init_task = None
         self._result_queue: asyncio.Queue | None = None
+        self.redis_manager = redis_manager
 
         if config_model:
             try:

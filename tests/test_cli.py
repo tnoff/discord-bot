@@ -572,6 +572,34 @@ async def test_main_loop_with_health_server():
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_main_loop_closes_redis_manager_on_shutdown():
+    '''main_loop calls redis_manager.close() after cogs unload on KeyboardInterrupt shutdown.'''
+    class _FakeBotInterrupt:
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return False
+        async def start(self, _token):
+            raise KeyboardInterrupt()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            pass
+
+    mock_manager = MagicMock()
+    mock_manager.start = AsyncMock()
+    mock_manager.close = AsyncMock()
+
+    await main_loop(_FakeBotInterrupt(), [], 'token', redis_manager=mock_manager)
+    mock_manager.start.assert_awaited_once()
+    mock_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_main_loop_second_signal_noop():
     '''Second signal while shutdown is already triggered hits the early return (line 121)'''
     class _FakeBotDoubleSignal:

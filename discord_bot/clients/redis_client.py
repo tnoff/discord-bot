@@ -6,6 +6,39 @@ BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'
 BUNDLE_TTL_SECONDS = 86400  # 1 day — fallback expiry for orphaned bundles
 
 
+class RedisManager:
+    '''Owns one shared async Redis connection for a process.'''
+
+    def __init__(self, url: str):
+        self._url = url
+        self._client: aioredis.Redis | None = None
+
+    @property
+    def client(self) -> aioredis.Redis:
+        '''Return the shared Redis client. Raises if start() has not been called.'''
+        if self._client is None:
+            raise RuntimeError('RedisManager has not been started')
+        return self._client
+
+    async def start(self) -> None:
+        '''Open the Redis connection.'''
+        self._client = get_redis_client(self._url)
+
+    async def close(self) -> None:
+        '''Close the Redis connection if open.'''
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    @classmethod
+    def from_client(cls, client: aioredis.Redis) -> 'RedisManager':
+        '''Create a RedisManager wrapping an already-open client (useful in tests).'''
+        manager = cls.__new__(cls)
+        manager._url = None
+        manager._client = client
+        return manager
+
+
 def get_redis_client(url: str) -> aioredis.Redis:
     '''Return an async Redis client connected to *url*.'''
     return aioredis.from_url(url, decode_responses=True)
