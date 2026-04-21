@@ -22,6 +22,7 @@ from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisR
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -110,14 +111,13 @@ class Markov(CogHelper):
     '''
     REQUIRED_TABLES = ['markov_channel', 'markov_relation']
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine, redis_manager=None):
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, db_engine: AsyncEngine = None):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, settings, db_engine, settings_prefix='markov', config_model=MarkovConfig,
-                         redis_manager=redis_manager)
+        super().__init__(bot, settings, dispatcher, db_engine, settings_prefix='markov', config_model=MarkovConfig)
 
         # Access config values through self.config (Pydantic model)
         self.loop_sleep_interval = self.config.loop_sleep_interval

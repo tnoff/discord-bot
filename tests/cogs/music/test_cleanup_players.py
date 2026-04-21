@@ -19,7 +19,7 @@ from tests.helpers import fake_engine, fake_context, fake_source_dict #pylint:di
 
 @pytest.mark.asyncio
 async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -38,7 +38,7 @@ async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=
 @pytest.mark.asyncio
 async def test_cleanup_players_bot_shutdown(fake_context):  # pylint: disable=redefined-outer-name
     """cleanup_players raises ExitEarlyException when bot_shutdown_event is set."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.bot_shutdown_event.set()
     with pytest.raises(ExitEarlyException):
         await cog.cleanup_players()
@@ -48,7 +48,7 @@ async def test_cleanup_players_bot_shutdown(fake_context):  # pylint: disable=re
 async def test_cleanup_players_no_players(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup_players returns early without doing anything when there are no players."""
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     assert not cog.players
     await cog.cleanup_players()
     assert not cog.players
@@ -57,7 +57,7 @@ async def test_cleanup_players_no_players(mocker, fake_context):  # pylint: disa
 @pytest.mark.asyncio
 async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup marks items in youtube_music_search_queue as discarded."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -77,7 +77,7 @@ async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):
 @pytest.mark.asyncio
 async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup skips bundles that belong to a different guild."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -98,7 +98,7 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
 @pytest.mark.asyncio
 async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup skips bundles that still have active (non-terminal) PlaylistAddRequest items."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -130,7 +130,7 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
 @pytest.mark.asyncio
 async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup removes the guild's player subdirectory (prefetched files) when it exists."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -152,7 +152,7 @@ async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint
 @pytest.mark.asyncio
 async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup does not remove guild player dir on BOT_SHUTDOWN (cog_unload handles it)."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

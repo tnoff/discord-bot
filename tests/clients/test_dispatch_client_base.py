@@ -4,7 +4,12 @@ import asyncio
 import pytest
 
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
-from discord_bot.types.dispatch_request import FetchChannelHistoryRequest, FetchGuildEmojisRequest
+from discord_bot.types.dispatch_request import (
+    DeleteRequest,
+    FetchChannelHistoryRequest,
+    FetchGuildEmojisRequest,
+    SendRequest,
+)
 
 
 class _ConcreteClient(DispatchClientBase):
@@ -12,6 +17,14 @@ class _ConcreteClient(DispatchClientBase):
 
     def __init__(self):
         self._cog_queues = {}
+        self.sent = []
+        self.deleted = []
+
+    def _handle_send(self, request):
+        self.sent.append(request)
+
+    def _handle_delete(self, request):
+        self.deleted.append(request)
 
     async def _do_fetch_history(self, params: dict) -> dict:
         return {'guild_id': params['guild_id'], 'channel_id': params['channel_id'], 'messages': []}
@@ -21,7 +34,7 @@ class _ConcreteClient(DispatchClientBase):
 
 
 # ---------------------------------------------------------------------------
-# Abstract transport stubs (lines 50, 54)
+# Abstract transport stubs
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -38,6 +51,20 @@ async def test_do_fetch_emojis_raises_not_implemented():
     base = DispatchClientBase.__new__(DispatchClientBase)
     with pytest.raises(NotImplementedError):
         await base._do_fetch_emojis({})  # pylint: disable=protected-access
+
+
+def test_handle_send_raises_not_implemented():
+    '''_handle_send raises NotImplementedError when not overridden by a subclass.'''
+    base = DispatchClientBase.__new__(DispatchClientBase)
+    with pytest.raises(NotImplementedError):
+        base._handle_send(SendRequest(guild_id=1, channel_id=2, content='x'))  # pylint: disable=protected-access
+
+
+def test_handle_delete_raises_not_implemented():
+    '''_handle_delete raises NotImplementedError when not overridden by a subclass.'''
+    base = DispatchClientBase.__new__(DispatchClientBase)
+    with pytest.raises(NotImplementedError):
+        base._handle_delete(DeleteRequest(guild_id=1, channel_id=2, message_id=3))  # pylint: disable=protected-access
 
 
 # ---------------------------------------------------------------------------

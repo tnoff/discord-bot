@@ -9,7 +9,12 @@ import asyncio
 
 from opentelemetry import trace
 
-from discord_bot.types.dispatch_request import FetchChannelHistoryRequest, FetchGuildEmojisRequest
+from discord_bot.types.dispatch_request import (
+    DeleteRequest,
+    FetchChannelHistoryRequest,
+    FetchGuildEmojisRequest,
+    SendRequest,
+)
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, decode_history_result, decode_emojis_result
 from discord_bot.utils.otel import async_otel_span_wrapper
 
@@ -43,6 +48,25 @@ class DispatchClientBase:
         q: asyncio.Queue = asyncio.Queue()
         self._cog_queues[cog_name] = q
         return q
+
+    async def submit_request(self, request) -> None:
+        '''Route a typed cog request to the appropriate send, delete, or fetch method.'''
+        if isinstance(request, SendRequest):
+            self._handle_send(request)
+        elif isinstance(request, DeleteRequest):
+            self._handle_delete(request)
+        elif isinstance(request, FetchChannelHistoryRequest):
+            asyncio.create_task(self._submit_history_request(request))
+        elif isinstance(request, FetchGuildEmojisRequest):
+            asyncio.create_task(self._submit_emojis_request(request))
+
+    def _handle_send(self, request: SendRequest) -> None:
+        '''Dispatch a SendRequest; subclasses implement the transport.'''
+        raise NotImplementedError
+
+    def _handle_delete(self, request: DeleteRequest) -> None:
+        '''Dispatch a DeleteRequest; subclasses implement the transport.'''
+        raise NotImplementedError
 
     async def _do_fetch_history(self, params: dict) -> dict:
         '''Perform the fetch_history transport call; return raw payload or raise DispatchRemoteError.'''

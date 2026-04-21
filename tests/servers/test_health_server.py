@@ -10,7 +10,8 @@ import fakeredis.aioredis
 import pytest
 
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.servers.health_server import HealthServer, DispatchHealthServer
+from discord_bot.servers.health_server import HealthServer
+from discord_bot.servers.dispatch_server import DispatchHealthServer
 
 
 def _make_bot(is_ready=True, is_closed=False):

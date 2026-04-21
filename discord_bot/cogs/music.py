@@ -56,6 +56,7 @@ from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # GLOBALS
 
@@ -166,9 +167,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
                        'video_cache_backup', 'guild', 'server_video_analytics']
 
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine, redis_manager=None): #pylint:disable=too-many-statements
-        super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig,
-                         redis_manager=redis_manager)
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, db_engine: Engine = None): #pylint:disable=too-many-statements
+        super().__init__(bot, settings, dispatcher, db_engine, settings_prefix='music', config_model=MusicConfig)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
 
@@ -182,8 +182,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
-        # MessageDispatcher — looked up in cog_load
-        self.dispatcher = None
         self._message_delete_after = self.config.general.message_delete_after
         # History Playlist Queue
         self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
@@ -420,7 +418,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self.dispatcher = self._dispatcher
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())

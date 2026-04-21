@@ -32,7 +32,7 @@ def test_delete_messages_start_failed(fake_context):  #pylint:disable=redefined-
     }
 }
     with pytest.raises(CogMissingRequiredArg) as exc:
-        DeleteMessages(fake_context['bot'], config, None)
+        DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     assert 'Delete messages not enabled' in str(exc.value)
 
 def test_delete_messages_requires_config(fake_context):  #pylint:disable=redefined-outer-name
@@ -58,7 +58,7 @@ def test_delete_messages_start_config(fake_context):  #pylint:disable=redefined-
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     assert cog.loop_sleep_interval == 5
     assert cog.discord_channels == [{'server_id': 123456789012, 'channel_id': 987654321098, 'delete_after': 7}]
 
@@ -91,7 +91,7 @@ async def test_delete_messages_process_result_deletes_old(fake_context):  #pylin
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
@@ -121,7 +121,7 @@ async def test_delete_messages_process_result_skips_recent(fake_context):  #pyli
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
@@ -147,7 +147,7 @@ async def test_delete_messages_process_result_handles_error(fake_context):  #pyl
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,
@@ -168,14 +168,14 @@ def test_get_channel_config_returns_config(fake_context):  #pylint:disable=redef
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     result = cog._get_channel_config(fake_context['channel'].id)  #pylint:disable=protected-access
     assert result['delete_after'] == 14
 
 
 def test_get_channel_config_returns_empty_for_unknown(fake_context):  #pylint:disable=redefined-outer-name
     '''_get_channel_config returns empty dict for an unknown channel_id'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     result = cog._get_channel_config(999999)  #pylint:disable=protected-access
     assert result == {}
     assert result.get('delete_after', DELETE_AFTER_DEFAULT) == DELETE_AFTER_DEFAULT
@@ -183,7 +183,7 @@ def test_get_channel_config_returns_empty_for_unknown(fake_context):  #pylint:di
 
 def test_loop_active_callback_task_none(fake_context):  #pylint:disable=redefined-outer-name
     '''__loop_active_callback returns 0 when _task is None'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     # _task is None by default after __init__
     result = getattr(cog, '_DeleteMessages__loop_active_callback')(None)
     assert result[0].value == 0
@@ -191,7 +191,7 @@ def test_loop_active_callback_task_none(fake_context):  #pylint:disable=redefine
 
 def test_loop_active_callback_task_running(fake_context):  #pylint:disable=redefined-outer-name
     '''__loop_active_callback returns 1 when _task exists and is not done'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     fake_task = MagicMock()
     fake_task.done.return_value = False
     setattr(cog, '_task', fake_task)
@@ -202,7 +202,7 @@ def test_loop_active_callback_task_running(fake_context):  #pylint:disable=redef
 @pytest.mark.asyncio
 async def test_cog_load_creates_task(fake_context):  #pylint:disable=redefined-outer-name
     '''cog_load assigns tasks to self._task and self._result_task'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     fake_task = MagicMock()
     fake_loop = MagicMock()
     fake_loop.create_task.return_value = fake_task
@@ -215,7 +215,7 @@ async def test_cog_load_creates_task(fake_context):  #pylint:disable=redefined-o
 @pytest.mark.asyncio
 async def test_cog_unload_cancels_task(fake_context):  #pylint:disable=redefined-outer-name
     '''cog_unload cancels both _task and _result_task when they exist'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     fake_task = MagicMock()
     fake_result_task = MagicMock()
     setattr(cog, '_task', fake_task)
@@ -228,7 +228,7 @@ async def test_cog_unload_cancels_task(fake_context):  #pylint:disable=redefined
 @pytest.mark.asyncio
 async def test_cog_unload_handles_none_task(fake_context):  #pylint:disable=redefined-outer-name
     '''cog_unload does not raise when _task is None'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, None)
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     # _task is already None by default; ensure cog_unload handles it gracefully
     await cog.cog_unload()
 
@@ -249,7 +249,7 @@ async def test_delete_request_loop_submits_history_request(mocker, fake_context)
         }
     } | BASE_CONFIG
     mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     cog.register_result_queue()
     await cog._delete_request_loop()  #pylint:disable=protected-access
     assert not cog._result_queue.empty()  #pylint:disable=protected-access
@@ -273,7 +273,7 @@ async def test_delete_result_loop_deletes_old_message(fake_context):  #pylint:di
             ]
         }
     } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, None)
+    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     cog.register_result_queue()
     cog._result_queue.put_nowait(ChannelHistoryResult(  #pylint:disable=protected-access
         guild_id=fake_context['guild'].id,

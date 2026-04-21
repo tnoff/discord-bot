@@ -6,6 +6,7 @@ import aiohttp
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
+from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.clients.http_client_base import HttpClientMixin
 
@@ -82,10 +83,10 @@ class HttpBrokerClient(HttpClientMixin):
         self._base_url = base_url.rstrip('/')
         self._session = session
 
-    async def register_request(self, media_request) -> None:
+    async def register_request(self, media_request: MediaRequest) -> None:
         '''POST /requests/{uuid} — register a new MediaRequest with the remote broker.'''
         await self._http('POST', f'{self._base_url}/requests/{media_request.uuid}',
-                         media_request.serialize())
+                         media_request.model_dump(mode='json'))
 
     async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''

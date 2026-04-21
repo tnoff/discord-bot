@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock
 import pytest
 import fakeredis.aioredis
 
-from discord_bot.clients.redis_client import (
+from discord_bot.clients.redis_client import RedisManager
+from discord_bot.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
-    RedisManager,
     save_bundle,
     delete_bundle,
     load_all_bundles,

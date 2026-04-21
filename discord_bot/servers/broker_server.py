@@ -14,6 +14,7 @@ from opentelemetry.trace import SpanKind
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
+from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class BrokerHttpServer(AiohttpServerBase):
     All endpoints respond with JSON.
 
     Routes:
+        POST /requests/{uuid}           register_request
         PUT  /requests/{uuid}/status    update_request_status
         POST /downloads                 register_download_result
         POST /requests/{uuid}/checkout  checkout
@@ -61,6 +63,7 @@ class BrokerHttpServer(AiohttpServerBase):
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
+        app.router.add_post('/requests/{uuid}', self._handle_register_request)
         app.router.add_put('/requests/{uuid}/status', self._handle_update_status)
         app.router.add_post('/downloads', self._handle_register_download)
         app.router.add_post('/requests/{uuid}/checkout', self._handle_checkout)
@@ -71,6 +74,17 @@ class BrokerHttpServer(AiohttpServerBase):
     # ------------------------------------------------------------------
     # Route handlers
     # ------------------------------------------------------------------
+
+    async def _handle_register_request(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        try:
+            body = await request.json()
+            media_request = MediaRequest.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.register_request', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.register_request(media_request)
+        return web.json_response({'status': 'ok'}, status=201)
 
     async def _handle_update_status(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)

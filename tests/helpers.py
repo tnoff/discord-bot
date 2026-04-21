@@ -79,6 +79,7 @@ def generate_fake_context(bot: Optional[Any] = None) -> dict[str, Any]:
         'author': fake_author,
         'channel': fake_channel,
         'context': context,
+        'dispatcher': FakeMessageDispatcher(bot),
     }
 
 def fake_source_dict(fakes: dict[str, Any], is_direct_search: bool = False) -> MediaRequest:

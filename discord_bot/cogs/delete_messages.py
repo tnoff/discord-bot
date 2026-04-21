@@ -13,6 +13,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7
@@ -36,12 +37,11 @@ class DeleteMessages(CogHelper):
     '''
     Delete Messages in Channels after X days
     '''
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine, redis_manager=None):
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, _db_engine: Engine = None):
         if not settings.get('general', {}).get('include', {}).get('delete_messages', False):
             raise CogMissingRequiredArg('Delete messages not enabled')
 
-        super().__init__(bot, settings, None, settings_prefix='delete_messages', config_model=DeleteMessagesConfig,
-                         redis_manager=redis_manager)
+        super().__init__(bot, settings, dispatcher, None, settings_prefix='delete_messages', config_model=DeleteMessagesConfig)
         self.loop_sleep_interval = self.config.loop_sleep_interval
         self.discord_channels = [channel.model_dump() for channel in self.config.discord_channels]
         self._task = None

@@ -46,7 +46,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -80,7 +80,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])

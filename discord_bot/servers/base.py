@@ -1,10 +1,68 @@
-'''Shared base class for aiohttp HTTP servers.'''
+'''Shared base classes for HTTP servers.'''
 import asyncio
+import json
 import logging
+from abc import ABC, abstractmethod
 
 from aiohttp import web
 
 logger = logging.getLogger(__name__)
+
+
+class BaseHealthServer(ABC):
+    '''
+    Asyncio-based health endpoint.
+
+    Subclasses implement _check_health() to determine the 200/503 response.
+    Everything else — TCP accept, header drain, response write, writer close — is shared.
+    '''
+
+    def __init__(self, port: int):
+        self.port = port
+
+    @abstractmethod
+    async def _check_health(self) -> bool:
+        '''Return True for 200 OK, False for 503 Service Unavailable.'''
+
+    async def serve(self) -> None:
+        '''Asyncio coroutine — schedule with asyncio.create_task().'''
+        server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
+        logger.info(f'{self.__class__.__name__} listening on port {self.port}')
+        async with server:
+            await server.serve_forever()
+
+    async def _handle(self, reader, writer) -> None:
+        '''Handle a single HTTP request and write the response.'''
+        try:
+            await reader.readline()
+            while True:
+                line = await reader.readline()
+                if line in (b'\r\n', b'\n', b''):
+                    break
+
+            if await self._check_health():
+                status_line = b'HTTP/1.1 200 OK\r\n'
+                body = json.dumps({'status': 'ok'}).encode()
+            else:
+                status_line = b'HTTP/1.1 503 Service Unavailable\r\n'
+                body = json.dumps({'status': 'unavailable'}).encode()
+
+            headers = (
+                b'Content-Type: application/json\r\n'
+                + b'Content-Length: ' + str(len(body)).encode() + b'\r\n'
+                + b'Connection: close\r\n'
+                + b'\r\n'
+            )
+            writer.write(status_line + headers + body)
+            await writer.drain()
+        except Exception as e:
+            logger.debug(f'{self.__class__.__name__} handler error: {e}')
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
 
 class AiohttpServerBase:

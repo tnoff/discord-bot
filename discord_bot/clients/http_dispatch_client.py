@@ -7,8 +7,6 @@ from opentelemetry import trace
 
 from discord_bot.types.dispatch_request import (
     DeleteRequest,
-    FetchChannelHistoryRequest,
-    FetchGuildEmojisRequest,
     SendRequest,
 )
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
@@ -49,26 +47,21 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         '''No-op — nothing to cancel.'''
 
     # ------------------------------------------------------------------
-    # Request routing (typed dispatch_request objects)
+    # DispatchClientBase transport hooks
     # ------------------------------------------------------------------
 
-    async def submit_request(self, request) -> None:
-        '''Submit a typed cog request, routing to the appropriate HTTP call.'''
-        if isinstance(request, SendRequest):
-            asyncio.create_task(self._post('/dispatch/send', {
-                'guild_id': request.guild_id, 'channel_id': request.channel_id,
-                'content': request.content, 'delete_after': request.delete_after,
-                'span_context': request.span_context,
-            }))
-        elif isinstance(request, DeleteRequest):
-            asyncio.create_task(self._post('/dispatch/delete', {
-                'guild_id': request.guild_id, 'channel_id': request.channel_id,
-                'message_id': request.message_id, 'span_context': request.span_context,
-            }))
-        elif isinstance(request, FetchChannelHistoryRequest):
-            asyncio.create_task(self._submit_history_request(request))
-        elif isinstance(request, FetchGuildEmojisRequest):
-            asyncio.create_task(self._submit_emojis_request(request))
+    def _handle_send(self, request: SendRequest) -> None:
+        asyncio.create_task(self._post('/dispatch/send', {
+            'guild_id': request.guild_id, 'channel_id': request.channel_id,
+            'content': request.content, 'delete_after': request.delete_after,
+            'span_context': request.span_context,
+        }))
+
+    def _handle_delete(self, request: DeleteRequest) -> None:
+        asyncio.create_task(self._post('/dispatch/delete', {
+            'guild_id': request.guild_id, 'channel_id': request.channel_id,
+            'message_id': request.message_id, 'span_context': request.span_context,
+        }))
 
     # ------------------------------------------------------------------
     # Fire-and-forget methods
@@ -80,7 +73,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         if not content:
             logger.debug('update_mutable: empty content for key=%s, routing to remove_mutable', key)
             return self.remove_mutable(key)
-        req_id = dispatch_request_id({'key': key, 'guild_id': guild_id, 't': str(asyncio.get_event_loop().time())})
+        req_id = dispatch_request_id({'key': key, 'guild_id': guild_id, 't': str(asyncio.get_running_loop().time())})
         trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, req_id)
         logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, req_id)
         asyncio.create_task(self._post('/dispatch/update_mutable', {
@@ -171,7 +164,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         '''Poll GET /dispatch/results/{request_id} with exponential backoff until available.'''
         session = self._get_session()
         interval = _POLL_INTERVAL_BASE
-        deadline = asyncio.get_event_loop().time() + _POLL_TIMEOUT
+        deadline = asyncio.get_running_loop().time() + _POLL_TIMEOUT
         while True:
             async def _call():
                 async with session.get(
@@ -184,7 +177,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             if status == 200:
                 return data
             # 202 means still pending — back off and retry
-            if asyncio.get_event_loop().time() >= deadline:
+            if asyncio.get_running_loop().time() >= deadline:
                 raise DispatchRemoteError(f'poll timeout for request_id={request_id}')
             await asyncio.sleep(interval)
             interval = min(interval * 2, _POLL_INTERVAL_MAX)

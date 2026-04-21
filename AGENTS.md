@@ -45,7 +45,9 @@ counts; see the rc files for the full disabled-checks list.
 
 ```
 discord_bot/
-  cli.py                        # entry point, config loading, bot init, POSSIBLE_COGS list
+  cli/
+    common.py                   # shared bot utilities (bot_lifecycle, load_cogs, etc.)
+    cog_registry.py             # POSSIBLE_COGS list (import here to add a new cog)
   common.py                     # DISCORD_MAX_MESSAGE_LENGTH = 2000
   database.py                   # SQLAlchemy models (BASE declarative)
   exceptions.py                 # DiscordBotException, CogMissingRequiredArg, ExitEarlyException
@@ -114,11 +116,9 @@ Three places require changes:
        my_cog: bool = False
    ```
 
-2. **`discord_bot/cli.py`** — add to `POSSIBLE_COGS` (order matters;
-   `MessageDispatcher` must stay first):
+2. **`discord_bot/cli/cog_registry.py`** — add to `POSSIBLE_COGS`:
    ```python
    POSSIBLE_COGS = [
-       MessageDispatcher,
        ...
        MyCog,
    ]

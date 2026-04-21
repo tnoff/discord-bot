@@ -20,8 +20,10 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
-from discord_bot.servers.base import AiohttpServerBase
-from discord_bot.utils.dispatch_queue import RedisDispatchQueue, dispatch_request_id
+from discord_bot.clients.redis_client import RedisManager
+from discord_bot.servers.base import AiohttpServerBase, BaseHealthServer
+from discord_bot.interfaces.dispatch_protocols import WorkQueue
+from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ class DispatchHttpServer(AiohttpServerBase):
     poll endpoint reads them back so any pod can serve the response.
     '''
 
-    def __init__(self, dispatcher, redis_queue: RedisDispatchQueue,
+    def __init__(self, dispatcher, redis_queue: WorkQueue,
                  host: str = '0.0.0.0', port: int = 8082):
         super().__init__()
         self._dispatcher = dispatcher
@@ -179,3 +181,22 @@ class DispatchHttpServer(AiohttpServerBase):
         if result is None:
             return web.json_response({'status': 'pending'}, status=202)
         return web.json_response(result)
+
+class DispatchHealthServer(BaseHealthServer):
+    """
+    Lightweight HTTP health endpoint for the dispatcher process.
+
+    Responds 200 {"status": "ok"} when Redis is reachable (ping succeeds),
+    503 {"status": "unavailable"} otherwise.
+    """
+
+    def __init__(self, redis_manager: RedisManager, port: int = 8080):
+        super().__init__(port)
+        self.redis_manager = redis_manager
+
+    async def _check_health(self) -> bool:
+        try:
+            await self.redis_manager.client.ping()
+            return True
+        except Exception:
+            return False
