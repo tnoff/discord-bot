@@ -9,7 +9,7 @@ opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-redis
 opentelemetry-instrumentation-logging
 opentelemetry-exporter-otlp
-click==8.3.2
+click==8.3.3
 pyaml-env==1.2.2
 psutil==7.2.2
 pytz==2026.1.post1
