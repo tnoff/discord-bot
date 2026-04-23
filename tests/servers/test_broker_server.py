@@ -2,14 +2,18 @@
 Tests for BrokerHttpServer — the aiohttp HTTP server wrapping MediaBroker.
 '''
 import asyncio
+import json
 from tempfile import TemporaryDirectory
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
+import fakeredis.aioredis
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
-from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
+from discord_bot.clients.redis_client import RedisManager
+from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
+from discord_bot.servers.broker_server import BrokerHealthServer, BrokerHttpServer, _QueueItemProxy
 from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatus
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
@@ -71,6 +75,19 @@ class TestServe:
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+@pytest.mark.asyncio
+class TestRegisterRequest:
+    async def test_invalid_body_returns_422(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post(
+                '/requests/some-uuid',
+                json={'not_a': 'valid_media_request'},
+            )
+            assert resp.status == 422
 
 
 @pytest.mark.asyncio
@@ -245,6 +262,104 @@ class TestRelease:
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.post('/requests/nonexistent/release')
             assert resp.status == 200
+
+
+@pytest.mark.asyncio
+class TestRemove:
+    async def test_remove_known_entry(self):
+        broker = _make_broker()
+        mr = _make_request()
+        await broker.register_request(mr)
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post(f'/requests/{mr.uuid}/remove')
+            assert resp.status == 200
+            data = await resp.json()
+            assert data['status'] == 'ok'
+        assert await broker.get_entry(str(mr.uuid)) is None
+
+    async def test_remove_unknown_uuid_is_no_op(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post('/requests/nonexistent/remove')
+            assert resp.status == 200
+
+
+async def _health_request(port: int) -> dict:
+    '''Connect to a BaseHealthServer port and return the parsed JSON response body.'''
+    reader, writer = await asyncio.open_connection('127.0.0.1', port)
+    try:
+        writer.write(b'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n')
+        await writer.drain()
+        response = await reader.read(4096)
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass
+    body_bytes = response.split(b'\r\n\r\n', 1)[1]
+    return json.loads(body_bytes)
+
+
+async def _wait_for_tcp(port: int, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        try:
+            _, writer = await asyncio.open_connection('127.0.0.1', port)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+            return
+        except OSError:
+            if asyncio.get_event_loop().time() >= deadline:
+                raise
+            await asyncio.sleep(0.02)
+
+
+@pytest.mark.asyncio
+class TestBrokerHealthServer:
+    async def test_health_with_db_engine_ok(self):
+        '''Response includes "db": "ok" when db_engine is provided and ping succeeds.'''
+        redis_client = fakeredis.aioredis.FakeRedis()
+        redis_manager = RedisManager.from_client(redis_client)
+        db_engine = MagicMock()
+        server = BrokerHealthServer(redis_manager, port=19303, db_engine=db_engine)
+        with patch.object(server, '_db_ping', new=AsyncMock(return_value=True)):
+            serve_task = asyncio.create_task(server.serve())
+            await _wait_for_tcp(19303)
+            try:
+                body = await _health_request(19303)
+            finally:
+                serve_task.cancel()
+                try:
+                    await serve_task
+                except asyncio.CancelledError:
+                    pass
+        assert body.get('db') == 'ok'
+        assert body.get('redis') == 'ok'
+
+    async def test_health_with_db_engine_unavailable(self):
+        '''Response includes "db": "unavailable" when db ping fails.'''
+        redis_client = fakeredis.aioredis.FakeRedis()
+        redis_manager = RedisManager.from_client(redis_client)
+        db_engine = MagicMock()
+        server = BrokerHealthServer(redis_manager, port=19304, db_engine=db_engine)
+        with patch.object(server, '_db_ping', new=AsyncMock(return_value=False)):
+            serve_task = asyncio.create_task(server.serve())
+            await _wait_for_tcp(19304)
+            try:
+                body = await _health_request(19304)
+            finally:
+                serve_task.cancel()
+                try:
+                    await serve_task
+                except asyncio.CancelledError:
+                    pass
+        assert body.get('db') == 'unavailable'
 
 
 @pytest.mark.asyncio

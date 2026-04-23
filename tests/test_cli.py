@@ -689,7 +689,7 @@ def _patch_otlp(mocker):
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
         mocker.patch(f'discord_bot.cli.common.{name}')
-    mocker.patch('discord_bot.cli.dispatcher.RedisInstrumentor')
+    mocker.patch('discord_bot.cli.common.RedisInstrumentor')
     mocker.patch('discord_bot.cli.db.SQLAlchemyInstrumentor')
     mocker.patch('discord_bot.cli.common.trace')
     mocker.patch('discord_bot.cli.common.trace')

@@ -17,7 +17,7 @@ from sqlalchemy.pool import NullPool
 from discord_bot.cli.common import make_async_db_url, parse_and_validate_config
 from discord_bot.database import BASE
 from discord_bot.exceptions import DiscordBotException
-from discord_bot.utils.database_backup_client import DatabaseBackupClient
+from discord_bot.clients.database_backup_client import DatabaseBackupClient
 from discord_bot.utils.integrations.s3 import upload_file
 
 

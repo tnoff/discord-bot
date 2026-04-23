@@ -22,6 +22,7 @@ class CogHelperBase(Cog):
     single-process deployments and HttpDispatchClient for HA deployments.'''
 
     _message_delete_after: int | None = None
+    REQUIRED_TABLES: list[str] = []
 
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
                  db_engine: object = None,

@@ -30,7 +30,8 @@ from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -167,7 +168,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
                        'video_cache_backup', 'guild', 'server_video_analytics']
 
-    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, db_engine: Engine = None): #pylint:disable=too-many-statements
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, db_engine: Engine = None, #pylint:disable=too-many-statements
+                 broker: 'MediaBrokerBase | None' = None):
         super().__init__(bot, settings, dispatcher, db_engine, settings_prefix='music', config_model=MusicConfig)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
@@ -210,7 +212,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in self.config.download.server_queue_priority:
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
-        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
+        storage_bucket_name: str | None = self.config.download.storage.bucket_name if self.config.download.storage else None
 
         # Dir for player working files; use configured path if set, otherwise a temp dir
         if self.config.player.player_dir_path is not None:
@@ -242,7 +244,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 storage_type='s3',
             )
 
-        self.media_broker = MediaBroker(
+        self.media_broker: MediaBrokerBase = broker if broker is not None else AsyncioBroker(
             video_cache=self.video_cache,
             bucket_name=storage_bucket_name,
         )
@@ -250,7 +252,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._pending_download_results: asyncio.Queue = asyncio.Queue()
 
         if self.config.broker_client:
-            self.broker_client = HttpBrokerClient(self.config.broker_client.url)
+            self.broker_client = HttpBrokerClient(self.config.broker_client.url,
+                                                  bucket_name=storage_bucket_name)
         else:
             self.broker_client = InMemoryBrokerClient(self.media_broker, self._pending_download_results)
 
@@ -1013,7 +1016,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
-                                     broker=self.media_broker,
+                                     broker=self.broker_client,
                                      prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
                 await player.start_tasks()
                 self.players[guild_id] = player

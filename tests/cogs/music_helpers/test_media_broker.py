@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
+from discord_bot.interfaces.broker_protocols import Zone
+from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import VideoCache
 from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
@@ -68,7 +69,7 @@ async def test_checkout_local_mode():
 @pytest.mark.asyncio
 async def test_checkout_local_mode_checksum_match_no_warning(mocker):
     '''No warning logged when copyfile produces matching checksums'''
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    mock_logger = mocker.patch('discord_bot.workers.asyncio_broker.logger')
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with TemporaryDirectory() as guild_dir:
@@ -83,12 +84,12 @@ async def test_checkout_local_mode_checksum_match_no_warning(mocker):
 @pytest.mark.asyncio
 async def test_checkout_local_mode_checksum_mismatch_logs_warning(mocker):
     '''Warning logged when copyfile produces mismatched checksums'''
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    mock_logger = mocker.patch('discord_bot.workers.asyncio_broker.logger')
     src_mock = MagicMock()
     src_mock.hexdigest.return_value = 'aaaa'
     dst_mock = MagicMock()
     dst_mock.hexdigest.return_value = 'bbbb'
-    mocker.patch('discord_bot.cogs.music_helpers.media_broker.hashlib.md5',
+    mocker.patch('discord_bot.workers.asyncio_broker.hashlib.md5',
                  side_effect=[src_mock, dst_mock])
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
@@ -185,7 +186,7 @@ async def test_register_download_s3_mode():
 @pytest.mark.asyncio
 async def test_checkout_s3_mode(mocker):
     '''checkout in S3 mode calls get_file with the S3 key'''
-    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    get_mock = mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:
@@ -201,7 +202,7 @@ async def test_checkout_s3_mode(mocker):
 @pytest.mark.asyncio
 async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
     '''discard in S3 mode (no video_cache) calls delete_file on the S3 key'''
-    delete_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.delete_file', return_value=True)
+    delete_mock = mocker.patch('discord_bot.workers.asyncio_broker.delete_file', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     s3_key = str(md.file_path)
@@ -214,7 +215,7 @@ async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_mode(mocker, fake_engine):
     '''cache_cleanup in S3 mode deletes S3 objects and removes DB records'''
-    delete_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.delete_file', return_value=True)
+    delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
     fake_context = generate_fake_context()
     vc = VideoCacheClient(1, partial(async_mock_session, fake_engine))
     broker = MediaBroker(video_cache=vc, bucket_name='my-bucket')
@@ -273,7 +274,7 @@ async def test_get_checked_out_by():
 @pytest.mark.asyncio
 async def test_checkout_skips_restage_if_already_checked_out(mocker):
     '''checkout returns existing guild_file_path without calling get_file again if already staged'''
-    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    get_mock = mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:
@@ -312,7 +313,7 @@ async def test_prefetch_noop_in_local_mode():
 @pytest.mark.asyncio
 async def test_prefetch_stages_available_items(mocker):
     '''prefetch calls checkout for AVAILABLE items up to limit'''
-    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    get_mock = mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
     fake_context = generate_fake_context()
     md1 = _make_s3_media_download(fake_context)
     md2 = _make_s3_media_download(generate_fake_context())
@@ -333,7 +334,7 @@ async def test_prefetch_stages_available_items(mocker):
 @pytest.mark.asyncio
 async def test_prefetch_skips_already_checked_out(mocker):
     '''prefetch counts CHECKED_OUT items toward the limit without re-staging'''
-    get_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    get_mock = mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
     fake_context = generate_fake_context()
     md1 = _make_s3_media_download(fake_context)
     md2 = _make_s3_media_download(generate_fake_context())
@@ -348,6 +349,22 @@ async def test_prefetch_skips_already_checked_out(mocker):
         await broker.prefetch([md1, md2], 123, Path(guild_dir), limit=1)
         assert get_mock.call_count == 1  # md2 not staged
         assert (await broker.get_entry(str(md2.media_request.uuid))).zone == Zone.AVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_prefetch_skips_unregistered_item(mocker):
+    '''prefetch continues past queue items whose UUID is not in the broker registry'''
+    get_mock = mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
+    fake_context = generate_fake_context()
+    md_registered = _make_s3_media_download(fake_context)
+    md_unregistered = _make_s3_media_download(generate_fake_context())
+    with TemporaryDirectory() as guild_dir:
+        broker = MediaBroker(bucket_name='my-bucket')
+        await broker.register_download(md_registered)
+        # md_unregistered is intentionally not registered
+        await broker.prefetch([md_unregistered, md_registered], 123, Path(guild_dir), limit=5)
+        get_mock.assert_called_once()
+        assert (await broker.get_entry(str(md_registered.media_request.uuid))).zone == Zone.CHECKED_OUT
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +423,7 @@ async def test_update_request_status_discarded():
 @pytest.mark.asyncio
 async def test_update_request_status_unknown_uuid_logs_warning(mocker):
     '''update_request_status logs a warning and does not raise for an unknown UUID'''
-    mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
+    mock_logger = mocker.patch('discord_bot.workers.asyncio_broker.logger')
     broker = MediaBroker()
     await broker.update_request_status('nonexistent-uuid', DownloadStatusUpdate(event=DownloadEvent.BACKOFF))
     mock_logger.warning.assert_called_once()

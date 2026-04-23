@@ -1,6 +1,6 @@
 '''
-HTTP server exposing MediaBroker over aiohttp for cross-process communication.
-Schedule with asyncio.create_task(server.serve()).
+HTTP server and health endpoint for the media broker process.
+Schedule servers with asyncio.create_task(server.serve()).
 '''
 import asyncio
 import logging
@@ -11,13 +11,50 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.clients.redis_client import RedisManager
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
+from discord_bot.servers.base import AiohttpServerBase, BaseHealthServer, _DbPingMixin
 from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
+
+
+class BrokerHealthServer(_DbPingMixin, BaseHealthServer):
+    '''
+    Lightweight HTTP health endpoint for the broker process.
+
+    Responds 200 {"status": "ok"} when Redis is reachable and, if db_engine
+    is provided, the database is also reachable. Returns 503 otherwise, with
+    "redis" and optional "db" fields in the body.
+    '''
+
+    def __init__(self, redis_manager: RedisManager, port: int = 8080,
+                 db_engine=None):
+        super().__init__(port)
+        self.redis_manager = redis_manager
+        self._db_engine = db_engine
+        self._last_redis_ok: bool | None = None
+
+    async def _check_health(self) -> bool:
+        try:
+            await self.redis_manager.client.ping()
+            self._last_redis_ok = True
+        except Exception:
+            self._last_redis_ok = False
+        if self._db_engine is not None:
+            self._last_db_ok = await self._db_ping()
+            return self._last_redis_ok and self._last_db_ok
+        return self._last_redis_ok
+
+    async def _extra_body(self) -> dict:
+        body = {}
+        if self._last_redis_ok is not None:
+            body['redis'] = 'ok' if self._last_redis_ok else 'unavailable'
+        if self._last_db_ok is not None:
+            body['db'] = 'ok' if self._last_db_ok else 'unavailable'
+        return body
 
 
 @dataclass
@@ -52,13 +89,14 @@ class BrokerHttpServer(AiohttpServerBase):
         POST /prefetch                  prefetch
     '''
 
-    def __init__(self, broker: MediaBroker, host: str = '0.0.0.0', port: int = 8081,
-                 result_queue: asyncio.Queue | None = None):
+    def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,
+                 result_queue: asyncio.Queue | None = None, ha_mode: bool = False):
         super().__init__()
         self._broker = broker
         self._host = host
         self._port = port
         self._result_queue = result_queue
+        self._ha_mode = ha_mode
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
@@ -68,6 +106,7 @@ class BrokerHttpServer(AiohttpServerBase):
         app.router.add_post('/downloads', self._handle_register_download)
         app.router.add_post('/requests/{uuid}/checkout', self._handle_checkout)
         app.router.add_post('/requests/{uuid}/release', self._handle_release)
+        app.router.add_post('/requests/{uuid}/remove', self._handle_remove)
         app.router.add_post('/prefetch', self._handle_prefetch)
         return app
 
@@ -123,13 +162,22 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
             path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
-        return web.json_response({'guild_file_path': str(path) if path else None})
+        if self._ha_mode:
+            return web.json_response({'guild_file_path': None, 's3_key': str(path) if path else None})
+        return web.json_response({'guild_file_path': str(path) if path else None, 's3_key': None})
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.release', context=ctx, kind=SpanKind.SERVER):
             await self._broker.release(uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_remove(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.remove', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.remove(uuid)
         return web.json_response({'status': 'ok'})
 
     async def _handle_prefetch(self, request: web.Request) -> web.Response:

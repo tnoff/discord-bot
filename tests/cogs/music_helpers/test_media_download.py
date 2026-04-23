@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 
 from tests.helpers import fake_media_download, generate_fake_context
 

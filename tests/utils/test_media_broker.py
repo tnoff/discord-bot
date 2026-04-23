@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
+from discord_bot.interfaces.broker_protocols import Zone
+from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 
 from tests.helpers import fake_media_download, fake_source_dict, generate_fake_context
 

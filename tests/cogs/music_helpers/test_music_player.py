@@ -5,13 +5,13 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
-
 from discord.errors import ClientException
 
-from discord_bot.exceptions import ExitEarlyException
-
+from discord_bot.clients.broker_client import CheckoutResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
+from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.queue import Queue
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 
 from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
@@ -21,7 +21,8 @@ def with_music_player(fake_context): #pylint:disable=redefined-outer-name
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
+        player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue,
+                             broker=AsyncioBroker())
         yield player
 
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name
@@ -485,6 +486,62 @@ def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10
 
 
 @pytest.mark.asyncio
+async def test_player_loop_local_path_checkout(fake_context): #pylint:disable=redefined-outer-name
+    """player_loop uses checkout_result.local_path directly when set"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(Path(tmp_dir), fake_context=fake_context) as media_download:
+            checkout_result = CheckoutResult(local_path=media_download.file_path)
+            broker = Mock()
+            broker.checkout = AsyncMock(return_value=checkout_result)
+            broker.release = AsyncMock()
+            broker.prefetch = AsyncMock()
+            dispatcher = Mock()
+            dispatcher.update_mutable = Mock()
+            history_queue = Queue()
+            player = MusicPlayer(
+                fake_context['context'], 10, 0.01, Path(tmp_dir),
+                dispatcher, None, history_queue, broker=broker,
+            )
+            player.add_to_play_queue(media_download)
+            await player.player_loop()
+            broker.checkout.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_player_loop_s3_checkout(fake_context): #pylint:disable=redefined-outer-name
+    """player_loop downloads from S3 when checkout returns s3_key and bucket_name"""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with TemporaryDirectory() as tmp_dir:
+        checkout_result = CheckoutResult(s3_key='media/video.mp4', bucket_name='test-bucket')
+        broker = Mock()
+        broker.checkout = AsyncMock(return_value=checkout_result)
+        broker.release = AsyncMock()
+        broker.prefetch = AsyncMock()
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
+        history_queue = Queue()
+        player = MusicPlayer(
+            fake_context['context'], 10, 0.01, Path(tmp_dir),
+            dispatcher, None, history_queue, broker=broker,
+        )
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+
+            def _write_file(_bucket, _key, local_path):
+                local_path.write_bytes(media_download.file_path.read_bytes())
+
+            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+                       side_effect=_write_file) as mock_get_file:
+                await player.player_loop()
+
+            mock_get_file.assert_called_once()
+            call_args = mock_get_file.call_args[0]
+            assert call_args[0] == 'test-bucket'
+            assert call_args[1] == 'media/video.mp4'
+
+
+@pytest.mark.asyncio
 async def test_player_loop_broker_checkout_called(fake_context): #pylint:disable=redefined-outer-name
     """broker.checkout is called in player_loop when broker is set"""
     fake_context['guild'].voice_client = FakeVoiceClient()
@@ -531,7 +588,7 @@ async def test_player_loop_history_playlist_id(fake_context): #pylint:disable=re
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
         player = MusicPlayer(fake_context['context'], 10, 0.01, Path(tmp_dir),
-                             dispatcher, 999, history_queue)
+                             dispatcher, 999, history_queue, broker=AsyncioBroker())
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.add_to_play_queue(media_download)
             await player.player_loop()
@@ -550,7 +607,7 @@ async def test_player_loop_history_queue_full_evicts_oldest(fake_context): #pyli
         history_queue = Queue()
         # maxsize=1 means _history also holds at most 1 entry
         player = MusicPlayer(fake_context['context'], 1, 0.01, Path(tmp_dir),
-                             dispatcher, None, history_queue)
+                             dispatcher, None, history_queue, broker=AsyncioBroker())
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd1:
             with fake_media_download(player.file_dir, fake_context=fake_context) as sd2:
                 player._history.put_nowait(sd1)  # fill history to capacity #pylint:disable=protected-access

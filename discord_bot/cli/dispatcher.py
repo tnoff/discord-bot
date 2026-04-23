@@ -9,20 +9,15 @@ import uuid
 
 import click
 from discord.ext.commands import Bot
-from opentelemetry import trace
-from opentelemetry.instrumentation.redis import RedisInstrumentor
-
-
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.workers.redis_queues import RedisBundleStore, RedisWorkQueue
 from discord_bot.workers.message_dispatcher import MessageDispatcher
-from discord_bot.exceptions import DiscordBotException
 from discord_bot.servers.dispatch_server import DispatchHealthServer, DispatchHttpServer
 from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli.common import (
     build_bot, bot_lifecycle, run_loop,
-    setup_logging, setup_otlp, setup_profiling,
+    setup_redis_observability,
     parse_and_validate_config,
 )
 
@@ -64,13 +59,7 @@ def run_bot(general_config: GeneralConfig, bot: Bot, redis_manager: RedisManager
 
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the dispatcher process.'''
-    setup_otlp(general_config)
-    RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
-    logger = setup_logging(general_config)
-    setup_profiling(general_config, logger)
-
-    if not general_config.redis_url:
-        raise DiscordBotException('Redis required for dispatcher HA mode')
+    setup_redis_observability(general_config, 'dispatcher HA mode')
 
     redis_manager = RedisManager(general_config.redis_url)
 

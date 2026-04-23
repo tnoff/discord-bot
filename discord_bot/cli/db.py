@@ -15,7 +15,21 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from discord_bot.database import BASE
+from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils.common import GeneralConfig
+
+
+def require_postgres(general_config: GeneralConfig) -> None:
+    '''Raise DiscordBotException if the configured DB is not Postgres.
+
+    Used by HA services (broker pod) where SQLite cannot be shared across instances.
+    '''
+    if not general_config.sql_connection_statement:
+        raise DiscordBotException('HA broker mode requires a database connection')
+    url = make_url(general_config.sql_connection_statement)
+    if not url.drivername.startswith('postgresql'):
+        raise DiscordBotException('HA broker mode requires a PostgreSQL database, got: '
+                                  f'{url.drivername}')
 
 
 def setup_db(general_config: GeneralConfig):

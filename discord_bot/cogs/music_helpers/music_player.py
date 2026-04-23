@@ -14,16 +14,16 @@ from discord import PCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
 
+from discord_bot.clients.broker_client import CheckoutResult
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.types.queue import Queue
-
 from discord_bot.utils.common import return_loop_runner
+from discord_bot.utils.integrations.s3 import get_file
 
 
 
@@ -53,7 +53,7 @@ class MusicPlayer:
                  dispatcher,
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
-                 broker: MediaBroker | None = None,
+                 broker,
                  prefetch_limit: int = 5):
         '''
         Music Player to sit in voice chat
@@ -91,7 +91,7 @@ class MusicPlayer:
         self.shutdown_reason: CleanupReason | None = None
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
-        self.broker: MediaBroker | None = broker
+        self.broker = broker
         self.prefetch_limit: int = prefetch_limit
 
     async def start_tasks(self):
@@ -116,13 +116,22 @@ class MusicPlayer:
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
-        guild_file_path = None
+        checkout_result: CheckoutResult | None = None
         if self.broker:
-            guild_file_path = await self.broker.checkout(
-                str(media_download.media_request.uuid), self.guild.id, self.file_dir
+            checkout_result = await self.broker.checkout(
+                str(media_download.media_request.uuid), self.guild.id, str(self.file_dir)
             )
 
-        file_path = guild_file_path or media_download.file_path
+        file_path = media_download.file_path
+        if checkout_result and checkout_result.local_path:
+            file_path = checkout_result.local_path
+        elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
+            s3_key = checkout_result.s3_key
+            extension = ''.join(Path(s3_key).suffixes)
+            local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
+            self.file_dir.mkdir(exist_ok=True)
+            await asyncio.to_thread(get_file, checkout_result.bucket_name, s3_key, local_path)
+            file_path = local_path
         self.logger.debug(f'Gathered new file to play {str(file_path)}')
         with open(file_path, 'rb') as f:
             audio_data = BytesIO(f.read())
@@ -283,7 +292,7 @@ class MusicPlayer:
         if self.broker and self.prefetch_limit > 0:
             self._prefetch_task = asyncio.create_task(
                 self.broker.prefetch(
-                    self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
+                    self.get_queue_items(), self.guild.id, str(self.file_dir), self.prefetch_limit,
                 )
             )
             self._prefetch_task.add_done_callback(self._on_prefetch_done)

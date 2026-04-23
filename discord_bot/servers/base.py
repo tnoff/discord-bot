@@ -1,4 +1,4 @@
-'''Shared base classes for HTTP servers.'''
+'''Shared base classes and mixins for HTTP servers.'''
 import asyncio
 import json
 import logging
@@ -7,6 +7,22 @@ from abc import ABC, abstractmethod
 from aiohttp import web
 
 logger = logging.getLogger(__name__)
+
+
+class _DbPingMixin:
+    '''Mixin that adds an async database ping helper to health server subclasses.'''
+
+    _db_engine = None
+    _last_db_ok: bool | None = None
+
+    async def _db_ping(self) -> bool:
+        '''Ping the database. Returns True on success, False on any exception.'''
+        try:
+            async with self._db_engine.connect():
+                pass
+            return True
+        except Exception:
+            return False
 
 
 class BaseHealthServer(ABC):
@@ -24,6 +40,10 @@ class BaseHealthServer(ABC):
     async def _check_health(self) -> bool:
         '''Return True for 200 OK, False for 503 Service Unavailable.'''
 
+    async def _extra_body(self) -> dict:
+        '''Optional extra fields merged into the health response JSON. Default: empty.'''
+        return {}
+
     async def serve(self) -> None:
         '''Asyncio coroutine — schedule with asyncio.create_task().'''
         server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
@@ -40,12 +60,14 @@ class BaseHealthServer(ABC):
                 if line in (b'\r\n', b'\n', b''):
                     break
 
-            if await self._check_health():
+            healthy = await self._check_health()
+            body_dict = {'status': 'ok' if healthy else 'unavailable'}
+            body_dict.update(await self._extra_body())
+            if healthy:
                 status_line = b'HTTP/1.1 200 OK\r\n'
-                body = json.dumps({'status': 'ok'}).encode()
             else:
                 status_line = b'HTTP/1.1 503 Service Unavailable\r\n'
-                body = json.dumps({'status': 'unavailable'}).encode()
+            body = json.dumps(body_dict).encode()
 
             headers = (
                 b'Content-Type: application/json\r\n'

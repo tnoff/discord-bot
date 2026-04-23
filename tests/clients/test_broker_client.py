@@ -3,16 +3,17 @@ Tests for InMemoryBrokerClient and HttpBrokerClient.
 '''
 import asyncio
 from tempfile import TemporaryDirectory
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 import aiohttp
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate
-from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, InMemoryBrokerClient
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -71,7 +72,7 @@ class TestInMemoryBrokerClient:
         queued = result_queue.get_nowait()
         assert queued.media_request is mr
 
-    async def test_checkout_returns_str_path(self):
+    async def test_checkout_returns_local_path(self):
         broker = _make_broker()
         mr = _make_request()
         client = InMemoryBrokerClient(broker, asyncio.Queue())
@@ -79,9 +80,10 @@ class TestInMemoryBrokerClient:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
                 with TemporaryDirectory() as guild_dir:
-                    path_str = await client.checkout(str(mr.uuid), 123, guild_dir)
-        assert path_str is not None
-        assert isinstance(path_str, str)
+                    result = await client.checkout(str(mr.uuid), 123, guild_dir)
+        assert isinstance(result, CheckoutResult)
+        assert result.local_path is not None
+        assert result.s3_key is None
 
     async def test_checkout_returns_none_for_unknown(self):
         broker = _make_broker()
@@ -177,7 +179,7 @@ class TestHttpBrokerClient:
             result = await hc.checkout('nonexistent', 123)
         assert result is None
 
-    async def test_checkout_with_valid_entry_returns_path_string(self):
+    async def test_checkout_with_valid_entry_returns_local_path(self):
         broker = _make_broker()
         mr = _make_request()
         server = BrokerHttpServer(broker)
@@ -188,8 +190,25 @@ class TestHttpBrokerClient:
                     async with TestClient(TestServer(server.build_app())) as tc:
                         hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                         result = await hc.checkout(str(mr.uuid), 123, guild_dir)
-        assert result is not None
-        assert isinstance(result, str)
+        assert isinstance(result, CheckoutResult)
+        assert result.local_path is not None
+        assert result.s3_key is None
+
+    async def test_checkout_ha_mode_returns_s3_key(self):
+        '''In HA mode the broker returns s3_key; HttpBrokerClient wraps it without downloading.'''
+        broker = _make_broker()
+        mr = _make_request()
+        server = BrokerHttpServer(broker, ha_mode=True)
+        with TemporaryDirectory() as tmp_dir:
+            with fake_media_download(tmp_dir, media_request=mr) as md:
+                await broker.register_download(md)
+                with TemporaryDirectory() as guild_dir:
+                    async with TestClient(TestServer(server.build_app())) as tc:
+                        hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                        result = await hc.checkout(str(mr.uuid), 123, guild_dir)
+        assert isinstance(result, CheckoutResult)
+        assert result.s3_key is not None
+        assert result.local_path is None
 
     async def test_release(self):
         broker = _make_broker()
@@ -221,3 +240,21 @@ class TestHttpBrokerClient:
         '''close() does not raise when no session has been created yet.'''
         hc = HttpBrokerClient('http://localhost:9999')
         await hc.close()  # should not raise
+
+    async def test_checkout_returns_none_when_http_returns_none(self):
+        '''checkout returns None when the HTTP layer returns None (non-JSON response).'''
+        hc = HttpBrokerClient('http://localhost:9999')
+        with patch.object(hc, '_http', new=AsyncMock(return_value=None)):
+            result = await hc.checkout('some-uuid', 123)
+        assert result is None
+
+    async def test_remove(self):
+        '''remove calls POST /requests/{uuid}/remove and the entry is deleted.'''
+        broker = _make_broker()
+        mr = _make_request()
+        await broker.register_request(mr)
+        server = BrokerHttpServer(broker)
+        async with TestClient(TestServer(server.build_app())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            await hc.remove(str(mr.uuid))
+        assert await broker.get_entry(str(mr.uuid)) is None

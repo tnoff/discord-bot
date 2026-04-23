@@ -6,6 +6,7 @@ TestClient is used for middleware tests that don't need the full serve() lifecyc
 real ports (18100-18105) are used for serve() / drain integration tests.
 '''
 import asyncio
+import json
 import logging
 
 import aiohttp
@@ -13,7 +14,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.servers.base import AiohttpServerBase, BaseHealthServer
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,39 @@ async def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
 # ---------------------------------------------------------------------------
 # build_app
 # ---------------------------------------------------------------------------
+
+class _MinimalHealthServer(BaseHealthServer):
+    '''Concrete BaseHealthServer that does not override _extra_body.'''
+    async def _check_health(self) -> bool:
+        return True
+
+
+@pytest.mark.asyncio
+class TestBaseHealthServer:
+    async def test_extra_body_default_produces_no_extra_fields(self):
+        '''BaseHealthServer default _extra_body returns {} — response has only "status".'''
+        server = _MinimalHealthServer(port=18198)
+        serve_task = asyncio.create_task(server.serve())
+        await _wait_for_port('127.0.0.1', 18198)
+        try:
+            reader, writer = await asyncio.open_connection('127.0.0.1', 18198)
+            writer.write(b'GET / HTTP/1.0\r\nHost: localhost\r\n\r\n')
+            await writer.drain()
+            response = await reader.read(4096)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+        finally:
+            serve_task.cancel()
+            try:
+                await serve_task
+            except asyncio.CancelledError:
+                pass
+        body = json.loads(response.split(b'\r\n\r\n', 1)[1])
+        assert body == {'status': 'ok'}
+
 
 class TestBuildApp:
     def test_raises_not_implemented(self):

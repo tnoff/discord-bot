@@ -26,6 +26,7 @@ from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from pydantic import ValidationError as PydanticValidationError
 
@@ -256,6 +257,16 @@ def setup_observability(general_config: GeneralConfig) -> logging.Logger:
     setup_otlp(general_config)
     logger = setup_logging(general_config)
     setup_profiling(general_config, logger)
+    return logger
+
+
+def setup_redis_observability(general_config: GeneralConfig, context: str) -> logging.Logger:
+    '''Configure OTLP, Redis instrumentation, logging, and profiling for a Redis-backed process.
+    Raises DiscordBotException if redis_url is not configured.'''
+    logger = setup_observability(general_config)
+    RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
+    if not general_config.redis_url:
+        raise DiscordBotException(f'Redis required for {context}')
     return logger
 
 
