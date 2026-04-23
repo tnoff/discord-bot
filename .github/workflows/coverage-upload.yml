@@ -9,6 +9,6 @@ jobs:
     uses: tnoff/github-workflows/.github/workflows/coverage-store.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
     with:
       coverage_source: discord_bot
-      install_command: pip install -r requirements.txt -r tests/requirements.txt
+      install_command: pip install -r requirements.txt -r requirements.sqlite.txt -r tests/requirements.txt
       python_version: 3.14
       pre_install_command: sudo apt-get update && sudo apt-get install -y sqlite3 ffmpeg
