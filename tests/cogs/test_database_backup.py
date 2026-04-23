@@ -1,4 +1,6 @@
 import asyncio as _asyncio
+from unittest.mock import AsyncMock
+
 import pytest
 from freezegun import freeze_time
 
@@ -212,7 +214,7 @@ async def test_database_backup_loop_schedules_correctly(fake_context, fake_engin
     )
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    cog.backup_client.create_backup = mocker.Mock(return_value=mock_backup_file)
+    cog.backup_client.create_backup = AsyncMock(return_value=mock_backup_file)
 
     mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=True)
 
@@ -235,11 +237,8 @@ async def test_database_backup_loop_creates_backup(fake_context, fake_engine, mo
     mock_backup_file.unlink = mocker.Mock()
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    mock_create_backup = mocker.patch.object(
-        cog.backup_client,
-        'create_backup',
-        return_value=mock_backup_file
-    )
+    mock_create_backup = AsyncMock(return_value=mock_backup_file)
+    mocker.patch.object(cog.backup_client, 'create_backup', new=mock_create_backup)
 
     mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=True)
 
@@ -260,7 +259,7 @@ async def test_database_backup_loop_uploads_to_s3(fake_context, fake_engine, moc
     mock_backup_file.unlink = mocker.Mock()
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    cog.backup_client.create_backup = mocker.Mock(return_value=mock_backup_file)
+    cog.backup_client.create_backup = AsyncMock(return_value=mock_backup_file)
 
     mock_upload = mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=True)
 
@@ -285,7 +284,7 @@ async def test_database_backup_loop_cleans_up_local_file(fake_context, fake_engi
     mock_backup_file.unlink = mocker.Mock()
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    cog.backup_client.create_backup = mocker.Mock(return_value=mock_backup_file)
+    cog.backup_client.create_backup = AsyncMock(return_value=mock_backup_file)
 
     mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=True)
 
@@ -306,7 +305,7 @@ async def test_database_backup_loop_success_flow(fake_context, fake_engine, mock
     mock_backup_file.unlink = mocker.Mock()
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    cog.backup_client.create_backup = mocker.Mock(return_value=mock_backup_file)
+    cog.backup_client.create_backup = AsyncMock(return_value=mock_backup_file)
 
     mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=True)
 
@@ -345,30 +344,36 @@ async def test_database_backup_restore_on_startup_defaults_false(fake_context, f
 
 @pytest.mark.asyncio
 async def test_restore_on_startup_calls_restore_when_backup_found(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
-    '''_restore_on_startup calls restore_from_s3 when a backup key is found'''
+    '''_restore_on_startup_async calls restore_from_s3 when a backup key is found'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
     mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
-    mock_restore = mocker.patch.object(cog.backup_client, 'restore_from_s3', return_value={
+    mock_restore = AsyncMock(return_value={
         'tables_restored': 3,
         'total_rows_inserted': 42,
         'tables': {},
         'metadata': {}
     })
+    mocker.patch.object(cog.backup_client, 'restore_from_s3', new=mock_restore)
 
-    cog._restore_on_startup()  #pylint:disable=protected-access
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
 
-    mock_restore.assert_called_once_with(cog.bucket_name, 'backups/db/latest.json',
-                                         table_groups=None, on_table_restored=None)
+    mock_restore.assert_called_once_with(
+        cog.bucket_name, 'backups/db/latest.json',
+        table_groups=[], on_table_restored=mocker.ANY
+    )
 
 
 @pytest.mark.asyncio
 async def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
-    '''_restore_on_startup logs info and does not call restore_from_s3 when no backup exists'''
+    '''_restore_on_startup_async logs info and does not call restore_from_s3 when no backup exists'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
     mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value=None)
-    mock_restore = mocker.patch.object(cog.backup_client, 'restore_from_s3')
+    mock_restore = AsyncMock()
+    mocker.patch.object(cog.backup_client, 'restore_from_s3', new=mock_restore)
 
-    cog._restore_on_startup()  #pylint:disable=protected-access
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
 
     mock_restore.assert_not_called()
     assert 'No backup found in S3' in caplog.text
@@ -376,13 +381,14 @@ async def test_restore_on_startup_skips_restore_when_no_backup(fake_context, fak
 
 @pytest.mark.asyncio
 async def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
-    '''_restore_on_startup logs warning and does not raise on ObjectStorageException'''
+    '''_restore_on_startup_async logs warning and does not raise on ObjectStorageException'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
     mocker.patch.object(cog.backup_client, 'find_latest_backup',
                         side_effect=ObjectStorageException('S3 unavailable'))
 
     # Should not raise
-    cog._restore_on_startup()  #pylint:disable=protected-access
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
 
     assert 'Startup restore failed' in caplog.text
 
@@ -416,9 +422,9 @@ async def test_cog_load_runs_startup_restore_when_enabled(fake_context, fake_eng
 @pytest.mark.asyncio
 @freeze_time('2025-12-04 00:00:00', tz_offset=0)
 async def test_cog_load_skips_startup_restore_when_disabled(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
-    '''cog_load does not call _restore_on_startup when restore_on_startup=False'''
+    '''cog_load does not call _restore_on_startup_async when restore_on_startup=False'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    mock_restore = mocker.patch.object(cog, '_restore_on_startup')
+    mock_restore = mocker.patch.object(cog, '_restore_on_startup_async')
     fake_context['bot'].loop = mocker.Mock()
     fake_context['bot'].loop.create_task = mocker.Mock()
 
@@ -438,7 +444,7 @@ async def test_database_backup_loop_upload_failure(fake_context, fake_engine, mo
     mock_backup_file.unlink = mocker.Mock()
 
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
-    cog.backup_client.create_backup = mocker.Mock(return_value=mock_backup_file)
+    cog.backup_client.create_backup = AsyncMock(return_value=mock_backup_file)
 
     # Upload fails
     mocker.patch('discord_bot.cogs.database_backup.upload_file', return_value=False)
@@ -465,12 +471,16 @@ async def test_restore_on_startup_async_builds_table_groups(fake_context, fake_e
     markov_cog.REQUIRED_TABLES = ['markov_channel', 'markov_relation']
     fake_context['bot'].cogs = {'Music': music_cog, 'Markov': markov_cog}
 
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
+
     captured = {}
 
-    def fake_restore(table_groups, _on_table_restored):
+    async def fake_restore_from_s3(_bucket, _key, table_groups=None, on_table_restored=None):
         captured['table_groups'] = table_groups
+        _ = on_table_restored
+        return {'tables_restored': 0, 'total_rows_inserted': 0, 'tables': {}, 'metadata': {}}
 
-    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog.backup_client, 'restore_from_s3', side_effect=fake_restore_from_s3)
     mocker.patch.object(cog, '_release_all_table_events')
 
     await cog._restore_on_startup_async()  #pylint:disable=protected-access
@@ -486,12 +496,16 @@ async def test_restore_on_startup_async_skips_cog_without_required_tables(fake_c
     music_cog = mocker.Mock(spec=[])  # no REQUIRED_TABLES attribute
     fake_context['bot'].cogs = {'Music': music_cog}
 
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
+
     captured = {}
 
-    def fake_restore(table_groups, _on_table_restored):
+    async def fake_restore_from_s3(_bucket, _key, table_groups=None, on_table_restored=None):
         captured['table_groups'] = table_groups
+        _ = on_table_restored
+        return {'tables_restored': 0, 'total_rows_inserted': 0, 'tables': {}, 'metadata': {}}
 
-    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog.backup_client, 'restore_from_s3', side_effect=fake_restore_from_s3)
     mocker.patch.object(cog, '_release_all_table_events')
 
     await cog._restore_on_startup_async()  #pylint:disable=protected-access
@@ -505,7 +519,7 @@ async def test_restore_on_startup_async_releases_events_after_restore(fake_conte
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     fake_context['bot'].cogs = {}
 
-    mocker.patch.object(cog, '_restore_on_startup')
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value=None)
     release_spy = mocker.patch.object(cog, '_release_all_table_events')
 
     await cog._restore_on_startup_async()  #pylint:disable=protected-access
@@ -515,17 +529,21 @@ async def test_restore_on_startup_async_releases_events_after_restore(fake_conte
 
 @pytest.mark.asyncio
 async def test_restore_on_startup_async_callback_sets_table_event(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
-    '''on_table_restored callback triggers the matching asyncio.Event'''
+    '''on_table_restored callback directly sets the matching asyncio.Event'''
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     fake_context['bot'].cogs = {}
 
-    # Capture the callback so we can call it directly
+    mocker.patch.object(cog.backup_client, 'find_latest_backup', return_value='backups/db/latest.json')
+
+    # Capture the callback passed to restore_from_s3
     captured_callback = {}
 
-    def fake_restore(_table_groups, on_table_restored):
+    async def fake_restore_from_s3(_bucket, _key, table_groups=None, on_table_restored=None):
         captured_callback['fn'] = on_table_restored
+        _ = table_groups
+        return {'tables_restored': 0, 'total_rows_inserted': 0, 'tables': {}, 'metadata': {}}
 
-    mocker.patch.object(cog, '_restore_on_startup', side_effect=fake_restore)
+    mocker.patch.object(cog.backup_client, 'restore_from_s3', side_effect=fake_restore_from_s3)
     mocker.patch.object(cog, '_release_all_table_events')
 
     await cog._restore_on_startup_async()  #pylint:disable=protected-access
@@ -534,8 +552,7 @@ async def test_restore_on_startup_async_callback_sets_table_event(fake_context, 
     table_name = next(iter(cog._table_events))  #pylint:disable=protected-access
     assert not cog._table_events[table_name].is_set()  #pylint:disable=protected-access
     captured_callback['fn'](table_name)
-    # call_soon_threadsafe schedules the set; run the loop briefly to process it
-    await _asyncio.sleep(0)
+    # Callback sets the event directly (no call_soon_threadsafe needed)
     assert cog._table_events[table_name].is_set()  #pylint:disable=protected-access
 
 
