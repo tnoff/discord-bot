@@ -8,7 +8,7 @@ import tempfile
 
 import ijson
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine.base import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from discord_bot.database import BASE
@@ -26,47 +26,56 @@ class DatabaseBackupClient:
     # Number of rows to insert at a time during restoration (batching for efficiency)
     BATCH_SIZE = 1000
 
-    def __init__(self, db_engine: Engine):
+    def __init__(self, db_engine: AsyncEngine):
         self.db_engine = db_engine
 
-    def _create_sqlite_snapshot(self) -> tuple:
+    async def _create_sqlite_snapshot(self) -> tuple:
         '''
         Copies the live SQLite database to a temporary file using SQLite's internal
         backup API, then returns a (snapshot_engine, snapshot_path) tuple.
-        The snapshot is taken by borrowing the raw DBAPI connection from the pool,
-        so it works for both file-based and in-memory databases.
+        A temporary sync engine is created from the async URL (sqlite3 is built-in,
+        so no extra driver is needed).
         The caller is responsible for deleting snapshot_path and disposing snapshot_engine.
         '''
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
             snap_path = Path(f.name)
+
+        # Convert sqlite+aiosqlite URL -> sqlite (uses built-in sqlite3)
+        sync_url = self.db_engine.url.set(drivername='sqlite')
+
         dst_conn = sqlite3.connect(str(snap_path))
         try:
-            with self.db_engine.connect() as src_conn:
-                src_conn.connection.dbapi_connection.backup(dst_conn)
+            sync_engine = create_engine(sync_url, poolclass=NullPool)
+            try:
+                with sync_engine.connect() as src_conn:
+                    src_conn.connection.dbapi_connection.backup(dst_conn)
+            finally:
+                sync_engine.dispose()
         finally:
             dst_conn.close()
-        snap_engine = create_engine(f'sqlite:///{snap_path}', poolclass=NullPool)
+
+        snap_engine = create_async_engine(f'sqlite+aiosqlite:///{snap_path}', poolclass=NullPool)
         return snap_engine, snap_path
 
-    def _get_alembic_version(self) -> str:
+    async def _get_alembic_version(self) -> str:
         '''
-        Get the current alembic migration version from the database
-        Returns None if alembic_version table doesn't exist
+        Get the current alembic migration version from the database.
+        Returns None if alembic_version table doesn't exist.
         '''
         try:
-            with self.db_engine.connect() as connection:
-                result = connection.execute(text('SELECT version_num FROM alembic_version'))
+            async with self.db_engine.connect() as connection:
+                result = await connection.execute(text('SELECT version_num FROM alembic_version'))
                 row = result.fetchone()
                 return row[0] if row else None
         except Exception:  # pylint: disable=broad-except
             # Table doesn't exist or other error
             return None
 
-    def create_backup(self) -> Path:
+    async def create_backup(self) -> Path:
         '''
-        Dumps all database tables to a JSON file using streaming to minimize memory usage
-        Only includes tables defined in SQLAlchemy models (BASE.metadata)
-        Returns path to the created file
+        Dumps all database tables to a JSON file using streaming to minimize memory usage.
+        Only includes tables defined in SQLAlchemy models (BASE.metadata).
+        Returns path to the created file.
         '''
         with otel_span_wrapper('database_backup_client.create_backup') as span:
             timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -75,12 +84,12 @@ class DatabaseBackupClient:
             table_names = list(BASE.metadata.tables.keys())
 
             # Get alembic version
-            alembic_version = self._get_alembic_version()
+            alembic_version = await self._get_alembic_version()
 
             # For SQLite, snapshot the DB first so the live connection is released
             # before the (potentially slow) JSON export begins.
             if self.db_engine.dialect.name == 'sqlite':
-                read_engine, snap_path = self._create_sqlite_snapshot()
+                read_engine, snap_path = await self._create_sqlite_snapshot()
             else:
                 read_engine = self.db_engine
                 snap_path = None
@@ -102,7 +111,7 @@ class DatabaseBackupClient:
                     if table_names:
                         f.write(',\n')  # Comma before tables if any exist
 
-                    with read_engine.connect() as connection:
+                    async with read_engine.connect() as connection:
                         for table_idx, table_name in enumerate(table_names):
                             if table_idx > 0:
                                 f.write(',\n')  # Comma separator between tables
@@ -112,25 +121,19 @@ class DatabaseBackupClient:
 
                             # Stream rows in chunks to minimize memory usage
                             row_count = 0
-                            result = connection.execution_options(stream_results=True).execute(
-                                text(f'SELECT * FROM {table_name}')
-                            )
+                            async with connection.stream(text(f'SELECT * FROM {table_name}')) as result:
+                                while True:
+                                    chunk = await result.fetchmany(self.CHUNK_SIZE)
+                                    if not chunk:
+                                        break
 
-                            while True:
-                                # Fetch chunk of rows
-                                chunk = result.fetchmany(self.CHUNK_SIZE)
-                                if not chunk:
-                                    break
+                                    for row in chunk:
+                                        if row_count > 0:
+                                            f.write(',\n')
 
-                                # Write each row as JSON
-                                for row in chunk:
-                                    if row_count > 0:
-                                        f.write(',\n')
-
-                                    row_dict = dict(row._mapping)  #pylint:disable=protected-access
-                                    # Write row with proper indentation
-                                    f.write('    ' + json.dumps(row_dict, default=str))
-                                    row_count += 1
+                                        row_dict = dict(row._mapping)  # pylint: disable=protected-access
+                                        f.write('    ' + json.dumps(row_dict, default=str))
+                                        row_count += 1
 
                             logger.debug(f'  -> {table_name}: {row_count} rows')
                             f.write('\n  ]')  # Close table array
@@ -145,12 +148,12 @@ class DatabaseBackupClient:
                 if snap_path is not None:
                     if snap_path.exists():
                         snap_path.unlink()
-                    read_engine.dispose()
+                    await read_engine.dispose()
 
     # ijson scalar event types (all carry a Python value directly)
     _SCALAR_EVENTS = frozenset(['null', 'boolean', 'integer', 'double', 'number', 'string'])
 
-    def restore_backup(self, backup_file: Path, clear_existing: bool = False,
+    async def restore_backup(self, backup_file: Path, clear_existing: bool = False,
                        table_groups: list[list[str]] | None = None,
                        on_table_restored: Callable[[str], None] | None = None) -> dict:
         '''
@@ -183,24 +186,24 @@ class DatabaseBackupClient:
 
         if table_groups is None:
             # Original behavior: single pass inside a single transaction
-            with self.db_engine.begin() as connection:
+            async with self.db_engine.begin() as connection:
                 if clear_existing:
-                    self._truncate_tables(connection, list(table_metadata.keys()))
-                self._restore_pass_single(backup_file, connection, stats, metadata)
+                    await self._truncate_tables(connection, list(table_metadata.keys()))
+                await self._restore_pass_single(backup_file, connection, stats, metadata)
         else:
             # Multi-pass: truncate first, then restore ungrouped tables, then each group
             if clear_existing:
-                with self.db_engine.begin() as connection:
-                    self._truncate_tables(connection, list(table_metadata.keys()))
+                async with self.db_engine.begin() as connection:
+                    await self._truncate_tables(connection, list(table_metadata.keys()))
 
             grouped = {t for group in table_groups for t in group}
             ungrouped = set(table_metadata.keys()) - grouped
 
             if ungrouped:
-                self._restore_pass(backup_file, ungrouped, on_table_restored, stats, metadata)
+                await self._restore_pass(backup_file, ungrouped, on_table_restored, stats, metadata)
 
             for group in table_groups:
-                self._restore_pass(backup_file, set(group), on_table_restored, stats, metadata)
+                await self._restore_pass(backup_file, set(group), on_table_restored, stats, metadata)
 
         if metadata:
             logger.info(
@@ -213,7 +216,7 @@ class DatabaseBackupClient:
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
 
-    def _restore_pass_single(self, backup_file: Path, connection, stats: dict,
+    async def _restore_pass_single(self, backup_file: Path, connection, stats: dict,
                               metadata: dict) -> None:
         '''Single streaming pass using an existing connection (original behavior).'''
         table_metadata = BASE.metadata.tables
@@ -223,15 +226,15 @@ class DatabaseBackupClient:
         row_buffer = []
         table_rows_inserted = 0
 
-        def flush_buffer():
+        async def flush_buffer():
             nonlocal table_rows_inserted
             if row_buffer and current_table in table_metadata:
-                table_rows_inserted += self._restore_table(connection, current_table, row_buffer)
+                table_rows_inserted += await self._restore_table(connection, current_table, row_buffer)
                 row_buffer.clear()
 
-        def finalize_table():
+        async def finalize_table():
             nonlocal table_rows_inserted
-            flush_buffer()
+            await flush_buffer()
             if current_table and current_table != '_metadata':
                 if current_table not in table_metadata:
                     logger.info(f'Table {current_table} not found in current schema, skipping')
@@ -245,7 +248,7 @@ class DatabaseBackupClient:
         with open(backup_file, 'rb') as f:
             for prefix, event, value in ijson.parse(f, use_float=True):
                 if prefix == '' and event == 'map_key':
-                    finalize_table()
+                    await finalize_table()
                     current_table = value
                     current_row = None
 
@@ -265,18 +268,18 @@ class DatabaseBackupClient:
                             row_buffer.append(current_row)
                             current_row = None
                             if len(row_buffer) >= self.BATCH_SIZE:
-                                flush_buffer()
+                                await flush_buffer()
 
                     elif (current_row is not None
                           and event in self._SCALAR_EVENTS
                           and prefix.startswith(item_prefix + '.')):
                         field = prefix[len(item_prefix) + 1:]
                         if field and '.' not in field:
-                            current_row[field] = value  #pylint:disable=unsupported-assignment-operation
+                            current_row[field] = value  # pylint: disable=unsupported-assignment-operation
 
-        finalize_table()
+        await finalize_table()
 
-    def _restore_pass(self, backup_file: Path, only_tables: set[str],
+    async def _restore_pass(self, backup_file: Path, only_tables: set[str],
                       on_table_restored: Callable | None, stats: dict,
                       metadata: dict) -> None:
         '''
@@ -290,7 +293,7 @@ class DatabaseBackupClient:
         row_buffer = []
         table_rows_inserted = 0
 
-        def flush_buffer():
+        async def flush_buffer():
             nonlocal table_rows_inserted
             if not row_buffer:
                 return
@@ -299,12 +302,12 @@ class DatabaseBackupClient:
                 return
             rows_to_insert = list(row_buffer)
             row_buffer.clear()
-            with self.db_engine.begin() as connection:
-                table_rows_inserted += self._restore_table(connection, current_table, rows_to_insert)
+            async with self.db_engine.begin() as connection:
+                table_rows_inserted += await self._restore_table(connection, current_table, rows_to_insert)
 
-        def finalize_table():
+        async def finalize_table():
             nonlocal table_rows_inserted
-            flush_buffer()
+            await flush_buffer()
             if current_table and current_table != '_metadata' and current_table in only_tables:
                 if current_table not in table_metadata:
                     logger.info(f'Table {current_table} not found in current schema, skipping')
@@ -320,7 +323,7 @@ class DatabaseBackupClient:
         with open(backup_file, 'rb') as f:
             for prefix, event, value in ijson.parse(f, use_float=True):
                 if prefix == '' and event == 'map_key':
-                    finalize_table()
+                    await finalize_table()
                     current_table = value
                     current_row = None
 
@@ -343,18 +346,18 @@ class DatabaseBackupClient:
                             row_buffer.append(current_row)
                             current_row = None
                             if len(row_buffer) >= self.BATCH_SIZE:
-                                flush_buffer()
+                                await flush_buffer()
 
                     elif (current_row is not None
                           and event in self._SCALAR_EVENTS
                           and prefix.startswith(item_prefix + '.')):
                         field = prefix[len(item_prefix) + 1:]
                         if field and '.' not in field:
-                            current_row[field] = value  #pylint:disable=unsupported-assignment-operation
+                            current_row[field] = value  # pylint: disable=unsupported-assignment-operation
 
-        finalize_table()
+        await finalize_table()
 
-    def _truncate_tables(self, connection, table_names: list):
+    async def _truncate_tables(self, connection, table_names: list):
         '''
         Truncates tables in the correct order (respecting foreign key constraints)
         '''
@@ -363,7 +366,7 @@ class DatabaseBackupClient:
             # Disable foreign key constraints temporarily (database-specific)
             # For SQLite
             try:
-                connection.execute(text('PRAGMA foreign_keys = OFF'))
+                await connection.execute(text('PRAGMA foreign_keys = OFF'))
             except Exception:  # pylint: disable=broad-except
                 pass  # Not SQLite or already disabled
 
@@ -371,19 +374,19 @@ class DatabaseBackupClient:
                 if table_name in BASE.metadata.tables:
                     logger.debug(f'Truncating table: {table_name}')
                     try:
-                        connection.execute(text(f'DELETE FROM {table_name}'))
+                        await connection.execute(text(f'DELETE FROM {table_name}'))
                     except Exception as e:  # pylint: disable=broad-except
                         logger.debug(f'Failed to truncate {table_name}: {str(e)}')
 
             # Re-enable foreign key constraints
             try:
-                connection.execute(text('PRAGMA foreign_keys = ON'))
+                await connection.execute(text('PRAGMA foreign_keys = ON'))
             except Exception:  # pylint: disable=broad-except
                 pass
 
-    def _restore_table(self, connection, table_name: str, rows: list) -> int:
+    async def _restore_table(self, connection, table_name: str, rows: list) -> int:
         '''
-        Restores a single table from backup data
+        Restores a single table from backup data.
 
         Args:
             connection: Database connection
@@ -413,7 +416,7 @@ class DatabaseBackupClient:
                 insert_sql = f'INSERT INTO {table_name} ({column_str}) VALUES ({placeholders})'
 
                 try:
-                    connection.execute(text(insert_sql), batch)
+                    await connection.execute(text(insert_sql), batch)
                     rows_inserted += len(batch)
                 except Exception as e:  # pylint: disable=broad-except
                     logger.error(f'Failed to insert batch into {table_name}: {str(e)}')
@@ -433,7 +436,7 @@ class DatabaseBackupClient:
             return None
         return objects[0]['key']
 
-    def restore_from_s3(self, bucket_name: str, object_key: str,
+    async def restore_from_s3(self, bucket_name: str, object_key: str,
                         table_groups: list[list[str]] | None = None,
                         on_table_restored: Callable[[str], None] | None = None) -> dict:
         '''
@@ -444,7 +447,7 @@ class DatabaseBackupClient:
             tmp_path = Path(tmp.name)
         try:
             get_file(bucket_name, object_key, tmp_path)
-            return self.restore_backup(tmp_path, clear_existing=True,
+            return await self.restore_backup(tmp_path, clear_existing=True,
                                        table_groups=table_groups,
                                        on_table_restored=on_table_restored)
         finally:

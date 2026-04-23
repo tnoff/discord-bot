@@ -4,10 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from discord.ext.commands import Bot
-from sqlalchemy import create_engine
 from sqlalchemy.engine.base import Engine
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.pool import NullPool
 from opentelemetry.metrics import Observation
 from opentelemetry.trace import SpanKind
 from croniter import croniter
@@ -55,20 +52,7 @@ class DatabaseBackup(CogHelper):
         self.cron_schedule = self.config.cron_schedule
         self.object_prefix = self.config.object_prefix if self.config.object_prefix else 'backups/db/'
 
-        # Build a synchronous engine for the backup client.
-        # AsyncEngine.sync_engine still uses the async DBAPI (asyncpg/aiosqlite) and
-        # requires greenlet context, so we create a fresh sync engine from the URL.
-        async_url = make_url(str(self.db_engine.url))
-        if async_url.drivername == 'postgresql+asyncpg':
-            sync_url = async_url.set(drivername='postgresql')
-        elif async_url.drivername == 'sqlite+aiosqlite':
-            sync_url = async_url.set(drivername='sqlite')
-        else:
-            sync_url = async_url
-        self._backup_sync_engine = create_engine(sync_url, poolclass=NullPool)
-        self.backup_client = DatabaseBackupClient(
-            db_engine=self._backup_sync_engine,
-        )
+        self.backup_client = DatabaseBackupClient(db_engine=self.db_engine)
 
         self._task = None
         self._restore_task = None
@@ -115,8 +99,7 @@ class DatabaseBackup(CogHelper):
         )
 
     async def _restore_on_startup_async(self):
-        '''Async wrapper: builds table groups from RESTORE_ORDER, then runs restore in a thread.'''
-        loop = asyncio.get_running_loop()
+        '''Download and restore the latest S3 backup on startup.'''
         table_groups = [
             list(self.bot.cogs[name].REQUIRED_TABLES)
             for name in self.RESTORE_ORDER
@@ -126,33 +109,29 @@ class DatabaseBackup(CogHelper):
 
         def on_table_restored(table_name: str):
             if table_name in self._table_events:
-                loop.call_soon_threadsafe(self._table_events[table_name].set)
+                self._table_events[table_name].set()
 
-        await asyncio.to_thread(self._restore_on_startup, table_groups, on_table_restored)
-        # Ensure all events are set after restore completes regardless of outcome
-        # (handles no-backup-found, S3 errors, and tables absent from the backup)
-        self._release_all_table_events()
-
-    def _restore_on_startup(self, table_groups=None, on_table_restored=None):
-        '''Sync: download and restore the latest S3 backup. Runs in a thread.'''
         with otel_span_wrapper('database_backup.startup_restore'):
             try:
                 key = self.backup_client.find_latest_backup(self.bucket_name, self.object_prefix)
                 if key is None:
                     self.logger.info('No backup found in S3, starting with empty DB')
-                    return
-                stats = self.backup_client.restore_from_s3(
-                    self.bucket_name, key,
-                    table_groups=table_groups,
-                    on_table_restored=on_table_restored,
-                )
-                self.logger.info(
-                    f'Startup restore complete from {key}: '
-                    f'{stats["tables_restored"]} tables, '
-                    f'{stats["total_rows_inserted"]} rows'
-                )
+                else:
+                    stats = await self.backup_client.restore_from_s3(
+                        self.bucket_name, key,
+                        table_groups=table_groups,
+                        on_table_restored=on_table_restored,
+                    )
+                    self.logger.info(
+                        f'Startup restore complete from {key}: '
+                        f'{stats["tables_restored"]} tables, '
+                        f'{stats["total_rows_inserted"]} rows'
+                    )
             except ObjectStorageException as e:
                 self.logger.warning(f'Startup restore failed, continuing with existing DB: {e}')
+        # Ensure all events are set regardless of outcome
+        # (handles no-backup-found, S3 errors, and tables absent from the backup)
+        self._release_all_table_events()
 
     async def wait_for_tables(self, table_names: list[str]) -> None:
         '''Wait until all named tables have been restored.'''
@@ -170,7 +149,6 @@ class DatabaseBackup(CogHelper):
             self._restore_task.cancel()
         if self._task:
             self._task.cancel()
-        self._backup_sync_engine.dispose()
 
     async def database_backup_loop(self):
         '''Main backup loop - runs on cron schedule'''
@@ -186,7 +164,7 @@ class DatabaseBackup(CogHelper):
         async with async_otel_span_wrapper('database_backup.run', kind=SpanKind.INTERNAL):
             # Create backup file
             async with async_otel_span_wrapper('database_backup.create_file'):
-                backup_file_path = await asyncio.to_thread(self.backup_client.create_backup)
+                backup_file_path = await self.backup_client.create_backup()
 
             # Upload to S3
             async with async_otel_span_wrapper('database_backup.upload_to_s3',

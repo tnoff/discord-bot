@@ -128,6 +128,20 @@ async def fake_engine() -> AsyncGenerator[AsyncEngine, None]:
     yield engine
     await engine.dispose()
 
+@pytest_asyncio.fixture(scope="function")
+async def fake_async_file_engine() -> AsyncGenerator[AsyncEngine, None]:
+    '''File-based async SQLite engine — required when _create_sqlite_snapshot must work.'''
+    fd, db_path = tempfile.mkstemp(suffix='.db')
+    os.close(fd)
+    engine = create_async_engine(f'sqlite+aiosqlite:///{db_path}', poolclass=NullPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(BASE.metadata.create_all)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+        os.unlink(db_path)
+
 @pytest.fixture(scope="function")
 def fake_sync_engine() -> Generator[Engine, None, None]:
     fd, db_path = tempfile.mkstemp(suffix='.db')
