@@ -30,7 +30,7 @@ jobs:
   build:
     needs: [check_labels, resolve_db_type]
     if: needs.check_labels.outputs.conditions_met == 'true'
-    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@5a3473dcbf9095c0e2137fa209bf1d10bc9f791f
+    uses: tnoff/github-workflows/.github/workflows/ocir-push.yml@5c01c5cfcd5237914aee049f8b681b1a0b6215cc
     with:
       image_name: ${{ vars.OCI_REPO_NAME }}
       dockerfile_path: ./docker/Dockerfile
@@ -51,6 +51,7 @@ jobs:
       dockerfile_path: ./docker/Dockerfile.dispatcher
       docker_context: .
       platforms: linux/arm64
+      build_args: DB_TYPE=${{ needs.resolve_db_type.outputs.db_type }}
     secrets:
       oci_registry: ${{ secrets.OCI_REGISTRY }}
       oci_username: ${{ secrets.OCI_USERNAME }}
