@@ -26,7 +26,7 @@ jobs:
       - id: set
         run: echo "db_type=${DB_TYPE:-sqlite}" >> "$GITHUB_OUTPUT"
         env:
-          DB_TYPE: ${{ secrets.DB_TYPE }}
+          DB_TYPE: ${{ vars.DB_TYPE }}
   build:
     needs: [check_labels, resolve_db_type]
     if: needs.check_labels.outputs.conditions_met == 'true'

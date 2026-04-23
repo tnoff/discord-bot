@@ -2,15 +2,14 @@
 Full bot process — gateway connection, all cogs, SQLAlchemy DB.
 '''
 import asyncio
+import concurrent.futures
 import sys
 
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry import trace
 
-from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.pool import NullPool
 
 from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.cogs.database_backup import DatabaseBackup
@@ -41,17 +40,22 @@ POSSIBLE_COGS = [
 ]
 
 
+async def _create_tables(engine):
+    async with engine.begin() as conn:
+        await conn.run_sync(BASE.metadata.create_all)
+
+
 def _setup_db(general_config: GeneralConfig):
     if general_config.sql_connection_statement:
-        sync_db_engine = create_engine(general_config.sql_connection_statement, poolclass=NullPool)
-        BASE.metadata.create_all(sync_db_engine)
-        sync_db_engine.dispose()
         url = make_url(general_config.sql_connection_statement)
         if url.drivername.startswith('postgresql'):
             url = url.set(drivername='postgresql+asyncpg')
         elif url.drivername == 'sqlite':
             url = url.set(drivername='sqlite+aiosqlite')
-        return create_async_engine(url, pool_pre_ping=True)
+        engine = create_async_engine(url, pool_pre_ping=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, _create_tables(engine)).result()
+        return engine
     print('Unable to find sql statement in settings, assuming no db', file=sys.stderr)
     return None
 
