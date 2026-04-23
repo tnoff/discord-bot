@@ -5,6 +5,8 @@ from typing import Optional
 
 from discord.ext.commands import Bot
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 from opentelemetry.metrics import Observation
 from opentelemetry.trace import SpanKind
 from croniter import croniter
@@ -53,6 +55,7 @@ class DatabaseBackup(CogHelper):
         self.object_prefix = self.config.object_prefix if self.config.object_prefix else 'backups/db/'
 
         self.backup_client = DatabaseBackupClient(db_engine=self.db_engine)
+        self._backup_engine = None
 
         self._task = None
         self._restore_task = None
@@ -86,6 +89,12 @@ class DatabaseBackup(CogHelper):
 
     async def cog_load(self):
         '''Start the backup loop when cog loads; kick off restore in background if enabled'''
+        # Replace the backup client's engine with one created inside the running event
+        # loop. Engines created before bot.run() can have asyncpg futures bound to a
+        # different loop. NullPool avoids any pool-level loop binding.
+        self._backup_engine = create_async_engine(str(self.db_engine.url), poolclass=NullPool)
+        self.backup_client = DatabaseBackupClient(db_engine=self._backup_engine)
+
         if self.config.restore_on_startup:
             self._restore_task = self.bot.loop.create_task(self._restore_on_startup_async())
         else:
@@ -149,6 +158,8 @@ class DatabaseBackup(CogHelper):
             self._restore_task.cancel()
         if self._task:
             self._task.cancel()
+        if self._backup_engine:
+            await self._backup_engine.dispose()
 
     async def database_backup_loop(self):
         '''Main backup loop - runs on cron schedule'''

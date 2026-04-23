@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, DateTime, Integer, String, Boolean
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Boolean
 from sqlalchemy import ForeignKey, UniqueConstraint
 
 BASE = declarative_base()
@@ -18,9 +18,9 @@ class MarkovChannel(BASE):
                          name='_unique_markov_channel'),
     )
     id = Column(Integer, primary_key=True)
-    channel_id = Column(Integer)
-    server_id = Column(Integer)
-    last_message_id = Column(Integer)
+    channel_id = Column(BigInteger)
+    server_id = Column(BigInteger)
+    last_message_id = Column(BigInteger)
 
 class MarkovRelation(BASE):
     '''
@@ -28,7 +28,7 @@ class MarkovRelation(BASE):
     '''
     __tablename__ = 'markov_relation'
     id = Column(Integer, primary_key=True)
-    channel_id = Column(Integer, ForeignKey('markov_channel.id'))
+    channel_id = Column(Integer, ForeignKey('markov_channel.id'))  # FK to markov_channel.id (int32)
     leader_word = Column(String(255))
     follower_word = Column(String(255))
     created_at = Column(DateTime)
