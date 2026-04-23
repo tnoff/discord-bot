@@ -787,18 +787,15 @@ async def test_main_with_dispatch_health_server(mocker):
 
 
 def test_run_config_with_postgresql_db(mocker):
-    '''postgresql URL is rewritten to postgresql+asyncpg and engine is disposed synchronously.
+    '''postgresql URL is rewritten to postgresql+asyncpg and table creation uses the async engine.
 
-    Covers cli.py lines 186 (url rewrite), 270-271 (RuntimeError → loop=None), 275 (asyncio.run).
+    Covers bot.py lines 42-44 (_create_tables), 49-56 (_setup_db postgres path).
     This test is intentionally synchronous so there is no running event loop in the finally block,
     exercising the asyncio.run(db_engine.dispose()) path.
     '''
-    mock_sync_engine = MagicMock()
     mock_async_engine = AsyncMock()
-    # Prevent actual DB connection
-    mocker.patch('discord_bot.cli.bot.create_engine', return_value=mock_sync_engine)
-    mocker.patch('discord_bot.cli.bot.BASE.metadata.create_all')
     create_async_engine_mock = mocker.patch('discord_bot.cli.bot.create_async_engine', return_value=mock_async_engine)
+    mocker.patch('discord_bot.cli.bot._create_tables')
     mocker.patch('discord_bot.cli.bot.run_bot')
 
     with NamedTemporaryFile(suffix='.yml') as temp_config:
