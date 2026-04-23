@@ -67,7 +67,7 @@ docs/
 # Docker
 docker/
 .dockerignore
-!docker-entrypoint.sh
+!docker/entrypoint.sh
 
 # Docker compose directories (for testing)
 data/

@@ -4,8 +4,10 @@ FROM python:3.14-slim-bookworm
 # Base packages
 # Update to latest for security fixes
 ARG INSTALL_HEAPTRACK=false
+ARG DB_TYPE=sqlite
 RUN apt-get update && \
-    apt-get install -y gcc cmake git ffmpeg curl unzip sqlite3 && \
+    apt-get install -y gcc cmake git ffmpeg curl unzip \
+      $([ "$DB_TYPE" = "postgres" ] && echo "postgresql-client" || echo "sqlite3") && \
     if [ "$INSTALL_HEAPTRACK" = "true" ]; then apt-get install -y heaptrack; fi && \
     apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
@@ -31,11 +33,22 @@ COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
 COPY requirements.base.txt "${APPDIR}/"
 COPY requirements.txt "${APPDIR}/"
+COPY requirements.sqlite.txt "${APPDIR}/"
+COPY requirements.postgres.txt "${APPDIR}/"
 COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
 COPY scripts/ "${WORKDIR}/scripts/"
+COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN pip install "${APPDIR}"
+
+RUN if [ "$DB_TYPE" = "postgres" ]; then \
+        pip install -r "${APPDIR}/requirements.postgres.txt"; \
+    else \
+        pip install -r "${APPDIR}/requirements.sqlite.txt"; \
+    fi
+
+RUN chmod +x /entrypoint.sh
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
@@ -68,5 +81,5 @@ RUN mkdir -p /opt/discord/.cache
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
 
-ENTRYPOINT ["discord-bot"]
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/opt/discord/cnf/discord.cnf"]

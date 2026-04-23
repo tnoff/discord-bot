@@ -1,7 +1,6 @@
 -r requirements.base.txt
 dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0
 opentelemetry-instrumentation-sqlalchemy
-aiosqlite==0.22.1
 alembic==1.18.4
 ijson==3.5.0
 beautifulsoup4==4.14.3
