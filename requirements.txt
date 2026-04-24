@@ -4,7 +4,7 @@ opentelemetry-instrumentation-sqlalchemy
 alembic==1.18.4
 ijson==3.5.0
 beautifulsoup4==4.14.3
-boto3==1.42.95
+boto3==1.42.96
 google-api-python-client==2.194.0
 moviepy==2.2.1
 davey==0.1.5
