@@ -4,10 +4,10 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import text, DateTime
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -243,6 +243,52 @@ def test_coerce_row_no_op_for_sqlite():
     client = DatabaseBackupClient(db_engine=mock_engine)
     row = {'id': 1, 'last_queued': '2023-08-26 06:49:25', 'created_at': '2022-04-20 00:00:00'}
     assert client._coerce_row('playlist', row) is row  #pylint:disable=protected-access
+
+
+def test_coerce_row_unknown_table_returns_row_unchanged():
+    '''_coerce_row returns row unchanged when table name is not in metadata'''
+    client = _pg_backup_client()
+    row = {'id': 1, 'value': 'something'}
+    result = client._coerce_row('nonexistent_table', row)  #pylint:disable=protected-access
+    assert result == row
+
+
+def test_coerce_value_unknown_column_returns_value_unchanged():
+    '''_coerce_value returns value unchanged when column is not in the table'''
+    client = _pg_backup_client()
+    table = MagicMock()
+    table.c.get.return_value = None
+    result = client._coerce_value(table, 'unknown_col', 'some_value')  #pylint:disable=protected-access
+    assert result == 'some_value'
+
+
+def test_coerce_value_unparseable_datetime_string_returned_as_is():
+    '''_coerce_value returns the original string when fromisoformat fails'''
+    client = _pg_backup_client()
+    table = MagicMock()
+    col = MagicMock()
+    col.type = DateTime(timezone=True)
+    table.c.get.return_value = col
+    result = client._coerce_value(table, 'created_at', 'not-a-date')  #pylint:disable=protected-access
+    assert result == 'not-a-date'
+
+
+@pytest.mark.asyncio
+async def test_truncate_tables_postgresql_uses_truncate_cascade():
+    '''_truncate_tables issues a single TRUNCATE ... CASCADE on PostgreSQL'''
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = 'postgresql'
+    client = DatabaseBackupClient(db_engine=mock_engine)
+
+    executed = []
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock(side_effect=lambda stmt, *a, **kw: executed.append(str(stmt)))
+
+    await client._truncate_tables(mock_conn, ['guild', 'playlist'])  #pylint:disable=protected-access
+
+    assert len(executed) == 1
+    assert 'TRUNCATE' in executed[0]
+    assert 'CASCADE' in executed[0]
 
 
 @pytest.mark.asyncio

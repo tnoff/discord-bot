@@ -420,23 +420,27 @@ class DatabaseBackupClient:
             return row
         coerced = {}
         for key, value in row.items():
-            if value is not None:
-                col = table.c.get(key)
-                if col is not None:
-                    if isinstance(col.type, Boolean) and isinstance(value, int):
-                        coerced[key] = bool(value)
-                        continue
-                    if hasattr(col.type, 'timezone') and isinstance(value, str):
-                        try:
-                            dt = datetime.fromisoformat(value)
-                            if dt.tzinfo is None:
-                                dt = dt.replace(tzinfo=timezone.utc)
-                            coerced[key] = dt
-                            continue
-                        except (ValueError, TypeError):
-                            pass
-            coerced[key] = value
+            coerced[key] = self._coerce_value(table, key, value)
         return coerced
+
+    def _coerce_value(self, table, key: str, value):
+        '''Coerce a single column value to the type expected by PostgreSQL.'''
+        if value is None:
+            return value
+        col = table.c.get(key)
+        if col is None:
+            return value
+        if isinstance(col.type, Boolean) and isinstance(value, int):
+            return bool(value)
+        if hasattr(col.type, 'timezone') and isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except (ValueError, TypeError):
+                pass
+        return value
 
     async def _restore_table(self, connection, table_name: str, rows: list) -> int:
         '''
