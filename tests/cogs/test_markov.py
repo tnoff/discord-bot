@@ -383,11 +383,10 @@ def test_loop_active_callback_running(fake_engine, fake_context, mocker):  #pyli
 
 @pytest.mark.asyncio
 async def test_cog_load_creates_task(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''cog_load calls gate_tasks_on_db_restore which schedules _start_tasks'''
+    '''cog_load calls _start_tasks which schedules background tasks'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_engine)
     fake_context['bot'].loop = mocker.Mock()
     fake_context['bot'].loop.create_task = mocker.Mock(return_value=mocker.Mock())
-    # No DatabaseBackup cog present, so gate_tasks_on_db_restore calls _start_tasks directly
     await cog.cog_load()
     assert cog._task is not None  #pylint:disable=protected-access
     assert cog._result_task is not None  #pylint:disable=protected-access

@@ -8,12 +8,10 @@ import sys
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry import trace
 
-from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from discord_bot.cogs.delete_messages import DeleteMessages
-from discord_bot.cogs.database_backup import DatabaseBackup
 from discord_bot.cogs.general import General
 from discord_bot.cogs.markov import Markov
 from discord_bot.cogs.message_dispatcher import MessageDispatcher
@@ -25,14 +23,13 @@ from discord_bot.servers.health_server import HealthServer
 from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli.common import (
-    build_bot, load_cogs, run_bot,
+    build_bot, load_cogs, make_async_db_url, run_bot,
     setup_logging, setup_otlp, setup_profiling,
 )
 
 POSSIBLE_COGS = [
     MessageDispatcher,   # must be first — music/markov depend on it
     DeleteMessages,
-    DatabaseBackup,
     Markov,
     Music,
     RoleAssignment,
@@ -48,11 +45,7 @@ async def _create_tables(engine):
 
 def _setup_db(general_config: GeneralConfig):
     if general_config.sql_connection_statement:
-        url = make_url(general_config.sql_connection_statement)
-        if url.drivername.startswith('postgresql'):
-            url = url.set(drivername='postgresql+asyncpg')
-        elif url.drivername == 'sqlite':
-            url = url.set(drivername='sqlite+aiosqlite')
+        url = make_async_db_url(general_config.sql_connection_statement)
         engine = create_async_engine(url, poolclass=NullPool)
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             pool.submit(asyncio.run, _create_tables(engine)).result()

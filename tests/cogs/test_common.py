@@ -27,57 +27,6 @@ def test_config_model_requires_settings_prefix(fake_context):  #pylint:disable=r
 
 
 # ---------------------------------------------------------------------------
-# gate_tasks_on_db_restore (lines 66-72)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_gate_tasks_no_backup_cog_calls_start_fn_directly(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''When no DatabaseBackup cog is present, start_tasks_fn is called immediately'''
-    cog = CogHelper(fake_context['bot'], {}, None)
-    mocker.patch.object(fake_context['bot'], 'get_cog', return_value=None)
-    start_fn = MagicMock()
-    await cog.gate_tasks_on_db_restore(start_fn)
-    start_fn.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_gate_tasks_with_backup_cog_creates_init_task(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''When DatabaseBackup cog is present, an init task is created'''
-    cog = CogHelper(fake_context['bot'], {}, None)
-    backup_cog = MagicMock()
-    backup_cog.wait_for_tables = AsyncMock()
-    mocker.patch.object(fake_context['bot'], 'get_cog', return_value=backup_cog)
-    fake_loop = MagicMock()
-    # Close the coroutine so it is not left unawaited (avoids ResourceWarning)
-    def _close_coro(coro):
-        coro.close()
-        return MagicMock()
-    fake_loop.create_task.side_effect = _close_coro
-    fake_context['bot'].loop = fake_loop
-    start_fn = MagicMock()
-    await cog.gate_tasks_on_db_restore(start_fn)
-    fake_loop.create_task.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# _await_restore_then_start (lines 75-77)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_await_restore_then_start_waits_then_calls(fake_context):  #pylint:disable=redefined-outer-name
-    '''_await_restore_then_start waits for tables then calls start_tasks_fn'''
-    cog = CogHelper(fake_context['bot'], {}, None)
-    backup_cog = MagicMock()
-    backup_cog.wait_for_tables = AsyncMock()
-    start_fn = MagicMock()
-
-    await getattr(cog, '_await_restore_then_start')(backup_cog, start_fn)
-
-    backup_cog.wait_for_tables.assert_called_once_with(cog.REQUIRED_TABLES)
-    start_fn.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
 # with_db_session (lines 84-88)
 # ---------------------------------------------------------------------------
 

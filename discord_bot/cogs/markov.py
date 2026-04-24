@@ -108,8 +108,6 @@ class Markov(CogHelper):
     '''
     Save markov relations to a database periodically
     '''
-    REQUIRED_TABLES = ['markov_channel', 'markov_relation']
-
     def __init__(self, bot: Bot, settings: dict, db_engine: AsyncEngine):
         if not db_engine:
             raise CogMissingRequiredArg('No db engine passed, cannot start markov')
@@ -142,8 +140,8 @@ class Markov(CogHelper):
         ]
 
     async def cog_load(self):
-        '''Start tasks, gated on DB restore if needed.'''
-        await self.gate_tasks_on_db_restore(self._start_tasks)
+        '''Start background tasks.'''
+        self._start_tasks()
 
     def _start_tasks(self):
         '''Start the producer and consumer tasks.'''

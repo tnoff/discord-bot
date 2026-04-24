@@ -8,7 +8,7 @@ ENV VENVDIR="/opt/discord-venv"
 ENV LOGFILE="/var/log/discord"
 
 # Setup installs and create directory structure
-RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/scripts" \
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
     "${WORKDIR}/cnf" "${WORKDIR}/downloads" "${WORKDIR}/db"
 
 # Create non-root user and group
@@ -23,7 +23,6 @@ COPY requirements.base.txt "${APPDIR}/"
 COPY requirements.dispatcher.txt "${APPDIR}/requirements.txt"
 COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
-COPY scripts/ "${WORKDIR}/scripts/"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \

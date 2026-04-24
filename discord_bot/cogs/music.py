@@ -150,9 +150,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
-    REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
-                       'video_cache_backup', 'guild', 'server_video_analytics']
-
     def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
         super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
@@ -406,7 +403,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.db_engine:
-            await self.gate_tasks_on_db_restore(self._start_tasks)
+            self._start_tasks()
 
     def _start_tasks(self):
         self._post_play_processing_task = self.bot.loop.create_task(

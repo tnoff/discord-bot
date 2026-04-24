@@ -7,6 +7,7 @@ import sys
 from typing import List
 
 from pyaml_env import parse_config
+from sqlalchemy.engine.url import make_url
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
 from pydantic import ValidationError as PydanticValidationError
@@ -254,6 +255,16 @@ def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine) -> list:
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog_cls)}, {str(e)}')
     return cogs
+
+
+def make_async_db_url(connection_string: str):
+    '''Convert a plain SQLAlchemy URL to its async-driver equivalent.'''
+    url = make_url(connection_string)
+    if url.drivername.startswith('postgresql'):
+        return url.set(drivername='postgresql+asyncpg')
+    if url.drivername == 'sqlite':
+        return url.set(drivername='sqlite+aiosqlite')
+    return url
 
 
 def parse_and_validate_config(config_file: str) -> tuple[dict, GeneralConfig]:

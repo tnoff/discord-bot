@@ -49,6 +49,8 @@ setuptools.setup(
     entry_points={
         'console_scripts' : [
             'discord-bot = discord_bot.cli:main',
+            'discord-db-backup = discord_bot.cli.db_backup:backup_main',
+            'discord-db-restore = discord_bot.cli.db_backup:restore_main',
         ]
     },
     packages=setuptools.find_packages(exclude=['tests', 'docs']),
