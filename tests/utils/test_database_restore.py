@@ -2,7 +2,9 @@
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -11,6 +13,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from discord_bot.database import BASE
 from discord_bot.utils.database_backup_client import DatabaseBackupClient
+
+
+def _pg_backup_client():
+    '''DatabaseBackupClient with a mocked PostgreSQL dialect (no real connection needed).'''
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = 'postgresql'
+    return DatabaseBackupClient(db_engine=mock_engine)
 
 
 @pytest_asyncio.fixture
@@ -159,6 +168,91 @@ async def test_restore_without_clear_existing(backup_client, db_engine):  #pylin
         async with db_engine.connect() as conn:
             assert (await conn.execute(text('SELECT COUNT(*) FROM guild'))).scalar() == 2
 
+    finally:
+        backup_file.unlink()
+
+
+def test_coerce_row_converts_datetime_strings():
+    '''_coerce_row converts string datetime values to timezone-aware datetimes for DateTime columns'''
+    client = _pg_backup_client()
+    row = {
+        'id': 1,
+        'name': 'Test',
+        'server_id': 123,
+        'last_queued': '2023-08-26 06:49:25.794980',
+        'created_at': '2022-04-20 00:00:00',
+        'is_history': False,
+    }
+    coerced = client._coerce_row('playlist', row)  #pylint:disable=protected-access
+
+    assert isinstance(coerced['last_queued'], datetime)
+    assert coerced['last_queued'].tzinfo == timezone.utc
+    assert isinstance(coerced['created_at'], datetime)
+    assert coerced['created_at'].tzinfo == timezone.utc
+    assert coerced['id'] == 1
+    assert coerced['name'] == 'Test'
+    assert coerced['is_history'] is False
+
+
+def test_coerce_row_preserves_existing_datetimes():
+    '''_coerce_row leaves already-datetime values untouched'''
+    client = _pg_backup_client()
+    dt = datetime(2023, 8, 26, 6, 49, 25, tzinfo=timezone.utc)
+    row = {'id': 1, 'name': 'Test', 'server_id': 123,
+           'last_queued': dt, 'created_at': dt, 'is_history': False}
+    coerced = client._coerce_row('playlist', row)  #pylint:disable=protected-access
+    assert coerced['last_queued'] is dt
+    assert coerced['created_at'] is dt
+
+
+def test_coerce_row_handles_null_datetime():
+    '''_coerce_row leaves None datetime values as None'''
+    client = _pg_backup_client()
+    row = {'id': 1, 'name': 'Test', 'server_id': 123,
+           'last_queued': None, 'created_at': '2022-04-20 00:00:00', 'is_history': False}
+    coerced = client._coerce_row('playlist', row)  #pylint:disable=protected-access
+    assert coerced['last_queued'] is None
+
+
+def test_coerce_row_no_op_for_sqlite():
+    '''_coerce_row returns the row unchanged for non-postgresql dialects'''
+    mock_engine = MagicMock()
+    mock_engine.dialect.name = 'sqlite'
+    client = DatabaseBackupClient(db_engine=mock_engine)
+    row = {'id': 1, 'last_queued': '2023-08-26 06:49:25', 'created_at': '2022-04-20 00:00:00'}
+    assert client._coerce_row('playlist', row) is row  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_restore_backup_with_string_datetimes(backup_client, db_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup succeeds when datetime columns contain string values (as written by backup)'''
+    backup_data = {
+        'playlist': [
+            {
+                'id': 1,
+                'name': 'Test Playlist',
+                'server_id': 123456789,
+                'last_queued': '2023-08-26 06:49:25.794980',
+                'created_at': '2022-04-20 00:00:00',
+                'is_history': False
+            }
+        ]
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(backup_data, f)
+        backup_file = Path(f.name)
+
+    try:
+        stats = await backup_client.restore_backup(backup_file)
+        assert stats['tables_restored'] == 1
+        assert stats['total_rows_inserted'] == 1
+
+        async with db_engine.connect() as conn:
+            row = (await conn.execute(
+                text('SELECT last_queued FROM playlist WHERE id = 1')
+            )).fetchone()
+            assert row is not None
     finally:
         backup_file.unlink()
 

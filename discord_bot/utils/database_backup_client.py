@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
@@ -383,28 +383,56 @@ class DatabaseBackupClient:
         '''
         Truncates tables in the correct order (respecting foreign key constraints)
         '''
-        with otel_span_wrapper('database_backup_client.truncate_tables',
-                               attributes={'db.table_count': len(table_names)}):
-            # Disable foreign key constraints temporarily (database-specific)
-            # For SQLite
-            try:
-                await connection.execute(text('PRAGMA foreign_keys = OFF'))
-            except Exception:  # pylint: disable=broad-except
-                pass  # Not SQLite or already disabled
+        valid = [t for t in table_names if t in BASE.metadata.tables]
+        if not valid:
+            return
 
-            for table_name in table_names:
-                if table_name in BASE.metadata.tables:
+        with otel_span_wrapper('database_backup_client.truncate_tables',
+                               attributes={'db.table_count': len(valid)}):
+            if self.db_engine.dialect.name == 'postgresql':
+                # Single statement handles FK ordering and restarts sequences
+                tables_str = ', '.join(valid)
+                await connection.execute(text(f'TRUNCATE {tables_str} RESTART IDENTITY CASCADE'))
+            else:
+                # SQLite: disable FK checks, delete each table, re-enable
+                await connection.execute(text('PRAGMA foreign_keys = OFF'))
+                for table_name in valid:
                     logger.debug(f'Truncating table: {table_name}')
                     try:
                         await connection.execute(text(f'DELETE FROM {table_name}'))
                     except Exception as e:  # pylint: disable=broad-except
                         logger.debug(f'Failed to truncate {table_name}: {str(e)}')
-
-            # Re-enable foreign key constraints
-            try:
                 await connection.execute(text('PRAGMA foreign_keys = ON'))
-            except Exception:  # pylint: disable=broad-except
-                pass
+
+    def _coerce_row(self, table_name: str, row: dict) -> dict:
+        '''
+        Coerce row values to the types expected by the database.
+        For PostgreSQL only: converts string datetime values to timezone-aware
+        datetime objects for DateTime(timezone=True) columns, as asyncpg requires
+        native Python types and will not parse strings automatically.
+        SQLite stores datetimes as strings and does not need this coercion.
+        '''
+        if self.db_engine.dialect.name != 'postgresql':
+            return row
+
+        table = BASE.metadata.tables.get(table_name)
+        if table is None:
+            return row
+        coerced = {}
+        for key, value in row.items():
+            if value is not None and isinstance(value, str):
+                col = table.c.get(key)
+                if col is not None and hasattr(col.type, 'timezone'):
+                    try:
+                        dt = datetime.fromisoformat(value)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        coerced[key] = dt
+                        continue
+                    except (ValueError, TypeError):
+                        pass
+            coerced[key] = value
+        return coerced
 
     async def _restore_table(self, connection, table_name: str, rows: list) -> int:
         '''
@@ -425,6 +453,8 @@ class DatabaseBackupClient:
                 return 0
 
             rows_inserted = 0
+
+            rows = [self._coerce_row(table_name, row) for row in rows]
 
             # Insert in batches
             for i in range(0, len(rows), self.BATCH_SIZE):
