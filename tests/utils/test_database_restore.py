@@ -214,6 +214,28 @@ def test_coerce_row_handles_null_datetime():
     assert coerced['last_queued'] is None
 
 
+def test_coerce_row_converts_integer_booleans():
+    '''_coerce_row converts SQLite integer booleans (0/1) to Python bool for PostgreSQL'''
+    client = _pg_backup_client()
+    row = {'id': 1, 'name': 'Test', 'server_id': 123,
+           'last_queued': None, 'created_at': '2022-04-20 00:00:00',
+           'is_history': 1}
+    coerced = client._coerce_row('playlist', row)  #pylint:disable=protected-access
+    assert coerced['is_history'] is True
+    assert isinstance(coerced['is_history'], bool)
+
+
+def test_coerce_row_converts_integer_false():
+    '''_coerce_row converts SQLite integer 0 to Python False'''
+    client = _pg_backup_client()
+    row = {'id': 1, 'name': 'Test', 'server_id': 123,
+           'last_queued': None, 'created_at': '2022-04-20 00:00:00',
+           'is_history': 0}
+    coerced = client._coerce_row('playlist', row)  #pylint:disable=protected-access
+    assert coerced['is_history'] is False
+    assert isinstance(coerced['is_history'], bool)
+
+
 def test_coerce_row_no_op_for_sqlite():
     '''_coerce_row returns the row unchanged for non-postgresql dialects'''
     mock_engine = MagicMock()

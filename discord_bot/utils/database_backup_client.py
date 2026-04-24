@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 
 import ijson
-from sqlalchemy import create_engine, text
+from sqlalchemy import Boolean, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -420,17 +420,21 @@ class DatabaseBackupClient:
             return row
         coerced = {}
         for key, value in row.items():
-            if value is not None and isinstance(value, str):
+            if value is not None:
                 col = table.c.get(key)
-                if col is not None and hasattr(col.type, 'timezone'):
-                    try:
-                        dt = datetime.fromisoformat(value)
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        coerced[key] = dt
+                if col is not None:
+                    if isinstance(col.type, Boolean) and isinstance(value, int):
+                        coerced[key] = bool(value)
                         continue
-                    except (ValueError, TypeError):
-                        pass
+                    if hasattr(col.type, 'timezone') and isinstance(value, str):
+                        try:
+                            dt = datetime.fromisoformat(value)
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            coerced[key] = dt
+                            continue
+                        except (ValueError, TypeError):
+                            pass
             coerced[key] = value
         return coerced
 
