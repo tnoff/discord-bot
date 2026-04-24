@@ -212,6 +212,10 @@ class DatabaseBackupClient:
                 f'tables={metadata.get("table_count", "unknown")}'
             )
 
+        alembic_version = metadata.get('alembic_version')
+        if alembic_version:
+            await self._restore_alembic_version(alembic_version)
+
         logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
@@ -356,6 +360,24 @@ class DatabaseBackupClient:
                             current_row[field] = value  # pylint: disable=unsupported-assignment-operation
 
         await finalize_table()
+
+    async def _restore_alembic_version(self, version: str) -> None:
+        '''
+        Creates (if absent) and populates the alembic_version table with the
+        version stamp from the backup metadata, so Alembic knows the DB is
+        up-to-date after a restore.
+        '''
+        async with self.db_engine.begin() as conn:
+            await conn.execute(text(
+                'CREATE TABLE IF NOT EXISTS alembic_version '
+                '(version_num VARCHAR(32) NOT NULL, PRIMARY KEY (version_num))'
+            ))
+            await conn.execute(text('DELETE FROM alembic_version'))
+            await conn.execute(
+                text('INSERT INTO alembic_version (version_num) VALUES (:v)'),
+                {'v': version}
+            )
+        logger.info(f'Restored alembic_version to {version}')
 
     async def _truncate_tables(self, connection, table_names: list):
         '''

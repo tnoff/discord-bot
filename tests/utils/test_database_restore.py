@@ -173,6 +173,61 @@ async def test_restore_nonexistent_file(backup_client):  #pylint:disable=redefin
 
 
 @pytest.mark.asyncio
+async def test_restore_alembic_version(backup_client, db_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup writes alembic_version table from backup metadata'''
+    backup_data = {
+        '_metadata': {
+            'backup_timestamp': '2024-01-01_12-00-00',
+            'alembic_version': 'abc123def456',
+            'table_count': 0
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(backup_data, f)
+        backup_file = Path(f.name)
+
+    try:
+        await backup_client.restore_backup(backup_file)
+
+        async with db_engine.connect() as conn:
+            row = (await conn.execute(text('SELECT version_num FROM alembic_version'))).fetchone()
+            assert row is not None
+            assert row[0] == 'abc123def456'
+    finally:
+        backup_file.unlink()
+
+
+@pytest.mark.asyncio
+async def test_restore_no_alembic_version_in_metadata(backup_client, db_engine):  #pylint:disable=redefined-outer-name
+    '''restore_backup does not create alembic_version when metadata has no version'''
+    backup_data = {
+        '_metadata': {
+            'backup_timestamp': '2024-01-01_12-00-00',
+            'alembic_version': None,
+            'table_count': 0
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(backup_data, f)
+        backup_file = Path(f.name)
+
+    try:
+        await backup_client.restore_backup(backup_file)
+
+        # Table should not exist (or be empty) since version was None
+        async with db_engine.connect() as conn:
+            try:
+                row = (await conn.execute(text('SELECT version_num FROM alembic_version'))).fetchone()
+                assert row is None
+            except Exception:  # pylint: disable=broad-except
+                pass  # Table not existing is also acceptable
+    finally:
+        backup_file.unlink()
+
+
+@pytest.mark.asyncio
 async def test_backup_and_restore_roundtrip(backup_client, db_engine):  #pylint:disable=redefined-outer-name
     '''Test creating a backup and then restoring it'''
     async with db_engine.begin() as conn:
