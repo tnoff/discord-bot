@@ -608,3 +608,15 @@ async def test_cog_unload_handles_none_tasks(fake_context, fake_engine):  #pylin
     cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
     # Both are None by default after __init__
     await cog.cog_unload()  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_disposes_backup_engine(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_unload disposes _backup_engine when it is set'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mock_engine = mocker.AsyncMock()
+    cog._backup_engine = mock_engine  #pylint:disable=protected-access
+
+    await cog.cog_unload()
+
+    mock_engine.dispose.assert_called_once()
