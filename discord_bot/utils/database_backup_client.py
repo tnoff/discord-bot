@@ -367,29 +367,24 @@ class DatabaseBackupClient:
     async def _reset_sequences(self) -> None:
         '''Reset all PostgreSQL sequences to the max existing ID after a restore.'''
         async with self.db_engine.begin() as conn:
-            await conn.execute(text('''
-                DO $$
-                DECLARE
-                    r RECORD;
-                    max_id BIGINT;
-                    seq_name TEXT;
-                BEGIN
-                    FOR r IN
-                        SELECT t.table_name, c.column_name
-                        FROM information_schema.tables t
-                        JOIN information_schema.columns c ON t.table_name = c.table_name
-                        WHERE t.table_schema = 'public'
-                          AND t.table_type = 'BASE TABLE'
-                          AND c.column_name = 'id'
-                    LOOP
-                        seq_name := pg_get_serial_sequence(r.table_name, r.column_name);
-                        IF seq_name IS NOT NULL THEN
-                            EXECUTE format('SELECT COALESCE(MAX(id), 1) FROM %I', r.table_name) INTO max_id;
-                            PERFORM setval(seq_name, max_id);
-                        END IF;
-                    END LOOP;
-                END $$;
-            '''))
+            for table_name in BASE.metadata.tables:
+                result = await conn.execute(
+                    text("SELECT pg_get_serial_sequence(:t, 'id')"),
+                    {'t': table_name}
+                )
+                seq_name = result.scalar()
+                if seq_name is None:
+                    logger.warning('No sequence found for %s.id, skipping', table_name)
+                    continue
+                result = await conn.execute(
+                    text(f'SELECT COALESCE(MAX(id), 1) FROM {table_name}')
+                )
+                max_val = result.scalar()
+                await conn.execute(
+                    text('SELECT setval(:seq, :val)'),
+                    {'seq': seq_name, 'val': max_val}
+                )
+                logger.info('Reset sequence %s for %s to %s', seq_name, table_name, max_val)
         logger.info('Reset PostgreSQL sequences after restore')
 
     async def _restore_alembic_version(self, version: str) -> None:

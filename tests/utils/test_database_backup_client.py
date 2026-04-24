@@ -836,9 +836,19 @@ async def test_reset_sequences_called_for_postgresql_multi_pass(fake_engine, moc
 
 
 @pytest.mark.asyncio
-async def test_reset_sequences_executes_setval_sql():
-    '''_reset_sequences issues a DO $$ block containing setval and pg_get_serial_sequence'''
+async def test_reset_sequences_calls_setval_per_table():
+    '''_reset_sequences calls pg_get_serial_sequence and setval for each table that has a sequence'''
+    seq_result = MagicMock()
+    seq_result.scalar = MagicMock(return_value='public.some_table_id_seq')
+    max_result = MagicMock()
+    max_result.scalar = MagicMock(return_value=42)
+    setval_result = MagicMock()
+
     mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(side_effect=[
+        seq_result, max_result, setval_result,  # first table
+    ] * 20)  # enough for all tables
+
     mock_ctx = MagicMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
@@ -848,7 +858,28 @@ async def test_reset_sequences_executes_setval_sql():
     client = DatabaseBackupClient(mock_engine)
     await client._reset_sequences()  #pylint:disable=protected-access
 
-    mock_conn.execute.assert_called_once()
-    executed_sql = str(mock_conn.execute.call_args[0][0])
-    assert 'setval' in executed_sql
-    assert 'pg_get_serial_sequence' in executed_sql
+    all_sql = [str(call.args[0]) for call in mock_conn.execute.call_args_list]
+    assert any('pg_get_serial_sequence' in s for s in all_sql)
+    assert any('setval' in s for s in all_sql)
+
+
+@pytest.mark.asyncio
+async def test_reset_sequences_warns_when_no_sequence_found(caplog):
+    '''_reset_sequences logs a warning for tables where pg_get_serial_sequence returns None'''
+    no_seq_result = MagicMock()
+    no_seq_result.scalar = MagicMock(return_value=None)
+
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock(return_value=no_seq_result)
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_engine = MagicMock()
+    mock_engine.begin = MagicMock(return_value=mock_ctx)
+
+    client = DatabaseBackupClient(mock_engine)
+    with caplog.at_level(logging.WARNING, logger='discord_bot.utils.database_backup_client'):
+        await client._reset_sequences()  #pylint:disable=protected-access
+
+    assert 'No sequence found' in caplog.text
