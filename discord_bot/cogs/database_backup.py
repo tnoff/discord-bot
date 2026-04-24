@@ -92,7 +92,7 @@ class DatabaseBackup(CogHelper):
         # Replace the backup client's engine with one created inside the running event
         # loop. Engines created before bot.run() can have asyncpg futures bound to a
         # different loop. NullPool avoids any pool-level loop binding.
-        self._backup_engine = create_async_engine(str(self.db_engine.url), poolclass=NullPool)
+        self._backup_engine = create_async_engine(self.db_engine.url, poolclass=NullPool)
         self.backup_client = DatabaseBackupClient(db_engine=self._backup_engine)
 
         if self.config.restore_on_startup:
