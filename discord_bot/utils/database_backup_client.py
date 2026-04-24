@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 
 import ijson
-from sqlalchemy import create_engine, text
+from sqlalchemy import Boolean, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -212,6 +212,10 @@ class DatabaseBackupClient:
                 f'tables={metadata.get("table_count", "unknown")}'
             )
 
+        alembic_version = metadata.get('alembic_version')
+        if alembic_version:
+            await self._restore_alembic_version(alembic_version)
+
         logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
@@ -357,32 +361,86 @@ class DatabaseBackupClient:
 
         await finalize_table()
 
+    async def _restore_alembic_version(self, version: str) -> None:
+        '''
+        Creates (if absent) and populates the alembic_version table with the
+        version stamp from the backup metadata, so Alembic knows the DB is
+        up-to-date after a restore.
+        '''
+        async with self.db_engine.begin() as conn:
+            await conn.execute(text(
+                'CREATE TABLE IF NOT EXISTS alembic_version '
+                '(version_num VARCHAR(32) NOT NULL, PRIMARY KEY (version_num))'
+            ))
+            await conn.execute(text('DELETE FROM alembic_version'))
+            await conn.execute(
+                text('INSERT INTO alembic_version (version_num) VALUES (:v)'),
+                {'v': version}
+            )
+        logger.info(f'Restored alembic_version to {version}')
+
     async def _truncate_tables(self, connection, table_names: list):
         '''
         Truncates tables in the correct order (respecting foreign key constraints)
         '''
-        with otel_span_wrapper('database_backup_client.truncate_tables',
-                               attributes={'db.table_count': len(table_names)}):
-            # Disable foreign key constraints temporarily (database-specific)
-            # For SQLite
-            try:
-                await connection.execute(text('PRAGMA foreign_keys = OFF'))
-            except Exception:  # pylint: disable=broad-except
-                pass  # Not SQLite or already disabled
+        valid = [t for t in table_names if t in BASE.metadata.tables]
+        if not valid:
+            return
 
-            for table_name in table_names:
-                if table_name in BASE.metadata.tables:
+        with otel_span_wrapper('database_backup_client.truncate_tables',
+                               attributes={'db.table_count': len(valid)}):
+            if self.db_engine.dialect.name == 'postgresql':
+                # Single statement handles FK ordering and restarts sequences
+                tables_str = ', '.join(valid)
+                await connection.execute(text(f'TRUNCATE {tables_str} RESTART IDENTITY CASCADE'))
+            else:
+                # SQLite: disable FK checks, delete each table, re-enable
+                await connection.execute(text('PRAGMA foreign_keys = OFF'))
+                for table_name in valid:
                     logger.debug(f'Truncating table: {table_name}')
                     try:
                         await connection.execute(text(f'DELETE FROM {table_name}'))
                     except Exception as e:  # pylint: disable=broad-except
                         logger.debug(f'Failed to truncate {table_name}: {str(e)}')
-
-            # Re-enable foreign key constraints
-            try:
                 await connection.execute(text('PRAGMA foreign_keys = ON'))
-            except Exception:  # pylint: disable=broad-except
+
+    def _coerce_row(self, table_name: str, row: dict) -> dict:
+        '''
+        Coerce row values to the types expected by the database.
+        For PostgreSQL only: converts string datetime values to timezone-aware
+        datetime objects for DateTime(timezone=True) columns, as asyncpg requires
+        native Python types and will not parse strings automatically.
+        SQLite stores datetimes as strings and does not need this coercion.
+        '''
+        if self.db_engine.dialect.name != 'postgresql':
+            return row
+
+        table = BASE.metadata.tables.get(table_name)
+        if table is None:
+            return row
+        coerced = {}
+        for key, value in row.items():
+            coerced[key] = self._coerce_value(table, key, value)
+        return coerced
+
+    def _coerce_value(self, table, key: str, value):
+        '''Coerce a single column value to the type expected by PostgreSQL.'''
+        if value is None:
+            return value
+        col = table.c.get(key)
+        if col is None:
+            return value
+        if isinstance(col.type, Boolean) and isinstance(value, int):
+            return bool(value)
+        if hasattr(col.type, 'timezone') and isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except (ValueError, TypeError):
                 pass
+        return value
 
     async def _restore_table(self, connection, table_name: str, rows: list) -> int:
         '''
@@ -403,6 +461,8 @@ class DatabaseBackupClient:
                 return 0
 
             rows_inserted = 0
+
+            rows = [self._coerce_row(table_name, row) for row in rows]
 
             # Insert in batches
             for i in range(0, len(rows), self.BATCH_SIZE):
