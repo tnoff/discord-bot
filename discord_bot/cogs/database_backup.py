@@ -109,6 +109,7 @@ class DatabaseBackup(CogHelper):
 
     async def _restore_on_startup_async(self):
         '''Download and restore the latest S3 backup on startup.'''
+        self.logger.info('Starting database restore from S3')
         table_groups = [
             list(self.bot.cogs[name].REQUIRED_TABLES)
             for name in self.RESTORE_ORDER
@@ -126,6 +127,7 @@ class DatabaseBackup(CogHelper):
                 if key is None:
                     self.logger.info('No backup found in S3, starting with empty DB')
                 else:
+                    self.logger.info(f'Restoring from {key}')
                     stats = await self.backup_client.restore_from_s3(
                         self.bucket_name, key,
                         table_groups=table_groups,
@@ -138,9 +140,12 @@ class DatabaseBackup(CogHelper):
                     )
             except ObjectStorageException as e:
                 self.logger.warning(f'Startup restore failed, continuing with existing DB: {e}')
-        # Ensure all events are set regardless of outcome
-        # (handles no-backup-found, S3 errors, and tables absent from the backup)
-        self._release_all_table_events()
+            except Exception as e:  # pylint: disable=broad-except
+                self.logger.exception(f'Unexpected error during startup restore: {e}')
+            finally:
+                # Ensure all events are set regardless of outcome
+                # (handles no-backup-found, S3 errors, and tables absent from the backup)
+                self._release_all_table_events()
 
     async def wait_for_tables(self, table_names: list[str]) -> None:
         '''Wait until all named tables have been restored.'''
@@ -159,7 +164,12 @@ class DatabaseBackup(CogHelper):
         if self._task:
             self._task.cancel()
         if self._backup_engine:
-            await self._backup_engine.dispose()
+            try:
+                await self._backup_engine.dispose()
+            except RuntimeError:
+                # Event loop may already be closing during bot shutdown;
+                # NullPool holds no connections so this is safe to swallow.
+                pass
 
     async def database_backup_loop(self):
         '''Main backup loop - runs on cron schedule'''
