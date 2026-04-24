@@ -3,7 +3,7 @@ import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 from sqlalchemy import text
 
@@ -788,3 +788,67 @@ async def test_create_backup_non_sqlite_skips_snapshot(fake_engine, mocker):  #p
 
     snapshot_spy.assert_not_called()
     backup_file.unlink()
+
+
+# ---------------------------------------------------------------------------
+# _reset_sequences
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reset_sequences_not_called_for_sqlite(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_reset_sequences is not called when the engine dialect is SQLite'''
+    client = DatabaseBackupClient(fake_engine)
+    spy = mocker.patch.object(client, '_reset_sequences', new=AsyncMock())
+
+    backup_file = await client.create_backup()
+    await client.restore_backup(backup_file)
+
+    spy.assert_not_called()
+    backup_file.unlink()
+
+
+@pytest.mark.asyncio
+async def test_reset_sequences_called_for_postgresql_single_pass(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_reset_sequences is called after single-pass restore when dialect is PostgreSQL'''
+    client = DatabaseBackupClient(fake_engine)
+    spy = mocker.patch.object(client, '_reset_sequences', new=AsyncMock())
+    mocker.patch.object(fake_engine.dialect, 'name', 'postgresql')
+
+    backup_file = await client.create_backup()
+    await client.restore_backup(backup_file)
+
+    spy.assert_called_once()
+    backup_file.unlink()
+
+
+@pytest.mark.asyncio
+async def test_reset_sequences_called_for_postgresql_multi_pass(fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''_reset_sequences is called after multi-pass (table_groups) restore when dialect is PostgreSQL'''
+    client = DatabaseBackupClient(fake_engine)
+    spy = mocker.patch.object(client, '_reset_sequences', new=AsyncMock())
+    mocker.patch.object(fake_engine.dialect, 'name', 'postgresql')
+
+    backup_file = await client.create_backup()
+    await client.restore_backup(backup_file, table_groups=[['markov_channel']])
+
+    spy.assert_called_once()
+    backup_file.unlink()
+
+
+@pytest.mark.asyncio
+async def test_reset_sequences_executes_setval_sql():
+    '''_reset_sequences issues a DO $$ block containing setval and pg_get_serial_sequence'''
+    mock_conn = AsyncMock()
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_engine = MagicMock()
+    mock_engine.begin = MagicMock(return_value=mock_ctx)
+
+    client = DatabaseBackupClient(mock_engine)
+    await client._reset_sequences()  #pylint:disable=protected-access
+
+    mock_conn.execute.assert_called_once()
+    executed_sql = str(mock_conn.execute.call_args[0][0])
+    assert 'setval' in executed_sql
+    assert 'pg_get_serial_sequence' in executed_sql

@@ -216,6 +216,9 @@ class DatabaseBackupClient:
         if alembic_version:
             await self._restore_alembic_version(alembic_version)
 
+        if self.db_engine.dialect.name == 'postgresql':
+            await self._reset_sequences()
+
         logger.info(f'Restoration complete: {stats["tables_restored"]} tables, '
                         f'{stats["total_rows_inserted"]} total rows')
         return stats
@@ -360,6 +363,34 @@ class DatabaseBackupClient:
                             current_row[field] = value  # pylint: disable=unsupported-assignment-operation
 
         await finalize_table()
+
+    async def _reset_sequences(self) -> None:
+        '''Reset all PostgreSQL sequences to the max existing ID after a restore.'''
+        async with self.db_engine.begin() as conn:
+            await conn.execute(text('''
+                DO $$
+                DECLARE
+                    r RECORD;
+                    max_id BIGINT;
+                    seq_name TEXT;
+                BEGIN
+                    FOR r IN
+                        SELECT t.table_name, c.column_name
+                        FROM information_schema.tables t
+                        JOIN information_schema.columns c ON t.table_name = c.table_name
+                        WHERE t.table_schema = 'public'
+                          AND t.table_type = 'BASE TABLE'
+                          AND c.column_name = 'id'
+                    LOOP
+                        seq_name := pg_get_serial_sequence(r.table_name, r.column_name);
+                        IF seq_name IS NOT NULL THEN
+                            EXECUTE format('SELECT COALESCE(MAX(id), 1) FROM %I', r.table_name) INTO max_id;
+                            PERFORM setval(seq_name, max_id);
+                        END IF;
+                    END LOOP;
+                END $$;
+            '''))
+        logger.info('Reset PostgreSQL sequences after restore')
 
     async def _restore_alembic_version(self, version: str) -> None:
         '''

@@ -8,6 +8,7 @@ opentelemetry-sdk==1.41.0
 opentelemetry-instrumentation-requests
 opentelemetry-instrumentation-redis
 opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-sqlalchemy
 opentelemetry-exporter-otlp
 click==8.3.3
 pyaml-env==1.2.2

@@ -66,9 +66,9 @@ def run(settings: dict, general_config: GeneralConfig):
     db_engine = _setup_db(general_config)
     try:
         logger_provider = setup_otlp(general_config)
-        if logger_provider:
-            # SQLAlchemy instrumentation only makes sense with a DB
+        if logger_provider and db_engine:
             SQLAlchemyInstrumentor().instrument(
+                engine=db_engine.sync_engine,
                 tracer_provider=trace.get_tracer_provider(),
                 enable_commenter=True,
                 commenter_options={},
