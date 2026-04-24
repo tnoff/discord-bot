@@ -7,7 +7,7 @@ on:
 
 jobs:
   tag_build:
-    uses: tnoff/github-workflows/.github/workflows/tag.yml@5c01c5cfcd5237914aee049f8b681b1a0b6215cc
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@1dcefc7c5dfeb21105e3256bf21fc97b8552252e
     with:
       version_file: ./VERSION
   check_labels:
