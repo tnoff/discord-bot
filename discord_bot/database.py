@@ -48,7 +48,7 @@ class Playlist(BASE):
     )
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
-    server_id = Column(Integer)
+    server_id = Column(BigInteger)
     last_queued = Column(DateTime, nullable=True)
     created_at = Column(DateTime)
     is_history = Column(Boolean)
@@ -112,7 +112,7 @@ class Guild(BASE):
     '''
     __tablename__ = 'guild'
     id = Column(Integer, primary_key=True)
-    server_id = Column(Integer)
+    server_id = Column(BigInteger)
 
 class GuildVideoAnalytics(BASE):
     '''

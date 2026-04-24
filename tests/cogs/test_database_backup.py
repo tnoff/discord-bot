@@ -394,6 +394,20 @@ async def test_restore_on_startup_handles_s3_exception(fake_context, fake_engine
 
 
 @pytest.mark.asyncio
+async def test_restore_on_startup_handles_unexpected_exception(fake_context, fake_engine, mocker, caplog):  #pylint:disable=redefined-outer-name
+    '''_restore_on_startup_async logs exception and does not raise on unexpected errors'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    fake_context['bot'].cogs = {}
+    mocker.patch.object(cog.backup_client, 'find_latest_backup',
+                        side_effect=RuntimeError('unexpected failure'))
+
+    # Should not raise
+    await cog._restore_on_startup_async()  #pylint:disable=protected-access
+
+    assert 'Unexpected error during startup restore' in caplog.text
+
+
+@pytest.mark.asyncio
 @freeze_time('2025-12-04 00:00:00', tz_offset=0)
 async def test_cog_load_runs_startup_restore_when_enabled(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
     '''cog_load creates a background _restore_task when restore_on_startup=True'''
@@ -620,3 +634,14 @@ async def test_cog_unload_disposes_backup_engine(fake_context, fake_engine, mock
     await cog.cog_unload()
 
     mock_engine.dispose.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_swallows_runtime_error_on_dispose(fake_context, fake_engine, mocker):  #pylint:disable=redefined-outer-name
+    '''cog_unload does not raise when dispose raises RuntimeError (loop already closing)'''
+    cog = DatabaseBackup(fake_context['bot'], BASE_CONFIG, fake_engine)
+    mock_engine = mocker.AsyncMock()
+    mock_engine.dispose.side_effect = RuntimeError('Event loop is closed')
+    cog._backup_engine = mock_engine  #pylint:disable=protected-access
+
+    await cog.cog_unload()  # Should not raise
