@@ -10,6 +10,7 @@ from opentelemetry import trace
 
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.cogs.database_backup import DatabaseBackup
@@ -52,7 +53,7 @@ def _setup_db(general_config: GeneralConfig):
             url = url.set(drivername='postgresql+asyncpg')
         elif url.drivername == 'sqlite':
             url = url.set(drivername='sqlite+aiosqlite')
-        engine = create_async_engine(url, pool_pre_ping=True)
+        engine = create_async_engine(url, poolclass=NullPool)
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             pool.submit(asyncio.run, _create_tables(engine)).result()
         return engine
@@ -81,7 +82,8 @@ def run(settings: dict, general_config: GeneralConfig):
         health_server = None
         if general_config.monitoring and general_config.monitoring.health_server \
                 and general_config.monitoring.health_server.enabled:
-            health_server = HealthServer(bot, port=general_config.monitoring.health_server.port)
+            health_server = HealthServer(bot, port=general_config.monitoring.health_server.port,
+                                         db_engine=db_engine)
 
         rejectlist_guilds = list(general_config.rejectlist_guilds)
         logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
