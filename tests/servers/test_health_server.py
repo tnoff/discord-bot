@@ -2,6 +2,7 @@
 Tests for the HTTP health server.
 """
 import asyncio
+import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -53,6 +54,40 @@ async def _raw_request(port: int) -> str:
     return response.decode()
 
 
+def _make_reader(*lines):
+    """Return a mock reader whose readline yields each line in sequence."""
+    reader = MagicMock()
+    reader.readline = AsyncMock(side_effect=list(lines))
+    return reader
+
+
+def _make_writer():
+    """Return a mock writer suitable for _handle calls."""
+    writer = MagicMock()
+    writer.write = MagicMock()
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+    return writer
+
+
+def _make_db_engine(fail=False):
+    """Return a mock AsyncEngine whose connect() context manager succeeds or raises."""
+    engine = MagicMock()
+    if fail:
+        engine.connect.return_value = AsyncMock(
+            __aenter__=AsyncMock(side_effect=Exception('db down')),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    else:
+        mock_conn = AsyncMock()
+        engine.connect.return_value = AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    return engine
+
+
 class TestHealthServerInit:
     """Sync tests for HealthServer constructor."""
 
@@ -69,6 +104,18 @@ class TestHealthServerInit:
         bot = _make_bot()
         hs = HealthServer(bot)
         assert hs.port == 8080
+
+    def test_init_with_db_engine(self):
+        """db_engine is stored when provided."""
+        bot = _make_bot()
+        engine = _make_db_engine()
+        hs = HealthServer(bot, db_engine=engine)
+        assert hs._db_engine is engine  #pylint:disable=protected-access
+
+    def test_init_without_db_engine(self):
+        """db_engine defaults to None."""
+        hs = HealthServer(_make_bot())
+        assert hs._db_engine is None  #pylint:disable=protected-access
 
 
 @pytest.mark.asyncio
@@ -125,6 +172,94 @@ class TestHealthServerAsync:
                 await task
             except asyncio.CancelledError:
                 pass
+
+    async def test_health_no_db_engine_no_db_key_in_response(self):
+        """When no db_engine, response body has no 'db' key."""
+
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18083)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18083)
+        try:
+            response = await _raw_request(18083)
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert 'db' not in body
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_health_db_ok(self):
+        """Returns 200 with db:ok when bot is ready and DB ping succeeds."""
+
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18084, db_engine=_make_db_engine(fail=False))
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18084)
+        try:
+            response = await _raw_request(18084)
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['status'] == 'ok'
+            assert body['db'] == 'ok'
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_health_db_unavailable(self):
+        """Returns 503 with db:unavailable when DB ping fails."""
+
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18085, db_engine=_make_db_engine(fail=True))
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18085)
+        try:
+            response = await _raw_request(18085)
+            assert '503' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['status'] == 'unavailable'
+            assert body['db'] == 'unavailable'
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_health_bot_not_ready_db_ok_returns_503(self):
+        """Returns 503 when bot is not ready even if DB is healthy."""
+
+        bot = _make_bot(is_ready=False, is_closed=False)
+        hs = HealthServer(bot, port=18086, db_engine=_make_db_engine(fail=False))
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18086)
+        try:
+            response = await _raw_request(18086)
+            assert '503' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['status'] == 'unavailable'
+            assert body['db'] == 'ok'
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_db_ping_returns_true_on_success(self):
+        """_db_ping returns True when engine connects successfully."""
+        hs = HealthServer(_make_bot(), db_engine=_make_db_engine(fail=False))
+        assert await hs._db_ping() is True  #pylint:disable=protected-access
+
+    async def test_db_ping_returns_false_on_failure(self):
+        """_db_ping returns False when engine raises."""
+        hs = HealthServer(_make_bot(), db_engine=_make_db_engine(fail=True))
+        assert await hs._db_ping() is False  #pylint:disable=protected-access
 
     async def test_handle_exception_during_request(self):
         """Exception mid-request is caught and writer is still closed cleanly"""

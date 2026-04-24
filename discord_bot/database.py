@@ -31,7 +31,7 @@ class MarkovRelation(BASE):
     channel_id = Column(Integer, ForeignKey('markov_channel.id'))  # FK to markov_channel.id (int32)
     leader_word = Column(String(255))
     follower_word = Column(String(255))
-    created_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
 
 #
 # Music Tables
@@ -49,8 +49,8 @@ class Playlist(BASE):
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
     server_id = Column(BigInteger)
-    last_queued = Column(DateTime, nullable=True)
-    created_at = Column(DateTime)
+    last_queued = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True))
     is_history = Column(Boolean)
 
 
@@ -68,7 +68,7 @@ class PlaylistItem(BASE):
     video_url = Column(String(256))
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
-    created_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
 
 
 class VideoCache(BASE):
@@ -85,8 +85,8 @@ class VideoCache(BASE):
     duration = Column(Integer) # In seconds
     extractor = Column(String(256))
     # Other metadata
-    last_iterated_at = Column(DateTime)
-    created_at = Column(DateTime)
+    last_iterated_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True))
     count = Column(Integer)
     ready_for_deletion = Column(Boolean)
     file_size_bytes = Column(Integer, nullable=True)
@@ -125,5 +125,5 @@ class GuildVideoAnalytics(BASE):
     cached_plays = Column(Integer, default=0)
     total_duration_days = Column(Integer, default=0)
     total_duration_seconds = Column(Integer, default=0)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True))
