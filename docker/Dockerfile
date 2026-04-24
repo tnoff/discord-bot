@@ -20,7 +20,7 @@ ENV LOGFILE="/var/log/discord"
 ENV DENO_INSTALL_ROOT="/opt/discord/.deno"
 
 # Setup installs and create directory structure
-RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/scripts" \
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
     "${WORKDIR}/cnf" "${WORKDIR}/downloads" "${WORKDIR}/db"
 
 # Create non-root user and group
@@ -37,7 +37,6 @@ COPY requirements.sqlite.txt "${APPDIR}/"
 COPY requirements.postgres.txt "${APPDIR}/"
 COPY alembic.ini "${APPDIR}/"
 COPY setup.py "${APPDIR}/"
-COPY scripts/ "${WORKDIR}/scripts/"
 COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN pip install "${APPDIR}"

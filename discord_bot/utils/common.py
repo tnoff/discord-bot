@@ -83,7 +83,6 @@ class IncludeConfig(BaseModel):
     urban: bool = False
     music: bool = False
     delete_messages: bool = False
-    database_backup: bool = False
 
 class GeneralConfig(BaseModel):
     '''General bot configuration'''

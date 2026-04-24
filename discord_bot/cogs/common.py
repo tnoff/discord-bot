@@ -28,7 +28,6 @@ class CogHelperBase(Cog):
     '''
 
     _message_delete_after: int | None = None
-    REQUIRED_TABLES: list[str] = []
 
     def __init__(self, bot: Bot, settings: dict, db_engine=None,
                  settings_prefix: str = None,
@@ -62,25 +61,6 @@ class CogHelperBase(Cog):
                 self.config = config_model.model_validate(settings.get(settings_prefix, {}))
             except PydanticValidationError as exc:
                 raise CogMissingRequiredArg(f'Invalid config given for {settings_prefix}', str(exc)) from exc
-
-    async def gate_tasks_on_db_restore(self, start_tasks_fn):
-        '''
-        If DatabaseBackup is loaded and exposes wait_for_tables, wait for this cog's
-        REQUIRED_TABLES to be restored before calling start_tasks_fn.
-        Otherwise call start_tasks_fn immediately.
-        '''
-        backup_cog = self.bot.get_cog('DatabaseBackup')
-        if backup_cog and hasattr(backup_cog, 'wait_for_tables'):
-            self._init_task = self.bot.loop.create_task(
-                self._await_restore_then_start(backup_cog, start_tasks_fn)
-            )
-        else:
-            start_tasks_fn()
-
-    async def _await_restore_then_start(self, backup_cog, start_tasks_fn):
-        await backup_cog.wait_for_tables(self.REQUIRED_TABLES)
-        self.logger.info(f'{type(self).__name__} :: Required tables restored, starting DB tasks')
-        start_tasks_fn()
 
     @cached_property
     def _dispatcher(self):
