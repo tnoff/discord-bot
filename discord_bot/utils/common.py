@@ -168,7 +168,8 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
             except exit_exceptions:
                 # Set status code because we know these ones are fine
                 span = get_current_span()
-                span.set_status(StatusCode.OK)
+                if span.is_recording():
+                    span.set_status(StatusCode.OK)
                 return False
             except Exception as e:
                 logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
