@@ -466,13 +466,6 @@ def test_logging_config_otlp_only_false_requires_file_fields():
     assert 'Fields required' in str(exc.value)
 
 
-def test_get_logger_with_otlp_logger(mocker):
-    '''get_logger attaches LoggingHandler when otlp_logger is provided'''
-    mock_handler = MagicMock()
-    mocker.patch('discord_bot.utils.common.LoggingHandler', return_value=mock_handler)
-    logging_config = LoggingConfig(log_level=30, otlp_only=True)
-    logger = get_logger('test_otlp_logger', logging_config, otlp_logger=MagicMock())
-    assert mock_handler in logger.handlers
 
 def test_run_commit_calls_session_commit():
     '''run_commit calls db_session.commit()'''

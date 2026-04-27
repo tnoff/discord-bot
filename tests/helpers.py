@@ -79,6 +79,7 @@ def generate_fake_context(bot: Optional[Any] = None) -> dict[str, Any]:
         'author': fake_author,
         'channel': fake_channel,
         'context': context,
+        'dispatcher': FakeMessageDispatcher(bot),
     }
 
 def fake_source_dict(fakes: dict[str, Any], is_direct_search: bool = False) -> MediaRequest:
@@ -518,6 +519,51 @@ class FakeMessageDispatcher():
     async def fetch_object(self, _guild_id: int, func: Callable, **_retry_kwargs: Any) -> Any:
         '''Call func and return its result.'''
         return await func()
+
+
+class FakeDispatchServer:
+    '''Minimal dispatcher stand-in for DispatchHttpServer tests that records method calls.'''
+
+    def __init__(self, result_store: dict | None = None):
+        self.calls: list = []
+        self._result_store = result_store if result_store is not None else {}
+
+    def send_message(self, guild_id, channel_id, content, **_):
+        self.calls.append(('send_message', guild_id, channel_id, content))
+
+    def delete_message(self, guild_id, channel_id, message_id, **_):
+        self.calls.append(('delete_message', guild_id, channel_id, message_id))
+
+    def update_mutable(self, key, guild_id, content, channel_id, **_):
+        self.calls.append(('update_mutable', key, guild_id, content, channel_id))
+
+    def remove_mutable(self, key):
+        self.calls.append(('remove_mutable', key))
+
+    def update_mutable_channel(self, key, _guild_id, _new_channel_id):
+        self.calls.append(('update_mutable_channel', key))
+
+    async def enqueue_fetch_history(self, request_id, guild_id, channel_id,
+                                    after_message_id=None, **_):
+        self.calls.append(('enqueue_fetch_history', request_id, guild_id, channel_id))
+        self._result_store[request_id] = {
+            'guild_id': guild_id, 'channel_id': channel_id,
+            'after_message_id': after_message_id, 'messages': [],
+        }
+
+    async def enqueue_fetch_emojis(self, request_id, guild_id, **_):
+        self.calls.append(('enqueue_fetch_emojis', request_id, guild_id))
+        self._result_store[request_id] = {'guild_id': guild_id, 'emojis': []}
+
+
+class FakeRedisDispatchQueue:
+    '''Minimal RedisDispatchQueue stand-in backed by a plain dict.'''
+
+    def __init__(self, result_store: dict | None = None):
+        self._results = result_store if result_store is not None else {}
+
+    async def get_result(self, request_id: str) -> dict | None:
+        return self._results.get(request_id)
 
 
 class FakeContext():

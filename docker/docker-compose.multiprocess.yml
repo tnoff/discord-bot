@@ -5,29 +5,64 @@ services:
       - ../volumes/redis:/data
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: discord
+      POSTGRES_PASSWORD: discord
+      POSTGRES_DB: discord
+    volumes:
+      - ../volumes/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
   dispatcher:
     build:
       context: ..
       dockerfile: docker/Dockerfile.dispatcher
     volumes:
       - ../volumes/cnf/discord.dispatcher.cnf:/opt/discord/cnf/discord.cnf:ro
-      - ../volumes/db:/opt/discord/db
       - ../volumes/dispatcher-logs:/var/log/discord
     depends_on:
       - redis
     restart: unless-stopped
 
+  broker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.broker
+    volumes:
+      - ../volumes/cnf/discord.broker.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/broker-logs:/var/log/discord
+    environment:
+      # AWS credentials for S3 access (bucket_name set in discord.broker.cnf).
+      # Alternatively mount ~/.aws/credentials or use an IAM instance profile.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+    ports:
+      - "8082:8081"
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
   bot:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.bot
     volumes:
       - ../volumes/cnf/discord.bot.cnf:/opt/discord/cnf/discord.cnf:ro
-      - ../volumes/db:/opt/discord/db
       - ../volumes/bot-logs:/var/log/discord
+      - ../volumes/player:/opt/discord/player
+    environment:
+      # AWS credentials for S3 checkout downloads (see broker service).
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     ports:
-      - "8080:8080"
+      - "8081:8080"
     depends_on:
       - redis
       - dispatcher
+      - broker
     restart: unless-stopped

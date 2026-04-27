@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from discord_bot.utils.distributed_queue import DistributedQueue, DistributedQueueItem
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 
 def test_block():
     x = DistributedQueue(10)

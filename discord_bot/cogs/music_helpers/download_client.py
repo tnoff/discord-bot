@@ -3,6 +3,7 @@ from asyncio import QueueEmpty, sleep
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
+import logging
 from pathlib import Path
 import random
 from time import time
@@ -23,8 +24,8 @@ from discord_bot.types.download import (
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
+from discord_bot.clients.broker_client import BrokerClient
 from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
-from discord_bot.utils.common import get_logger, LoggingConfig
 
 class DirectItemAvailableException(Exception):
     '''Raised by backoff_wait when a DIRECT item arrives during the wait period.'''
@@ -136,8 +137,8 @@ class DownloadClient():
     '''
     def __init__(
         self,
-        logging_config: LoggingConfig,
         download_dir: Path,
+        broker: BrokerClient,
         extra_ytdlp_options: dict | None = None,
         max_video_length: int | None = None,
         banned_video_list: List[str] | None = None,
@@ -146,7 +147,6 @@ class DownloadClient():
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
         normalize_audio: bool = False,
-        broker=None,
         max_retries: int = 3,
         queue_max_size: int = 100,
     ):
@@ -154,15 +154,15 @@ class DownloadClient():
         Init download client
 
         ytdl : YoutubeDL Client
+        broker : BrokerClient for lifecycle status updates and result delivery; required
         failure_queue : Optional FailureQueue for tracking download failures
         wait_period_minimum : Minimum backoff wait time in seconds
         wait_period_max_variance : Maximum extra random variance in seconds
         bucket_name : S3 bucket to upload to immediately after download;
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
-        broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
-        queue_max_size : Per-guild capacity for the input and result queues
+        queue_max_size : Per-guild capacity for the input queues
         '''
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -171,7 +171,7 @@ class DownloadClient():
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'logtostderr': False,
-            'logger': get_logger('ytdlp', logging_config),
+            'logger': logging.getLogger('ytdlp'),
             'default_search': 'auto',
             'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
             'outtmpl': str(download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
@@ -187,15 +187,13 @@ class DownloadClient():
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_available: asyncio.Event = asyncio.Event()
-        self._result_queue: DistributedQueue[DownloadResult] = DistributedQueue(queue_max_size)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
         self._wait_timestamp: float | None = None
         self.bucket_name: str | None = bucket_name
         self.normalize_audio: bool = normalize_audio
-        self.logger = get_logger('download_client', logging_config)
-        self.logging_config = logging_config
+        self.logger = logging.getLogger(__name__)
 
     @property
     def has_direct_pending(self) -> bool:
@@ -330,17 +328,6 @@ class DownloadClient():
             media_request.span_context = capture_span_context()
         self._enqueue_request(guild_id, media_request, priority=priority)
 
-    def result_queue_depth(self) -> int:
-        '''Total number of completed results waiting to be processed across all guilds.'''
-        return sum(item.queue.size() for item in self._result_queue.queues.values())
-
-    def get_result_nowait(self) -> DownloadResult:
-        '''
-        Return the next completed DownloadResult, raising QueueEmpty if none available.
-        Results include both successes and terminal failures.
-        '''
-        return self._result_queue.get_nowait()
-
     def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
         a = self._input_queue.block(guild_id)
@@ -427,7 +414,7 @@ class DownloadClient():
 
         request_uuid = str(media_request.uuid)
         if self._broker is not None:
-            self._broker.update_request_status(
+            await self._broker.update_request_status(
                 request_uuid, DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
             )
         result = await self.create_source(media_request, self._max_retries)
@@ -439,7 +426,7 @@ class DownloadClient():
             self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
             self.logger.info('Failure queue: %s', self.failure_summary)
             if self._broker is not None:
-                self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
+                await self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
                     event=DownloadEvent.RETRY,
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,
@@ -447,7 +434,7 @@ class DownloadClient():
             self._enqueue_request(media_request.guild_id, media_request)
             return
 
-        self._result_queue.put_nowait(media_request.guild_id, result)
+        await self._broker.register_download_result(result)
 
     @staticmethod
     def _make_error_result(
@@ -576,7 +563,7 @@ class DownloadClient():
         self.update_tracking(result)
         if result.status.success and result.file_name is not None:
             try:
-                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
+                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio)
                 post_process_timestamp = datetime.now(timezone.utc)
                 self.logger.info(
                     'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',

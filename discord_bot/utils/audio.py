@@ -1,10 +1,10 @@
+import logging
 import subprocess
 from pathlib import Path
 
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.utils.otel import otel_span_wrapper
-from discord_bot.utils.common import get_logger, LoggingConfig
 
 class AudioProcessingError(Exception):
     '''Raised when audio conversion to PCM fails'''
@@ -25,7 +25,7 @@ def get_editing_path(path: Path) -> Path:
     '''
     return path.parent / (path.stem + '.edited.pcm')
 
-def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: LoggingConfig) -> Path:
+def edit_audio_file(file_path: Path, normalize_audio: bool) -> Path:
     '''
     Normalize audio for file and convert to PCM.
 
@@ -34,7 +34,7 @@ def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: Logg
 
     file_path: Audio file to edit
     '''
-    logger = get_logger('audio_editing', logging_config)
+    logger = logging.getLogger(__name__)
     finished_path = get_finished_path(file_path)
     editing_path = get_editing_path(file_path)
     with otel_span_wrapper('audio.edit_file', attributes={'file_path': str(file_path)}) as span:

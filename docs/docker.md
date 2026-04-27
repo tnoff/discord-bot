@@ -2,12 +2,28 @@
 
 Build docker file for discord-bot to run however you want.
 
+## Docker Images
+
+Three images are provided:
+
+| Dockerfile | Use case | pip extra | Entrypoint |
+|------------|----------|-----------|------------|
+| `docker/Dockerfile` | Standalone — bot + dispatcher in one container | `[all]` | `discord-bot` |
+| `docker/Dockerfile.bot` | HA mode — bot only, connects to a separate dispatcher | `[bot]` | `discord-bot` |
+| `docker/Dockerfile.dispatcher` | HA mode — dispatcher only | `[dispatcher]` | `discord-dispatcher` |
+
 ## Build Docker Image Locally
 
-Build just the discord-bot docker image:
+Build the standalone image:
 
 ```bash
 docker build -f docker/Dockerfile .
+```
+
+Build the HA bot image:
+
+```bash
+docker build -f docker/Dockerfile.bot .
 ```
 
 ## Security
@@ -158,11 +174,13 @@ docker compose -f docker/docker-compose.multiprocess.yml up -d
 
 Three services are started:
 
-| Service | Purpose |
-|---------|---------|
-| `redis` | Redis 7 (Alpine), persisted via named volume |
-| `dispatcher` | Loads only `MessageDispatcher`; reads the input stream and executes Discord API calls |
-| `bot` | Loads all desired cogs; routes dispatch calls to Redis instead of in-process |
+| Service | Command | pip extra |
+|---------|---------|-----------|
+| `redis` | — | — |
+| `dispatcher` | `discord-dispatcher` | `[dispatcher]` |
+| `bot` | `discord-bot` | `[bot]` |
+
+Each image installs only the dependencies it needs. The dispatcher image uses `pip install ".[dispatcher]"` (includes Redis client, excludes heavy media deps). The bot image uses `pip install ".[bot]"` (includes media/database deps, excludes Redis). For a standalone single-container deployment, `pip install ".[all]"` installs everything.
 
 **Required config files:**
 
@@ -171,13 +189,13 @@ Three services are started:
 general:
   discord_token: "YOUR_TOKEN"
   redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
+  dispatch_server:
+    host: 0.0.0.0
+    port: 8082
   dispatch_process_id: "dispatcher"
-  dispatch_gateway: false
   dispatch_shard_id: 0
+  dispatch_worker_count: 4
   monitoring:
-    otlp:
-      enabled: false
     health_server:
       enabled: true
       port: 8080
@@ -190,10 +208,7 @@ general:
 ```yaml
 general:
   discord_token: "YOUR_TOKEN"
-  redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
-  dispatch_process_id: "bot-main"
-  dispatch_shard_id: 0
+  dispatch_http_url: "http://dispatcher:8082"
   include:
     default: true
     message_dispatcher: false
@@ -201,7 +216,9 @@ general:
     delete_messages: true
 ```
 
-> **Note:** Both containers connect to the Discord gateway with the same token. The dispatcher container has all non-dispatcher cogs disabled so it will not respond to commands.
+> **Note:** Only the dispatcher container connects to the Discord gateway. The bot container forwards all Discord API calls to the dispatcher over HTTP — it does not need `redis_url` or a gateway connection of its own.
+
+See [HA architecture](./ha.md) for a full explanation of how the pods communicate.
 
 ## Debug Builds
 

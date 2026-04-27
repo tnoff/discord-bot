@@ -7,7 +7,6 @@ from typing import Callable, Optional, Literal
 from discord.ext.commands import Bot
 from opentelemetry.trace import get_current_span
 from opentelemetry.trace.status import StatusCode
-from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -98,9 +97,8 @@ class GeneralConfig(BaseModel):
     dispatch_cross_process: bool = False
     dispatch_process_id: Optional[str] = None
     dispatch_shard_id: int = 0
-    dispatch_gateway: bool = True
 
-def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
+def get_logger(logger_name, logging_config: Optional[LoggingConfig]):
     '''
     Generic logger
     '''
@@ -124,10 +122,6 @@ def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger
                                  maxBytes=logging_config.log_file_max_bytes)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
-    if otlp_logger:
-        handler = LoggingHandler(level=logging_config.log_level, logger_provider=otlp_logger)
-        logger.addHandler(handler)
-
     return logger
 
 def rm_tree(pth: Path) -> bool:

@@ -19,15 +19,14 @@ RUN groupadd -g 1000 discord && \
 
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
-COPY requirements.base.txt "${APPDIR}/"
-COPY requirements.dispatcher.txt "${APPDIR}/requirements.txt"
 COPY alembic.ini "${APPDIR}/"
-COPY setup.py "${APPDIR}/"
+COPY pyproject.toml VERSION "${APPDIR}/"
+COPY scripts/ "${WORKDIR}/scripts/"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install "${APPDIR}" && \
+    pip install "${APPDIR}[dispatcher]" && \
     apt-get remove -y git && apt-get autoremove -y
 
 # Set ownership of directories that need to be writable by the discord user
@@ -47,5 +46,5 @@ RUN mkdir -p /opt/discord/.cache
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
 
-ENTRYPOINT ["discord-bot"]
+ENTRYPOINT ["discord-dispatcher"]
 CMD ["/opt/discord/cnf/discord.cnf"]

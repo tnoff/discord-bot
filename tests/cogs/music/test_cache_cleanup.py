@@ -46,7 +46,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -80,14 +80,14 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
-                delete_mock = mocker.patch('discord_bot.cogs.music_helpers.media_broker.delete_file', return_value=True)
+                delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
                 await cog.video_cache.iterate_file(sd)
                 await cog.video_cache.iterate_file(sd2)

@@ -20,19 +20,27 @@ $ brew install ffmpeg
 
 ## Installation
 
-Install the deps
-
-```
-$ pip install -r requirements.txt -r tests/requirements.txt
-```
-
-It's recommended you install these within a virtual directory.
+It's recommended you install within a virtual environment.
 
 ```
 $ virtualenv .venv
 $ source .venv/bin/activate
-# Run pip commands
 ```
+
+Install all dependencies (full install including dispatcher and bot extras):
+
+```
+$ pip install -e ".[all,test]"
+```
+
+Available extras:
+
+| Extra | Use case |
+|-------|----------|
+| `dispatcher` | Dispatcher service only (slim install) |
+| `bot` | Bot only (HA mode, no dispatcher deps) |
+| `all` | Full install — `dispatcher` + `bot` |
+| `test` | Test tooling (pytest, pylint, etc.) |
 
 ## Run Test Suite
 

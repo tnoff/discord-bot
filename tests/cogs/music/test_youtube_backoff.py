@@ -18,7 +18,7 @@ from tests.helpers import fake_engine, fake_context, fake_source_dict, fake_medi
 @pytest.mark.asyncio
 async def test_backoff_wait_no_timestamp(fake_context):  #pylint:disable=redefined-outer-name
     """backoff_wait returns immediately when no timestamp is set."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     await cog.download_client.backoff_wait(cog.bot_shutdown_event)
 
 
@@ -27,7 +27,7 @@ async def test_backoff_wait_no_timestamp(fake_context):  #pylint:disable=redefin
 async def test_backoff_wait_elapsed(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """backoff_wait returns normally when backoff period has already elapsed."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
     cog.download_client.set_wait_timestamp()
     freezer.move_to('2025-01-01 16:00:00 UTC')
@@ -39,7 +39,7 @@ async def test_backoff_wait_elapsed(freezer, fake_context, mocker):  #pylint:dis
 async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """backoff_wait raises ExitEarlyException when bot_shutdown is set."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
     cog.download_client.set_wait_timestamp()
     cog.bot_shutdown_event.set()
@@ -54,7 +54,7 @@ async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  
 async def test_set_wait_timestamp_backoff_multiplier(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """set_wait_timestamp with backoff_multiplier=2 sets correct timestamp."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
     # backoff_multiplier=2: now (1735732800) + 30*2 + 5 = 1735732865
     cog.download_client.set_wait_timestamp(backoff_multiplier=2)
@@ -68,7 +68,7 @@ async def test_set_wait_timestamp_backoff_multiplier(freezer, fake_context, mock
 async def test_set_wait_timestamp_basic(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """set_wait_timestamp sets correct timestamp with default multiplier."""
     mocker.patch('discord_bot.cogs.music_helpers.download_client.random.randint', return_value=5000)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
 
     freezer.move_to('2025-01-01 12:00:00 UTC')
     cog.download_client.set_wait_timestamp()
@@ -83,7 +83,7 @@ def yield_download_client_retryable_exception():
     """Fake download client that returns a retryable failure DownloadResult"""
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
-            super().__init__(None, Path("/tmp"), failure_queue=kwargs.get('failure_queue'),
+            super().__init__(Path("/tmp"), broker=kwargs.get('broker'), failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
             )
@@ -101,8 +101,8 @@ def yield_download_client_bot_flagged():
     class FakeDownloadClient(DownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(
-                None,
                 Path('/tmp'),
+                broker=kwargs.get('broker'),
                 failure_queue=kwargs.get('failure_queue'),
                 wait_period_minimum=kwargs.get('wait_period_minimum', 30),
                 wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
@@ -126,7 +126,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_retryable_exception())
 
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
     s = fake_source_dict(fake_context)
@@ -151,7 +151,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_retryable_exception())
 
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
     # Pre-populate failure queue with 2 failures to test exponential backoff
@@ -183,7 +183,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_bot_flagged())
 
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
     s = fake_source_dict(fake_context)
@@ -212,7 +212,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
-            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
             cog.dispatcher = MagicMock()
             freezer.move_to('2025-01-01 12:00:00 UTC')
 

@@ -30,7 +30,10 @@ from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
+from discord_bot.workers.asyncio_broker import AsyncioBroker
+from discord_bot.servers.broker_server import BrokerHttpServer
+from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
@@ -45,15 +48,16 @@ from discord_bot.cogs.music_helpers import database_functions
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # GLOBALS
 
@@ -127,12 +131,23 @@ class MusicDownloadConfig(BaseModel):
             raise ValueError('enable_cache_files requires storage to be configured')
         return self
 
+class BrokerServerConfig(BaseModel):
+    '''Config for running a broker HTTP server on this process.'''
+    host: str = '0.0.0.0'
+    port: int = Field(default=8081, ge=1, le=65535)
+
+class BrokerClientConfig(BaseModel):
+    '''Config for connecting to a remote broker HTTP server.'''
+    url: str
+
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
     player: MusicPlayerConfig = Field(default_factory=MusicPlayerConfig)
     playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
+    broker_server: BrokerServerConfig | None = None
+    broker_client: BrokerClientConfig | None = None
 
 #
 # Exceptions
@@ -150,8 +165,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
-    def __init__(self, bot: Bot, settings: dict, db_engine: Engine): #pylint:disable=too-many-statements
-        super().__init__(bot, settings, db_engine, settings_prefix='music', config_model=MusicConfig)
+    REQUIRED_TABLES = ['playlist', 'playlist_item', 'video_cache',
+                       'video_cache_backup', 'guild', 'server_video_analytics']
+
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, db_engine: Engine = None, #pylint:disable=too-many-statements
+                 broker: 'MediaBrokerBase | None' = None):
+        super().__init__(bot, settings, dispatcher, db_engine, settings_prefix='music', config_model=MusicConfig)
         if not self.settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
 
@@ -165,8 +184,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
-        # MessageDispatcher — looked up in cog_load
-        self.dispatcher = None
         self._message_delete_after = self.config.general.message_delete_after
         # History Playlist Queue
         self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
@@ -195,7 +212,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in self.config.download.server_queue_priority:
                 self.server_queue_priority[int(item.server_id)] = item.priority
 
-        storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
+        storage_bucket_name: str | None = self.config.download.storage.bucket_name if self.config.download.storage else None
 
         # Dir for player working files; use configured path if set, otherwise a temp dir
         if self.config.player.player_dir_path is not None:
@@ -227,10 +244,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 storage_type='s3',
             )
 
-        self.media_broker = MediaBroker(
+        self.media_broker: MediaBrokerBase = broker if broker is not None else AsyncioBroker(
             video_cache=self.video_cache,
             bucket_name=storage_bucket_name,
         )
+
+        self._pending_download_results: asyncio.Queue = asyncio.Queue()
+
+        if self.config.broker_client:
+            self.broker_client = HttpBrokerClient(self.config.broker_client.url,
+                                                  bucket_name=storage_bucket_name)
+        else:
+            self.broker_client = InMemoryBrokerClient(self.media_broker, self._pending_download_results)
 
         # Multi Request bundles
         self.multirequest_bundles = {}
@@ -244,7 +269,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
         self.download_client = DownloadClient(
-            self.logging_config,
             self.download_dir,
             extra_ytdlp_options=self.config.download.extra_ytdlp_options,
             max_video_length=self.config.download.max_video_length,
@@ -254,7 +278,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
             bucket_name=storage_bucket_name,
             normalize_audio=self.config.download.normalize_audio,
-            broker=self.media_broker,
+            broker=self.broker_client,
             max_retries=self.config.download.max_download_retries,
             queue_max_size=self.config.player.queue_max_size,
         )
@@ -331,7 +355,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Total pending download results waiting to be routed to players
         '''
         return [
-            Observation(self.download_client.result_queue_depth(), attributes={
+            Observation(self._pending_download_results.qsize(), attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
             })
         ]
@@ -397,11 +421,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self.dispatcher = self._dispatcher
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
         self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
+        if self.config.broker_server:
+            broker_server = BrokerHttpServer(
+                self.media_broker,
+                host=self.config.broker_server.host,
+                port=self.config.broker_server.port,
+                result_queue=self._pending_download_results,
+            )
+            self.bot.loop.create_task(broker_server.serve())
         if self.db_engine:
             self._start_tasks()
 
@@ -582,13 +613,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 if bundle:
                     media_download.media_request.failure_reason = f'Cannot add item "{media_download.title}" to play queue, play queue is full'
                 media_download.media_request.state_machine.mark_failed()
-                self.media_broker.discard(str(media_download.media_request.uuid))
+                await self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
                 self.logger.info(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
                 media_download.media_request.state_machine.mark_discarded()
-                self.media_broker.discard(str(media_download.media_request.uuid))
+                await self.media_broker.discard(str(media_download.media_request.uuid))
                 return False
 
     # Take both source dict and media download
@@ -708,9 +739,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                            sticky=False, delete_after=delete_after)
             self.logger.debug('on_request_state_change: dispatched bundle update key=%s dispatch.request_id=%s', key, req_id)
         if _new_stage in (MediaRequestLifecycleStage.FAILED, MediaRequestLifecycleStage.DISCARDED):
-            self.media_broker.remove(str(media_request.uuid))
+            asyncio.create_task(self.media_broker.remove(str(media_request.uuid)))
         elif _new_stage == MediaRequestLifecycleStage.COMPLETED and not media_request.download_file:
-            self.media_broker.remove(str(media_request.uuid))
+            asyncio.create_task(self.media_broker.remove(str(media_request.uuid)))
 
     def update_youtube_music_timestamp(self, backoff_multiplier: int = 1) -> bool:
         '''
@@ -762,7 +793,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         await sleep(.01)
         try:
-            result = self.download_client.get_result_nowait()
+            result = self._pending_download_results.get_nowait()
         except QueueEmpty:
             return
 
@@ -797,7 +828,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             player = await self.get_player(media_request.guild_id, create_player=False)
             if not player or player.shutdown_called:
                 self.logger.info(f'Player gone after download for guild {media_request.guild_id}, discarding "{str(media_request)}"')
-                self.media_broker.update_request_status(
+                await self.media_broker.update_request_status(
                     str(media_request.uuid), DownloadStatusUpdate(event=DownloadEvent.DISCARDED)
                 )
                 span.set_status(StatusCode.OK)
@@ -982,11 +1013,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # Generate and start player
                 history_playlist_id = await self.__get_history_playlist(ctx.guild.id)
                 player = MusicPlayer(ctx,
-                                     self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
-                                     broker=self.media_broker,
+                                     broker=self.broker_client,
                                      prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
                 await player.start_tasks()
                 self.players[guild_id] = player
@@ -1181,7 +1211,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 mr = MediaRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
                                   search_result=search_result)
             mr.state_machine.set_on_change(self._on_request_state_change)
-            self.media_broker.register_request(mr)
+            await self.media_broker.register_request(mr)
             media_requests.append(mr)
         await self.enqueue_media_requests(ctx, media_requests, bundle, player=player)
 
@@ -1250,7 +1280,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
         self.logger.info(f'Player clear called in guild {ctx.guild.id}')
-        player.clear_queue()
+        await player.clear_queue()
         key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
         self.dispatcher.update_mutable(key, player.guild.id,
             self._get_play_order_content(player.guild.id), player.text_channel.id)
@@ -1355,7 +1385,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Removed item {item.title} from queue',
             delete_after=self.config.general.message_delete_after)
-        self.media_broker.remove(str(item.media_request.uuid))
+        await self.media_broker.remove(str(item.media_request.uuid))
         key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
         self.dispatcher.update_mutable(key, player.guild.id,
             self._get_play_order_content(player.guild.id), player.text_channel.id)
@@ -1934,7 +1964,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                              added_from_history=is_history,
                                              history_playlist_item_id=item.id)
                 media_request.state_machine.set_on_change(self._on_request_state_change)
-                self.media_broker.register_request(media_request)
+                await self.media_broker.register_request(media_request)
                 playlist_items.append(media_request)
 
             # Check if playlist is empty and provide user feedback

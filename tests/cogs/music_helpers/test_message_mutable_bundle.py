@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.cogs.message_dispatcher import MessageMutableBundle
+from discord_bot.workers.message_dispatcher import MessageMutableBundle
 
 from tests.helpers import fake_context, generate_fake_context  # pylint: disable=unused-import
 

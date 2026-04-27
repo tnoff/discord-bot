@@ -13,6 +13,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel import command_wrapper
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Pydantic config models
 class RoleManagementConfig(BaseModel):
@@ -104,12 +105,12 @@ class RoleAssignment(CogHelper):
     '''
     Class that can add roles in more managed fashion
     '''
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase, _db_engine: Engine = None):
         if not settings.get('general', {}).get('include', {}).get('role', False):
             raise CogMissingRequiredArg('Role not enabled')
         if not bot.intents.members:
             raise CogMissingRequiredArg('"members" intents required to run role commands')
-        super().__init__(bot, settings, None, settings_prefix='role', config_model=RoleConfig)
+        super().__init__(bot, settings, dispatcher, None, settings_prefix='role', config_model=RoleConfig)
         # Use validated config with integer keys
         self.settings = self.config.model_dump()
 

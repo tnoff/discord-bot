@@ -1,16 +1,17 @@
 import asyncio
-from asyncio import run, get_running_loop
+import contextlib
+from asyncio import get_running_loop
+from contextlib import asynccontextmanager
 import logging
 import re
 import signal
 import sys
-from typing import List
+from typing import Callable, Iterator, List
 
 from pyaml_env import parse_config
 from sqlalchemy.engine.url import make_url
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
-from pydantic import ValidationError as PydanticValidationError
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider, ReadableSpan, SpanProcessor
 from opentelemetry._logs import set_logger_provider
@@ -25,11 +26,13 @@ from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from pydantic import ValidationError as PydanticValidationError
 
-from discord_bot.cogs.common import CogHelperBase
+from discord_bot.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
+from discord_bot.servers.health_server import HealthServer
 from discord_bot.utils.common import get_logger, GeneralConfig
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
@@ -81,64 +84,6 @@ def read_config(config_file: str) -> dict:
     return settings
 
 
-async def main_loop(bot: Bot, cog_list: List[CogHelperBase], token: str, health_server=None,
-                    dispatch_gateway: bool = True):
-    '''
-    Main loop for starting bot
-    Includes logic to handle stops and cog removals
-    '''
-    logger = logging.getLogger('main')
-    loop = get_running_loop()
-    shutdown_triggered = False
-
-    def signal_handler(signum, frame): #pylint:disable=unused-argument
-        '''Handle SIGTERM and SIGINT for graceful shutdown'''
-        nonlocal shutdown_triggered
-        if shutdown_triggered:
-            return
-        shutdown_triggered = True
-        sig_name = signal.Signals(signum).name
-        logger.info(f'Main :: Received {sig_name}, triggering graceful shutdown...')
-        if not bot.is_closed():
-            loop.create_task(bot.close())
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    try:
-        async with bot:
-            for cog in cog_list:
-                await bot.add_cog(cog)
-            if health_server:
-                asyncio.create_task(health_server.serve())
-            if dispatch_gateway:
-                logger.info('Main :: Starting bot in gateway mode')
-                await bot.start(token)
-            else:
-                logger.info('Main :: Starting bot in HTTP-only mode (no gateway connection)')
-                await bot.login(token)
-                while not bot.is_closed():
-                    await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        logger.info('Main :: Received keyboard interrupt, shutting down gracefully...')
-        shutdown_triggered = True
-    except Exception as e:
-        logger.debug('Main :: Shutting down main loop: %s', str(e))
-        return
-    finally:
-        if shutdown_triggered:
-            for cog in cog_list:
-                if hasattr(cog, 'cog_unload'):
-                    try:
-                        logger.debug(f'Main :: Calling cog_unload on {cog.__class__.__name__}')
-                        await cog.cog_unload()
-                    except Exception as e:
-                        logger.exception(f'Main :: Error during cog_unload for {cog.__class__.__name__}: {str(e)}')
-            if not bot.is_closed():
-                await bot.close()
-            logger.info('Main :: Graceful shutdown complete')
-
-
 def setup_otlp(general_config: GeneralConfig):
     '''
     Configure OpenTelemetry tracing, metrics, and logging.
@@ -150,7 +95,6 @@ def setup_otlp(general_config: GeneralConfig):
     tracer_provider = TracerProvider()
     trace.set_tracer_provider(tracer_provider)
     RequestsInstrumentor().instrument(tracer_provider=tracer_provider)
-    RedisInstrumentor().instrument(tracer_provider=tracer_provider)
     span_exporter = OTLPSpanExporter()
     trace_provider = trace.get_tracer_provider()
     batch_processor = BatchSpanProcessor(span_exporter)
@@ -173,7 +117,7 @@ def setup_otlp(general_config: GeneralConfig):
     return logger_provider
 
 
-def setup_logging(general_config: GeneralConfig, logger_provider=None):
+def setup_logging(general_config: GeneralConfig):
     '''Configure application loggers and return the main logger.'''
     print('Starting logging', file=sys.stderr)
     logger = get_logger('main', general_config.logging)
@@ -181,7 +125,7 @@ def setup_logging(general_config: GeneralConfig, logger_provider=None):
     root_logger = logging.getLogger()
     third_party_level = general_config.logging.third_party_log_level if general_config.logging else 30
     root_logger.setLevel(third_party_level)
-    discord_logger = get_logger('discord', general_config.logging, otlp_logger=logger_provider)
+    discord_logger = get_logger('discord', general_config.logging)
     discord_logger.setLevel(third_party_level)
     return logger
 
@@ -202,10 +146,98 @@ def setup_profiling(general_config: GeneralConfig, logger):
         ProcessMetricsProfiler(interval_seconds=interval_seconds).start()
 
 
-def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_server=None):
-    '''Schedule main_loop on an existing event loop or start a new one.'''
+class ShutdownState:
+    '''Mutable flag shared between the signal handler and the main loop.'''
+    def __init__(self):
+        self.triggered: bool = False
+
+    def __bool__(self) -> bool:
+        return self.triggered
+
+
+@contextlib.contextmanager
+def handle_shutdown_signals(bot: Bot) -> Iterator[ShutdownState]:
+    '''
+    Register SIGTERM/SIGINT handlers for the duration of the with-block.
+
+    Yields a ShutdownState whose .triggered is set to True when a signal arrives.
+    Callers may also set .triggered = True directly (e.g. on KeyboardInterrupt)
+    so shutdown detection is unified.
+    '''
+    state = ShutdownState()
+    loop = get_running_loop()
     logger = logging.getLogger('main')
-    token = general_config.discord_token
+
+    def signal_handler(signum, _frame):
+        if state.triggered:
+            return
+        state.triggered = True
+        logger.info(f'Main :: Received {signal.Signals(signum).name}, triggering graceful shutdown...')
+        if not bot.is_closed():
+            loop.create_task(bot.close())
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    yield state
+
+
+async def unload_cogs(cog_list: list) -> None:
+    '''Call cog_unload() on every cog that exposes it, logging any errors.'''
+    logger = logging.getLogger('main')
+    for cog in cog_list:
+        if hasattr(cog, 'cog_unload'):
+            try:
+                logger.debug(f'Main :: Calling cog_unload on {cog.__class__.__name__}')
+                await cog.cog_unload()
+            except Exception as e:
+                logger.exception(f'Main :: Error during cog_unload for {cog.__class__.__name__}: {str(e)}')
+
+
+@asynccontextmanager
+async def bot_lifecycle(bot: Bot, cog_list: list, health_server=None,
+                        on_shutdown: Callable | None = None):
+    '''
+    Async context manager encapsulating the shared bot try/except/finally pattern.
+
+    Registers shutdown signal handlers, loads cogs, starts the optional health
+    server, then yields control so the caller can run bot.start() or bot.login().
+    On exit (normal or signal), unloads cogs, closes the bot, and calls on_shutdown
+    if provided.
+
+    Usage::
+
+        async with bot_lifecycle(bot, cog_list, health_server=hs,
+                                  on_shutdown=dispatcher.stop):
+            logger.info('Starting…')
+            await bot.start(token)
+    '''
+    logger = logging.getLogger('main')
+    with handle_shutdown_signals(bot) as shutdown:
+        async with bot:
+            for cog in cog_list:
+                await bot.add_cog(cog)
+            if health_server:
+                asyncio.create_task(health_server.serve())
+            try:
+                yield shutdown
+            except KeyboardInterrupt:
+                logger.info('Main :: Received keyboard interrupt, shutting down gracefully...')
+                shutdown.triggered = True
+            except Exception as exc:
+                logger.debug('Main :: Shutting down main loop: %s', str(exc))
+            finally:
+                if shutdown:
+                    await unload_cogs(cog_list)
+                    if not bot.is_closed():
+                        await bot.close()
+                    if on_shutdown is not None:
+                        await on_shutdown()
+                    logger.info('Main :: Graceful shutdown complete')
+
+
+def run_loop(coro) -> None:
+    '''Schedule *coro* on the running event loop or start a new one.'''
+    logger = logging.getLogger('main')
     try:
         loop = get_running_loop()
         logger.debug('Main :: Found existing running loop, re-using')
@@ -214,19 +246,57 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
 
     if loop and loop.is_running():
         logger.debug('Main :: Async event loop already running. Adding coroutine to the event loop.')
-        loop.create_task(main_loop(bot, cog_list, token, health_server=health_server,
-                                   dispatch_gateway=general_config.dispatch_gateway))
+        loop.create_task(coro)
     else:
         logger.debug('Main :: Starting new discord bot instance')
-        run(main_loop(bot, cog_list, token, health_server=health_server,
-                      dispatch_gateway=general_config.dispatch_gateway))
+        asyncio.run(coro)
 
 
-def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot, list]:
-    '''
-    Construct the Bot instance and base cog list (error handler only).
-    Callers add their own cogs on top.
-    '''
+def setup_observability(general_config: GeneralConfig) -> logging.Logger:
+    '''Configure OTLP, logging, and profiling. Returns the main logger.'''
+    setup_otlp(general_config)
+    logger = setup_logging(general_config)
+    setup_profiling(general_config, logger)
+    return logger
+
+
+def setup_redis_observability(general_config: GeneralConfig, context: str) -> logging.Logger:
+    '''Configure OTLP, Redis instrumentation, logging, and profiling for a Redis-backed process.
+    Raises DiscordBotException if redis_url is not configured.'''
+    logger = setup_observability(general_config)
+    RedisInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
+    if not general_config.redis_url:
+        raise DiscordBotException(f'Redis required for {context}')
+    return logger
+
+
+def setup_health_server(bot: Bot, general_config: GeneralConfig):
+    '''Return a HealthServer if monitoring.health_server.enabled, else None.'''
+    if (general_config.monitoring and general_config.monitoring.health_server
+            and general_config.monitoring.health_server.enabled):
+        return HealthServer(bot, port=general_config.monitoring.health_server.port)
+    return None
+
+
+def register_on_ready(bot: Bot, general_config: GeneralConfig, logger) -> None:
+    '''Register an on_ready event that logs guild membership and enforces the rejectlist.'''
+    rejectlist_guilds = list(general_config.rejectlist_guilds)
+    logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
+
+    @bot.event
+    async def on_ready():
+        logger.info(f'Main :: Starting bot, logged in as {bot.user} (ID: {bot.user.id})')
+        guilds = [guild async for guild in bot.fetch_guilds(limit=150)]
+        for guild in guilds:
+            if guild.id in rejectlist_guilds:
+                logger.info(f'Main :: Bot currently in guild {guild.id} thats within reject list, leaving server')
+                await guild.leave()
+                continue
+            logger.info(f'Main :: Bot associated with guild {guild.id} with name "{guild.name}"')
+
+
+def build_bot(general_config: GeneralConfig) -> Bot:
+    '''Construct and return the Bot instance.'''
     logger = logging.getLogger('main')
     logger.debug('Main :: Generating Intents')
     intents = Intents.default()
@@ -234,24 +304,21 @@ def build_bot(general_config: GeneralConfig, settings: dict = None) -> tuple[Bot
         logger.debug(f'Main :: Adding extra intents: {intent}')
         setattr(intents, intent, True)
 
-    bot = Bot(
+    return Bot(
         command_prefix=when_mentioned_or('!'),
         description='Discord bot',
         intents=intents,
     )
 
-    from discord_bot.cogs.error import CommandErrorHandler  #pylint:disable=import-outside-toplevel
-    cog_list = [CommandErrorHandler(bot, settings or {})]
-    return bot, cog_list
 
-
-def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine) -> list:
+def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine,
+              dispatcher: DispatchClientBase) -> list:
     '''Attempt to instantiate each cog class; skip those missing required args.'''
     logger = logging.getLogger('main')
     cogs = []
     for cog_cls in cog_classes:
         try:
-            cogs.append(cog_cls(bot, settings, db_engine))
+            cogs.append(cog_cls(bot, settings, dispatcher, db_engine))
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog_cls)}, {str(e)}')
     return cogs
