@@ -15,9 +15,6 @@ from discord import ChannelType
 from discord.errors import NotFound
 import pytest
 import pytest_asyncio
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
@@ -143,29 +140,8 @@ async def fake_async_file_engine() -> AsyncGenerator[AsyncEngine, None]:
         os.unlink(db_path)
 
 @pytest.fixture(scope="function")
-def fake_sync_engine() -> Generator[Engine, None, None]:
-    fd, db_path = tempfile.mkstemp(suffix='.db')
-    os.close(fd)
-    engine = create_engine(f'sqlite:///{db_path}', poolclass=NullPool)
-    BASE.metadata.create_all(engine)
-    try:
-        yield engine
-    finally:
-        BASE.metadata.drop_all(engine)
-        engine.dispose()
-        os.unlink(db_path)
-
-@pytest.fixture(scope="function")
 def fake_context() -> Generator[dict[str, Any], None, None]:
     yield generate_fake_context()
-
-@contextmanager
-def mock_session(engine: Engine) -> Generator[Session, None, None]:
-    session = sessionmaker(bind=engine)()
-    try:
-        yield session
-    finally:
-        session.close()
 
 @asynccontextmanager
 async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
