@@ -61,7 +61,6 @@ discord_bot/
     delete_messages.py          # Automated channel cleanup
     role.py                     # RoleAssignment — self-serve role commands
     urban.py                    # UrbanDictionary — !word command
-    database_backup.py          # Scheduled S3 database backup
     music_helpers/
       common.py                 # SearchType enum, StorageOptions enum, YouTube URL prefix constants
       database_functions.py     # Shared DB helpers (ensure_guild_video_analytics, etc.)
@@ -85,7 +84,6 @@ discord_bot/
     common.py                   # async_retry_discord_message_command, get_logger,
                                 # return_loop_runner, create_observable_gauge,
                                 # GeneralConfig and all other config models
-    database_backup_client.py   # DatabaseBackupClient — JSON backup/restore to/from S3
     distributed_queue.py        # DistributedQueue — per-guild priority + FIFO round-robin
     failure_queue.py            # FailureQueue — operation failure-rate tracking
     health_server.py            # HealthServer — lightweight HTTP /health endpoint
@@ -94,10 +92,8 @@ discord_bot/
                                 # command_wrapper, METER_PROVIDER
     process_metrics.py          # ProcessMetricsProfiler — psutil RSS/CPU/FD metrics
     queue.py                    # AsyncQueue[T] — shuffleable asyncio queue with PutsBlocked
-    sql_retry.py                # retry_database_commands (sync, backup only), async_retry_database_commands
+    sql_retry.py                # async_retry_database_commands
     clients/                    # s3.py, spotify.py, youtube.py, youtube_music.py
-scripts/
-  restore_database.py           # CLI: restore DB from local file or S3 (--config, --file/--s3-*)
 tests/                          # mirrors discord_bot/ structure
   helpers.py                    # shared fixtures and fake classes
 docs/                           # markdown docs per cog + monitoring/
@@ -226,7 +222,6 @@ Add new `MetricNaming` entries to `discord_bot/utils/otel.py` before using them.
 | `CommandErrorHandler` | (always loaded) | — |
 | `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` |
 | `DeleteMessages` | `delete_messages` | `!delete <n>`, `!autodelete` |
-| `DatabaseBackup` | `database_backup` | — (scheduled loop) |
 | `Markov` | `markov` | `!markov speak`, `!markov on/off` |
 | `Music` | `music` | `!play`, `!pause`, `!resume`, `!skip`, `!stop`, `!queue`, `!history`, etc. |
 | `RoleAssignment` | `role` | `!role add/remove/list` |
@@ -234,7 +229,7 @@ Add new `MetricNaming` entries to `discord_bot/utils/otel.py` before using them.
 
 `POSSIBLE_COGS` order in `cli.py`:
 ```python
-[MessageDispatcher, DeleteMessages, DatabaseBackup, Markov, Music, RoleAssignment, UrbanDictionary, General]
+[MessageDispatcher, DeleteMessages, Markov, Music, RoleAssignment, UrbanDictionary, General]
 ```
 `CommandErrorHandler` is registered unconditionally before the loop.
 
@@ -287,8 +282,7 @@ async def my_command(self, ctx):
 ```
 
 `async_otel_span_wrapper` is an `asynccontextmanager` and must be used with
-`async with`. The sync `otel_span_wrapper` is still available for sync-only
-contexts (e.g. the backup client).
+`async with`. The sync `otel_span_wrapper` is still available for sync-only contexts.
 
 ### MetricNaming enum values
 
@@ -341,7 +335,7 @@ automatically rewrites `postgresql://` → `postgresql+asyncpg` and `sqlite://` 
 | `Playlist` | `playlist` | Music |
 | `PlaylistItem` | `playlist_item` | Music |
 | `VideoCache` | `video_cache` | Music |
-| `VideoCacheBackup` | `video_cache_backup` | Music / DatabaseBackup |
+| `VideoCacheBackup` | `video_cache_backup` | Music |
 
 ```python
 # Async session context manager from CogHelper
@@ -370,9 +364,6 @@ await db.execute(delete(Model).where(Model.id == x))
 await db.commit()
 ```
 
-`DatabaseBackupClient` is the only component that retains a **sync** engine —
-it runs in a background thread and does its own session management.
-
 ### DB retry
 
 `async_retry_database_commands` (`discord_bot/utils/sql_retry.py`) retries on
@@ -387,8 +378,6 @@ result = await async_retry_database_commands(db_session, lambda: database_functi
 # Or for commit:
 await async_retry_database_commands(db_session, db_session.commit)
 ```
-
-The sync `retry_database_commands` still exists for `DatabaseBackupClient` only.
 
 Migrations via Alembic (`DATABASE_URL` env var required):
 
@@ -427,7 +416,6 @@ general:
     delete_messages: true
     role: true
     urban: true
-    database_backup: false
 intents:
   - members
 ```
@@ -479,12 +467,6 @@ cleanup and status summaries. Used by the music download pipeline.
 `edit_audio_file(path)` — normalises audio via ffmpeg subprocess (`loudnorm` filter), outputs s16le PCM at 48 kHz stereo. Called via `loop.run_in_executor` in `download_client.py` so it doesn't block the event loop.
 Helpers: `get_finished_path()`, `get_editing_path()`.
 
-### `discord_bot/utils/database_backup_client.py` — `DatabaseBackupClient`
-
-Streaming JSON backup/restore to minimise memory. Exports `create_backup()`,
-`restore_backup()` with metadata and batch restoration. Used by `DatabaseBackup`
-cog and `scripts/restore_database.py`.
-
 ## Music system
 
 The `Music` cog delegates to several `music_helpers/` sub-modules.
@@ -518,21 +500,6 @@ The `Music` cog delegates to several `music_helpers/` sub-modules.
 
 Design doc: `docs/music/media_broker.md`.
 
-## Scripts
-
-### `scripts/restore_database.py`
-
-Standalone CLI for database restoration:
-
-```bash
-python scripts/restore_database.py --config /path/to/config.yml \
-    --file /path/to/backup.json          # from local file
-    # or
-    --s3-bucket my-bucket --s3-object backup.json  # from S3
-    --clear   # drop existing rows before restore
-    --verbose
-```
-
 ## Error handling
 
 - **No broad `except Exception`** in production code. Let exceptions propagate
@@ -555,7 +522,6 @@ All shared test infrastructure is in `tests/helpers.py`:
 from tests.helpers import (
     fake_context,        # pytest fixture → dict with bot/guild/author/channel/context
     fake_engine,         # pytest fixture → async in-memory aiosqlite engine (AsyncEngine)
-    fake_sync_engine,    # pytest fixture → sync in-memory SQLite engine (backup tests only)
     FakeChannel,         # channel.send() records messages in channel.messages list
     FakeGuild,
     FakeAuthor,
@@ -569,7 +535,6 @@ from tests.helpers import (
     random_id,           # generate a random 12-digit integer
     random_string,       # generate a random lowercase string
     async_mock_session,  # async context manager: yields AsyncSession bound to fake_engine
-    mock_session,        # sync context manager (backup tests only)
 )
 ```
 
