@@ -20,19 +20,27 @@ $ brew install ffmpeg
 
 ## Installation
 
-Install the deps
-
-```
-$ pip install -r requirements.txt -r tests/requirements.txt
-```
-
-It's recommended you install these within a virtual directory.
+It's recommended you install within a virtual environment.
 
 ```
 $ virtualenv .venv
 $ source .venv/bin/activate
-# Run pip commands
 ```
+
+Install the package with the desired extras:
+
+```
+$ pip install -e ".[bot,test,sqlite]"
+```
+
+Available extras:
+
+| Extra | Use case |
+|-------|----------|
+| `bot` | Bot-specific dependencies (media, database, etc.) |
+| `sqlite` | SQLite async driver |
+| `postgres` | PostgreSQL async driver |
+| `test` | Test tooling (pytest, pylint, etc.) |
 
 ## Run Test Suite
 

@@ -19,10 +19,8 @@ RUN groupadd -g 1000 discord && \
 
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
-COPY requirements.base.txt "${APPDIR}/"
-COPY requirements.dispatcher.txt "${APPDIR}/requirements.txt"
 COPY alembic.ini "${APPDIR}/"
-COPY setup.py "${APPDIR}/"
+COPY pyproject.toml VERSION "${APPDIR}/"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \

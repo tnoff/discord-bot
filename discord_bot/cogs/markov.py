@@ -455,10 +455,12 @@ class Markov(CogHelper):
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'No markov words to pick from')
 
             async def get_leader_word():
-                return (await db_session.get(MarkovRelation, choice(possible_words))).leader_word
+                # bandit B311: Markov chain word selection, not security-sensitive
+                return (await db_session.get(MarkovRelation, choice(possible_words))).leader_word  # nosec B311
 
             async def get_follower_word(word_ids):
-                return (await db_session.get(MarkovRelation, choice(word_ids))).follower_word
+                # bandit B311: Markov chain word selection, not security-sensitive
+                return (await db_session.get(MarkovRelation, choice(word_ids))).follower_word  # nosec B311
 
             word = await async_retry_database_commands(db_session, get_leader_word)
             all_words.append(word)

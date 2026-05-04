@@ -13,7 +13,7 @@ jobs:
       actions: read
     with:
       coverage_source: discord_bot
-      install_command: pip install -r requirements.txt -r requirements.sqlite.txt -r tests/requirements.txt
+      install_command: pip install ".[bot,test,sqlite]"
       python_version: 3.14
       pre_install_command: sudo apt-get update && sudo apt-get install -y sqlite3 ffmpeg
   build:

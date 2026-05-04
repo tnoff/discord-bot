@@ -1,4 +1,5 @@
-import subprocess
+# bandit B404: subprocess is required to invoke ffmpeg; no shell, args passed as a list
+import subprocess  # nosec B404
 from pathlib import Path
 
 from opentelemetry.trace.status import StatusCode
@@ -50,7 +51,8 @@ def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: Logg
             ffmpeg_args.insert(4, '-af')
             ffmpeg_args.insert(5, 'loudnorm')
         try:
-            subprocess.run(
+            # bandit B603: ffmpeg invocation with a controlled args list and shell=False (default)
+            subprocess.run(  # nosec B603
                 ffmpeg_args,
                 capture_output=True,
                 check=True,

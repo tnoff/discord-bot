@@ -47,6 +47,8 @@ class MonitoringHealthServerConfig(BaseModel):
     '''Health server monitoring configuration'''
     enabled: bool = False
     port: int = Field(default=8080, ge=1, le=65535)
+    # bandit B104: '0.0.0.0' default makes the health endpoint reachable from outside the container; users can override to '127.0.0.1' if running behind a sidecar proxy
+    bind_address: str = '0.0.0.0'  # nosec B104
 
 class MonitoringConfig(BaseModel):
     '''Monitoring configuration'''

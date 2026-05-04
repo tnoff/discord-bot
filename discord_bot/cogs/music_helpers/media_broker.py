@@ -207,8 +207,9 @@ class MediaBroker:
                     if not entry.download.file_path.exists():
                         raise FileNotFoundError('Unable to locate base path')
                     copyfile(str(entry.download.file_path), str(uuid_path))
-                    src_md5 = hashlib.md5(entry.download.file_path.read_bytes()).hexdigest()
-                    dst_md5 = hashlib.md5(uuid_path.read_bytes()).hexdigest()
+                    # bandit B324: local copyfile integrity check, not used for security
+                    src_md5 = hashlib.md5(entry.download.file_path.read_bytes(), usedforsecurity=False).hexdigest()
+                    dst_md5 = hashlib.md5(uuid_path.read_bytes(), usedforsecurity=False).hexdigest()
                     if src_md5 != dst_md5:
                         logger.warning('Checksum mismatch after copyfile: src=%s dst=%s src_md5=%s dst_md5=%s',
                                        entry.download.file_path, uuid_path, src_md5, dst_md5)
