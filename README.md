@@ -12,12 +12,14 @@ Includes some pre-written cogs for:
 
 ## Setup
 
-To install the python package, install the pip file within the repo
+To install the python package, clone the repo and install with pip:
 
 ```
 $ git clone https://github.com/tnoff/discord-bot.git
-$ pip install discord-bot/
+$ pip install "discord-bot/[bot,sqlite]"
 ```
+
+Use the `bot` extra for full bot dependencies (media, database, etc.) and pick a database extra (`sqlite` or `postgres`).
 
 ## Docker
 

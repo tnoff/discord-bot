@@ -31,21 +31,11 @@ RUN groupadd -g 1000 discord && \
 
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
-COPY requirements.base.txt "${APPDIR}/"
-COPY requirements.txt "${APPDIR}/"
-COPY requirements.sqlite.txt "${APPDIR}/"
-COPY requirements.postgres.txt "${APPDIR}/"
 COPY alembic.ini "${APPDIR}/"
-COPY setup.py "${APPDIR}/"
+COPY pyproject.toml VERSION "${APPDIR}/"
 COPY docker/entrypoint.sh /entrypoint.sh
 
-RUN pip install "${APPDIR}"
-
-RUN if [ "$DB_TYPE" = "postgres" ]; then \
-        pip install -r "${APPDIR}/requirements.postgres.txt"; \
-    else \
-        pip install -r "${APPDIR}/requirements.sqlite.txt"; \
-    fi
+RUN pip install "${APPDIR}[bot,${DB_TYPE}]"
 
 RUN chmod +x /entrypoint.sh
 
