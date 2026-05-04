@@ -23,9 +23,11 @@ class HealthServer:
     A DB failure returns 503 with {"status": "unavailable", "db": "unavailable"}.
     """
 
-    def __init__(self, bot, port=8080, db_engine=None):
+    # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
+    def __init__(self, bot, port=8080, bind_address='0.0.0.0', db_engine=None):  # nosec B104
         self.bot = bot
         self.port = port
+        self.bind_address = bind_address
         self._db_engine = db_engine
 
     async def _db_ping(self):
@@ -39,8 +41,8 @@ class HealthServer:
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
-        server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
-        logger.info(f'Health server listening on port {self.port}')
+        server = await asyncio.start_server(self._handle, self.bind_address, self.port)
+        logger.info(f'Health server listening on {self.bind_address}:{self.port}')
         async with server:
             await server.serve_forever()
 
@@ -87,7 +89,7 @@ class HealthServer:
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
+            except OSError:
                 pass
 
 
@@ -99,17 +101,19 @@ class DispatchHealthServer:
     503 {"status": "unavailable"} otherwise.
     """
 
-    def __init__(self, redis_url: str, port: int = 8080):
+    # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
+    def __init__(self, redis_url: str, port: int = 8080, bind_address: str = '0.0.0.0'):  # nosec B104
         self._redis_url = redis_url
         self.port = port
+        self.bind_address = bind_address
         self._client = None
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
         self._client = get_redis_client(self._redis_url)
         try:
-            server = await asyncio.start_server(self._handle, '0.0.0.0', self.port)
-            logger.info(f'Redis health server listening on port {self.port}')
+            server = await asyncio.start_server(self._handle, self.bind_address, self.port)
+            logger.info(f'Redis health server listening on {self.bind_address}:{self.port}')
             async with server:
                 await server.serve_forever()
         finally:
@@ -146,5 +150,5 @@ class DispatchHealthServer:
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
+            except OSError:
                 pass

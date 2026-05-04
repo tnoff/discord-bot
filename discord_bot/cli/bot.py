@@ -76,6 +76,7 @@ def run(settings: dict, general_config: GeneralConfig):
         if general_config.monitoring and general_config.monitoring.health_server \
                 and general_config.monitoring.health_server.enabled:
             health_server = HealthServer(bot, port=general_config.monitoring.health_server.port,
+                                         bind_address=general_config.monitoring.health_server.bind_address,
                                          db_engine=db_engine)
 
         rejectlist_guilds = list(general_config.rejectlist_guilds)

@@ -469,3 +469,10 @@ async def test_youtube_playlist_regex_no_dot_wildcard():
     # 'youtubeXcom' — dot replaced by a non-dot character; must not match as a playlist
     result = await x.check_source('https://www.youtubeXcom/playlist?list=PLabc123', loop, 5)
     assert result.search_results[0].search_type == SearchType.DIRECT
+
+
+def test_check_spotify_source_requires_id():
+    '''__check_spotify_source raises ValueError when none of playlist/album/track id is given.'''
+    x = SearchClient(spotify_client=MockSpotifyClient())
+    with pytest.raises(ValueError, match='Playlist, album, or track id must be passed'):
+        x._SearchClient__check_spotify_source()  # pylint: disable=protected-access

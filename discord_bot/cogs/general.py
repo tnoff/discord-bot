@@ -65,7 +65,8 @@ class General(CogHelper):
         roll_values = []
         total = 0
         for _ in range(rolls):
-            num = randint(1, sides)
+            # bandit B311: dice rolls, not security-sensitive
+            num = randint(1, sides)  # nosec B311
             total += num
             roll_values.append(num)
         if rolls == 1:

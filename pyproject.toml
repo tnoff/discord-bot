@@ -54,6 +54,7 @@ postgres = [
     "asyncpg==0.31.0",
 ]
 test = [
+    "bandit==1.9.4",
     "fakeredis==2.35.1",
     "freezegun==1.5.5",
     "pylint-pydantic==0.4.1",

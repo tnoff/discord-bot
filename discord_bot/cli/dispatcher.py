@@ -32,6 +32,7 @@ def run(settings: dict, general_config: GeneralConfig):
         health_server = DispatchHealthServer(
             general_config.redis_url,
             port=general_config.monitoring.health_server.port,
+            bind_address=general_config.monitoring.health_server.bind_address,
         )
 
     run_bot(general_config, bot, cog_list, health_server=health_server)

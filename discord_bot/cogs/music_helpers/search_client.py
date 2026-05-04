@@ -77,7 +77,8 @@ class SearchClient():
         album_id : Album id
         track_id : Track ID
         '''
-        assert playlist_id or album_id or track_id, 'Playlist or album id must be passed'
+        if not (playlist_id or album_id or track_id):
+            raise ValueError('Playlist, album, or track id must be passed')
 
         if playlist_id:
             return self.spotify_client.playlist_get(playlist_id)

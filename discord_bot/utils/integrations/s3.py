@@ -24,7 +24,8 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
         raise ObjectStorageException(f'Invalid file path {str(file_path)}')
 
     data = file_path.read_bytes()
-    md5_digest = hashlib.md5(data).digest()
+    # bandit B324: MD5 is mandated by the S3 Content-MD5 protocol header, not used for security
+    md5_digest = hashlib.md5(data, usedforsecurity=False).digest()
     md5_base64 = base64.b64encode(md5_digest).decode('utf-8')
     try:
         s3_client.put_object(
@@ -51,7 +52,8 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
         )
         # Read the body stream
         data = response['Body'].read()
-        computed_md5 = hashlib.md5(data).hexdigest()
+        # bandit B324: comparing against S3 ETag (MD5 is dictated by S3 protocol), not used for security
+        computed_md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
         etag = response.get('ETag', '').strip('"')
         # ETag from multi-part upload has '-N' suffix — skip check if so
         if etag and '-' not in etag and etag != computed_md5:

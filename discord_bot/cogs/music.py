@@ -721,7 +721,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         new_timestamp = int(datetime.now(timezone.utc).timestamp())
         new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
         random.seed(time())
-        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)
+        # bandit B311: backoff jitter, not security-sensitive
+        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)  # nosec B311
         self.logger.info(f'Waiting on youtube music search backoff, waiting until {new_timestamp}')
         self.youtube_music_wait_timestamp = new_timestamp
         return True

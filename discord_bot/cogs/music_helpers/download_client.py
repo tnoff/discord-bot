@@ -110,6 +110,8 @@ class BotDownloadFlagged(RetryableException):
 
 OTEL_SPAN_PREFIX = 'music.download_client'
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
+# bandit B104: yt-dlp's source-address config, not a server bind; '0.0.0.0' lets the OS pick (avoids ipv6 issues)
+YTDLP_SOURCE_ADDRESS = '0.0.0.0'  # nosec B104
 
 def match_generator(max_video_length: int, banned_videos_list: List[str]):
     '''
@@ -173,7 +175,7 @@ class DownloadClient():
             'logtostderr': False,
             'logger': get_logger('ytdlp', logging_config),
             'default_search': 'auto',
-            'source_address': '0.0.0.0',  # ipv6 addresses cause issues sometimes
+            'source_address': YTDLP_SOURCE_ADDRESS,
             'outtmpl': str(download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
         }
         if extra_ytdlp_options:
@@ -218,7 +220,8 @@ class DownloadClient():
         new_timestamp = int(datetime.now(timezone.utc).timestamp())
         new_timestamp = new_timestamp + (self._wait_period_minimum * backoff_multiplier)
         random.seed(time())
-        new_timestamp = new_timestamp + (random.randint(1000, self._wait_period_max_variance * 1000) / 1000)
+        # bandit B311: backoff jitter, not security-sensitive
+        new_timestamp = new_timestamp + (random.randint(1000, self._wait_period_max_variance * 1000) / 1000)  # nosec B311
         self._wait_timestamp = new_timestamp
 
     def update_tracking(self, result: DownloadResult) -> int | None:
@@ -543,7 +546,8 @@ class DownloadClient():
                     span.set_status(StatusCode.ERROR)
                     return self._make_error_result(DownloadErrorType.FILE_NOT_FOUND, media_request, span_context, 'No file path returned from download')
                 file_size_bytes = file_path.stat().st_size
-                computed_md5 = hashlib.md5(file_path.read_bytes()).hexdigest()
+                # bandit B324: corruption check against yt-dlp's reported MD5, not used for security
+                computed_md5 = hashlib.md5(file_path.read_bytes(), usedforsecurity=False).hexdigest()
                 ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
                 if ytdlp_md5 and ytdlp_md5 != computed_md5:
                     self.logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
