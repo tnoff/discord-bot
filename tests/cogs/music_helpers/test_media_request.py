@@ -1669,3 +1669,92 @@ def test_get_retry_summary_retry_search(fake_context):  #pylint:disable=redefine
     assert len(summary) == 1
     assert '429 rate limit' in summary[0]
     assert 'attempt 1/5' in summary[0]
+
+
+def test_finished_false_until_all_requests_enqueued(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    bundle.finished must remain False until all_requests_added() has been called,
+    even if every currently-bundled request is already in a terminal stage.
+    Prevents the !random-play orphan: an early request that completes mid-loop
+    would otherwise flip finished=True before the rest of the playlist is added.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle.set_multi_input_request('history-playlist')
+
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    bundle.update_request_status()
+
+    # Producer is mid-loop — finished must be False even though req is COMPLETED
+    assert bundle.all_requests_enqueued is False
+    assert bundle.finished is False
+
+    # Once the producer signals it is done, the bundle is allowed to finish
+    bundle.all_requests_added()
+    assert bundle.finished is True
+
+
+def test_finished_shutdown_short_circuits_all_requests_enqueued(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Shutdown is a higher-priority terminal signal than the enqueue gate, so
+    finished=True must be returned even if all_requests_added() never ran.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle.add_media_request(fake_source_dict(fake_context))
+
+    assert bundle.all_requests_enqueued is False
+    bundle.shutdown()
+    assert bundle.finished is True
+
+
+def test_check_finished_skips_banner_until_all_requests_enqueued(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    The search banner counter must not render until all_requests_added() has
+    been called. Otherwise an early state transition during the producer loop
+    (e.g. in !random-play) would render '0/1 media requests processed' even
+    though 31 more requests are still about to be added.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle.set_multi_input_request('history-playlist')
+
+    req = fake_source_dict(fake_context)
+    bundle.add_media_request(req)
+    # Mid-loop transition — must NOT update the banner with a partial total
+    req.lifecycle_stage = MediaRequestLifecycleStage.IN_PROGRESS
+    bundle.update_request_status()
+
+    rendered = bundle.print()
+    # Banner is still the unchanged "Processing ..." line — no count yet
+    assert any('Processing "history-playlist"' in page for page in rendered)
+    assert not any('0/1 media requests processed' in page for page in rendered)
+    assert not any('media requests processed successfully' in page for page in rendered)
+
+    # After the producer is done, the banner gains its counter
+    bundle.all_requests_added()
+    rendered = bundle.print()
+    assert any('1 media requests processed successfully' in page for page in rendered)
+
+
+def test_check_finished_renders_count_after_all_requests_enqueued(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Once all_requests_added() has been called, _check_finished must render the
+    full counter line. Sanity check that the gate doesn't permanently suppress
+    the banner.
+    """
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle.set_multi_input_request('history-playlist')
+
+    req1 = fake_source_dict(fake_context)
+    req2 = fake_source_dict(fake_context)
+    bundle.add_media_request(req1)
+    bundle.add_media_request(req2)
+    bundle.all_requests_added()
+
+    req1.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
+    req2.lifecycle_stage = MediaRequestLifecycleStage.FAILED
+    bundle.update_request_status()
+
+    rendered = bundle.print()
+    assert any('Completed processing of "history-playlist"' in page for page in rendered)
+    assert any('1/2 media requests processed successfully, 1 failed' in page for page in rendered)

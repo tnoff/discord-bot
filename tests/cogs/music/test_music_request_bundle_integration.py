@@ -315,6 +315,7 @@ async def test_race_condition_fix_bundle_cleanup(fake_context):  #pylint:disable
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     bundle.update_request_status()
 
@@ -429,6 +430,7 @@ def test_bundle_cleanup_thread_safety_with_fix(fake_context):  #pylint:disable=r
 
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
+        bundle.all_requests_added()
         req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
         bundle.update_request_status()
 
@@ -475,6 +477,7 @@ def test_comprehensive_error_resilience_with_fixes(fake_context):  #pylint:disab
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     bundle.update_request_status()
 
@@ -519,6 +522,7 @@ def test_bundle_lifecycle_with_all_fixes(fake_context):  #pylint:disable=redefin
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
         requests.append(req)
+    bundle.all_requests_added()
 
     # Complete all requests
     for req in requests:
@@ -631,6 +635,7 @@ def test_bundle_removal_logic_consistency(fake_context):  #pylint:disable=redefi
     finished_bundle.set_initial_search('test search')
     req1 = fake_source_dict(fake_context)
     finished_bundle.add_media_request(req1)
+    finished_bundle.all_requests_added()
     req1.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     finished_bundle.update_request_status()
     assert finished_bundle.finished is True
@@ -722,6 +727,7 @@ async def test_bundle_cleanup_race_condition(fake_context):  #pylint:disable=red
 
     req = fake_source_dict(fake_context)
     bundle.add_media_request(req)
+    bundle.all_requests_added()
     req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     bundle.update_request_status()
 
@@ -811,6 +817,7 @@ async def test_concurrent_bundle_status_updates(fake_context):  #pylint:disable=
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
         requests.append(req)
+    bundle.all_requests_added()
 
     assert bundle.total == 10
     assert bundle.completed == 0
@@ -1154,6 +1161,7 @@ async def test_bundle_cleanup_preserves_channel_id(fake_context):  #pylint:disab
     for bundle in [bundle1, bundle2]:
         req = fake_source_dict(fake_context)
         bundle.add_media_request(req)
+        bundle.all_requests_added()
         req.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
         bundle.update_request_status()
 
@@ -1161,6 +1169,7 @@ async def test_bundle_cleanup_preserves_channel_id(fake_context):  #pylint:disab
     req3.guild_id = 999
     req3.channel_id = 888
     bundle3.add_media_request(req3)
+    bundle3.all_requests_added()
     req3.lifecycle_stage = MediaRequestLifecycleStage.COMPLETED
     bundle3.update_request_status()
 
