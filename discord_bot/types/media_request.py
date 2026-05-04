@@ -398,6 +398,11 @@ class MultiMediaRequestBundle():
         '''
         Check if all requests finished
         '''
+        # Skip until the producer has finished enqueuing — otherwise we'd render the
+        # banner with a partial total (e.g. "0/1" mid-loop in !random-play before all
+        # 32 items have been added).
+        if not self.all_requests_enqueued:
+            return True
         multi_input = discord_format_string_embed(self.input_string) if self.input_string else self.input_string
         if self.has_search_banner:
             top_line = f'Processing "{multi_input}"'
@@ -469,6 +474,11 @@ class MultiMediaRequestBundle():
         '''
         if self.is_shutdown:
             return True
+        # Cannot be finished until the producer signals it is done adding requests —
+        # otherwise an early-completing first request would orphan the bundle before
+        # later requests (e.g. !random-play's 32 items) are appended.
+        if not self.all_requests_enqueued:
+            return False
         terminal_stages = frozenset({
             MediaRequestLifecycleStage.COMPLETED,
             MediaRequestLifecycleStage.FAILED,
@@ -476,8 +486,7 @@ class MultiMediaRequestBundle():
         })
         if self.bundled_requests:
             return all(req.media_request.lifecycle_stage in terminal_stages for req in self.bundled_requests)
-        # Empty bundle: only finished once all_requests_added() has been called
-        return self.all_requests_enqueued
+        return True
 
     @property
     def finished_successfully(self):

@@ -45,7 +45,7 @@ bot = [
     "yt-dlp==2026.3.17",
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
-    "ytmusicapi==1.11.5",
+    "ytmusicapi==1.12.0",
 ]
 sqlite = [
     "aiosqlite==0.22.1",
