@@ -1,0 +1,279 @@
+include:
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/tag.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/discord-notify.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/renovate.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/bump-version.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/trufflehog.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: c727d141564e2e8c86b1ac327df3698e0d521640
+    file: '/gitlab/trufflehog-image.yml'
+
+default:
+  tags:
+    - self-hosted
+
+stages:
+  - validate
+  - test
+  - tag
+  - build
+  - notify
+  - renovate
+
+bump-version:
+  extends: .bump-version
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\/dev-/
+
+trufflehog:
+  extends: .trufflehog
+  stage: validate
+  rules:
+    # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+docker-build-bot-sqlite:
+  stage: validate
+  image: docker.io/moby/buildkit:v0.18.0
+  script:
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile \
+        --opt build-arg:DB_TYPE=sqlite \
+        --output type=docker,name=discord-bot:ci-sqlite,dest=image-bot-sqlite.tar
+  artifacts:
+    paths:
+      - image-bot-sqlite.tar
+    expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+docker-build-bot-postgres:
+  stage: validate
+  image: docker.io/moby/buildkit:v0.18.0
+  script:
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile \
+        --opt build-arg:DB_TYPE=postgres
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+docker-build-dispatcher:
+  stage: validate
+  image: docker.io/moby/buildkit:v0.18.0
+  script:
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile.dispatcher \
+        --output type=docker,name=discord-dispatcher:ci,dest=image-dispatcher.tar
+  artifacts:
+    paths:
+      - image-dispatcher.tar
+    expire_in: 1 day
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+trufflehog-bot-image:
+  extends: .trufflehog-image
+  stage: validate
+  needs: [docker-build-bot-sqlite]
+  variables:
+    TRUFFLEHOG_IMAGE_TARBALL: image-bot-sqlite.tar
+  rules:
+    # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+trufflehog-dispatcher-image:
+  extends: .trufflehog-image
+  stage: validate
+  needs: [docker-build-dispatcher]
+  variables:
+    TRUFFLEHOG_IMAGE_TARBALL: image-dispatcher.tar
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+tox:
+  stage: test
+  image: docker.io/library/python:${PYTHON_VERSION}-slim
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.11", "3.12", "3.13", "3.14"]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq sqlite3 ffmpeg git
+    - pip install tox
+  script:
+    - tox -e $(python3 -c "import sys; v=sys.version_info; print(f'py{v.major}{v.minor}')")
+  artifacts:
+    paths:
+      - coverage.xml
+    expire_in: 1 day
+    when: always
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+diff-cover:
+  stage: test
+  image: docker.io/library/python:3.14-slim
+  needs:
+    - job: "tox: [3.14]"
+      artifacts: true
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git
+    - pip install diff-cover
+  script:
+    - diff-cover coverage.xml --compare-branch=origin/main --fail-under=100
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+tag-build:
+  extends: .tag
+  stage: tag
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
+docker-push-bot:
+  stage: build
+  image: docker.io/moby/buildkit:v0.18.0
+  needs: []
+  variables:
+    DOCKER_CONFIG: /tmp/.docker
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - |
+      AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
+      cat > "$DOCKER_CONFIG/config.json" <<EOF
+      {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
+      EOF
+  script:
+    - DB_TYPE="${DB_TYPE:-sqlite}"
+    - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_REPO_NAME"
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile \
+        --opt build-arg:DB_TYPE=$DB_TYPE \
+        --opt platform=linux/arm64 \
+        --output type=image,name=$IMAGE:$CI_COMMIT_SHORT_SHA,push=true
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile \
+        --opt build-arg:DB_TYPE=$DB_TYPE \
+        --opt platform=linux/arm64 \
+        --output type=image,name=$IMAGE:latest,push=true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
+docker-push-dispatcher:
+  stage: build
+  image: docker.io/moby/buildkit:v0.18.0
+  needs: []
+  variables:
+    DOCKER_CONFIG: /tmp/.docker
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - |
+      AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
+      cat > "$DOCKER_CONFIG/config.json" <<EOF
+      {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
+      EOF
+  script:
+    - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_DISPATCHER_REPO_NAME"
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile.dispatcher \
+        --opt platform=linux/arm64 \
+        --output type=image,name=$IMAGE:$CI_COMMIT_SHORT_SHA,push=true
+    - |
+      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
+        --frontend dockerfile.v0 \
+        --local context=. --local dockerfile=docker \
+        --opt filename=Dockerfile.dispatcher \
+        --opt platform=linux/arm64 \
+        --output type=image,name=$IMAGE:latest,push=true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
+notify-mr:
+  extends: .discord-notify
+  stage: notify
+  needs: []
+  variables:
+    NOTIFY_TYPE: mr_opened
+    DISCORD_WEBHOOK_URL: $DISCORD_MR_WEBHOOK
+  rules:
+    # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+
+notify-failure:
+  extends: .discord-notify
+  stage: notify
+  needs: [tag-build, docker-push-bot, docker-push-dispatcher]
+  variables:
+    NOTIFY_TYPE: failure
+    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_failure
+
+notify-merged:
+  extends: .discord-notify
+  stage: notify
+  needs: []
+  variables:
+    NOTIFY_TYPE: mr_merged
+    DISCORD_WEBHOOK_URL: $DISCORD_MR_WEBHOOK
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: always
+
+renovate:
+  extends: .renovate
+  stage: renovate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
