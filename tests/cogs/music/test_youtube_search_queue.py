@@ -178,6 +178,53 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
 
 
 @pytest.mark.asyncio()
+async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Regression: when a SEARCH-type request resolves to a cached track, the
+    *current* media_request must transition to COMPLETED. Previously it stayed
+    in QUEUED forever, leaving the bundle's "Media request queued for download"
+    row dangling in the channel even though the song was playing.
+    """
+    config = BASE_MUSIC_CONFIG
+
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    cog = Music(fake_context['bot'], config, None)
+    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+
+    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
+    media_request = create_test_media_request(fake_context, 'test search', bundle.uuid)
+    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle.add_media_request(media_request)
+    bundle.all_requests_added()
+    # Refresh stored_status so the COMPLETED transition triggers the row edit and
+    # increments bundle.completed via update_request_status (the production code
+    # path runs through _on_request_state_change → bundle.print()).
+    bundle.bundled_requests[0].stored_status = MediaRequestLifecycleStage.SEARCHING
+
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
+            mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=cached_download))
+
+            mock_player = MagicMock()
+            mocker.patch.object(cog, 'get_player', return_value=mock_player)
+            mocker.patch.object(cog, 'add_source_to_player', return_value=None)
+
+            await cog.search_youtube_music()
+
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED
+    # Roll the row-clear/counter logic through update_request_status, the same
+    # work _on_request_state_change does in production.
+    bundle.update_request_status()
+    # Bundle should now report finished, allowing downstream cleanup to drop it
+    assert bundle.finished is True
+    assert bundle.completed == 1
+
+
+@pytest.mark.asyncio()
 async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test YouTube Music search returns no results"""
     config = BASE_MUSIC_CONFIG
