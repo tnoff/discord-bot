@@ -1,21 +1,21 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile"],
-  "rebaseWhen": "behind-base-branch",
   "labels": ["dependencies"],
+  "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
-      "matchDepTypes": ["test"],
       "matchPackageNames": ["pytest", "pytest-cov", "pytest-mock", "pytest-asyncio", "pytest-freezegun", "requests-mock", "fakeredis", "freezegun", "tox", "pylint", "pylint-pydantic", "bandit"],
-      "matchUpdateTypes": ["major", "minor", "patch"],
       "additionalBranchPrefix": "test-",
       "automerge": true
     },
     {
-      "matchUpdateTypes": ["patch"],
-      "additionalBranchPrefix": "dev-",
-      "automerge": true
+      "matchManagers": ["pep621", "dockerfile"],
+      "matchPackageNames": ["!pytest", "!pytest-cov", "!pytest-mock", "!pytest-asyncio", "!pytest-freezegun", "!requests-mock", "!fakeredis", "!freezegun", "!tox", "!pylint", "!pylint-pydantic", "!bandit"],
+      "additionalBranchPrefix": "dev-"
     }
   ]
 }
