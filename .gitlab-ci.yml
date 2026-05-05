@@ -1,21 +1,21 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: c60f8cb59d60c447748bbc6ef57caa12eb20e440
+    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
     file: '/gitlab/trufflehog-image.yml'
 
 default:
@@ -176,12 +176,17 @@ docker-push-bot:
   before_script:
     - mkdir -p "$DOCKER_CONFIG"
     - |
+      OCI_USERNAME=$(printf '%s' "$OCI_USERNAME_64" | base64 -d)
+      OCI_TOKEN=$(printf '%s' "$OCI_TOKEN_64" | base64 -d)
+      OCI_REGISTRY=$(printf '%s' "$OCI_REGISTRY_64" | base64 -d)
+      OCI_NAMESPACE=$(printf '%s' "$OCI_NAMESPACE_64" | base64 -d)
       AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
       cat > "$DOCKER_CONFIG/config.json" <<EOF
       {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
       EOF
   script:
     - DB_TYPE="${DB_TYPE:-sqlite}"
+    - OCI_REPO_NAME=$(printf '%s' "$OCI_REPO_NAME_64" | base64 -d)
     - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_REPO_NAME"
     - |
       buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
@@ -212,11 +217,16 @@ docker-push-dispatcher:
   before_script:
     - mkdir -p "$DOCKER_CONFIG"
     - |
+      OCI_USERNAME=$(printf '%s' "$OCI_USERNAME_64" | base64 -d)
+      OCI_TOKEN=$(printf '%s' "$OCI_TOKEN_64" | base64 -d)
+      OCI_REGISTRY=$(printf '%s' "$OCI_REGISTRY_64" | base64 -d)
+      OCI_NAMESPACE=$(printf '%s' "$OCI_NAMESPACE_64" | base64 -d)
       AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
       cat > "$DOCKER_CONFIG/config.json" <<EOF
       {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
       EOF
   script:
+    - OCI_DISPATCHER_REPO_NAME=$(printf '%s' "$OCI_DISPATCHER_REPO_NAME_64" | base64 -d)
     - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_DISPATCHER_REPO_NAME"
     - |
       buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
