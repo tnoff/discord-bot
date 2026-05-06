@@ -1,21 +1,21 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: d92fdd519dd8e54d0104fa906b8b0511c6132eee
+    ref: 3da3fbad9511bedebfa258d09af3267697709fcb
     file: '/gitlab/trufflehog-image.yml'
 
 default:
@@ -32,6 +32,8 @@ stages:
 
 bump-version:
   extends: .bump-version
+  variables:
+    GITLAB_PUSH_TOKEN: $RENOVATE_TOKEN
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\/dev-/
 
@@ -285,5 +287,7 @@ notify-merged:
 renovate:
   extends: .renovate
   stage: renovate
+  variables:
+    GITHUB_COM_TOKEN: $GITHUB_BOT_TOKEN
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
