@@ -35,7 +35,7 @@ bot = [
     "dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0",
     "alembic==1.18.4",
     "beautifulsoup4==4.14.3",
-    "boto3==1.43.4",
+    "boto3==1.43.5",
     "google-api-python-client==2.195.0",
     "moviepy==2.2.1",
     "davey==0.1.5",
