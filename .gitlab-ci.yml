@@ -48,7 +48,7 @@ trufflehog:
 
 docker-build-bot-sqlite:
   stage: validate
-  image: docker.io/moby/buildkit:v0.18.0
+  image: docker.io/moby/buildkit:v0.29.0
   script:
     - |
       buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
@@ -68,7 +68,7 @@ docker-build-bot-sqlite:
 
 docker-build-bot-postgres:
   stage: validate
-  image: docker.io/moby/buildkit:v0.18.0
+  image: docker.io/moby/buildkit:v0.29.0
   script:
     - |
       buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
@@ -83,7 +83,7 @@ docker-build-bot-postgres:
 
 docker-build-dispatcher:
   stage: validate
-  image: docker.io/moby/buildkit:v0.18.0
+  image: docker.io/moby/buildkit:v0.29.0
   script:
     - |
       buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
@@ -171,7 +171,7 @@ tag-build:
 
 docker-push-bot:
   stage: build
-  image: docker.io/moby/buildkit:v0.18.0
+  image: docker.io/moby/buildkit:v0.29.0
   needs: []
   variables:
     DOCKER_CONFIG: /tmp/.docker
@@ -212,7 +212,7 @@ docker-push-bot:
 
 docker-push-dispatcher:
   stage: build
-  image: docker.io/moby/buildkit:v0.18.0
+  image: docker.io/moby/buildkit:v0.29.0
   needs: []
   variables:
     DOCKER_CONFIG: /tmp/.docker
