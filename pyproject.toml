@@ -23,7 +23,7 @@ dependencies = [
     "opentelemetry-instrumentation-logging",
     "opentelemetry-instrumentation-sqlalchemy",
     "opentelemetry-exporter-otlp",
-    "click==8.3.3",
+    "click==8.4.0",
     "pyaml-env==1.2.2",
     "psutil==7.2.2",
     "pytz==2026.2",
