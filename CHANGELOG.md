@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.21
+
+Testing:
+- Suppressed `SelectableGroups dict interface is deprecated` `DeprecationWarning` from opentelemetry 1.42.0 on Python 3.11 so `tox -e py311` test collection no longer fails (Python 3.12+ unaffected)
+
 ## 2.5.3
 
 Music:

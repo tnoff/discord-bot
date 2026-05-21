@@ -16,7 +16,7 @@ dependencies = [
     "discord.py==2.7.1",
     "pydantic==2.13.4",
     "pydantic-yaml==1.6.0",
-    "opentelemetry-sdk==1.41.1",
+    "opentelemetry-sdk==1.42.0",
     # Dont pin these so dependabot updates are easier
     "opentelemetry-instrumentation-requests",
     "opentelemetry-instrumentation-redis",
@@ -102,4 +102,9 @@ filterwarnings = [
     # this does not reproduce on Python 3.12+ where event loop creation semantics changed
     "ignore:unclosed event loop:ResourceWarning",
     "ignore:unclosed <socket.socket:ResourceWarning",
+    # opentelemetry 1.42.0 dropped the importlib_metadata backport in favor of stdlib
+    # importlib.metadata; on Python 3.11 entry_points() returns a SelectableGroups mapping
+    # whose .values() is deprecated. The class is removed in Python 3.12+, so this only
+    # affects py311.
+    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
 ]
