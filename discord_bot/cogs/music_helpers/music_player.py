@@ -132,13 +132,16 @@ class MusicPlayer:
         try:
             self.guild.voice_client.play(audio_source, after=self.set_next)
         except (AttributeError, ClientException) as e:
-            self.logger.info(f'No voice found, disconnecting from guild {self.guild.id}')
+            self.logger.warning(
+                f'Voice client unavailable for guild {self.guild.id} ({type(e).__name__}: {e}), '
+                f'shutting down player with {self._play_queue.size()} item(s) still queued'
+            )
             self.np_message = ''
             cleanup_source(audio_source)
             if self.broker:
                 self.broker.release(str(media_download.media_request.uuid))
             if not self.shutdown_called:
-                self.destroy()
+                self.destroy(reason=CleanupReason.VOICE_DISCONNECT)
             raise ExitEarlyException('No voice client in guild, ending loop') from e
         self.trigger_prefetch()
         self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
