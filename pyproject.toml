@@ -16,7 +16,7 @@ dependencies = [
     "discord.py==2.7.1",
     "pydantic==2.13.4",
     "pydantic-yaml==1.6.0",
-    "opentelemetry-sdk==1.42.0",
+    "opentelemetry-sdk==1.42.1",
     # Dont pin these so dependabot updates are easier
     "opentelemetry-instrumentation-requests",
     "opentelemetry-instrumentation-redis",
