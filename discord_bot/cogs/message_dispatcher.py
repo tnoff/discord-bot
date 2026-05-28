@@ -1029,6 +1029,18 @@ class MessageDispatcher(CogHelperBase):
             if result and hasattr(result, 'id'):
                 results.append(result)
 
+        # If remove_mutable ran while we were awaiting Discord, the bundle has
+        # been popped from _bundles and its message_contexts cleared. Any
+        # messages we just sent are orphaned — clean them up directly.
+        if results and key not in self._bundles:
+            self.logger.debug(
+                f'MessageDispatcher :: bundle "{key}" removed mid-send; '
+                f'deleting {len(results)} orphaned message(s)'
+            )
+            for message in results:
+                self.delete_message(pending.guild_id, pending.channel_id, message.id)
+            return
+
         # Update message references for newly sent messages
         contexts_needing_refs = [ctx for ctx in bundle.message_contexts if ctx.message_id is None]
         for i, message in enumerate(results):

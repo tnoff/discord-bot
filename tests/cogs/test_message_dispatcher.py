@@ -600,6 +600,53 @@ async def test_process_mutable_bundle_removed_during_flight(fake_context):  # py
 
 
 # ---------------------------------------------------------------------------
+# _process_mutable: remove_mutable racing with an in-flight send
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_mutable_remove_during_send_deletes_orphan(fake_context):  # pylint: disable=redefined-outer-name
+    '''
+    If remove_mutable runs while the worker is awaiting a Discord send, the
+    bundle is popped from _bundles and its message_contexts cleared before the
+    just-sent message_id can be attached. Without protection the new message
+    would stay in Discord forever. The dispatcher must detect the missing
+    bundle post-send and delete the orphaned message.
+    '''
+    send_gate = asyncio.Event()
+    send_started = asyncio.Event()
+
+    class GatedChannel(FakeChannel):
+        async def send(self, content=None, message_content=None, **kwargs):  # pylint: disable=arguments-differ
+            send_started.set()
+            await send_gate.wait()
+            return await super().send(content=content, message_content=message_content, **kwargs)
+
+    guild_id = fake_context['guild'].id
+    channel = GatedChannel(guild=fake_context['guild'])
+    dispatcher = make_dispatcher(channels=[channel])
+    key = f'race-orphan-{guild_id}'
+
+    # Queue a send. Worker picks up the sentinel and blocks inside channel.send.
+    dispatcher.update_mutable(key, guild_id, ['queued for download'], channel.id, sticky=False)
+
+    await asyncio.wait_for(send_started.wait(), timeout=2.0)
+
+    # Race: bundle finishes & is removed while the send is in flight.
+    dispatcher.remove_mutable(key)
+    assert key not in dispatcher._bundles  # pylint: disable=protected-access
+
+    # Releasing the gate lets the send complete; the dispatcher should notice
+    # the bundle is gone and schedule the just-sent message for deletion.
+    send_gate.set()
+
+    await drain_dispatcher(dispatcher, guild_id)
+
+    assert len(channel.messages) == 0, (
+        f'orphaned message left behind: {[m.content for m in channel.messages]}'
+    )
+
+
+# ---------------------------------------------------------------------------
 # _process_mutable: channel changed between enqueue and processing
 # ---------------------------------------------------------------------------
 
