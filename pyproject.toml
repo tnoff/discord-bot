@@ -55,7 +55,7 @@ postgres = [
 ]
 test = [
     "bandit==1.9.4",
-    "fakeredis==2.35.1",
+    "fakeredis==2.36.0",
     "freezegun==1.5.5",
     "pylint-pydantic==0.4.1",
     "pylint==4.0.5",
