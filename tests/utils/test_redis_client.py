@@ -12,7 +12,7 @@ from discord_bot.utils.redis_client import (
 @pytest.mark.asyncio
 async def test_save_and_load_bundle():
     '''save_bundle then load_all_bundles returns the original dict.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     bundle_dict = {'guild_id': 1, 'channel_id': 2, 'sticky_messages': True, 'message_contexts': []}
     await save_bundle(client, 'key1', bundle_dict)
     result = await load_all_bundles(client)
@@ -23,7 +23,7 @@ async def test_save_and_load_bundle():
 @pytest.mark.asyncio
 async def test_delete_bundle():
     '''delete_bundle removes the key so load_all_bundles returns empty.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     bundle_dict = {'guild_id': 1, 'channel_id': 2, 'sticky_messages': True, 'message_contexts': []}
     await save_bundle(client, 'key1', bundle_dict)
     await delete_bundle(client, 'key1')
@@ -34,7 +34,7 @@ async def test_delete_bundle():
 @pytest.mark.asyncio
 async def test_load_all_bundles_empty():
     '''load_all_bundles returns {} when Redis has no bundle keys.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     result = await load_all_bundles(client)
     assert result == {}
 
@@ -42,7 +42,7 @@ async def test_load_all_bundles_empty():
 @pytest.mark.asyncio
 async def test_load_all_bundles_multiple():
     '''load_all_bundles returns all saved bundles.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     bundle_a = {'guild_id': 1, 'channel_id': 2, 'sticky_messages': True, 'message_contexts': []}
     bundle_b = {'guild_id': 3, 'channel_id': 4, 'sticky_messages': False, 'message_contexts': []}
     await save_bundle(client, 'key_a', bundle_a)
@@ -57,7 +57,7 @@ async def test_load_all_bundles_multiple():
 @pytest.mark.asyncio
 async def test_load_all_bundles_ignores_unrelated_keys():
     '''Keys without the bundle prefix are not returned.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     await client.set('some_other_key', 'value')
     bundle_dict = {'guild_id': 1, 'channel_id': 2, 'sticky_messages': True, 'message_contexts': []}
     await save_bundle(client, 'key1', bundle_dict)

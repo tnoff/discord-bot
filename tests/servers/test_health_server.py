@@ -307,7 +307,7 @@ class TestDispatchHealthServerAsync:
 
     async def test_health_ok(self, mocker):
         """Returns 200 when Redis ping succeeds."""
-        fake_redis = fakeredis.aioredis.FakeRedis()
+        fake_redis = fakeredis.aioredis.FakeRedis(protocol=2)
         mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
         hs = DispatchHealthServer('redis://localhost:6379/0', port=18090)
         task = asyncio.create_task(hs.serve())

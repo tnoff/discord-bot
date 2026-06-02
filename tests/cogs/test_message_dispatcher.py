@@ -1040,7 +1040,7 @@ async def test_cog_load_restores_bundles_from_redis():
     channel = ctx['channel']
     key = f'restore-{guild_id}'
 
-    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     bundle = MessageMutableBundle(guild_id, channel.id, sticky_messages=True)
     await redis_save_bundle(fake_redis, key, bundle.to_dict())
 
@@ -1065,7 +1065,7 @@ async def test_process_mutable_saves_bundle_to_redis():
     guild_id = ctx['guild'].id
     key = f'redis-save-{guild_id}'
 
-    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher(channels=[channel])
     dispatcher.__dict__['_redis'] = fake_redis
 
@@ -1085,7 +1085,7 @@ async def test_remove_mutable_deletes_bundle_from_redis():
     guild_id = ctx['guild'].id
     key = f'redis-remove-{guild_id}'
 
-    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher(channels=[channel])
     dispatcher.__dict__['_redis'] = fake_redis
 
@@ -1108,7 +1108,7 @@ async def test_process_mutable_ephemeral_deletes_from_redis():
     guild_id = ctx['guild'].id
     key = f'redis-ephemeral-{guild_id}'
 
-    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     # Pre-seed a key so we can verify it gets deleted
     await redis_save_bundle(fake_redis, key, {'guild_id': guild_id, 'channel_id': channel.id, 'sticky_messages': True, 'message_contexts': []})
 
@@ -1313,7 +1313,7 @@ async def test_restore_bundles_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     await dispatcher._restore_bundles()  # pylint: disable=protected-access
     assert not dispatcher._bundles  # pylint: disable=protected-access
 
@@ -1326,7 +1326,7 @@ async def test_save_bundle_to_redis_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     await dispatcher._save_bundle_to_redis('key', MessageMutableBundle(1, 100))  # pylint: disable=protected-access
 
 
@@ -1338,7 +1338,7 @@ async def test_delete_bundle_from_redis_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     await dispatcher._delete_bundle_from_redis('key')  # pylint: disable=protected-access
 
 
@@ -1349,7 +1349,7 @@ async def test_delete_bundle_from_redis_error_is_swallowed(mocker):
 @pytest.mark.asyncio
 async def test_stream_consumer_routes_update_mutable():
     '''_handle_stream_request with RequestType.UPDATE_MUTABLE calls update_mutable on the dispatcher.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher([FakeChannel(id=100)])
     dispatcher.__dict__['_redis'] = redis_client
 
@@ -1367,7 +1367,7 @@ async def test_stream_consumer_routes_update_mutable():
 @pytest.mark.asyncio
 async def test_stream_consumer_routes_remove_mutable():
     '''_handle_stream_request with RequestType.REMOVE_MUTABLE removes the bundle.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher([FakeChannel(id=100)])
     dispatcher.__dict__['_redis'] = redis_client
 
@@ -1383,7 +1383,7 @@ async def test_stream_consumer_routes_remove_mutable():
 @pytest.mark.asyncio
 async def test_handle_stream_request_returns_error_on_exception():
     '''_handle_stream_request writes a ResultType.ERROR envelope when the handler raises.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher()
     dispatcher.__dict__['_redis'] = redis_client
 
@@ -1413,7 +1413,7 @@ async def test_cog_load_starts_stream_consumer_when_cross_process(mocker):
     '''cog_load creates _stream_consumer_task when dispatch_cross_process is True.'''
     dispatcher = make_dispatcher()
     dispatcher.__dict__['_cross_process'] = True
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     mocker.patch.object(dispatcher, '_stream_consumer', new=AsyncMock())
 
     await dispatcher.cog_load()
@@ -1481,7 +1481,7 @@ async def test_cog_unload_flushes_bundles_to_redis(fake_context, mocker):  # pyl
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
 
     # Inject a bundle directly so we don't depend on worker timing
     bundle = MessageMutableBundle(guild_id=guild_id, channel_id=channel.id)
@@ -1603,7 +1603,7 @@ async def test_cog_unload_cog_consumer_timeout(mocker):
 async def test_stream_consumer_dispatches_and_acks(mocker):
     '''_stream_consumer reads a message, tasks _handle_stream_request, and acks it.'''
     dispatcher = make_dispatcher([FakeChannel(id=100)])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher.__dict__['_process_id'] = 'proc1'
     dispatcher.__dict__['_shard_id'] = 0
     dispatcher.update_mutable('key1', 1, ['hello'], 100)
@@ -1641,7 +1641,7 @@ async def test_stream_consumer_dispatches_and_acks(mocker):
 async def test_stream_consumer_xautoclaim_on_startup(mocker):
     '''_stream_consumer calls xautoclaim after ensure_consumer_group to recover pending messages.'''
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher.__dict__['_process_id'] = 'proc1'
     dispatcher.__dict__['_shard_id'] = 0
 
@@ -1668,7 +1668,7 @@ async def test_stream_consumer_xautoclaim_on_startup(mocker):
 async def test_handle_stream_request_routes_update_mutable_channel():
     '''_handle_stream_request with RequestType.UPDATE_MUTABLE_CHANNEL calls update_mutable_channel.'''
     dispatcher = make_dispatcher([FakeChannel(id=200)])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher.update_mutable('k', 1, ['hi'], 100)
 
     await dispatcher._handle_stream_request(  # pylint: disable=protected-access
@@ -1684,7 +1684,7 @@ async def test_handle_stream_request_routes_update_mutable_channel():
 async def test_handle_stream_request_routes_send():
     '''_handle_stream_request with RequestType.SEND enqueues a send item for the guild.'''
     dispatcher = make_dispatcher([FakeChannel(id=50)])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
 
     await dispatcher._handle_stream_request(  # pylint: disable=protected-access
         StreamEnvelope(RequestType.SEND,
@@ -1701,7 +1701,7 @@ async def test_handle_stream_request_routes_send():
 async def test_handle_stream_request_routes_delete():
     '''_handle_stream_request with RequestType.DELETE enqueues a delete item for the guild.'''
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
 
     await dispatcher._handle_stream_request(  # pylint: disable=protected-access
         StreamEnvelope(RequestType.DELETE,
@@ -1716,7 +1716,7 @@ async def test_handle_stream_request_routes_delete():
 @pytest.mark.asyncio
 async def test_handle_stream_request_routes_fetch_emojis():
     '''_handle_stream_request with RequestType.FETCH_EMOJIS writes a ResultType.EMOJIS envelope.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     fake_guild = FakeGuild()
     fake_emoji = MagicMock()
     fake_emoji.id = 1
@@ -1745,7 +1745,7 @@ async def test_handle_stream_request_routes_fetch_emojis():
 @pytest.mark.asyncio
 async def test_handle_stream_request_routes_fetch_history_success():
     '''_handle_stream_request with RequestType.FETCH_HISTORY writes a RES_HISTORY envelope on success.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     channel = FakeChannel(id=88)
     msg = FakeMessage(channel=channel)
     channel.messages = [msg]
@@ -1770,7 +1770,7 @@ async def test_handle_stream_request_routes_fetch_history_success():
 @pytest.mark.asyncio
 async def test_handle_stream_request_unknown_type_returns_silently():
     '''_handle_stream_request with an unknown req_type writes nothing and returns.'''
-    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis_client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     dispatcher = make_dispatcher()
     dispatcher.__dict__['_redis'] = redis_client
 
@@ -1796,7 +1796,7 @@ async def test_dispatch_history_and_collect_with_after():
     channel.messages = [msg]
 
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
 
     after_ts = datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat()
     result = await dispatcher._dispatch_history_and_collect({  # pylint: disable=protected-access
@@ -1828,7 +1828,7 @@ async def test_dispatch_emojis_and_collect():
 
     dispatcher = make_dispatcher()
     dispatcher.bot.guilds = [fake_guild]
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
 
     result = await dispatcher._dispatch_emojis_and_collect({  # pylint: disable=protected-access
         'guild_id': fake_guild.id, 'max_retries': 1,

@@ -19,7 +19,7 @@ from discord_bot.utils.redis_stream_helpers import (
 @pytest.mark.asyncio
 async def test_ensure_consumer_group_creates_group():
     '''First call creates the consumer group without raising.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     groups = await client.xinfo_groups(stream_key)
@@ -29,7 +29,7 @@ async def test_ensure_consumer_group_creates_group():
 @pytest.mark.asyncio
 async def test_ensure_consumer_group_idempotent():
     '''Second call with BUSYGROUP does not raise.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     await ensure_consumer_group(client, stream_key)  # should not raise
@@ -38,7 +38,7 @@ async def test_ensure_consumer_group_idempotent():
 @pytest.mark.asyncio
 async def test_xadd_and_xreadgroup_roundtrip():
     '''XADD then XREADGROUP returns the message.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     await xadd(client, stream_key, {'req_type': 'send', 'payload': 'data'})
@@ -54,7 +54,7 @@ async def test_xadd_and_xreadgroup_roundtrip():
 @pytest.mark.asyncio
 async def test_xack_removes_pending():
     '''After XACK the message no longer appears in pending reads.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     await xadd(client, stream_key, {'k': 'v'})
@@ -71,7 +71,7 @@ async def test_xack_removes_pending():
 @pytest.mark.asyncio
 async def test_xread_latest_returns_new_messages():
     '''xread_latest with last_id="0" returns all messages in the stream.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = result_stream_key('proc1')
     await xadd(client, stream_key, {'result_type': 'ok', 'payload': '{}'})
     await xadd(client, stream_key, {'result_type': 'ok', 'payload': '{}'})
@@ -83,7 +83,7 @@ async def test_xread_latest_returns_new_messages():
 @pytest.mark.asyncio
 async def test_ensure_consumer_group_reraises_non_busygroup_error(mocker):
     '''ensure_consumer_group re-raises exceptions that do not contain BUSYGROUP.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     mocker.patch.object(client, 'xgroup_create', new=AsyncMock(side_effect=Exception('WRONGTYPE error')))
     with pytest.raises(Exception, match='WRONGTYPE error'):
         await ensure_consumer_group(client, input_stream_key(0))
@@ -92,7 +92,7 @@ async def test_ensure_consumer_group_reraises_non_busygroup_error(mocker):
 @pytest.mark.asyncio
 async def test_xreadgroup_returns_empty_list_when_no_messages(mocker):
     '''xreadgroup returns [] when the underlying client returns None (timeout expired).'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     mocker.patch.object(client, 'xreadgroup', new=AsyncMock(return_value=None))
@@ -103,7 +103,7 @@ async def test_xreadgroup_returns_empty_list_when_no_messages(mocker):
 @pytest.mark.asyncio
 async def test_xread_latest_returns_empty_list_when_no_messages(mocker):
     '''xread_latest returns [] when the underlying client returns None (timeout expired).'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = result_stream_key('proc1')
     mocker.patch.object(client, 'xread', new=AsyncMock(return_value=None))
     result = await xread_latest(client, stream_key, block_ms=0)
@@ -113,7 +113,7 @@ async def test_xread_latest_returns_empty_list_when_no_messages(mocker):
 @pytest.mark.asyncio
 async def test_ensure_consumer_group_sets_ttl():
     '''ensure_consumer_group sets a TTL on the stream key.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = input_stream_key(0)
     await ensure_consumer_group(client, stream_key)
     ttl = await client.ttl(stream_key)
@@ -123,7 +123,7 @@ async def test_ensure_consumer_group_sets_ttl():
 @pytest.mark.asyncio
 async def test_xadd_sets_ttl():
     '''xadd sets a TTL on the stream key after writing.'''
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
     stream_key = result_stream_key('proc1')
     await xadd(client, stream_key, {'k': 'v'})
     ttl = await client.ttl(stream_key)
