@@ -1,22 +1,25 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 5872f0029aac5cb47856ee99b28f5bf080869d18
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
     file: '/gitlab/trufflehog-image.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    file: '/gitlab/trigger-bump.yml'
 
 default:
   tags:
@@ -216,42 +219,18 @@ docker-push-bot:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
 
-# Fires the cross-project pipeline trigger on docker-apps after the main bot
-# image is pushed. docker-apps' .bump-image-pin-base picks up the trigger
-# (gated on BUMP_SOURCE == "discord-bot"), rewrites the pin in
-# apps/discord/discord-app.yaml, and opens an MR. allow_failure so a flaky
-# downstream automation doesn't fail the main pipeline.
-#
+# Producer side of the docker-apps image-pin bump flow.
 # Only wired to docker-push-bot — the dispatcher/bot-min/broker images
 # aren't currently consumed by docker-apps.
-#
-# DOCKER_APPS_PROJECT_ID and DOCKER_APPS_TRIGGER_TOKEN are masked CI
-# variables set via terraform.
+# Rewrites the pin in apps/discord/discord-app.yaml on merge to main.
+# See github-workflows/gitlab/trigger-bump.yml for the template details.
 trigger-bump-docker-apps:
-  stage: build
-  image: docker.io/library/alpine:3
+  extends: .trigger-bump
   needs:
     - job: docker-push-bot
       artifacts: true
-  allow_failure: true
-  before_script:
-    - apk add --no-cache curl
-  script:
-    - |
-      [ -n "$DOCKER_APPS_PROJECT_ID" ] || { echo "DOCKER_APPS_PROJECT_ID not set" >&2; exit 1; }
-      [ -n "$DOCKER_APPS_TRIGGER_TOKEN" ] || { echo "DOCKER_APPS_TRIGGER_TOKEN not set" >&2; exit 1; }
-      [ -n "$IMAGE" ] || { echo "IMAGE not set — did docker-push-bot emit build.env?" >&2; exit 1; }
-
-      curl -sS --fail-with-body -X POST \
-        --form "token=$DOCKER_APPS_TRIGGER_TOKEN" \
-        --form "ref=main" \
-        --form "variables[BUMP_SOURCE]=discord-bot" \
-        --form "variables[IMAGE_NAME]=$IMAGE" \
-        --form "variables[IMAGE_TAG]=$CI_COMMIT_SHORT_SHA" \
-        "$CI_API_V4_URL/projects/$DOCKER_APPS_PROJECT_ID/trigger/pipeline"
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
-      when: on_success
+  variables:
+    BUMP_SOURCE: 'discord-bot'
 
 docker-push-dispatcher:
   stage: build
