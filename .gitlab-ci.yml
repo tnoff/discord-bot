@@ -1,25 +1,34 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 4e2383b7491ffd13d88753a1314b7aa8f11fcefe
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
     file: '/gitlab/trigger-bump.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    file: '/gitlab/buildkit-build-check.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    file: '/gitlab/buildkit-docker-push.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    file: '/gitlab/tox-pipeline.yml'
 
 default:
   tags:
@@ -50,58 +59,28 @@ trufflehog:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 docker-build-bot-sqlite:
-  stage: validate
-  image: docker.io/moby/buildkit:v0.30.0
-  script:
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile \
-        --opt build-arg:DB_TYPE=sqlite \
-        --output type=docker,name=discord-bot:ci-sqlite,dest=image-bot-sqlite.tar
-  artifacts:
-    paths:
-      - image-bot-sqlite.tar
-    expire_in: 1 day
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  extends: .buildkit-build-check
+  variables:
+    DOCKERFILE_DIR: docker
+    BUILD_ARGS: '--opt build-arg:DB_TYPE=sqlite'
+    OUTPUT_NAME: discord-bot:ci-sqlite
+    OUTPUT_TARBALL: image-bot-sqlite.tar
 
 docker-build-bot-postgres:
-  stage: validate
-  image: docker.io/moby/buildkit:v0.30.0
-  script:
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile \
-        --opt build-arg:DB_TYPE=postgres
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  extends: .buildkit-build-check
+  variables:
+    DOCKERFILE_DIR: docker
+    BUILD_ARGS: '--opt build-arg:DB_TYPE=postgres'
+    OUTPUT_NAME: discord-bot:ci-postgres
+    OUTPUT_TARBALL: image-bot-postgres.tar
 
 docker-build-dispatcher:
-  stage: validate
-  image: docker.io/moby/buildkit:v0.30.0
-  script:
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile.dispatcher \
-        --output type=docker,name=discord-dispatcher:ci,dest=image-dispatcher.tar
-  artifacts:
-    paths:
-      - image-dispatcher.tar
-    expire_in: 1 day
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  extends: .buildkit-build-check
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.dispatcher
+    OUTPUT_NAME: discord-dispatcher:ci
+    OUTPUT_TARBALL: image-dispatcher.tar
 
 trufflehog-bot-image:
   extends: .trufflehog-image
@@ -126,44 +105,13 @@ trufflehog-dispatcher-image:
       when: manual
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
-tox:
-  stage: test
-  image: docker.io/library/python:${PYTHON_VERSION}-slim
-  parallel:
-    matrix:
-      - PYTHON_VERSION: ["3.11", "3.12", "3.13", "3.14"]
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq sqlite3 ffmpeg git
-    - pip install tox
-  script:
-    - tox -e $(python3 -c "import sys; v=sys.version_info; print(f'py{v.major}{v.minor}')")
-  artifacts:
-    paths:
-      - coverage.xml
-    expire_in: 1 day
-    when: always
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-
-diff-cover:
-  stage: test
-  image: docker.io/library/python:3.14-slim
-  needs:
-    - job: "tox: [3.14]"
-      artifacts: true
+tox-generate:
+  extends: .tox-generate
   variables:
-    GIT_DEPTH: "0"
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq git
-    - pip install diff-cover
-  script:
-    - diff-cover coverage.xml --compare-branch=origin/main --fail-under=100
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    TOX_EXTRA_APT: 'sqlite3 ffmpeg'
+
+tox-pipeline:
+  extends: .tox-pipeline
 
 tag-build:
   extends: .tag
@@ -173,51 +121,10 @@ tag-build:
       when: on_success
 
 docker-push-bot:
-  stage: build
-  image: docker.io/moby/buildkit:v0.30.0
-  needs: []
+  extends: .buildkit-docker-push
   variables:
-    DOCKER_CONFIG: /tmp/.docker
-  before_script:
-    - mkdir -p "$DOCKER_CONFIG"
-    - |
-      OCI_USERNAME=$(printf '%s' "$OCI_USERNAME_64" | base64 -d)
-      OCI_TOKEN=$(printf '%s' "$OCI_TOKEN_64" | base64 -d)
-      OCI_REGISTRY=$(printf '%s' "$OCI_REGISTRY_64" | base64 -d)
-      OCI_NAMESPACE=$(printf '%s' "$OCI_NAMESPACE_64" | base64 -d)
-      AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
-      cat > "$DOCKER_CONFIG/config.json" <<EOF
-      {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
-      EOF
-  script:
-    - DB_TYPE="${DB_TYPE:-sqlite}"
-    - OCI_REPO_NAME=$(printf '%s' "$OCI_REPO_NAME_64" | base64 -d)
-    - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_REPO_NAME"
-    # Emit IMAGE for downstream jobs (e.g. trigger-bump-docker-apps) that need
-    # the full image reference without re-decoding the OCI_*_64 vars.
-    - echo "IMAGE=$IMAGE" >> build.env
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile \
-        --opt build-arg:DB_TYPE=$DB_TYPE \
-        --opt platform=linux/arm64 \
-        --output type=image,name=$IMAGE:$CI_COMMIT_SHORT_SHA,push=true
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile \
-        --opt build-arg:DB_TYPE=$DB_TYPE \
-        --opt platform=linux/arm64 \
-        --output type=image,name=$IMAGE:latest,push=true
-  artifacts:
-    reports:
-      dotenv: build.env
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
-      when: on_success
+    DOCKERFILE_DIR: docker
+    BUILD_ARGS: '--opt build-arg:DB_TYPE=sqlite'
 
 # Producer side of the docker-apps image-pin bump flow.
 # Only wired to docker-push-bot — the dispatcher/bot-min/broker images
@@ -233,42 +140,11 @@ trigger-bump-docker-apps:
     BUMP_SOURCE: 'discord-bot'
 
 docker-push-dispatcher:
-  stage: build
-  image: docker.io/moby/buildkit:v0.30.0
-  needs: []
+  extends: .buildkit-docker-push
   variables:
-    DOCKER_CONFIG: /tmp/.docker
-  before_script:
-    - mkdir -p "$DOCKER_CONFIG"
-    - |
-      OCI_USERNAME=$(printf '%s' "$OCI_USERNAME_64" | base64 -d)
-      OCI_TOKEN=$(printf '%s' "$OCI_TOKEN_64" | base64 -d)
-      OCI_REGISTRY=$(printf '%s' "$OCI_REGISTRY_64" | base64 -d)
-      OCI_NAMESPACE=$(printf '%s' "$OCI_NAMESPACE_64" | base64 -d)
-      AUTH=$(printf '%s:%s' "$OCI_USERNAME" "$OCI_TOKEN" | base64 | tr -d '\n')
-      cat > "$DOCKER_CONFIG/config.json" <<EOF
-      {"auths":{"$OCI_REGISTRY":{"auth":"$AUTH"}}}
-      EOF
-  script:
-    - OCI_DISPATCHER_REPO_NAME=$(printf '%s' "$OCI_DISPATCHER_REPO_NAME_64" | base64 -d)
-    - IMAGE="$OCI_REGISTRY/$OCI_NAMESPACE/$OCI_DISPATCHER_REPO_NAME"
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile.dispatcher \
-        --opt platform=linux/arm64 \
-        --output type=image,name=$IMAGE:$CI_COMMIT_SHORT_SHA,push=true
-    - |
-      buildctl --addr tcp://buildkitd.gitlab-runner.svc.cluster.local:1234 build \
-        --frontend dockerfile.v0 \
-        --local context=. --local dockerfile=docker \
-        --opt filename=Dockerfile.dispatcher \
-        --opt platform=linux/arm64 \
-        --output type=image,name=$IMAGE:latest,push=true
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
-      when: on_success
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.dispatcher
+    OCI_REPO_NAME_64: $OCI_DISPATCHER_REPO_NAME_64
 
 notify-mr:
   extends: .discord-notify
@@ -287,12 +163,24 @@ notify-mr:
 notify-failure:
   extends: .discord-notify
   stage: notify
-  needs: [tag-build, docker-push-bot, docker-push-dispatcher]
+  needs: [tag-build, docker-push-bot, docker-push-dispatcher, trigger-bump-docker-apps]
   variables:
     NOTIFY_TYPE: failure
     DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_failure
+
+notify-renovate-failure:
+  extends: .discord-notify
+  stage: renovate
+  needs: [renovate]
+  variables:
+    NOTIFY_TYPE: failure
+    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
+    NOTIFY_MESSAGE: 'Renovate failed'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
       when: on_failure
 
 notify-merged:
