@@ -181,20 +181,27 @@ general:
     - 123450501850  # Guild ID as integer (unquoted)
 ```
 
-## Additional Docs
+## Cogs
 
-### Cogs
+| Cog | Config key | Example commands | Docs |
+|-----|------------|------------------|------|
+| `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` | — |
+| `DeleteMessages` | `delete_messages` | `!delete <n>`, `!autodelete` | [docs/delete_messages.md](./docs/delete_messages.md) |
+| `Markov` | `markov` | `!markov speak`, `!markov on/off` | [docs/markov.md](./docs/markov.md) |
+| `Music` | `music` | `!play`, `!pause`, `!skip`, `!queue`, `!history` | [docs/music.md](./docs/music.md) |
+| `RoleAssignment` | `role` | `!role add/remove/list` | [docs/role.md](./docs/role.md) |
+| `UrbanDictionary` | `urban` | `!word <term>` | [docs/urban.md](./docs/urban.md) |
 
-- [Common Cog](./docs/common.md)
-- [Database Backup](./docs/database_backup.md)
-- [Delete Messages Cog](./docs/delete_messages.md)
-- [Markov Cog](./docs/markov.md)
-- [Music Cog](./docs/music.md)
-- [Role Cog](./docs/role.md)
-- [Urban Cog](./docs/urban.md)
+`MessageDispatcher` and `CommandErrorHandler` load unconditionally and have
+no user-facing commands.
 
-### Other Docs
+## Additional docs
 
-- [CLI and Application Lifecycle](./docs/cli.md)
-- [Message Dispatcher](./docs/message_dispatcher.md)
-- [Monitoring and Observability](./docs/monitoring/)
+- [CLI and application lifecycle](./docs/cli.md)
+- [`CogHelper` reference (for developers)](./docs/common.md)
+- [Message dispatcher](./docs/message_dispatcher.md)
+- [Monitoring and observability](./docs/monitoring/)
+- [Docker](./docs/docker.md)
+- Music deep-dives: [overview](./docs/music.md), [media broker](./docs/music/media_broker.md), [flow](./docs/music/flow.md), [messaging](./docs/music/messaging.md)
+- For setup, tests, and contributing: [DEVELOPMENT.md](./DEVELOPMENT.md)
+- For agent-specific guidance: [AGENTS.md](./AGENTS.md)
