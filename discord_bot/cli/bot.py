@@ -8,6 +8,7 @@ import sys
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry import trace
 
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -23,7 +24,7 @@ from discord_bot.servers.health_server import HealthServer
 from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli.common import (
-    build_bot, load_cogs, make_async_db_url, run_bot,
+    build_bot, load_cogs, run_bot,
     setup_logging, setup_otlp, setup_profiling,
 )
 
@@ -36,6 +37,16 @@ POSSIBLE_COGS = [
     UrbanDictionary,
     General,
 ]
+
+
+def make_async_db_url(connection_string: str):
+    '''Convert a plain SQLAlchemy URL to its async-driver equivalent.'''
+    url = make_url(connection_string)
+    if url.drivername.startswith('postgresql'):
+        return url.set(drivername='postgresql+asyncpg')
+    if url.drivername == 'sqlite':
+        return url.set(drivername='sqlite+aiosqlite')
+    return url
 
 
 async def _create_tables(engine):

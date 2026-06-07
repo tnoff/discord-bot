@@ -11,6 +11,7 @@ import pytest
 from yaml import dump
 
 from discord_bot.cli import main
+from discord_bot.cli.bot import make_async_db_url
 from discord_bot.cli.common import main_loop, FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
@@ -816,6 +817,13 @@ def test_run_config_with_postgresql_db(mocker):
     assert 'asyncpg' in str(called_url)
     # asyncio.run disposed the async engine (no running loop in a sync test)
     mock_async_engine.dispose.assert_awaited_once()
+
+
+def test_make_async_db_url_passthrough_for_unknown_driver():
+    '''Drivers other than postgresql/sqlite are returned unchanged.'''
+    result = make_async_db_url('mysql://user:pass@localhost/db')
+    assert result.drivername == 'mysql'
+    assert result.render_as_string(hide_password=False) == 'mysql://user:pass@localhost/db'
 
 
 def test_main_dunder_main(mocker):
