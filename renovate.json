@@ -4,5 +4,5 @@
     "gitlab>tnoff-projects/github-workflows//renovate/default",
     "gitlab>tnoff-projects/github-workflows//renovate/python"
   ],
-  "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile"]
+  "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile", "custom.regex"]
 }
