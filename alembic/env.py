@@ -14,14 +14,16 @@ from discord_bot.database import BASE
 # access to the values within the .ini file in use.
 config = context.config
 
-# Convert the URL to the appropriate async driver.
-_raw_url = make_url(os.environ.get("DATABASE_URL", "sqlite:///local.db"))
-if _raw_url.drivername.startswith("postgresql"):
-    _async_url = _raw_url.set(drivername="postgresql+asyncpg")
-elif _raw_url.drivername == "sqlite":
-    _async_url = _raw_url.set(drivername="sqlite+aiosqlite")
-else:
-    _async_url = _raw_url
+# Convert the URL to the asyncpg driver. PostgreSQL is the only supported backend.
+_database_url = os.environ.get("DATABASE_URL")
+if not _database_url:
+    raise RuntimeError("DATABASE_URL must be set to a postgresql:// connection string")
+_raw_url = make_url(_database_url)
+if not _raw_url.drivername.startswith("postgresql"):
+    raise RuntimeError(
+        f"Unsupported database driver {_raw_url.drivername!r}; only postgresql is supported"
+    )
+_async_url = _raw_url.set(drivername="postgresql+asyncpg")
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

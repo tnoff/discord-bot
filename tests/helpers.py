@@ -4,8 +4,6 @@ from datetime import datetime, timezone
 from random import choice
 from pathlib import Path
 from string import digits, ascii_lowercase
-import os
-import tempfile
 from tempfile import NamedTemporaryFile
 from typing import Any, AsyncGenerator, Generator, Optional
 from collections.abc import Callable
@@ -15,6 +13,7 @@ from discord import ChannelType
 from discord.errors import NotFound
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
@@ -117,27 +116,20 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
         media_request)
         yield media_download
 
-@pytest_asyncio.fixture(scope="function")
-async def fake_engine() -> AsyncGenerator[AsyncEngine, None]:
-    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
-    async with engine.begin() as conn:
-        await conn.run_sync(BASE.metadata.create_all)
-    yield engine
-    await engine.dispose()
+_TRUNCATE_TABLES = ', '.join(f'"{t.name}"' for t in BASE.metadata.sorted_tables)
+
 
 @pytest_asyncio.fixture(scope="function")
-async def fake_async_file_engine() -> AsyncGenerator[AsyncEngine, None]:
-    '''File-based async SQLite engine — required when _create_sqlite_snapshot must work.'''
-    fd, db_path = tempfile.mkstemp(suffix='.db')
-    os.close(fd)
-    engine = create_async_engine(f'sqlite+aiosqlite:///{db_path}', poolclass=NullPool)
-    async with engine.begin() as conn:
-        await conn.run_sync(BASE.metadata.create_all)
+async def fake_engine(pg_test_db_url) -> AsyncGenerator[AsyncEngine, None]:
+    '''Async postgres engine with the bot schema, wiped clean before each test.'''
+    engine = create_async_engine(pg_test_db_url, poolclass=NullPool)
+    if _TRUNCATE_TABLES:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'TRUNCATE {_TRUNCATE_TABLES} RESTART IDENTITY CASCADE'))
     try:
         yield engine
     finally:
         await engine.dispose()
-        os.unlink(db_path)
 
 @pytest.fixture(scope="function")
 def fake_context() -> Generator[dict[str, Any], None, None]:

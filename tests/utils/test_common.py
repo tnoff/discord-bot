@@ -35,10 +35,10 @@ def test_pydantic_validate_minimal_config():
 def test_pydantic_sql_statement_config():
     sql_input = {
         'discord_token': 'abctoken',
-        'sql_connection_statement': 'sqlite:///foo.sql'
+        'sql_connection_statement': 'postgresql://user@localhost/discord_bot'
     }
     config = GeneralConfig(**sql_input)
-    assert config.sql_connection_statement == 'sqlite:///foo.sql'
+    assert config.sql_connection_statement == 'postgresql://user@localhost/discord_bot'
 
 def test_pydantic_logging_config_missing_required():
     logging_input = {

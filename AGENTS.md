@@ -57,9 +57,10 @@ asyncio.get_running_loop().create_task(...)
 
 ### Database URL rewriting is automatic
 
-The CLI rewrites `postgresql://` → `postgresql+asyncpg://` and `sqlite://` →
-`sqlite+aiosqlite://` at startup. Config files use the standard URLs;
-don't write `+asyncpg` into config or the rewrite double-applies.
+The CLI rewrites `postgresql://` → `postgresql+asyncpg://` at startup.
+PostgreSQL is the only supported backend; non-postgres drivernames raise
+at boot. Config files use the standard `postgresql://` URL; don't write
+`+asyncpg` into config or the rewrite double-applies.
 
 ### Broad-except is rare and pylint-annotated
 

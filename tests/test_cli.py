@@ -112,52 +112,52 @@ async def test_run_config_no_reject_list(mocker):
         assert guilds[0].left_guild is False
 
 @pytest.mark.asyncio
-async def test_run_config_with_db(mocker):
+async def test_run_config_with_db(mocker, pg_test_db_url):
     '''
-    Run config with sqlite db
+    Run config with postgres db
     '''
+    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
     with NamedTemporaryFile(suffix='.yml') as temp_config:
-        with NamedTemporaryFile(suffix='.sql') as temp_db:
-            config_data = {
-                'general': {
-                    'discord_token': 'foo',
-                    'sql_connection_statement': f'sqlite:///{temp_db.name}',
-                    'rejectlist_guilds': [
-                        1234,
-                    ],
-                }
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'sql_connection_statement': plain_url,
+                'rejectlist_guilds': [
+                    1234,
+                ],
             }
-            with open(temp_config.name, 'w', encoding='utf-8') as writer:
-                dump(config_data, writer)
-            mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
-            runner = CliRunner()
-            result = runner.invoke(main, [temp_config.name])
-            await asyncio.sleep(.01)
-            assert result.exception is None
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
 
 @pytest.mark.asyncio
-async def test_run_config_with_intents(mocker):
+async def test_run_config_with_intents(mocker, pg_test_db_url):
     '''
     Run config with intents
     '''
+    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
     with NamedTemporaryFile(suffix='.yml') as temp_config:
-        with NamedTemporaryFile(suffix='.sql') as temp_db:
-            config_data = {
-                'general': {
-                    'discord_token': 'foo',
-                    'sql_connection_statement': f'sqlite:///{temp_db.name}',
-                    'intents': [
-                        'members',
-                    ]
-                },
-            }
-            with open(temp_config.name, 'w', encoding='utf-8') as writer:
-                dump(config_data, writer)
-            mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
-            runner = CliRunner()
-            result = runner.invoke(main, [temp_config.name])
-            await asyncio.sleep(.01)
-            assert result.exception is None
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'sql_connection_statement': plain_url,
+                'intents': [
+                    'members',
+                ]
+            },
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_keyboard_interrupt_calls_cog_unload():
@@ -819,11 +819,12 @@ def test_run_config_with_postgresql_db(mocker):
     mock_async_engine.dispose.assert_awaited_once()
 
 
-def test_make_async_db_url_passthrough_for_unknown_driver():
-    '''Drivers other than postgresql/sqlite are returned unchanged.'''
-    result = make_async_db_url('mysql://user:pass@localhost/db')
-    assert result.drivername == 'mysql'
-    assert result.render_as_string(hide_password=False) == 'mysql://user:pass@localhost/db'
+def test_make_async_db_url_rejects_non_postgres():
+    '''Only postgresql drivers are supported; everything else raises.'''
+    with pytest.raises(ValueError, match='Unsupported database driver'):
+        make_async_db_url('mysql://user:pass@localhost/db')
+    with pytest.raises(ValueError, match='Unsupported database driver'):
+        make_async_db_url('sqlite:///local.db')
 
 
 def test_main_dunder_main(mocker):

@@ -4,10 +4,8 @@ FROM python:3.14-slim-bookworm
 # Base packages
 # Update to latest for security fixes
 ARG INSTALL_HEAPTRACK=false
-ARG DB_TYPE=sqlite
 RUN apt-get update && \
-    apt-get install -y gcc cmake git ffmpeg curl unzip \
-      $([ "$DB_TYPE" = "postgres" ] && echo "postgresql-client" || echo "sqlite3") && \
+    apt-get install -y gcc cmake git ffmpeg curl unzip postgresql-client && \
     if [ "$INSTALL_HEAPTRACK" = "true" ]; then apt-get install -y heaptrack; fi && \
     apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
@@ -35,7 +33,7 @@ COPY alembic.ini "${APPDIR}/"
 COPY pyproject.toml VERSION "${APPDIR}/"
 COPY docker/entrypoint.sh /entrypoint.sh
 
-RUN pip install "${APPDIR}[bot,${DB_TYPE}]"
+RUN pip install "${APPDIR}[bot]"
 
 RUN chmod +x /entrypoint.sh
 

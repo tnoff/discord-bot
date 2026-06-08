@@ -40,13 +40,16 @@ POSSIBLE_COGS = [
 
 
 def make_async_db_url(connection_string: str):
-    '''Convert a plain SQLAlchemy URL to its async-driver equivalent.'''
+    '''Convert a plain SQLAlchemy URL to its async-driver equivalent.
+
+    PostgreSQL is the only supported driver; other drivers raise.
+    '''
     url = make_url(connection_string)
-    if url.drivername.startswith('postgresql'):
-        return url.set(drivername='postgresql+asyncpg')
-    if url.drivername == 'sqlite':
-        return url.set(drivername='sqlite+aiosqlite')
-    return url
+    if not url.drivername.startswith('postgresql'):
+        raise ValueError(
+            f'Unsupported database driver {url.drivername!r}; only postgresql is supported'
+        )
+    return url.set(drivername='postgresql+asyncpg')
 
 
 async def _create_tables(engine):

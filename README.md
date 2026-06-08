@@ -16,10 +16,10 @@ To install the python package, clone the repo and install with pip:
 
 ```
 $ git clone https://github.com/tnoff/discord-bot.git
-$ pip install "discord-bot/[bot,sqlite]"
+$ pip install "discord-bot/[bot]"
 ```
 
-Use the `bot` extra for full bot dependencies (media, database, etc.) and pick a database extra (`sqlite` or `postgres`).
+The `bot` extra installs full bot dependencies (media, database, etc.). The bot only supports PostgreSQL as a backing database; `asyncpg` is bundled in the `bot` extra.
 
 ## Docker
 
@@ -46,16 +46,16 @@ general:
 
 ### Database
 
-Certain cogs, such as markov or music, have functions that require database support. You can pass in a standard SQLAlchemy connection string:
+Certain cogs, such as markov or music, have functions that require database support. The bot requires a PostgreSQL connection string:
 
 ```
 ---
 general:
   discord_token: blah-blah-blah-discord-token
-  sql_connection_statement: sqlite:///home/user/db.sql
+  sql_connection_statement: postgresql://user:pass@host:5432/discord_bot
 ```
 
-The bot automatically selects an async driver at runtime (`asyncpg` for PostgreSQL, `aiosqlite` for SQLite), so the connection string format does not need to change. Standard `sqlite://` and `postgresql://` URLs both work as-is.
+The bot rewrites the URL to `postgresql+asyncpg://` at startup, so the config uses the standard `postgresql://` form. Non-postgres URLs are rejected at boot.
 
 The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run the migrations. To upgrade to the latest changes use:
 

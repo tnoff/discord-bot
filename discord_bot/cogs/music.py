@@ -2076,7 +2076,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                     f'Unable to add playlist item "{item.title}", likely already exists',
                     delete_after=self.config.general.message_delete_after)
-        await self.__playlist_delete(playlist_index_two)
+        await self.__playlist_delete(playlist_two_id)
 
     @command(name='random-play')
     @command_wrapper

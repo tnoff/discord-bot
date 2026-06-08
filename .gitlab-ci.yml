@@ -58,21 +58,12 @@ trufflehog:
       when: manual
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
-docker-build-bot-sqlite:
+docker-build-bot:
   extends: .buildkit-build-check
   variables:
     DOCKERFILE_DIR: docker
-    BUILD_ARGS: '--opt build-arg:DB_TYPE=sqlite'
-    OUTPUT_NAME: discord-bot:ci-sqlite
-    OUTPUT_TARBALL: image-bot-sqlite.tar
-
-docker-build-bot-postgres:
-  extends: .buildkit-build-check
-  variables:
-    DOCKERFILE_DIR: docker
-    BUILD_ARGS: '--opt build-arg:DB_TYPE=postgres'
-    OUTPUT_NAME: discord-bot:ci-postgres
-    OUTPUT_TARBALL: image-bot-postgres.tar
+    OUTPUT_NAME: discord-bot:ci
+    OUTPUT_TARBALL: image-bot.tar
 
 docker-build-dispatcher:
   extends: .buildkit-build-check
@@ -85,9 +76,9 @@ docker-build-dispatcher:
 trufflehog-bot-image:
   extends: .trufflehog-image
   stage: validate
-  needs: [docker-build-bot-sqlite]
+  needs: [docker-build-bot]
   variables:
-    TRUFFLEHOG_IMAGE_TARBALL: image-bot-sqlite.tar
+    TRUFFLEHOG_IMAGE_TARBALL: image-bot.tar
   rules:
     # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
@@ -108,7 +99,7 @@ trufflehog-dispatcher-image:
 tox-generate:
   extends: .tox-generate
   variables:
-    TOX_EXTRA_APT: 'sqlite3 ffmpeg'
+    TOX_EXTRA_APT: 'postgresql ffmpeg'
 
 tox-pipeline:
   extends: .tox-pipeline
@@ -124,7 +115,6 @@ docker-push-bot:
   extends: .buildkit-docker-push
   variables:
     DOCKERFILE_DIR: docker
-    BUILD_ARGS: '--opt build-arg:DB_TYPE=sqlite'
 
 # Producer side of the docker-apps image-pin bump flow.
 # Only wired to docker-push-bot — the dispatcher/bot-min/broker images

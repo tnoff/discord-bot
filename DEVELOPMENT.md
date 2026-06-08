@@ -23,17 +23,20 @@ Use a virtualenv. Editable install picks up local changes:
 ```bash
 virtualenv venv
 source venv/bin/activate
-pip install -e ".[bot,test,sqlite]"
+pip install -e ".[bot,test]"
 ```
 
 Available extras:
 
 | Extra | Use case |
 |-------|----------|
-| `bot` | Bot-specific dependencies (media, database, etc.) |
-| `sqlite` | SQLite async driver |
-| `postgres` | PostgreSQL async driver |
-| `test` | Test tooling (pytest, pylint, etc.) |
+| `bot` | Bot-specific dependencies (media, database, etc., including `asyncpg`) |
+| `test` | Test tooling (pytest, pylint, pytest-postgresql, etc.) |
+
+The test suite uses `pytest-postgresql`, which expects `pg_ctl` and friends
+on `PATH`. Install the system postgres binaries (`apt install postgresql`
+or `brew install postgresql`) or run `docker compose -f docker/docker-compose.yml up -d postgres`
+before running the suite.
 
 ## Running the bot
 
@@ -201,8 +204,9 @@ for the canonical pattern; new `MetricNaming` entries go in
 
 ## Database
 
-SQLAlchemy 2.x, fully async. The engine is `AsyncEngine` (asyncpg /
-aiosqlite). Open a session via the `CogHelper` context manager:
+SQLAlchemy 2.x, fully async. The engine is `AsyncEngine` (asyncpg).
+PostgreSQL is the only supported backend. Open a session via the
+`CogHelper` context manager:
 
 ```python
 from sqlalchemy import select, delete
@@ -253,7 +257,7 @@ Shared fixtures and fakes are in `tests/helpers.py`:
 | Name | Kind | What it provides |
 |------|------|------------------|
 | `fake_context` | fixture | dict with `bot/guild/author/channel/context` |
-| `fake_engine` | fixture | in-memory `AsyncEngine` (`sqlite+aiosqlite:///:memory:`) |
+| `fake_engine` | fixture | `AsyncEngine` against a session-scoped postgres (via `pytest-postgresql`); tables truncated per test |
 | `async_mock_session` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
 | `fake_bot_yielder` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
 | `generate_fake_context` | non-fixture | inline equivalent of `fake_context` |

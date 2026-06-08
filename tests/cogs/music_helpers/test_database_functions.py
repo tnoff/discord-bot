@@ -348,7 +348,7 @@ async def test_rename_playlist_returns_false_when_not_found(fake_engine):  #pyli
 async def test_rename_playlist_returns_true_and_updates(fake_engine):  #pylint:disable=redefined-outer-name
     '''rename_playlist returns True and persists the new name'''
     async with async_mock_session(fake_engine) as session:
-        playlist = Playlist(server_id='1', name='old name', is_history=False)
+        playlist = Playlist(server_id=1, name='old name', is_history=False)
         session.add(playlist)
         await session.commit()
 

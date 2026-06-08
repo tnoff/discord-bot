@@ -2,7 +2,7 @@ from functools import partial
 from tempfile import TemporaryDirectory
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import asc, select
 from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import VideoCache
@@ -165,7 +165,9 @@ async def test_remove(fake_engine):  #pylint:disable=redefined-outer-name
 
                 async with async_mock_session(fake_engine) as session:
                     assert (await session.execute(select(sql_count()).select_from(VideoCache))).scalar() == 2
-                    query = (await session.execute(select(VideoCache))).scalars().first()
+                    query = (await session.execute(
+                        select(VideoCache).order_by(asc(VideoCache.last_iterated_at))
+                    )).scalars().first()
                     assert query.ready_for_deletion is True
 
                     await x.remove_video_cache([query.id])

@@ -92,7 +92,6 @@ It is also recommended that the download files for the music bot are set to a vo
 Based on the bot's configuration, you'll likely want to mount:
 
 - **Data/Downloads**: `/opt/discord` (or a subdirectory like `/opt/discord/downloads`)
-- **Database**: `/opt/discord` (if using SQLite)
 - **Config**: `/opt/discord/cnf`
 - **Logs**: `/var/log/discord`
 

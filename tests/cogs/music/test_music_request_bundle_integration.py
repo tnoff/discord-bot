@@ -6,6 +6,7 @@ import pytest
 
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.common import MultipleMutableType, MediaRequestLifecycleStage, SearchType
+from discord_bot.database import Playlist
 from discord_bot.types.media_request import MultiMediaRequestBundle, MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
@@ -13,7 +14,7 @@ from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.utils.queue import PutsBlocked
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_source_dict, random_string
+from tests.helpers import async_mock_session, fake_source_dict, random_string
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
@@ -1052,6 +1053,12 @@ async def test_playlist_add_message_updates_use_channel_id(fake_engine, fake_con
     """Test that playlist add operations use bundle.channel_id"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
 
+    async with async_mock_session(fake_engine) as db_session:
+        playlist = Playlist(name='test', server_id=fake_context['guild'].id, is_history=False)
+        db_session.add(playlist)
+        await db_session.commit()
+        playlist_pk = playlist.id
+
     # Create bundle with channel_id
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
     cog.multirequest_bundles[bundle.uuid] = bundle
@@ -1063,7 +1070,7 @@ async def test_playlist_add_message_updates_use_channel_id(fake_engine, fake_con
         requester_name=fake_context['author'].display_name,
         requester_id=fake_context['author'].id,
         search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://example.com/v'),
-        playlist_id=123,
+        playlist_id=playlist_pk,
     )
     req.bundle_uuid = bundle.uuid
     req.state_machine.set_on_change(cog._on_request_state_change)  #pylint:disable=protected-access

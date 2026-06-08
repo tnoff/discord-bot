@@ -46,11 +46,6 @@ bot = [
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
     "ytmusicapi==1.12.1",
-]
-sqlite = [
-    "aiosqlite==0.22.1",
-]
-postgres = [
     "asyncpg==0.31.0",
 ]
 test = [
@@ -64,6 +59,8 @@ test = [
     "pytest-cov==7.1.0",
     "pytest-freezegun==0.4.2",
     "pytest-mock==3.15.1",
+    "pytest-postgresql==8.1.0",
+    "psycopg[binary]==3.3.4",
     "requests-mock==1.12.1",
     # Currently required for pytest-freezegun, can remove once they have that fixed
     "setuptools==82.0.1",

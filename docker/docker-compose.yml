@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: discord
+      POSTGRES_PASSWORD: discord
+      POSTGRES_DB: discord
+    volumes:
+      - ../volumes/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discord -d discord"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   bot:
     build:
       context: ..
@@ -9,4 +24,7 @@ services:
       - ../volumes/discord-logs:/var/log/discord
     ports:
       - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
