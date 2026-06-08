@@ -1,21 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "gitlab>tnoff-projects/github-workflows//renovate/default",
+    "gitlab>tnoff-projects/github-workflows//renovate/python"
   ],
-  "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile"],
-  "labels": ["dependencies"],
-  "rebaseWhen": "behind-base-branch",
-  "packageRules": [
-    {
-      "matchPackageNames": ["pytest", "pytest-cov", "pytest-mock", "pytest-asyncio", "pytest-freezegun", "requests-mock", "fakeredis", "freezegun", "tox", "pylint", "pylint-pydantic", "bandit"],
-      "additionalBranchPrefix": "test-",
-      "automerge": true
-    },
-    {
-      "matchManagers": ["pep621", "dockerfile"],
-      "matchPackageNames": ["!pytest", "!pytest-cov", "!pytest-mock", "!pytest-asyncio", "!pytest-freezegun", "!requests-mock", "!fakeredis", "!freezegun", "!tox", "!pylint", "!pylint-pydantic", "!bandit"],
-      "additionalBranchPrefix": "dev-"
-    }
-  ]
+  "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile"]
 }
