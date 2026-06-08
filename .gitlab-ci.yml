@@ -1,33 +1,33 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: f94e713c3714277de4d131d29b9c4af9ab3ef10d
+    ref: b008ef774ea959a0a2b291f7a3eb6716ed05a5ff
     file: '/gitlab/tox-pipeline.yml'
 
 default:
