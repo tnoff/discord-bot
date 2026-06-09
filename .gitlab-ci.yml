@@ -99,7 +99,13 @@ trufflehog-dispatcher-image:
 tox-generate:
   extends: .tox-generate
   variables:
-    TOX_EXTRA_APT: 'postgresql ffmpeg'
+    # Pre-baked CI base image (ci-base-images:3.X) ships git + ffmpeg +
+    # postgresql-client. ${CI_BASE_IMAGE_PATH} is the group-level plaintext
+    # var provisioned in terraform/infra/gitlab.tf and is expanded here at
+    # parent-pipeline time. $$ escapes the second dollar so ${PYTHON_VERSION}
+    # reaches tox-generate's heredoc literally; the child pipeline's
+    # parallel: matrix: then substitutes it per Python minor at runtime.
+    TOX_BASE_IMAGE: '${CI_BASE_IMAGE_PATH}:$${PYTHON_VERSION}'
 
 tox-pipeline:
   extends: .tox-pipeline
