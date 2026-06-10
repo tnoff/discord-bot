@@ -135,12 +135,22 @@ trigger-bump-docker-apps:
   variables:
     BUMP_SOURCE: 'discord-bot'
 
+# OCI_REPO_NAME_64 is set per-image via shell-export in before_script rather
+# than the YAML-level `OCI_REPO_NAME_64: $OCI_DISPATCHER_REPO_NAME_64` form,
+# because GitLab does not reliably substitute when both vars are masked CI
+# variables — the override silently no-ops and OCI_REPO_NAME_64 falls back to
+# the project default (the bot repo), so the dispatcher image gets pushed to
+# discord_bot:<sha>, racing the docker-push-bot tag. Shell expansion of
+# $OCI_DISPATCHER_REPO_NAME_64 from env always works since the masked value is
+# injected normally.
 docker-push-dispatcher:
   extends: .buildkit-docker-push
   variables:
     DOCKERFILE_DIR: docker
     DOCKERFILE_NAME: Dockerfile.dispatcher
-    OCI_REPO_NAME_64: $OCI_DISPATCHER_REPO_NAME_64
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_DISPATCHER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
 
 notify-mr:
   extends: .discord-notify
