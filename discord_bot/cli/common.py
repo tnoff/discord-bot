@@ -175,8 +175,11 @@ def setup_otlp(general_config: GeneralConfig):
 def setup_logging(general_config: GeneralConfig, logger_provider=None):
     '''Configure application loggers and return the main logger.'''
     print('Starting logging', file=sys.stderr)
-    logger = get_logger('main', general_config.logging)
-    get_logger('discord_bot', general_config.logging)
+    logger = get_logger('main', general_config.logging, otlp_logger=logger_provider)
+    discord_bot_logger = get_logger('discord_bot', general_config.logging, otlp_logger=logger_provider)
+    # propagate=False so WARNING+ records aren't double-exported via root's OTLP handler
+    logger.propagate = False
+    discord_bot_logger.propagate = False
     root_logger = logging.getLogger()
     third_party_level = general_config.logging.third_party_log_level if general_config.logging else 30
     root_logger.setLevel(third_party_level)
