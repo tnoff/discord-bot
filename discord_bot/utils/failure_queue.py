@@ -2,7 +2,7 @@ from asyncio import QueueFull, QueueEmpty
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 
 
 @dataclass

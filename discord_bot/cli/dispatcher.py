@@ -3,7 +3,7 @@ Dispatcher process — HTTP-only, Redis health check, MessageDispatcher cog only
 No SQLAlchemy, no gateway connection.
 '''
 from discord_bot.cogs.message_dispatcher import MessageDispatcher
-from discord_bot.servers.health_server import DispatchHealthServer
+from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli.common import (

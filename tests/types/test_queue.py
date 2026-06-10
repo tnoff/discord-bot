@@ -1,6 +1,6 @@
 import pytest
 
-from discord_bot.utils.queue import Queue, PutsBlocked
+from discord_bot.types.queue import Queue, PutsBlocked
 
 @pytest.mark.asyncio
 async def test_block():

@@ -11,6 +11,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "aiohttp>=3.9",
     "redis==8.0.0",
     "async-timeout==5.0.1",
     "discord.py==2.7.1",

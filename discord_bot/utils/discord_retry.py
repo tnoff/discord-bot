@@ -1,7 +1,7 @@
 from asyncio import sleep as async_sleep
 from typing import Awaitable, Callable
 
-from aiohttp.client_exceptions import ServerDisconnectedError
+from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError, ServerDisconnectedError
 from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimited
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -78,6 +78,34 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
             except HTTPException as ex:
                 # Only retry 429s (e.g. error code 40062 "Service resource is being rate limited")
                 if ex.status != 429 or retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(2 ** retry)
+
+
+async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries: int = 3):
+    '''
+    Retry broker HTTP calls with per-exception handling:
+      - ClientConnectionError (includes ServerDisconnectedError, ServerTimeoutError): exponential backoff retry
+      - ClientResponseError 5xx: exponential backoff retry
+      - ClientResponseError 4xx: propagate immediately (client error, won't change on retry)
+    '''
+    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_broker_command', kind=SpanKind.CLIENT) as span:
+        for retry in range(max_retries + 1):
+            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
+            try:
+                result = await func()
+                span.set_status(StatusCode.OK)
+                return result
+            except ClientConnectionError as ex:
+                if retry == max_retries:
+                    span.set_status(StatusCode.ERROR)
+                    span.record_exception(ex)
+                    raise
+                await async_sleep(2 ** retry)
+            except ClientResponseError as ex:
+                if ex.status < 500 or retry == max_retries:
                     span.set_status(StatusCode.ERROR)
                     span.record_exception(ex)
                     raise

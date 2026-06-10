@@ -31,6 +31,8 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.servers.broker_server import BrokerHttpServer
+from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
@@ -45,13 +47,13 @@ from discord_bot.cogs.music_helpers import database_functions
 from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
-from discord_bot.utils.queue import PutsBlocked
+from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
@@ -127,12 +129,24 @@ class MusicDownloadConfig(BaseModel):
             raise ValueError('enable_cache_files requires storage to be configured')
         return self
 
+class BrokerServerConfig(BaseModel):
+    '''Config for running a broker HTTP server on this process.'''
+    # bandit B104: '0.0.0.0' default is intentional — worker pods reach the broker across the docker/k8s network; operators override via music.broker_server.host in config
+    host: str = '0.0.0.0'  # nosec B104
+    port: int = Field(default=8081, ge=1, le=65535)
+
+class BrokerClientConfig(BaseModel):
+    '''Config for connecting to a remote broker HTTP server.'''
+    url: str
+
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
     player: MusicPlayerConfig = Field(default_factory=MusicPlayerConfig)
     playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
+    broker_server: BrokerServerConfig | None = None
+    broker_client: BrokerClientConfig | None = None
 
 #
 # Exceptions
@@ -232,6 +246,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             bucket_name=storage_bucket_name,
         )
 
+        if self.config.broker_client:
+            self.broker_client = HttpBrokerClient(self.config.broker_client.url)
+        else:
+            self.broker_client = InMemoryBrokerClient(self.media_broker)
+
         # Multi Request bundles
         self.multirequest_bundles = {}
         # Cached video cache count for the sync observable gauge callback
@@ -254,7 +273,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
             bucket_name=storage_bucket_name,
             normalize_audio=self.config.download.normalize_audio,
-            broker=self.media_broker,
+            broker=self.broker_client,
             max_retries=self.config.download.max_download_retries,
             queue_max_size=self.config.player.queue_max_size,
         )
@@ -402,6 +421,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
+        if self.config.broker_server:
+            broker_server = BrokerHttpServer(
+                self.media_broker,
+                host=self.config.broker_server.host,
+                port=self.config.broker_server.port,
+            )
+            self.bot.loop.create_task(broker_server.serve())
         if self.db_engine:
             self._start_tasks()
 

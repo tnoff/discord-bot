@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Generic, TypeVar
 
-from discord_bot.utils.queue import Queue
+from discord_bot.types.queue import Queue
 
 T = TypeVar('T')
 

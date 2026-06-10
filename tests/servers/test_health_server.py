@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import fakeredis.aioredis
 import pytest
 
-from discord_bot.servers.health_server import HealthServer, DispatchHealthServer
+from discord_bot.servers.dispatch_health_server import DispatchHealthServer
+from discord_bot.servers.health_server import HealthServer
+from discord_bot.servers.health_server_base import HealthServerBase
 
 
 def _make_bot(is_ready=True, is_closed=False):
@@ -308,7 +310,7 @@ class TestDispatchHealthServerAsync:
     async def test_health_ok(self, mocker):
         """Returns 200 when Redis ping succeeds."""
         fake_redis = fakeredis.aioredis.FakeRedis(protocol=2)
-        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        mocker.patch('discord_bot.servers.dispatch_health_server.get_redis_client', return_value=fake_redis)
         hs = DispatchHealthServer('redis://localhost:6379/0', port=18090)
         task = asyncio.create_task(hs.serve())
         await asyncio.sleep(0.05)
@@ -328,7 +330,7 @@ class TestDispatchHealthServerAsync:
         fake_redis = AsyncMock()
         fake_redis.ping = AsyncMock(side_effect=ConnectionError('redis down'))
         fake_redis.aclose = AsyncMock()
-        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        mocker.patch('discord_bot.servers.dispatch_health_server.get_redis_client', return_value=fake_redis)
         hs = DispatchHealthServer('redis://localhost:6379/0', port=18091)
         task = asyncio.create_task(hs.serve())
         await asyncio.sleep(0.05)
@@ -347,7 +349,7 @@ class TestDispatchHealthServerAsync:
         """Exception mid-request is caught and writer is still closed cleanly."""
         fake_redis = AsyncMock()
         fake_redis.aclose = AsyncMock()
-        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        mocker.patch('discord_bot.servers.dispatch_health_server.get_redis_client', return_value=fake_redis)
         hs = DispatchHealthServer('redis://localhost:6379/0')
         hs._client = fake_redis  #pylint:disable=protected-access
         reader = MagicMock()
@@ -362,7 +364,7 @@ class TestDispatchHealthServerAsync:
         """Exception in wait_closed is swallowed; writer.close still called."""
         fake_redis = AsyncMock()
         fake_redis.aclose = AsyncMock()
-        mocker.patch('discord_bot.servers.health_server.get_redis_client', return_value=fake_redis)
+        mocker.patch('discord_bot.servers.dispatch_health_server.get_redis_client', return_value=fake_redis)
         hs = DispatchHealthServer('redis://localhost:6379/0')
         hs._client = fake_redis  #pylint:disable=protected-access
         reader = MagicMock()
@@ -372,3 +374,11 @@ class TestDispatchHealthServerAsync:
         writer.wait_closed = AsyncMock(side_effect=OSError('broken pipe'))
         await getattr(hs, '_handle')(reader, writer)
         writer.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_health_server_base_check_not_implemented():
+    '''HealthServerBase._check raises NotImplementedError — subclasses must override it.'''
+    base = HealthServerBase(port=0, bind_address='127.0.0.1')
+    with pytest.raises(NotImplementedError):
+        await base._check()  #pylint:disable=protected-access

@@ -1,12 +1,20 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from aiohttp.client_exceptions import ServerDisconnectedError
+from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError, ServerDisconnectedError
 from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimited
 
-from discord_bot.utils.discord_retry import async_retry_command, async_retry_discord_message_command
+from discord_bot.utils.discord_retry import (
+    async_retry_broker_command,
+    async_retry_command,
+    async_retry_discord_message_command,
+)
 from tests.helpers import FakeResponse
+
+
+def _client_response_error(status: int) -> ClientResponseError:
+    return ClientResponseError(Mock(), (), status=status)
 
 
 # ---------------------------------------------------------------------------
@@ -161,4 +169,66 @@ async def test_discord_retry_http_other_propagates_immediately():
     func = AsyncMock(side_effect=http_err)
     with pytest.raises(HTTPException):
         await async_retry_discord_message_command(func, max_retries=3)
+    func.assert_awaited_once()  # no retries
+
+
+# ---------------------------------------------------------------------------
+# async_retry_broker_command
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_broker_retry_success():
+    '''Successful call returns the result immediately.'''
+    func = AsyncMock(return_value='ok')
+    result = await async_retry_broker_command(func)
+    assert result == 'ok'
+    func.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_connection_error_retries():
+    '''ClientConnectionError triggers exponential-backoff retry; success returns the result.'''
+    func = AsyncMock(side_effect=[ClientConnectionError(), 'recovered'])
+    with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
+        result = await async_retry_broker_command(func, max_retries=2)
+    assert result == 'recovered'
+    mock_sleep.assert_awaited_once_with(1)  # 2**0
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_connection_error_exhausted_raises():
+    '''ClientConnectionError that persists past max_retries is re-raised.'''
+    func = AsyncMock(side_effect=ClientConnectionError())
+    with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock):
+        with pytest.raises(ClientConnectionError):
+            await async_retry_broker_command(func, max_retries=2)
+    assert func.await_count == 3  # initial + 2 retries
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_5xx_retries():
+    '''ClientResponseError with 5xx status triggers retry; success returns the result.'''
+    func = AsyncMock(side_effect=[_client_response_error(503), 'ok'])
+    with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock):
+        result = await async_retry_broker_command(func, max_retries=2)
+    assert result == 'ok'
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_5xx_exhausted_raises():
+    '''ClientResponseError 5xx that persists past max_retries is re-raised.'''
+    func = AsyncMock(side_effect=_client_response_error(500))
+    with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock):
+        with pytest.raises(ClientResponseError):
+            await async_retry_broker_command(func, max_retries=1)
+    assert func.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_4xx_propagates_immediately():
+    '''ClientResponseError with 4xx status propagates immediately without retry.'''
+    func = AsyncMock(side_effect=_client_response_error(422))
+    with pytest.raises(ClientResponseError) as exc_info:
+        await async_retry_broker_command(func, max_retries=3)
+    assert exc_info.value.status == 422
     func.assert_awaited_once()  # no retries

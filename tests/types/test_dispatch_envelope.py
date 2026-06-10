@@ -1,4 +1,4 @@
-from discord_bot.utils.dispatch_envelope import (
+from discord_bot.types.dispatch_envelope import (
     RequestType, ResultType,
     StreamEnvelope, StreamResult, new_request_id,
 )

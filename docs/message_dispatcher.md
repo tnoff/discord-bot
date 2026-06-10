@@ -147,46 +147,59 @@ Each dispatch type emits an OpenTelemetry span:
 All messages use the `message_dispatcher` logger at `DEBUG` level except warnings
 (channel not found, message truncation) which use `WARNING`.
 
-## Cross-process dispatch via Redis Streams
+## HA mode: HTTP dispatch server
 
-In a multi-process deployment (e.g. separate music and markov processes), only
-the process that holds the Discord gateway connection can make API calls.
-`MessageDispatcher` runs in that process; other cog processes need to send
-dispatch requests to it over Redis Streams.
+In a multi-pod deployment, cog pods forward all dispatch calls to a dedicated
+dispatcher pod over HTTP. The dispatcher pod owns the Discord gateway connection
+and processes work from a shared Redis sorted-set queue.
 
 ### How it works
 
 ```
-Cog process                         Dispatcher process
-──────────────────                  ──────────────────────────────────
-RedisDispatchClient                 MessageDispatcher
-  .update_mutable()  ──XADD──►  discord_bot:dispatch:input:shard:0
-  .send_message()                        │
-  .dispatch_channel_history()            │  _stream_consumer reads + ACKs
-        ▲                                ▼
-        │                     _handle_stream_request()
-        │                          routes to update_mutable,
-        │                          send_message, etc.
-        │                                │ (for fetch requests)
-        └──◄──XADD──  discord_bot:dispatch:result:{process_id}
+Cog pod(s)                          Dispatcher pod(s)
+──────────────────────────          ──────────────────────────────────────
+HttpDispatchClient                  DispatchHttpServer (port 8082)
+  .send_message()  ──POST──►  /dispatch/send        ──► enqueue to Redis
+  .update_mutable()──POST──►  /dispatch/update_mutable──► enqueue to Redis
+                                         │
+                                         │  _redis_worker (×N, BZPOPMIN)
+                                         ▼
+                               MessageDispatcher._process_*_redis()
+                                    executes Discord API call
+
+For awaitable fetches (history, emojis):
+
+HttpDispatchClient                  DispatchHttpServer
+  ──POST──►  /dispatch/fetch_history ──► enqueue; returns {request_id}
+  ──GET──►   /dispatch/results/{id}  ──► 202 (pending) | 200 (result ready)
+  [polls with exponential backoff, 0.5s–10s, 300s timeout]
 ```
 
-Fire-and-forget requests (`update_mutable`, `send_message`, etc.) are
-XADD'd to the input stream and never return a result. Fetch requests
-(`dispatch_channel_history`, `dispatch_guild_emojis`) block on a
-per-process result stream until the dispatcher writes the result back.
+Fire-and-forget calls (`send_message`, `update_mutable`, etc.) POST and return
+immediately. The server enqueues to Redis and returns 202.
+
+Fetch calls (`fetch_history`, `fetch_emojis`) POST to receive a `request_id`,
+then poll `GET /dispatch/results/{request_id}` until the worker stores the result
+in Redis and the poll returns 200.
 
 ### Configuration
 
+**Dispatcher pod** — runs `DispatchHttpServer` and `MessageDispatcher` workers:
+
 | Field | Default | Description |
 |-------|---------|-------------|
-| `dispatch_cross_process` | `false` | Switch `CogHelper._dispatcher` to `RedisDispatchClient` |
-| `dispatch_process_id` | auto UUID | Identifies this process's result stream |
-| `dispatch_shard_id` | `0` | Selects which input stream shard to use |
-| `include.message_dispatcher` | `true` | Load `MessageDispatcher` in this process |
+| `general.dispatch_server.host` | `0.0.0.0` | Bind address for the HTTP server |
+| `general.dispatch_server.port` | (required) | Port for the HTTP server (typically 8082) |
+| `general.redis_url` | (required) | Redis connection URL |
+| `general.dispatch_process_id` | auto UUID | Pod identifier used in Redis lock keys |
+| `general.dispatch_shard_id` | `0` | Selects which Redis queue shard to use |
+| `general.dispatch_worker_count` | `4` | Number of concurrent Redis worker coroutines |
 
-When `dispatch_cross_process` is `false` (the default), `CogHelper._dispatcher`
-returns the in-process `MessageDispatcher` cog as before — no Redis involvement.
+**Bot/cog pods** — forward all dispatch calls to the dispatcher over HTTP:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `general.dispatch_http_url` | (unset) | Base URL of the dispatcher pod (e.g. `http://dispatcher:8082`). If unset, `CogHelper._dispatcher` uses the in-process `MessageDispatcher` cog. |
 
 #### Dispatcher container config (`discord.dispatcher.cnf`)
 
@@ -194,19 +207,19 @@ returns the in-process `MessageDispatcher` cog as before — no Redis involvemen
 general:
   discord_token: "YOUR_TOKEN"
   redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
+  dispatch_server:
+    host: 0.0.0.0
+    port: 8082
   dispatch_process_id: "dispatcher"
-  dispatch_gateway: false   # HTTP-only — no gateway connection needed
   dispatch_shard_id: 0
+  dispatch_worker_count: 4
   monitoring:
-    otlp:
-      enabled: false
     health_server:
-      enabled: true         # uses DispatchHealthServer (Redis ping)
+      enabled: true
       port: 8080
   include:
-    default: false          # disable all optional cogs
-    message_dispatcher: true  # only load MessageDispatcher
+    default: false
+    message_dispatcher: true
 ```
 
 #### Bot container config (`discord.bot.cnf`)
@@ -214,51 +227,45 @@ general:
 ```yaml
 general:
   discord_token: "YOUR_TOKEN"
-  redis_url: "redis://redis:6379/0"
-  dispatch_cross_process: true
-  dispatch_process_id: "bot-main"
-  dispatch_shard_id: 0
+  dispatch_http_url: "http://dispatcher:8082"
   include:
     default: true
-    message_dispatcher: false  # do NOT load MessageDispatcher here
+    message_dispatcher: false
     markov: true
     delete_messages: true
 ```
 
-See [Docker Compose](./docker.md#docker-compose) for the matching `docker-compose.multiprocess.yml`.
+See [Docker Compose](./docker.md#docker-compose) and [HA architecture](./ha.md) for the
+full multi-pod setup.
 
-### Redis Stream keys
+### Redis keys used by the dispatcher
 
-| Key pattern | Direction | Description |
-|-------------|-----------|-------------|
-| `discord_bot:dispatch:input:shard:{shard_id}` | cog → dispatcher | Incoming request queue |
-| `discord_bot:dispatch:result:{process_id}` | dispatcher → cog | Result delivery for fetch requests |
+| Key pattern | Structure | TTL | Description |
+|-------------|-----------|-----|-------------|
+| `discord_bot:dispatch:queue:{shard_id}` | Sorted Set | None | Work queue; score = `priority×10¹²+timestamp_ms` |
+| `discord_bot:dispatch:payload:{member}` | String (JSON) | 1 day | Work item payload |
+| `discord_bot:dispatch:result:{request_id}` | String (JSON) | 1 day | Completed fetch result |
+| `discord_bot:dispatch:executing:{bundle_key}` | String (pod_id) | 30 s | Per-bundle execution lock |
+| `discord_bot:bundle:{bundle_key}` | String (JSON) | 1 day | Persisted mutable bundle state |
 
-The input stream uses a consumer group (`discord_bot:dispatch:workers`) so that
-multiple dispatcher instances can compete for messages if needed. Result streams
-are read without a consumer group (simple XREAD) since only one cog process
-owns each result stream.
+### HttpDispatchClient
 
-### RedisDispatchClient
-
-`RedisDispatchClient` (`discord_bot/utils/redis_dispatch_client.py`) is a
+`HttpDispatchClient` (`discord_bot/clients/http_dispatch_client.py`) is a
 drop-in replacement for `MessageDispatcher` with the same public API surface.
-It is returned by `CogHelper._dispatcher` when `dispatch_cross_process=True`.
+It is returned by `CogHelper._dispatcher` when `dispatch_http_url` is set.
 
 | Method | Behaviour |
 |--------|-----------|
-| `update_mutable(...)` | Fire-and-forget XADD |
-| `remove_mutable(key)` | Fire-and-forget XADD |
-| `update_mutable_channel(...)` | Fire-and-forget XADD |
-| `send_message(...)` | Fire-and-forget XADD |
-| `delete_message(...)` | Fire-and-forget XADD |
-| `dispatch_channel_history(...)` | Awaitable; blocks on result stream |
-| `dispatch_guild_emojis(...)` | Awaitable; blocks on result stream |
-| `submit_request(request)` | Routes a typed request object |
-| `register_cog_queue(cog_name)` | Returns an `asyncio.Queue` for async result delivery |
+| `update_mutable(...)` | Fire-and-forget POST |
+| `remove_mutable(key)` | Fire-and-forget POST |
+| `update_mutable_channel(...)` | Fire-and-forget POST |
+| `send_message(...)` | Fire-and-forget POST |
+| `delete_message(...)` | Fire-and-forget POST |
+| `submit_request(FetchChannelHistoryRequest)` | Awaitable; polls result endpoint |
+| `submit_request(FetchGuildEmojisRequest)` | Awaitable; polls result endpoint |
+| `register_cog_queue(cog_name)` | Returns an `asyncio.Queue` for result delivery |
 
-Call `await client.start()` to begin the background result-poller task.
-Call `client.stop()` to cancel it.
+`start()` and `stop()` are no-ops (no background poller — polling is per-request).
 
 ## Architecture notes
 
