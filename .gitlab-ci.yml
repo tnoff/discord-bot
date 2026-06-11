@@ -42,6 +42,26 @@ stages:
   - notify
   - renovate
 
+# Shared rules for the image-build + image-scan jobs. On MRs that don't touch
+# anything baked into the image (the docker/ context, python source, deps, or
+# version), skip these jobs — they take ~10–17 min combined and otherwise burn
+# runner slots needed by the tox matrix. Cosmetic MRs (github-workflows ref
+# bumps, README/doc-only edits, renovate.json tweaks) get fast pipelines.
+# Fork MRs keep the manual gate; default-branch builds always run.
+.image-build-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - discord_bot/**/*
+        - alembic/**/*
+        - alembic.ini
+        - docker/**/*
+        - pyproject.toml
+        - VERSION
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+
 bump-version:
   extends: .bump-version
   variables:
@@ -64,6 +84,7 @@ docker-build-bot:
     DOCKERFILE_DIR: docker
     OUTPUT_NAME: discord-bot:ci
     OUTPUT_TARBALL: image-bot.tar
+  rules: !reference [.image-build-rules, rules]
 
 docker-build-dispatcher:
   extends: .buildkit-build-check
@@ -72,6 +93,7 @@ docker-build-dispatcher:
     DOCKERFILE_NAME: Dockerfile.dispatcher
     OUTPUT_NAME: discord-dispatcher:ci
     OUTPUT_TARBALL: image-dispatcher.tar
+  rules: !reference [.image-build-rules, rules]
 
 trufflehog-bot-image:
   extends: .trufflehog-image
@@ -79,11 +101,7 @@ trufflehog-bot-image:
   needs: [docker-build-bot]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-bot.tar
-  rules:
-    # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  rules: !reference [.image-build-rules, rules]
 
 trufflehog-dispatcher-image:
   extends: .trufflehog-image
@@ -91,10 +109,7 @@ trufflehog-dispatcher-image:
   needs: [docker-build-dispatcher]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-dispatcher.tar
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
-      when: manual
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  rules: !reference [.image-build-rules, rules]
 
 tox-generate:
   extends: .tox-generate
