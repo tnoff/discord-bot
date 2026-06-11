@@ -13,12 +13,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+_READINESS_PATHS = (b'/ready', b'/readyz', b'/readiness')
+
+
+async def close_writer(writer):
+    """Close an asyncio writer, swallowing the OSError that wait_closed may raise."""
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except OSError:
+        pass
+
+
 class HealthServerBase:
     """
     Minimal raw-asyncio HTTP health endpoint.
 
-    Subclasses implement ``_check()`` to return ``(ok: bool, extra: dict)``.
-    The base handles request framing, status line, headers, and writer cleanup.
+    Subclasses implement ``_check()`` to return ``(ok: bool, extra: dict)`` for
+    liveness. Override ``_readiness_check()`` to add stricter peer-dependency
+    probes for the readiness endpoint; defaults to the liveness result.
+
+    Routing: ``/ready``, ``/readyz``, and ``/readiness`` invoke
+    ``_readiness_check()``. Any other path invokes ``_check()``.
     """
 
     def __init__(self, port: int, bind_address: str):
@@ -26,8 +42,12 @@ class HealthServerBase:
         self.bind_address = bind_address
 
     async def _check(self) -> tuple[bool, dict]:
-        """Return (overall_ok, extra_payload_fields)."""
+        """Return (overall_ok, extra_payload_fields) for liveness."""
         raise NotImplementedError
+
+    async def _readiness_check(self) -> tuple[bool, dict]:
+        """Return (overall_ok, extra_payload_fields) for readiness; defaults to _check()."""
+        return await self._check()
 
     async def serve(self):
         """Asyncio coroutine — schedule with asyncio.create_task()."""
@@ -39,15 +59,22 @@ class HealthServerBase:
     async def _handle(self, reader, writer):
         """Handle a single HTTP request and write the response."""
         try:
-            # Read the request line (we don't need to inspect it)
-            await reader.readline()
+            # Parse the request line for path-based routing
+            request_line = await reader.readline()
+            parts = request_line.split(b' ', 2)
+            path = parts[1] if len(parts) >= 2 else b'/'
+            # Strip query string for the routing decision
+            path = path.split(b'?', 1)[0]
             # Drain remaining headers so the client doesn't get a RST
             while True:
                 line = await reader.readline()
                 if line in (b'\r\n', b'\n', b''):
                     break
 
-            ok, extra = await self._check()
+            if path in _READINESS_PATHS:
+                ok, extra = await self._readiness_check()
+            else:
+                ok, extra = await self._check()
             if ok:
                 status_line = b'HTTP/1.1 200 OK\r\n'
                 payload = {'status': 'ok'}
@@ -68,8 +95,4 @@ class HealthServerBase:
         except Exception as e:
             logger.debug(f'{type(self).__name__} handler error: {e}')
         finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            await close_writer(writer)

@@ -89,9 +89,11 @@ def run(settings: dict, general_config: GeneralConfig):
         health_server = None
         if general_config.monitoring and general_config.monitoring.health_server \
                 and general_config.monitoring.health_server.enabled:
+            dispatch_http_url = settings.get('general', {}).get('dispatch_http_url')
             health_server = HealthServer(bot, port=general_config.monitoring.health_server.port,
                                          bind_address=general_config.monitoring.health_server.bind_address,
-                                         db_engine=db_engine)
+                                         db_engine=db_engine,
+                                         dispatch_http_url=dispatch_http_url)
 
         rejectlist_guilds = list(general_config.rejectlist_guilds)
         logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')

@@ -11,7 +11,7 @@ import pytest
 
 from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.servers.health_server import HealthServer
-from discord_bot.servers.health_server_base import HealthServerBase
+from discord_bot.servers.health_server_base import HealthServerBase, close_writer
 
 
 def _make_bot(is_ready=True, is_closed=False):
@@ -27,11 +27,7 @@ async def _wait_for_port(port: int, timeout: float = 5.0) -> None:
     while True:
         try:
             _, writer = await asyncio.open_connection('127.0.0.1', port)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            await close_writer(writer)
             return
         except OSError:
             if asyncio.get_event_loop().time() >= deadline:
@@ -39,20 +35,16 @@ async def _wait_for_port(port: int, timeout: float = 5.0) -> None:
             await asyncio.sleep(0.01)
 
 
-async def _raw_request(port: int) -> str:
+async def _raw_request(port: int, path: str = '/health') -> str:
     """Open a raw TCP connection and send a minimal HTTP GET, return the full response."""
     reader, writer = await asyncio.open_connection('127.0.0.1', port)
-    writer.write(b'GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n')
+    writer.write(f'GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n'.encode())
     await writer.drain()
     response = b''
     try:
         response = await asyncio.wait_for(reader.read(4096), timeout=3)
     finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except OSError:
-            pass
+        await close_writer(writer)
     return response.decode()
 
 
@@ -382,3 +374,112 @@ async def test_health_server_base_check_not_implemented():
     base = HealthServerBase(port=0, bind_address='127.0.0.1')
     with pytest.raises(NotImplementedError):
         await base._check()  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_health_server_base_readiness_defaults_to_check():
+    '''HealthServerBase._readiness_check delegates to _check by default.'''
+    class _Stub(HealthServerBase):
+        async def _check(self):
+            return False, {'why': 'stub'}
+    stub = _Stub(port=0, bind_address='127.0.0.1')
+    ok, extra = await stub._readiness_check()  #pylint:disable=protected-access
+    assert ok is False
+    assert extra == {'why': 'stub'}
+
+
+@pytest.mark.asyncio
+class TestHealthServerReadiness:
+    '''/ready routes to _readiness_check; with dispatch_http_url it adds a TCP probe.'''
+
+    async def test_ready_without_dispatch_url_returns_liveness(self):
+        '''When dispatch_http_url is unset, /ready mirrors /health.'''
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18100)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18100)
+        try:
+            response = await _raw_request(18100, path='/ready')
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body == {'status': 'ok'}
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_ready_with_unreachable_dispatcher_returns_503(self):
+        '''/ready 503s and reports dispatch:unavailable when the URL doesn't connect.'''
+        bot = _make_bot(is_ready=True, is_closed=False)
+        # Port 1 is reserved (tcpmux); a connect on localhost:1 fast-fails on Linux
+        hs = HealthServer(bot, port=18101, dispatch_http_url='http://127.0.0.1:1')
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18101)
+        try:
+            response = await _raw_request(18101, path='/ready')
+            assert '503' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['status'] == 'unavailable'
+            assert body['dispatch'] == 'unavailable'
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_ready_with_reachable_dispatcher_returns_200(self):
+        '''/ready 200s and reports dispatch:ok when a TCP listener accepts the connect.'''
+        bot = _make_bot(is_ready=True, is_closed=False)
+        # Stand up a stub listener that accepts and immediately closes
+        async def _accept(_reader, writer):
+            await close_writer(writer)
+        stub = await asyncio.start_server(_accept, '127.0.0.1', 18102)
+        stub_task = asyncio.create_task(stub.serve_forever())
+        hs = HealthServer(bot, port=18103, dispatch_http_url='http://127.0.0.1:18102')
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18103)
+        try:
+            response = await _raw_request(18103, path='/ready')
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['status'] == 'ok'
+            assert body['dispatch'] == 'ok'
+        finally:
+            task.cancel()
+            stub_task.cancel()
+            stub.close()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await stub_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_health_endpoint_does_not_probe_dispatcher(self):
+        '''/health stays purely liveness; dispatcher reachability never gates it.'''
+        bot = _make_bot(is_ready=True, is_closed=False)
+        # Even with an unreachable dispatcher, /health must return 200
+        hs = HealthServer(bot, port=18104, dispatch_http_url='http://127.0.0.1:1')
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18104)
+        try:
+            response = await _raw_request(18104, path='/health')
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert 'dispatch' not in body
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_dispatch_probe_invalid_url_returns_false(self):
+        '''_dispatch_probe returns False when the URL has no host:port.'''
+        hs = HealthServer(_make_bot(), dispatch_http_url='not-a-url')
+        assert await hs._dispatch_probe() is False  #pylint:disable=protected-access
