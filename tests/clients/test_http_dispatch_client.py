@@ -322,3 +322,106 @@ async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
         payload = await client._poll_result('ready')  # pylint: disable=protected-access
 
     assert payload == {'guild_id': 7, 'channel_id': 8, 'messages': []}
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker integration
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
+    '''_post with breaker OPEN logs + records breaker_open metric but does not propagate.'''
+    from discord_bot.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
+    breaker = mocker.patch('discord_bot.clients.http_dispatch_client._BREAKER')
+    breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    # Must not raise — fire-and-forget contract
+    await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/send'})
+
+
+@pytest.mark.asyncio
+async def test_submit_fetch_when_breaker_open_propagates(mocker):
+    '''_submit_fetch propagates CircuitBreakerOpenError so awaitable callers see the failure.'''
+    from discord_bot.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
+    breaker = mocker.patch('discord_bot.clients.http_dispatch_client._BREAKER')
+    breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    with pytest.raises(CircuitBreakerOpenError):
+        await client._submit_fetch('/dispatch/fetch_history', {'guild_id': 1})  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/fetch_history'})
+
+
+@pytest.mark.asyncio
+async def test_post_success_records_metric(mocker):
+    '''A successful _post call records a success result on the request counter.'''
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    dispatcher, server = _make_setup()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
+        await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    assert any(c[0] == 'send_message' for c in dispatcher.calls)
+    # Counter recorded a success
+    assert mocker.call(1, {'result': 'success', 'path': '/dispatch/send'}) in counter.add.call_args_list
+
+
+@pytest.mark.asyncio
+async def test_post_underlying_failure_records_failure_metric(mocker):
+    '''A non-breaker exception path records result=failure and stays silent (fire-and-forget).'''
+    mocker.patch(
+        'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
+        side_effect=RuntimeError('connection refused'),
+    )
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/send'})
+
+
+@pytest.mark.asyncio
+async def test_submit_fetch_underlying_failure_records_failure_metric_and_propagates(mocker):
+    '''_submit_fetch records result=failure and propagates non-breaker exceptions.'''
+    mocker.patch(
+        'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
+        side_effect=RuntimeError('connection refused'),
+    )
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    with pytest.raises(RuntimeError, match='connection refused'):
+        await client._submit_fetch('/dispatch/fetch_history', {'guild_id': 1})  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/fetch_history'})
+
+
+@pytest.mark.asyncio
+async def test_poll_result_when_breaker_open_propagates(mocker):
+    '''_poll_result propagates CircuitBreakerOpenError + records breaker_open metric.'''
+    from discord_bot.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
+    breaker = mocker.patch('discord_bot.clients.http_dispatch_client._BREAKER')
+    breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    with pytest.raises(CircuitBreakerOpenError):
+        await client._poll_result('any-id')  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/results'})
+
+
+@pytest.mark.asyncio
+async def test_poll_result_underlying_failure_records_failure_metric_and_propagates(mocker):
+    '''_poll_result records result=failure and propagates non-breaker exceptions.'''
+    mocker.patch(
+        'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
+        side_effect=RuntimeError('boom'),
+    )
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    client = HttpDispatchClient('http://localhost:9999')
+    with pytest.raises(RuntimeError, match='boom'):
+        await client._poll_result('any-id')  # pylint: disable=protected-access
+    await client.close()
+    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/results'})

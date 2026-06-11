@@ -12,16 +12,34 @@ from discord_bot.types.dispatch_request import (
     SendRequest,
 )
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.discord_retry import async_retry_broker_command
 from discord_bot.clients.http_client_base import HttpClientMixin
-from discord_bot.utils.otel import DispatchNaming
+from discord_bot.utils.otel import DispatchNaming, METER_PROVIDER
 
 logger = logging.getLogger(__name__)
 
 _POLL_INTERVAL_BASE = 0.5   # seconds — first poll delay
 _POLL_INTERVAL_MAX = 10.0   # seconds — cap for exponential backoff
 _POLL_TIMEOUT = 300.0       # seconds — give up after this long
+
+_BREAKER_FAILURE_THRESHOLD = 5
+_BREAKER_RECOVERY_TIMEOUT = 30.0  # seconds
+
+# One breaker per process — the dispatcher URL is shared across cogs, so all
+# HttpDispatchClient instances see the same up/down state.
+_BREAKER = CircuitBreaker(
+    name='dispatch',
+    failure_threshold=_BREAKER_FAILURE_THRESHOLD,
+    recovery_timeout=_BREAKER_RECOVERY_TIMEOUT,
+)
+
+_REQUEST_COUNTER = METER_PROVIDER.create_counter(
+    name='discord_bot.dispatch.request.count',
+    description='HttpDispatchClient request outcome count',
+    unit='1',
+)
 
 
 class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
@@ -139,7 +157,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     # ------------------------------------------------------------------
 
     async def _post(self, path: str, body: dict) -> None:
-        '''POST *body* to *path* with retry; logs and swallows errors so callers are fire-and-forget.'''
+        '''POST *body* to *path* with retry+breaker; logs and swallows errors so callers are fire-and-forget.'''
         session = self._get_session()
         async def _call():
             async with session.post(
@@ -149,8 +167,13 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             ) as resp:
                 resp.raise_for_status()
         try:
-            await async_retry_broker_command(_call)
+            await _BREAKER.call(lambda: async_retry_broker_command(_call))
+            _REQUEST_COUNTER.add(1, {'result': 'success', 'path': path})
+        except CircuitBreakerOpenError:
+            _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': path})
+            logger.error('HttpDispatchClient :: dispatch breaker open, dropping POST %s', path)
         except Exception as exc:
+            _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': path})
             logger.error('HttpDispatchClient :: POST %s failed: %s', path, exc)
 
     async def _submit_fetch(self, path: str, params: dict) -> str:
@@ -164,7 +187,15 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             ) as resp:
                 resp.raise_for_status()
                 return await resp.json()
-        data = await async_retry_broker_command(_call)
+        try:
+            data = await _BREAKER.call(lambda: async_retry_broker_command(_call))
+        except CircuitBreakerOpenError:
+            _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': path})
+            raise
+        except Exception:
+            _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': path})
+            raise
+        _REQUEST_COUNTER.add(1, {'result': 'success', 'path': path})
         return data['request_id']
 
     async def _poll_result(self, request_id: str) -> dict:
@@ -180,11 +211,20 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
                 ) as resp:
                     resp.raise_for_status()
                     return resp.status, await resp.json()
-            status, data = await async_retry_broker_command(_call)
+            try:
+                status, data = await _BREAKER.call(lambda: async_retry_broker_command(_call))
+            except CircuitBreakerOpenError:
+                _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': '/dispatch/results'})
+                raise
+            except Exception:
+                _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': '/dispatch/results'})
+                raise
             if status == 200:
+                _REQUEST_COUNTER.add(1, {'result': 'success', 'path': '/dispatch/results'})
                 return data
             # 202 means still pending — back off and retry
             if asyncio.get_event_loop().time() >= deadline:
+                _REQUEST_COUNTER.add(1, {'result': 'timeout', 'path': '/dispatch/results'})
                 raise DispatchRemoteError(f'poll timeout for request_id={request_id}')
             await asyncio.sleep(interval)
             interval = min(interval * 2, _POLL_INTERVAL_MAX)
