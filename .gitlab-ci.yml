@@ -137,10 +137,10 @@ docker-push-bot:
   variables:
     DOCKERFILE_DIR: docker
 
-# Producer side of the docker-apps image-pin bump flow.
-# Only wired to docker-push-bot — the dispatcher/bot-min/broker images
-# aren't currently consumed by docker-apps.
-# Rewrites the pin in apps/discord/discord-app.yaml on merge to main.
+# Producer side of the docker-apps image-pin bump flow. One trigger job
+# per pushed image that has a consumer pin in docker-apps — each fires a
+# downstream pipeline that rewrites the matching pin and opens an MR.
+# bot-min/broker are not yet consumed by docker-apps.
 # See github-workflows/gitlab/trigger-bump.yml for the template details.
 trigger-bump-docker-apps:
   extends: .trigger-bump
@@ -167,6 +167,14 @@ docker-push-dispatcher:
     - export OCI_REPO_NAME_64="$OCI_DISPATCHER_REPO_NAME_64"
     - !reference [.buildkit-docker-push, before_script]
 
+trigger-bump-docker-apps-dispatcher:
+  extends: .trigger-bump
+  needs:
+    - job: docker-push-dispatcher
+      artifacts: true
+  variables:
+    BUMP_SOURCE: 'discord-dispatcher'
+
 notify-mr:
   extends: .discord-notify
   stage: notify
@@ -184,7 +192,7 @@ notify-mr:
 notify-failure:
   extends: .discord-notify
   stage: notify
-  needs: [tag-build, docker-push-bot, docker-push-dispatcher, trigger-bump-docker-apps]
+  needs: [tag-build, docker-push-bot, docker-push-dispatcher, trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher]
   variables:
     NOTIFY_TYPE: failure
     DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
