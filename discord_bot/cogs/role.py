@@ -104,12 +104,13 @@ class RoleAssignment(CogHelper):
     '''
     Class that can add roles in more managed fashion
     '''
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('role', False):
             raise CogMissingRequiredArg('Role not enabled')
         if not bot.intents.members:
             raise CogMissingRequiredArg('"members" intents required to run role commands')
-        super().__init__(bot, settings, None, settings_prefix='role', config_model=RoleConfig)
+        super().__init__(bot, settings, None, settings_prefix='role', config_model=RoleConfig,
+                         redis_manager=redis_manager)
         # Use validated config with integer keys
         self.settings = self.config.model_dump()
 

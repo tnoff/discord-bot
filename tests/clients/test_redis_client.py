@@ -1,8 +1,10 @@
+from unittest.mock import AsyncMock
 import pytest
 import fakeredis.aioredis
 
 from discord_bot.clients.redis_client import (
     BUNDLE_KEY_PREFIX,
+    RedisManager,
     save_bundle,
     delete_bundle,
     load_all_bundles,
@@ -64,3 +66,32 @@ async def test_load_all_bundles_ignores_unrelated_keys():
     result = await load_all_bundles(client)
     assert list(result.keys()) == ['key1']
     assert BUNDLE_KEY_PREFIX + 'key1' not in result
+
+
+# ---------------------------------------------------------------------------
+# RedisManager
+# ---------------------------------------------------------------------------
+
+def test_redis_manager_client_raises_before_start():
+    '''client property raises RuntimeError when start() has not been called.'''
+    manager = RedisManager('redis://localhost:6379/0')
+    with pytest.raises(RuntimeError, match='has not been started'):
+        _ = manager.client
+
+
+@pytest.mark.asyncio
+async def test_redis_manager_close_calls_aclose_and_clears_client():
+    '''close() calls aclose() on the underlying client and sets it to None.'''
+    fake_client = AsyncMock()
+    manager = RedisManager.from_client(fake_client)
+    await manager.close()
+    fake_client.aclose.assert_awaited_once()
+    with pytest.raises(RuntimeError):
+        _ = manager.client
+
+
+@pytest.mark.asyncio
+async def test_redis_manager_close_noop_when_not_started():
+    '''close() is safe to call when start() has never been called.'''
+    manager = RedisManager('redis://localhost:6379/0')
+    await manager.close()  # should not raise

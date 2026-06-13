@@ -17,7 +17,7 @@ from discord_bot.types.dispatch_request import (
 )
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.dispatch_queue import RedisDispatchQueue
-from discord_bot.clients.redis_client import BUNDLE_KEY_PREFIX, save_bundle as redis_save_bundle
+from discord_bot.clients.redis_client import BUNDLE_KEY_PREFIX, RedisManager, save_bundle as redis_save_bundle
 
 from tests.helpers import fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, FakeResponse, fake_context  # pylint: disable=unused-import
 from tests.helpers import generate_fake_context
@@ -993,7 +993,7 @@ async def test_cog_load_restores_bundles_from_redis():
     await redis_save_bundle(fake_redis, key, bundle.to_dict())
 
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher.cog_load()
     dispatcher._cog_consumer_task.cancel()  # pylint: disable=protected-access
@@ -1015,7 +1015,7 @@ async def test_process_mutable_saves_bundle_to_redis():
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     dispatcher.update_mutable(key, guild_id, ['hello'], channel.id, sticky=False)
     await drain_dispatcher(dispatcher, guild_id)
@@ -1035,7 +1035,7 @@ async def test_remove_mutable_deletes_bundle_from_redis():
 
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     dispatcher.update_mutable(key, guild_id, ['hello'], channel.id, sticky=False)
     await drain_dispatcher(dispatcher, guild_id)
@@ -1061,7 +1061,7 @@ async def test_process_mutable_ephemeral_deletes_from_redis():
     await redis_save_bundle(fake_redis, key, {'guild_id': guild_id, 'channel_id': channel.id, 'sticky_messages': True, 'message_contexts': []})
 
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
     # Also pre-populate _bundles so the sentinel processes correctly
     dispatcher._bundles[key] = MessageMutableBundle(guild_id, channel.id)  # pylint: disable=protected-access
 
@@ -1240,13 +1240,20 @@ def test_get_message_dispatch_grow_appends_send_funcs():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_redis_property_returns_client_when_url_configured():
-    '''_redis cached_property returns a non-None client when redis_url is set in settings.'''
+async def test_redis_property_returns_none_without_manager():
+    '''_redis returns None when no RedisManager is injected.'''
     settings = {'general': {'redis_url': 'redis://localhost:6379/0'}}
     dispatcher = MessageDispatcher(fake_bot_yielder()(), settings, None)
-    client = dispatcher._redis  # pylint: disable=protected-access
-    assert client is not None
-    await client.aclose()
+    assert dispatcher._redis is None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_redis_property_returns_client_when_manager_injected():
+    '''_redis returns the shared client when a RedisManager is injected.'''
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher = make_dispatcher()
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)  # pylint: disable=protected-access
+    assert dispatcher._redis is fake_redis  # pylint: disable=protected-access
 
 
 # ---------------------------------------------------------------------------
@@ -1261,7 +1268,7 @@ async def test_restore_bundles_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     await dispatcher._restore_bundles()  # pylint: disable=protected-access
     assert not dispatcher._bundles  # pylint: disable=protected-access
 
@@ -1274,7 +1281,7 @@ async def test_save_bundle_to_redis_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     await dispatcher._save_bundle_to_redis('key', MessageMutableBundle(1, 100))  # pylint: disable=protected-access
 
 
@@ -1286,7 +1293,7 @@ async def test_delete_bundle_from_redis_error_is_swallowed(mocker):
         side_effect=Exception('redis down'),
     )
     dispatcher = make_dispatcher()
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     await dispatcher._delete_bundle_from_redis('key')  # pylint: disable=protected-access
 
 
@@ -1316,13 +1323,13 @@ def test_message_dispatcher_raises_when_disabled():
 
 
 @pytest.mark.asyncio
-async def test_cog_unload_closes_redis_connection():
-    '''cog_unload calls aclose() on the Redis client when one was created.'''
+async def test_cog_unload_does_not_close_redis_connection():
+    '''cog_unload does not call aclose() — Redis lifecycle is owned by RedisManager.'''
     dispatcher = make_dispatcher()
     mock_redis = AsyncMock()
-    dispatcher.__dict__['_redis'] = mock_redis
+    dispatcher.redis_manager = RedisManager.from_client(mock_redis)
     await dispatcher.cog_unload()
-    mock_redis.aclose.assert_called_once()
+    mock_redis.aclose.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1331,7 +1338,7 @@ async def test_cog_unload_flushes_bundles_to_redis(fake_context, mocker):  # pyl
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
 
     # Inject a bundle directly so we don't depend on worker timing
     bundle = MessageMutableBundle(guild_id=guild_id, channel_id=channel.id)
@@ -1422,7 +1429,7 @@ async def test_dispatch_history_and_collect_with_after():
     channel.messages = [msg]
 
     dispatcher = make_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
 
     after_ts = datetime(2024, 1, 1, tzinfo=timezone.utc).isoformat()
     result = await dispatcher._dispatch_history_and_collect({  # pylint: disable=protected-access
@@ -1454,7 +1461,7 @@ async def test_dispatch_emojis_and_collect():
 
     dispatcher = make_dispatcher()
     dispatcher.bot.guilds = [fake_guild]
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
 
     result = await dispatcher._dispatch_emojis_and_collect({  # pylint: disable=protected-access
         'guild_id': fake_guild.id, 'max_retries': 1,
@@ -1542,7 +1549,7 @@ def test_redis_queue_property_returns_redis_dispatch_queue():
     bot = fake_bot_yielder()()
     settings = {'general': {'dispatch_server': {'port': 8082}}}
     dispatcher = MessageDispatcher(bot, settings, None)
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     queue = dispatcher._redis_queue  # pylint: disable=protected-access
     assert isinstance(queue, RedisDispatchQueue)
 
@@ -1634,7 +1641,7 @@ async def test_cog_load_http_mode_starts_workers_and_server(mocker):
     bot = fake_bot_yielder()()
     settings = {'general': {'dispatch_server': {'host': '0.0.0.0', 'port': 9099}, 'dispatch_worker_count': 2}}
     dispatcher = MessageDispatcher(bot, settings, None)
-    dispatcher.__dict__['_redis'] = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher.redis_manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     dispatcher.__dict__['_redis_queue'] = FakeHttpRedisQueue()
 
     mocker.patch('discord_bot.servers.dispatch_server.DispatchHttpServer.serve', new=AsyncMock())
@@ -1824,7 +1831,7 @@ async def test_process_mutable_redis_no_channel_id_and_no_bundle_returns_early()
     '''_process_mutable_redis returns early when no bundle exists and channel_id is absent.'''
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, fake_queue = make_http_dispatcher()
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     # No bundle in Redis, no channel_id in payload → early return, lock released
     await dispatcher._process_mutable_redis('newkey', {'key': 'newkey', 'guild_id': 1,  # pylint: disable=protected-access
@@ -1838,7 +1845,7 @@ async def test_process_mutable_redis_creates_new_bundle_and_sends():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
                                                    'content': ['hello'], 'channel_id': 100,
@@ -1853,7 +1860,7 @@ async def test_process_mutable_redis_loads_existing_bundle():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     # Pre-seed a bundle in Redis
     bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
@@ -1871,7 +1878,7 @@ async def test_process_mutable_redis_channel_changed_clears_old():
     new_channel = FakeChannel(id=200)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[old_channel, new_channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     # Bundle exists on old channel
     bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
@@ -1889,7 +1896,7 @@ async def test_process_mutable_redis_truncates_long_content():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     long_content = 'x' * 2500
     await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
@@ -1905,7 +1912,7 @@ async def test_process_mutable_redis_delete_after_removes_bundle():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
                                                    'content': ['bye'], 'channel_id': 100,
@@ -1921,7 +1928,7 @@ async def test_process_mutable_redis_sticky_check_runs():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     # Pre-seed a sticky bundle
     bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=True)
@@ -1938,7 +1945,7 @@ async def test_process_mutable_redis_saves_bundle_when_no_delete_after():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher._process_mutable_redis('k', {'key': 'k', 'guild_id': 1,  # pylint: disable=protected-access
                                                    'content': ['hi'], 'channel_id': 100,
@@ -1957,7 +1964,7 @@ async def test_remove_mutable_redis_clears_messages_and_deletes_key():
     channel = FakeChannel(id=100)
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher(channels=[channel])
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
     await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
@@ -1973,7 +1980,7 @@ async def test_remove_mutable_redis_no_bundle_still_deletes_key():
     '''_remove_mutable_redis succeeds even when no bundle exists in Redis.'''
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher()
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher._remove_mutable_redis('missing')  # pylint: disable=protected-access  # should not raise
 
@@ -2037,7 +2044,7 @@ async def test_process_update_channel_redis_migrates_bundle():
     '''_process_update_channel_redis moves the bundle to the new channel and saves.'''
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher()
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
     await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
@@ -2056,7 +2063,7 @@ async def test_process_update_channel_redis_no_bundle_returns():
     '''_process_update_channel_redis returns without error when bundle does not exist.'''
     fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
     dispatcher, _ = make_http_dispatcher()
-    dispatcher.__dict__['_redis'] = fake_redis
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
 
     await dispatcher._process_update_channel_redis('missing', {'guild_id': 1, 'new_channel_id': 200})  # pylint: disable=protected-access
     # Should not raise

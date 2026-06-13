@@ -15,10 +15,10 @@ class General(CogHelper):
     '''
     General use commands
     '''
-    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine):
+    def __init__(self, bot: Bot, settings: dict, _db_engine: Engine, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('default', True):
             raise CogMissingRequiredArg('Default cog not enabled')
-        super().__init__(bot, settings, None)
+        super().__init__(bot, settings, None, redis_manager=redis_manager)
 
     @command(name='hello')
     @command_wrapper
