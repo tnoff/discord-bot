@@ -181,7 +181,7 @@ notify-mr:
   needs: []
   variables:
     NOTIFY_TYPE: mr_opened
-    DISCORD_WEBHOOK_URL: $DISCORD_MR_WEBHOOK
+    DISCORD_WEBHOOK_URL: $DISCORD_MR_OPENED_WEBHOOK
   rules:
     # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
@@ -218,7 +218,7 @@ notify-merged:
   needs: []
   variables:
     NOTIFY_TYPE: mr_merged
-    DISCORD_WEBHOOK_URL: $DISCORD_MR_WEBHOOK
+    DISCORD_WEBHOOK_URL: $DISCORD_MR_MERGED_WEBHOOK
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: always
