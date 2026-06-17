@@ -47,14 +47,26 @@ class AsyncioWorkQueue(WorkQueue):
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._seq = itertools.count()
         self._dedup: set[str] = set()
+        # Latest payload per unique member, mirroring the Redis payload key so the
+        # newest content wins on coalesced updates. Non-unique enqueue() items carry
+        # their payload inline in the queue tuple and never appear here.
+        self._payloads: dict[str, dict] = {}
         self._results: dict[str, dict] = {}
 
     async def enqueue(self, member: str, payload: dict, priority: int) -> None:
         await self._queue.put((priority, next(self._seq), member, payload))
 
-    async def enqueue_unique(self, member: str, payload: dict, priority: int) -> None:
+    async def enqueue_unique(self, member: str, payload: dict, priority: int,
+                             overwrite: bool = True) -> None:
+        # Keep the newest payload (overwrite) unless this is a lock-retry re-enqueue
+        # carrying a possibly-stale payload (overwrite=False), which must not clobber
+        # a newer update that arrived after the original dequeue.
+        if overwrite or member not in self._payloads:
+            self._payloads[member] = payload
         if member not in self._dedup:
             self._dedup.add(member)
+            # Payload is also stored inline as a fallback; _payloads holds the
+            # authoritative latest value resolved at dequeue time.
             await self._queue.put((priority, next(self._seq), member, payload))
 
     async def dequeue(self, timeout: float = 1.0) -> tuple[str, dict] | None:
@@ -63,6 +75,9 @@ class AsyncioWorkQueue(WorkQueue):
                 self._queue.get(), timeout=timeout
             )
             self._dedup.discard(member)
+            # Unique members store the live payload separately so coalesced updates
+            # resolve to the latest content; fall back to the inline tuple payload.
+            payload = self._payloads.pop(member, payload)
             return member, payload
         except asyncio.TimeoutError:
             return None

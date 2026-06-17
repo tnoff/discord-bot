@@ -82,8 +82,9 @@ class RedisWorkQueue(WorkQueue):
     async def enqueue(self, member: str, payload: dict, priority: int) -> None:
         await self._get_queue().enqueue(member, payload, priority)
 
-    async def enqueue_unique(self, member: str, payload: dict, priority: int) -> None:
-        await self._get_queue().enqueue_unique(member, payload, priority)
+    async def enqueue_unique(self, member: str, payload: dict, priority: int,
+                             overwrite: bool = True) -> None:
+        await self._get_queue().enqueue_unique(member, payload, priority, overwrite=overwrite)
 
     async def dequeue(self, timeout: float = 1.0) -> tuple[str, dict] | None:
         return await self._get_queue().dequeue(timeout)

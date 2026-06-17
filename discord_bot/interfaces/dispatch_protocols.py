@@ -35,8 +35,15 @@ class WorkQueue(ABC):
         '''Add a new entry to the queue.'''
 
     @abstractmethod
-    async def enqueue_unique(self, member: str, payload: dict, priority: int) -> None:
-        '''Add an entry only if *member* is not already queued; always update payload.'''
+    async def enqueue_unique(self, member: str, payload: dict, priority: int,
+                             overwrite: bool = True) -> None:
+        '''Add an entry only if *member* is not already queued.
+
+        When *overwrite* is True (the default, used for fresh updates) the stored
+        payload is replaced so the newest content wins. When False (used by the
+        lock-retry re-enqueue path, which may be carrying an already-stale payload)
+        the payload is only written if none is currently stored — so a newer update
+        that arrived between dequeue and re-enqueue is never clobbered.'''
 
     @abstractmethod
     async def dequeue(self, timeout: float = 1.0) -> tuple[str, dict] | None:

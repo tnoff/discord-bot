@@ -75,6 +75,37 @@ async def test_enqueue_unique_nx_preserves_existing_position(dispatch_queue, red
     assert score1 == score2
 
 
+@pytest.mark.asyncio
+async def test_enqueue_unique_overwrites_payload_by_default(dispatch_queue, redis_client):
+    '''By default enqueue_unique overwrites the payload so the newest content wins.'''
+    await dispatch_queue.enqueue_unique('mutable:k', {'v': 1}, priority=0)
+    await dispatch_queue.enqueue_unique('mutable:k', {'v': 2}, priority=1)
+    raw = await redis_client.get(RedisDispatchQueue.payload_key('mutable:k'))
+    assert json.loads(raw) == {'v': 2}
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unique_no_overwrite_preserves_newer_payload(dispatch_queue, redis_client):
+    '''overwrite=False (lock-retry) must not clobber a newer payload.
+
+    Regression for the frozen-bundle bug: a stale in-progress payload re-set by the
+    lock-retry path overwrote the newer "completed" render, freezing the status
+    message and skipping the delete_after that would have removed it.
+    '''
+    await dispatch_queue.enqueue_unique('mutable:k', {'v': 'new'}, priority=0)
+    await dispatch_queue.enqueue_unique('mutable:k', {'v': 'stale'}, priority=0, overwrite=False)
+    raw = await redis_client.get(RedisDispatchQueue.payload_key('mutable:k'))
+    assert json.loads(raw) == {'v': 'new'}
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unique_no_overwrite_restores_absent_payload(dispatch_queue, redis_client):
+    '''overwrite=False restores the payload when none is stored (e.g. deleted on dequeue).'''
+    await dispatch_queue.enqueue_unique('mutable:k', {'v': 'retried'}, priority=0, overwrite=False)
+    raw = await redis_client.get(RedisDispatchQueue.payload_key('mutable:k'))
+    assert json.loads(raw) == {'v': 'retried'}
+
+
 # ---------------------------------------------------------------------------
 # enqueue (lines 90-93)
 # ---------------------------------------------------------------------------

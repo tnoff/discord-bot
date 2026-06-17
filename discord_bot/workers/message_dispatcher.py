@@ -485,7 +485,11 @@ class MessageDispatcher(DispatchClientBase):
         '''Load bundle from store, acquire lock, execute mutable update, save.'''
         acquired = await self._work_queue.acquire_lock(key)
         if not acquired:
-            await self._work_queue.enqueue_unique(f'{_MEMBER_MUTABLE}{key}', payload, DispatchPriority.HIGH)
+            # overwrite=False: this payload may be stale by now (a newer update can
+            # land while the lock is held). Re-queue the member without clobbering a
+            # fresher payload, so the newest bundle render still wins.
+            await self._work_queue.enqueue_unique(f'{_MEMBER_MUTABLE}{key}', payload,
+                                                  DispatchPriority.HIGH, overwrite=False)
             return
         try:
             async with async_otel_span_wrapper('message_dispatcher.process_mutable',
@@ -565,7 +569,10 @@ class MessageDispatcher(DispatchClientBase):
         '''
         acquired = await self._work_queue.acquire_lock(key)
         if not acquired:
-            await self._work_queue.enqueue_unique(f'{_MEMBER_REMOVE}{key}', {'key': key}, DispatchPriority.HIGH)
+            # overwrite=False for parity with the mutable retry path; the remove
+            # payload is constant so this only avoids a redundant payload write.
+            await self._work_queue.enqueue_unique(f'{_MEMBER_REMOVE}{key}', {'key': key},
+                                                  DispatchPriority.HIGH, overwrite=False)
             return
         try:
             async with async_otel_span_wrapper('message_dispatcher.remove_mutable', attributes={'key': key}):
