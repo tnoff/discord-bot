@@ -16,11 +16,10 @@ class MetricNaming(Enum):
     '''
     HEARTBEAT = 'heartbeat'
     ACTIVE_PLAYERS = 'active_players'
-    VIDEOS_PLAYED = 'videos_played'
-    CACHE_FILE_COUNT = 'cache_file_count'
     CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
+    DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
     DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
 
 class AttributeNaming(Enum):
@@ -29,6 +28,7 @@ class AttributeNaming(Enum):
     '''
     RETRY_COUNT = 'retry_count'
     BACKGROUND_JOB = 'background_job'
+    OUTCOME = 'outcome'
 
 class DiscordContextNaming(Enum):
     '''

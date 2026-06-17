@@ -105,6 +105,25 @@ async def test_stop_drains_and_clears_tasks():
 
 
 @pytest.mark.asyncio
+async def test_worker_heartbeat_callback_tracks_worker_lifecycle():
+    '''Heartbeat reports 0 before start, 1 while workers run, 0 after stop.'''
+    dispatcher = make_dispatcher(settings={'general': {'dispatch_worker_count': 2}})
+
+    before = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
+    assert len(before) == 1
+    assert before[0].value == 0
+    assert before[0].attributes['background_job'] == 'message_dispatcher'
+
+    await dispatcher.start()
+    running = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
+    assert running[0].value == 1
+
+    await dispatcher.stop()
+    after = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
+    assert after[0].value == 0
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_stuck_workers(mocker):
     '''stop() cancels workers that exceed the drain timeout.'''
     dispatcher = make_dispatcher()

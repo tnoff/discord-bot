@@ -255,8 +255,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Multi Request bundles
         self.multirequest_bundles = {}
-        # Cached video cache count for the sync observable gauge callback
-        self._cache_count: int = 0
 
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
         # Add any filter functions, do some logic so we only pass a single function into the processor
@@ -288,8 +286,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
         create_observable_gauge(METER_PROVIDER, 'music.multirequest_bundles', self.__multirequest_bundles_callback, 'Active multirequest bundles')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILE_COUNT.value, self.__cache_count_callback, 'Number of cache files in use')
-        # Cache file count callback — only meaningful in local mode with a dedicated mount
+        # Cache filesystem stats — only meaningful in local mode with a dedicated mount
         if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
@@ -389,12 +386,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 DiscordContextNaming.GUILD.value: bundle.guild_id,
             }))
         return items
-
-    def __cache_count_callback(self, _options):
-        '''
-        Cache count observer — returns cached value updated after each cache operation.
-        '''
-        return [Observation(self._cache_count)]
 
     def __cache_filestats_callback_used(self, _options):
         '''
@@ -595,7 +586,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
                 await self.media_broker.register_download(media_download)
-                self._cache_count += 1
                 player.trigger_prefetch()
                 media_download.media_request.state_machine.mark_completed()
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
@@ -843,8 +833,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 return
             span.set_status(StatusCode.OK)
             await self.add_source_to_player(media_download, player)
-            if await self.media_broker.cache_cleanup():
-                self._cache_count = await self.media_broker.get_cache_count()
+            await self.media_broker.cache_cleanup()
 
     async def __get_history_playlist(self, guild_id: int):
         '''

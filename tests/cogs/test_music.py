@@ -667,15 +667,6 @@ def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disa
         assert mock_video_cache.called
         assert cog.video_cache is not None
 
-def test_music_cache_count_callback(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test cache count callback method with database"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
-
-    # Test with empty database (should return 0)
-    result = cog._Music__cache_count_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 0
-
 def test_music_cache_filestats_callbacks(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test cache filesystem stats callback methods"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])

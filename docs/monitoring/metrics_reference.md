@@ -30,15 +30,6 @@ These metrics are exported by the Music cog when enabled.
 
 **Usage**: Track ongoing batch operations for playlists/albums.
 
-### `music.cache_file_count`
-
-**Type**: Observable Gauge
-**Unit**: files
-**Description**: Number of audio files in the download cache
-**Labels**: None
-
-**Usage**: Monitor cache size and cleanup effectiveness.
-
 ### `music.cache_filesystem_max`
 
 **Type**: Observable Gauge
@@ -69,17 +60,31 @@ These metrics are exported by the Music cog when enabled.
 
 ## MessageDispatcher Metrics
 
+### `dispatcher_ready_check`
+
+**Type**: Counter (exported to Prometheus/Mimir without a `_total` suffix, as
+`dispatcher_ready_check`)
+**Unit**: dimensionless (1)
+**Description**: Count of dispatcher readiness probes performed by the bot pod,
+by outcome. Incremented once per `/ready` probe whenever `dispatch_http_url` is
+configured (HA bot mode).
+**Labels**:
+- `outcome` = `ok` | `unavailable`
+
+**Usage**: `sum by (outcome) (rate(dispatcher_ready_check[5m]))`. A rising
+`unavailable` rate means the bot cannot reach the dispatcher's TCP port — an
+early warning for the readiness-split regression class. Only the bot pod
+(`cli.bot`) emits this; the dispatcher pod has no peer to probe.
+
 ### `message_dispatcher_queue_depth`
 
-**Type**: Observable Gauge
-**Unit**: dimensionless (1)
-**Description**: Total number of work items pending across all per-guild queues
-**Labels**:
-- `background_job` = `message_dispatcher_queue`
-
-**Usage**: A sustained non-zero value indicates the dispatcher is processing a
-backlog. Spike during heavy music downloads or bulk operations is expected; a
-value that never drains suggests a stuck worker.
+**Status**: Planned — **not currently emitted**. The work queue is a single
+priority queue (asyncio in single-process, a Redis sorted set in HA), not a set
+of per-guild queues, so there is no per-guild breakdown to label, and an
+observable-gauge callback (synchronous) cannot read the Redis depth without an
+async poller. Tracked for a follow-up that adds a `depth()` to the `WorkQueue`
+interface plus a background poller; until then, dispatcher backlog is inferred
+from the worker `heartbeat` and `dispatcher_ready_check` signals.
 
 ## Heartbeat Metrics
 
@@ -96,7 +101,7 @@ The bot exports heartbeat metrics for these loops:
 
 | `background_job` label | Description |
 |------------------------|-------------|
-| `message_dispatcher_workers` | Count of active per-guild dispatcher worker tasks |
+| `message_dispatcher` | `1` while the dispatcher worker pool is running (emitted by the discord-dispatcher pod in HA mode, or the bot itself in single-process mode) |
 | `markov_check` | Markov chain message processing loop |
 | `delete_message_check` | Automated message deletion loop |
 | `cleanup_players` | Inactive music player cleanup loop (Music) |

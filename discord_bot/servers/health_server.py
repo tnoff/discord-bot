@@ -8,9 +8,19 @@ from urllib.parse import urlsplit
 from sqlalchemy import text
 
 from discord_bot.servers.health_server_base import HealthServerBase, close_writer
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 
 
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
+
+# Counts each dispatcher readiness probe by outcome. Only incremented from the
+# bot pod (cli.bot), which probes the remote dispatcher; a flapping outcome is an
+# early warning for the readiness-split regression class.
+_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.DISPATCHER_READY_CHECK.value,
+    description='Dispatcher readiness probe outcomes from the bot pod',
+    unit='1',
+)
 
 
 class HealthServer(HealthServerBase):
@@ -72,5 +82,8 @@ class HealthServer(HealthServerBase):
         if not self._dispatch_http_url:
             return ok, extra
         dispatch_ok = await self._dispatch_probe()
+        _READY_CHECK_COUNTER.add(1, {
+            AttributeNaming.OUTCOME.value: 'ok' if dispatch_ok else 'unavailable',
+        })
         extra = {**extra, 'dispatch': 'ok' if dispatch_ok else 'unavailable'}
         return ok and dispatch_ok, extra

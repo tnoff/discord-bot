@@ -404,6 +404,29 @@ class TestHealthServerReadiness:
             except asyncio.CancelledError:
                 pass
 
+    async def test_ready_check_increments_counter_by_outcome(self, mocker):
+        '''_readiness_check records the dispatcher probe outcome on the counter.'''
+        counter = mocker.patch('discord_bot.servers.health_server._READY_CHECK_COUNTER')
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18110, dispatch_http_url='http://dispatcher:8082')
+
+        mocker.patch.object(hs, '_dispatch_probe', AsyncMock(return_value=True))
+        await hs._readiness_check()  # pylint: disable=protected-access
+        counter.add.assert_called_once_with(1, {'outcome': 'ok'})
+
+        counter.reset_mock()
+        mocker.patch.object(hs, '_dispatch_probe', AsyncMock(return_value=False))
+        await hs._readiness_check()  # pylint: disable=protected-access
+        counter.add.assert_called_once_with(1, {'outcome': 'unavailable'})
+
+    async def test_ready_check_skips_counter_without_dispatch_url(self, mocker):
+        '''No probe and no counter increment when dispatch_http_url is unset.'''
+        counter = mocker.patch('discord_bot.servers.health_server._READY_CHECK_COUNTER')
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18111)
+        await hs._readiness_check()  # pylint: disable=protected-access
+        counter.add.assert_not_called()
+
     async def test_ready_with_unreachable_dispatcher_returns_503(self):
         '''/ready 503s and reports dispatch:unavailable when the URL doesn't connect.'''
         bot = _make_bot(is_ready=True, is_closed=False)

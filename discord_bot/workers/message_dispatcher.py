@@ -12,6 +12,7 @@ from discord.errors import NotFound
 from discord.ext.commands import Bot
 
 from opentelemetry import trace
+from opentelemetry.metrics import Observation
 
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -19,7 +20,8 @@ from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.dispatch_request import DeleteRequest, SendRequest
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.utils.otel import async_otel_span_wrapper, DispatchNaming, span_links_from_context
+from discord_bot.utils.otel import (async_otel_span_wrapper, AttributeNaming, create_observable_gauge,
+                                     DispatchNaming, METER_PROVIDER, MetricNaming, span_links_from_context)
 
 
 _DRAIN_TIMEOUT_SECONDS = 30
@@ -251,6 +253,15 @@ class MessageDispatcher(DispatchClientBase):
         self._shutdown: asyncio.Event = asyncio.Event()
         self._worker_tasks: list[asyncio.Task] = []
 
+        # Heartbeat so the dispatcher process shows up in the App ControlPanel
+        # aggregate ratio. Emitted from whichever process owns this dispatcher:
+        # the discord-dispatcher pod in HA mode, or the bot itself in
+        # single-process (cli.full) mode. The bot pod (cli.bot) builds no
+        # MessageDispatcher, so it never emits this series.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                self._worker_heartbeat_callback,
+                                'Message dispatcher worker pool heartbeat')
+
     # ------------------------------------------------------------------
     # Service lifecycle
     # ------------------------------------------------------------------
@@ -259,6 +270,15 @@ class MessageDispatcher(DispatchClientBase):
         '''Start worker tasks.'''
         for _ in range(self._num_workers):
             self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
+
+    def _worker_heartbeat_callback(self, _options):
+        '''Heartbeat: 1 while at least one worker task is running, else 0.'''
+        value = 1 if self._worker_tasks and any(not t.done() for t in self._worker_tasks) else 0
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'message_dispatcher',
+            })
+        ]
 
     async def stop(self):
         '''Gracefully drain in-flight work and shut down.'''

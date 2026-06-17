@@ -321,8 +321,8 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
 
 
 @pytest.mark.asyncio()
-async def test_download_files_updates_cache_count_when_cleanup_returns_true(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''When cache_cleanup() returns True, _cache_count is refreshed (music.py line 841).'''
+async def test_download_files_runs_cache_cleanup(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''process_download_results triggers media_broker.cache_cleanup after adding the source.'''
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -332,13 +332,10 @@ async def test_download_files_updates_cache_count_when_cleanup_returns_true(mock
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
-            # Force cache_cleanup to return True and get_cache_count to return a known value
             cog.media_broker.cache_cleanup = AsyncMock(return_value=True)
-            cog.media_broker.get_cache_count = AsyncMock(return_value=7)
 
             cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
 
-            cog.media_broker.get_cache_count.assert_awaited_once()
-            assert cog._cache_count == 7  # pylint: disable=protected-access
+            cog.media_broker.cache_cleanup.assert_awaited_once()
