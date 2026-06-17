@@ -69,16 +69,25 @@ class RedisDispatchQueue:
     # Enqueueing
     # ------------------------------------------------------------------
 
-    async def enqueue_unique(self, member: str, payload: dict, priority: int) -> None:
+    async def enqueue_unique(self, member: str, payload: dict, priority: int,
+                             overwrite: bool = True) -> None:
         '''
-        Store payload and ZADD NX — payload always overwritten, queue entry
-        only added if the member is not already present.
+        Store payload and ZADD NX — queue entry only added if the member is not
+        already present.
 
         Used for mutable bundle updates: rapid-fire calls collapse to one entry
         (same semantics as the in-memory sentinel dedup).
+
+        ``overwrite`` controls the payload write so the newest content always wins:
+
+        - True (default) — fresh updates ``SET`` the payload unconditionally.
+        - False — the lock-retry re-enqueue path may be carrying a payload that is
+          already stale (a newer update can land between ``dequeue`` deleting the
+          payload and this re-enqueue). ``SET NX`` only restores the payload when
+          none is stored, so a newer update is never clobbered.
         '''
         pipe = self._redis.pipeline()
-        pipe.set(self.payload_key(member), json.dumps(payload), ex=_PAYLOAD_TTL)
+        pipe.set(self.payload_key(member), json.dumps(payload), ex=_PAYLOAD_TTL, nx=not overwrite)
         pipe.zadd(self._queue_key, {member: self._score(priority)}, nx=True)
         await pipe.execute()
 

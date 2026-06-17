@@ -798,6 +798,26 @@ async def test_process_mutable_lock_not_acquired_reenqueues(mocker):
 
 
 @pytest.mark.asyncio
+async def test_process_mutable_lock_retry_reenqueues_without_overwrite(mocker):
+    '''Lock-retry must re-enqueue with overwrite=False.
+
+    Regression for the frozen-bundle bug: the dequeued payload may be stale by the
+    time the lock is contended, so re-enqueuing it must not clobber a newer render
+    that arrived meanwhile (which would freeze the status message and skip its delete).
+    '''
+    dispatcher = make_dispatcher()
+    mocker.patch.object(dispatcher._work_queue, 'acquire_lock', return_value=False)  # pylint: disable=protected-access
+    spy = mocker.spy(dispatcher._work_queue, 'enqueue_unique')  # pylint: disable=protected-access
+
+    await dispatcher._process_mutable('mykey', {  # pylint: disable=protected-access
+        'key': 'mykey', 'guild_id': 1, 'content': ['stale'], 'channel_id': 100,
+    })
+
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs.get('overwrite') is False
+
+
+@pytest.mark.asyncio
 async def test_process_mutable_no_channel_id_no_bundle_returns_early():
     '''_process_mutable returns early when no bundle exists and channel_id absent.'''
     dispatcher = make_dispatcher()

@@ -86,6 +86,37 @@ async def test_work_queue_enqueue_unique_deduplicates():
 
 
 @pytest.mark.asyncio
+async def test_work_queue_enqueue_unique_keeps_latest_payload():
+    '''Coalesced enqueue_unique calls resolve to the newest payload (latest wins).'''
+    q = AsyncioWorkQueue()
+    await q.enqueue_unique('mutable:k', {'v': 1}, priority=0)
+    await q.enqueue_unique('mutable:k', {'v': 2}, priority=0)
+    assert await q.dequeue(timeout=0.1) == ('mutable:k', {'v': 2})
+
+
+@pytest.mark.asyncio
+async def test_work_queue_enqueue_unique_no_overwrite_preserves_newer_payload():
+    '''A stale lock-retry re-enqueue (overwrite=False) must not clobber a newer payload.
+
+    Regression for the frozen-bundle bug: the dispatcher's lock-retry path re-enqueued
+    the payload it had dequeued, overwriting a newer "completed" render that arrived
+    while the lock was held — freezing the status message and skipping its delete.
+    '''
+    q = AsyncioWorkQueue()
+    await q.enqueue_unique('mutable:k', {'v': 'new'}, priority=0)
+    await q.enqueue_unique('mutable:k', {'v': 'stale'}, priority=0, overwrite=False)
+    assert await q.dequeue(timeout=0.1) == ('mutable:k', {'v': 'new'})
+
+
+@pytest.mark.asyncio
+async def test_work_queue_enqueue_unique_no_overwrite_restores_when_absent():
+    '''overwrite=False still stores the payload when none is pending (genuine retry).'''
+    q = AsyncioWorkQueue()
+    await q.enqueue_unique('mutable:k', {'v': 'retried'}, priority=0, overwrite=False)
+    assert await q.dequeue(timeout=0.1) == ('mutable:k', {'v': 'retried'})
+
+
+@pytest.mark.asyncio
 async def test_work_queue_dequeue_timeout_returns_none():
     '''dequeue returns None when the queue is empty and timeout expires.'''
     q = AsyncioWorkQueue()
