@@ -148,7 +148,7 @@ survive pod restarts.
 
 ```yaml
 general:
-  discord_token: "YOUR_TOKEN"      # gateway connection
+  discord_token: "YOUR_TOKEN"      # authenticates outbound REST; dispatcher does NOT open the gateway
   redis_url: "redis://redis:6379/0"
   dispatch_server:
     host: 0.0.0.0                  # bind address
@@ -160,9 +160,6 @@ general:
     health_server:
       enabled: true
       port: 8080
-  include:
-    default: false
-    message_dispatcher: true       # only cog needed on the dispatcher pod
 ```
 
 ### Bot / cog pod

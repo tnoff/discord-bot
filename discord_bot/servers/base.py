@@ -1,4 +1,4 @@
-'''Shared base class for aiohttp HTTP servers.'''
+'''Shared base classes for HTTP servers.'''
 import asyncio
 import logging
 

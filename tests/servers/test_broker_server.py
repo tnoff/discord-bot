@@ -128,6 +128,32 @@ class TestUpdateStatus:
 
 
 @pytest.mark.asyncio
+class TestRegisterRequest:
+    async def test_valid_request_accepted(self):
+        broker = _make_broker()
+        mr = _make_request()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post(
+                f'/requests/{mr.uuid}',
+                json=mr.model_dump(mode='json'),
+            )
+            assert resp.status == 201
+            data = await resp.json()
+            assert data['status'] == 'ok'
+
+    async def test_invalid_body_returns_422(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post(
+                '/requests/some-uuid',
+                json={'not': 'valid'},
+            )
+            assert resp.status == 422
+
+
+@pytest.mark.asyncio
 class TestRegisterDownload:
     async def test_valid_download_result_accepted(self):
         broker = _make_broker()

@@ -24,18 +24,26 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.dispatcher
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
     volumes:
       - ../volumes/cnf/discord.dispatcher.cnf:/opt/discord/cnf/discord.cnf:ro
-      - ../volumes/db:/opt/discord/db
       - ../volumes/dispatcher-logs:/var/log/discord
     depends_on:
-      - redis
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   bot:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    environment:
+      DISCORD_BOT_CMD: discord-bot-min
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
     volumes:
       - ../volumes/cnf/discord.bot.cnf:/opt/discord/cnf/discord.cnf:ro
       - ../volumes/db:/opt/discord/db
@@ -46,7 +54,7 @@ services:
       redis:
         condition: service_started
       dispatcher:
-        condition: service_started
+        condition: service_healthy
       postgres:
         condition: service_healthy
     restart: unless-stopped

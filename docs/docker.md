@@ -180,9 +180,6 @@ general:
     health_server:
       enabled: true
       port: 8080
-  include:
-    default: false
-    message_dispatcher: true
 ```
 
 `cnf/discord.bot.cnf`:
@@ -197,7 +194,7 @@ general:
     delete_messages: true
 ```
 
-> **Note:** Only the dispatcher container connects to the Discord gateway. The bot container forwards all Discord API calls to the dispatcher over HTTP — it does not need `redis_url` or a gateway connection of its own.
+> **Note:** Both containers need the Discord token, but for different reasons — the bot opens the Discord gateway (receiving commands and events), while the dispatcher uses the token to authenticate outbound REST calls. Only the dispatcher needs `redis_url`; only the bot needs `sql_connection_statement`.
 
 See [HA architecture](./ha.md) for a full explanation of how the pods communicate.
 

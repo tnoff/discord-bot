@@ -32,7 +32,7 @@ RUN apt-get update && \
 # Must be done BEFORE switching to discord user
 RUN chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
 
-EXPOSE 8080
+EXPOSE 8080 8082
 
 WORKDIR "/opt/discord"
 
@@ -42,8 +42,11 @@ USER discord
 # Make sure cache dir exists
 RUN mkdir -p /opt/discord/.cache
 
+# Probe the dispatch HTTP server (port 8082) — it's the API the bot pods
+# call. The /health endpoint on port 8080 only reflects redis reachability,
+# and starts listening before the dispatch server does.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"
+  CMD python3 -c "import socket; socket.create_connection(('localhost', 8082), timeout=5).close()"
 
-ENTRYPOINT ["discord-bot"]
+ENTRYPOINT ["discord-dispatcher"]
 CMD ["/opt/discord/cnf/discord.cnf"]

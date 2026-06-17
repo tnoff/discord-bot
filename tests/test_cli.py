@@ -1,8 +1,6 @@
 import asyncio
-import importlib.util
 import logging as stdlib_logging
 import signal
-import sys
 from tempfile import NamedTemporaryFile
 from unittest.mock import MagicMock, AsyncMock
 
@@ -10,11 +8,23 @@ from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_bot.cli import main
-from discord_bot.cli.bot import make_async_db_url
-from discord_bot.cli.common import main_loop, FilterOKRetrySpans, read_config
+from discord_bot.cli.bot import main, main_loop
+from discord_bot.cli.dispatcher import main as dispatcher_main
+from discord_bot.cli.dispatcher import main_loop as dispatcher_main_loop
+from discord_bot.cli.dispatcher import run_bot as dispatcher_run_bot
+from discord_bot.cli.full import main as full_main
+from discord_bot.cli.full import main_loop as full_main_loop
+from discord_bot.cli.common import FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
+
+
+class _FakeDispatcher:
+    '''Minimal dispatcher stand-in for cli main_loop tests.'''
+    async def start(self):
+        pass
+    async def stop(self):
+        pass
 
 def test_run_with_no_args():
     '''
@@ -55,7 +65,8 @@ async def test_run_config_only_token(mocker):
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
             'general': {
-                'discord_token': 'foo'
+                'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
             },
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
@@ -77,6 +88,7 @@ async def test_run_config_reject_list(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'rejectlist_guilds': [
                     fake_guild.id,
                 ],
@@ -100,6 +112,7 @@ async def test_run_config_no_reject_list(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
             }
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
@@ -121,11 +134,12 @@ async def test_run_config_with_db(mocker, pg_test_db_url):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'sql_connection_statement': plain_url,
                 'rejectlist_guilds': [
                     1234,
                 ],
-            }
+            },
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
@@ -145,6 +159,7 @@ async def test_run_config_with_intents(mocker, pg_test_db_url):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'sql_connection_statement': plain_url,
                 'intents': [
                     'members',
@@ -472,10 +487,11 @@ def test_read_config_none():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_main_loop_dispatch_gateway_false():
-    '''main_loop uses bot.login() and polls is_closed() when dispatch_gateway=False (lines 144-147)'''
+    '''dispatcher_main_loop uses bot.login() and polls is_closed() (HTTP-only / HA mode)'''
     class _FakeBotHttpOnly:
         def __init__(self):
             self._calls = 0
+            self.bot_closed = False
         def is_closed(self):
             self._calls += 1
             return self._calls > 1  # False on first poll, True on second
@@ -485,9 +501,15 @@ async def test_main_loop_dispatch_gateway_false():
             return self
         async def __aexit__(self, *_args):
             pass
+        async def close(self):
+            self.bot_closed = True
+
+    mock_manager = MagicMock()
+    mock_manager.start = AsyncMock()
+    mock_manager.close = AsyncMock()
 
     bot = _FakeBotHttpOnly()
-    await main_loop(bot, [], 'token', dispatch_gateway=False)
+    await dispatcher_main_loop(bot, 'token', mock_manager, _FakeDispatcher())
     assert bot._calls >= 2  # polled at least twice  #pylint:disable=protected-access
 
 
@@ -573,30 +595,81 @@ async def test_main_loop_with_health_server():
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_main_loop_closes_redis_manager_on_shutdown():
-    '''main_loop calls redis_manager.close() after cogs unload on KeyboardInterrupt shutdown.'''
+    '''dispatcher_main_loop calls redis_manager.close() after shutdown (KeyboardInterrupt).'''
     class _FakeBotInterrupt:
+        def __init__(self):
+            self.bot_closed = False
         def event(self, _func):
             pass
         def is_closed(self):
-            return False
-        async def start(self, _token):
+            return self.bot_closed
+        async def login(self, _token):
             raise KeyboardInterrupt()
         async def __aenter__(self):
             return self
         async def __aexit__(self, *_args):
             pass
-        async def add_cog(self, _cog):
-            pass
         async def close(self):
-            pass
+            self.bot_closed = True
 
     mock_manager = MagicMock()
     mock_manager.start = AsyncMock()
     mock_manager.close = AsyncMock()
 
-    await main_loop(_FakeBotInterrupt(), [], 'token', redis_manager=mock_manager)
+    await dispatcher_main_loop(_FakeBotInterrupt(), 'token', mock_manager, _FakeDispatcher())
     mock_manager.start.assert_awaited_once()
     mock_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_dispatcher_main_loop_with_dispatch_http_server():
+    '''dispatcher_main_loop creates a task for dispatch_http_server.serve() when provided.'''
+    mock_dispatch_server = MagicMock()
+    mock_dispatch_server.serve = AsyncMock()
+
+    class _FakeBotQuick:
+        def __init__(self):
+            self._calls = 0
+            self.bot_closed = False
+        def is_closed(self):
+            self._calls += 1
+            return self._calls > 1  # False on first poll, True on second
+        async def login(self, _token):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def close(self):
+            self.bot_closed = True
+
+    mock_manager = MagicMock()
+    mock_manager.start = AsyncMock()
+    mock_manager.close = AsyncMock()
+
+    await dispatcher_main_loop(
+        _FakeBotQuick(), 'token', mock_manager, _FakeDispatcher(),
+        dispatch_http_server=mock_dispatch_server,
+    )
+    mock_dispatch_server.serve.assert_called_once()
+
+
+def test_dispatcher_run_bot_schedules_main_loop(mocker):
+    '''dispatcher.run_bot schedules main_loop on the event loop via run_loop().'''
+    mock_run_loop = mocker.patch('discord_bot.cli.dispatcher.run_loop')
+
+    general_config = MagicMock()
+    general_config.discord_token = 'token'
+    bot = MagicMock()
+    redis_manager = MagicMock()
+    dispatcher = MagicMock()
+
+    dispatcher_run_bot(general_config, bot, redis_manager, dispatcher)
+    mock_run_loop.assert_called_once()
+    # Ensure run_loop was passed the awaitable from main_loop
+    coro = mock_run_loop.call_args[0][0]
+    assert asyncio.iscoroutine(coro)
+    coro.close()
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -643,7 +716,7 @@ async def test_main_loop_second_signal_noop():
 def test_main_runner_no_event_loop(mocker):
     '''main_runner falls through to asyncio.run (lines 318-319, 325-326) when no loop is running'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {'general': {'discord_token': 'foo'}}
+        config_data = {'general': {'discord_token': 'foo', 'dispatch_http_url': 'http://localhost:8082'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
@@ -666,9 +739,9 @@ def _patch_otlp(mocker):
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
         mocker.patch(f'discord_bot.cli.common.{name}')
-    mocker.patch('discord_bot.cli.bot.SQLAlchemyInstrumentor')
+    mocker.patch('discord_bot.cli.db.SQLAlchemyInstrumentor')
+    mocker.patch('discord_bot.cli.db.trace')
     mocker.patch('discord_bot.cli.common.trace')
-    mocker.patch('discord_bot.cli.bot.trace')
     # LoggingHandler mock is added to the root logger; .level must be an int or
     # callHandlers() raises TypeError on "record.levelno >= hdlr.level"
     mock_handler = MagicMock(spec=stdlib_logging.Handler)
@@ -683,6 +756,7 @@ async def test_main_with_otlp_filter_enabled(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'monitoring': {'otlp': {'enabled': True}},
             }
         }
@@ -703,6 +777,7 @@ async def test_main_with_otlp_filter_disabled(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'monitoring': {'otlp': {'enabled': True, 'filter_high_volume_spans': False}},
             }
         }
@@ -723,6 +798,7 @@ async def test_main_with_memory_profiling(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'memory_profiling': {'enabled': True},
@@ -746,6 +822,7 @@ async def test_main_with_process_metrics(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'process_metrics': {'enabled': True},
@@ -770,6 +847,7 @@ async def test_main_with_health_server_monitoring(mocker):
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'health_server': {'enabled': True},
@@ -780,7 +858,7 @@ async def test_main_with_health_server_monitoring(mocker):
             dump(config_data, writer)
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
-        mocker.patch('discord_bot.cli.bot.HealthServer', return_value=mock_hs)
+        mocker.patch('discord_bot.cli.health.HealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
@@ -789,13 +867,12 @@ async def test_main_with_health_server_monitoring(mocker):
 
 
 @pytest.mark.asyncio
-async def test_main_with_dispatch_health_server(mocker):
-    '''DispatchHealthServer is used when dispatch_gateway=False and redis_url is set (line 306)'''
+async def test_dispatcher_main_with_health_server(mocker):
+    '''DispatchHealthServer is instantiated by the dispatcher entry-point when health_server.enabled is true.'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
             'general': {
                 'discord_token': 'foo',
-                'dispatch_gateway': False,
                 'redis_url': 'redis://localhost:6379/0',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -809,28 +886,33 @@ async def test_main_with_dispatch_health_server(mocker):
         mock_hs.serve = AsyncMock()
         mocker.patch('discord_bot.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli.dispatcher.run_bot')
         runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
+        result = runner.invoke(dispatcher_main, [temp_config.name])
         await asyncio.sleep(.01)
         assert result.exception is None
 
 
 def test_run_config_with_postgresql_db(mocker):
-    '''postgresql URL is rewritten to postgresql+asyncpg and table creation uses the async engine.
+    '''postgresql URL is rewritten to postgresql+asyncpg and engine is disposed synchronously.
 
-    Covers bot.py lines 42-44 (_create_tables), 49-56 (_setup_db postgres path).
+    Covers cli.py lines 186 (url rewrite), 270-271 (RuntimeError → loop=None), 275 (asyncio.run).
     This test is intentionally synchronous so there is no running event loop in the finally block,
     exercising the asyncio.run(db_engine.dispose()) path.
     '''
     mock_async_engine = AsyncMock()
-    create_async_engine_mock = mocker.patch('discord_bot.cli.bot.create_async_engine', return_value=mock_async_engine)
-    mocker.patch('discord_bot.cli.bot._create_tables')
+    mock_async_engine.sync_engine = MagicMock()
+    # Prevent actual DB connection
+    mocker.patch('discord_bot.cli.db.BASE.metadata.create_all')
+    create_async_engine_mock = mocker.patch('discord_bot.cli.db.create_async_engine', return_value=mock_async_engine)
+    mocker.patch('discord_bot.cli.db._create_tables', new=AsyncMock())
     mocker.patch('discord_bot.cli.bot.run_bot')
 
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
             'general': {
                 'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
                 'sql_connection_statement': 'postgresql://user:pass@localhost/testdb',
             }
         }
@@ -847,22 +929,146 @@ def test_run_config_with_postgresql_db(mocker):
     mock_async_engine.dispose.assert_awaited_once()
 
 
-def test_make_async_db_url_rejects_non_postgres():
+def test_setup_db_rejects_non_postgres():
     '''Only postgresql drivers are supported; everything else raises.'''
+    from discord_bot.cli.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     with pytest.raises(ValueError, match='Unsupported database driver'):
-        make_async_db_url('mysql://user:pass@localhost/db')
+        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))
     with pytest.raises(ValueError, match='Unsupported database driver'):
-        make_async_db_url('sqlite:///local.db')
+        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='sqlite:///local.db'))
 
 
-def test_main_dunder_main(mocker):
-    '''Executing cli/main.py as __main__ invokes the main() click command.'''
-    import pathlib  # pylint: disable=import-outside-toplevel
-    import discord_bot.cli as cli_pkg  # pylint: disable=import-outside-toplevel
-    mocker.patch.object(sys, 'argv', ['main', '--help'])
-    main_file = pathlib.Path(cli_pkg.__file__).parent / 'main.py'
-    spec = importlib.util.spec_from_file_location('__main__', main_file)
-    new_mod = importlib.util.module_from_spec(spec)
-    new_mod.__name__ = '__main__'
-    with pytest.raises(SystemExit):
-        spec.loader.exec_module(new_mod)
+def test_bot_run_raises_when_dispatch_http_url_missing():
+    '''cli/bot.py run() raises DiscordBotException when dispatch_http_url is absent.'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        assert 'dispatch_http_url required' in str(result.exception)
+
+
+def test_dispatcher_run_raises_when_redis_url_missing():
+    '''cli/dispatcher.py run() raises DiscordBotException when redis_url is absent.'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(dispatcher_main, [temp_config.name])
+        assert 'Redis required' in str(result.exception)
+
+
+# ---------------------------------------------------------------------------
+# cli/full.py — single-process full mode
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_full_run_config_only_token(mocker):
+    '''full main runs successfully with only a discord_token (no Redis, no DB).'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(full_main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
+async def test_full_run_config_reject_list(mocker):
+    '''full mode leaves guilds in the rejectlist on startup.'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        fake_guild = FakeGuild()
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'rejectlist_guilds': [fake_guild.id],
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[fake_guild]))
+        runner = CliRunner()
+        runner.invoke(full_main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert fake_guild.left_guild is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_full_main_loop_keyboard_interrupt_unloads_cogs():
+    '''full main_loop unloads cogs on KeyboardInterrupt just like bot.py.'''
+    class FakeCog:
+        def __init__(self):
+            self.unloaded = False
+        async def cog_unload(self):
+            self.unloaded = True
+
+    class FakeBotInterrupt:
+        def __init__(self):
+            self.close_called = False
+            self.bot_closed = False
+        def event(self, func):
+            pass
+        def is_closed(self):
+            return self.bot_closed
+        async def start(self, _token):
+            raise KeyboardInterrupt()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            self.close_called = True
+            self.bot_closed = True
+
+    class FakeDispatcher:
+        async def start(self):
+            pass
+        async def stop(self):
+            pass
+
+    cog = FakeCog()
+    bot = FakeBotInterrupt()
+    await full_main_loop(bot, [cog], 'token', FakeDispatcher())
+    assert cog.unloaded is True
+    assert bot.close_called is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_full_main_loop_calls_dispatcher_stop_on_shutdown():
+    '''full main_loop calls dispatcher.stop() during graceful shutdown.'''
+    class FakeBotInterrupt:
+        def __init__(self):
+            self.bot_closed = False
+        def event(self, _func):
+            pass
+        def is_closed(self):
+            return self.bot_closed
+        async def start(self, _token):
+            raise KeyboardInterrupt()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def add_cog(self, _cog):
+            pass
+        async def close(self):
+            self.bot_closed = True
+
+    stop_called = []
+
+    class TrackingDispatcher:
+        async def start(self):
+            pass
+        async def stop(self):
+            stop_called.append(True)
+
+    await full_main_loop(FakeBotInterrupt(), [], 'token', TrackingDispatcher())
+    assert stop_called == [True]

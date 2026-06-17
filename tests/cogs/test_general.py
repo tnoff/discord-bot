@@ -21,13 +21,13 @@ def test_general_startup_not_enabled(fake_context):  #pylint:disable=redefined-o
 
 @pytest.mark.asyncio
 async def test_hello(fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, None)
+    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     result = await cog.hello(cog, fake_context['context']) #pylint:disable=too-many-function-args
     assert result == f'Waddup {fake_context["author"].display_name}'
 
 @pytest.mark.asyncio
 async def test_roll(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, None)
+    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     mocker.patch('discord_bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, fake_context['context'], input_value='5') #pylint:disable=too-many-function-args
     assert result == f'{fake_context["author"].display_name} rolled a 3'
@@ -38,7 +38,7 @@ async def test_roll(mocker, fake_context):  #pylint:disable=redefined-outer-name
 
 @pytest.mark.asyncio
 async def test_roll_invalid_input(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, None)
+    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     mocker.patch('discord_bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, fake_context['context'], input_value='foo') #pylint:disable=too-many-function-args
     assert result == 'Invalid input given "foo"'
@@ -49,14 +49,14 @@ async def test_roll_invalid_input(mocker, fake_context):  #pylint:disable=redefi
 
 @pytest.mark.asyncio
 async def test_meta(fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, None)
+    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     result = await cog.meta(cog, fake_context['context']) #pylint:disable=too-many-function-args
     assert result == f'```Server id: {fake_context["guild"].id}\nChannel id: {fake_context["channel"].id}\nUser id: {fake_context["author"].id}```'
 
 @pytest.mark.asyncio
 async def test_roll_value_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''ValueError branch is reached when match groups cannot be converted to int'''
-    cog = General(fake_context['bot'], {}, None)
+    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     mock_matcher = MagicMock()
     mock_matcher.group.side_effect = lambda key: 'abc' if key == 'sides' else None
     mocker.patch('discord_bot.cogs.general.match', return_value=mock_matcher)

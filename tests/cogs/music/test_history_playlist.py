@@ -19,7 +19,7 @@ from tests.helpers import fake_engine, fake_context #pylint:disable=unused-impor
 
 @pytest.mark.asyncio
 async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -58,7 +58,7 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
             }
         }
     } | BASE_MUSIC_CONFIG
-    cog = Music(fake_context['bot'], config, fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -84,7 +84,7 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
 @pytest.mark.asyncio
 async def test_post_play_processing_empty_queue_returns_early(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
     """post_play_processing returns early when queue is empty and bot is not shutting down."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     # Empty queue, no shutdown → should just return at line 459
     await cog.post_play_processing()
@@ -93,7 +93,7 @@ async def test_post_play_processing_empty_queue_returns_early(mocker, fake_engin
 @pytest.mark.asyncio
 async def test_post_play_processing_empty_queue_bot_shutdown(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
     """post_play_processing raises ExitEarlyException when queue is empty and shutdown is set."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     cog.bot_shutdown_event.set()
     with pytest.raises(ExitEarlyException):
@@ -103,7 +103,7 @@ async def test_post_play_processing_empty_queue_bot_shutdown(mocker, fake_engine
 @pytest.mark.asyncio
 async def test_post_play_processing_added_from_history(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
     """post_play_processing skips history DB insert when added_from_history is True."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])

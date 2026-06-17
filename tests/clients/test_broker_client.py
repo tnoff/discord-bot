@@ -111,6 +111,16 @@ class TestInMemoryBrokerClient:
 
 @pytest.mark.asyncio
 class TestHttpBrokerClient:
+    async def test_register_request(self):
+        broker = _make_broker()
+        mr = _make_request()
+        server = BrokerHttpServer(broker)
+        async with TestClient(TestServer(server.build_app())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            await hc.register_request(mr)
+        entry = broker.get_entry(str(mr.uuid))
+        assert entry is not None
+
     async def test_update_request_status(self):
         broker = _make_broker()
         mr = _make_request()

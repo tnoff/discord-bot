@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock
 import pytest
 import fakeredis.aioredis
 
-from discord_bot.clients.redis_client import (
+from discord_bot.clients.redis_client import RedisManager
+from discord_bot.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
-    RedisManager,
     save_bundle,
     delete_bundle,
     load_all_bundles,
@@ -77,6 +77,20 @@ def test_redis_manager_client_raises_before_start():
     manager = RedisManager('redis://localhost:6379/0')
     with pytest.raises(RuntimeError, match='has not been started'):
         _ = manager.client
+
+
+@pytest.mark.asyncio
+async def test_redis_manager_start_opens_connection(mocker):
+    '''start() calls aioredis.from_url with decode_responses=True and stores the client.'''
+    fake_client = AsyncMock()
+    mock_from_url = mocker.patch(
+        'discord_bot.clients.redis_client.aioredis.from_url',
+        return_value=fake_client,
+    )
+    manager = RedisManager('redis://localhost:6379/0')
+    await manager.start()
+    mock_from_url.assert_called_once_with('redis://localhost:6379/0', decode_responses=True)
+    assert manager.client is fake_client
 
 
 @pytest.mark.asyncio

@@ -45,6 +45,8 @@ else:
         postgres_options='-c fsync=off -c synchronous_commit=off -c full_page_writes=off',
     )
 
+from tests.helpers import fake_context #pylint:disable=unused-import,wrong-import-position
+
 
 def _admin_url(proc) -> str:
     auth = proc.user

@@ -69,7 +69,9 @@ test = [
 ]
 
 [project.scripts]
-discord-bot = "discord_bot.cli:main"
+discord-bot = "discord_bot.cli.full:main"
+discord-bot-min = "discord_bot.cli.bot:main"
+discord-dispatcher = "discord_bot.cli.dispatcher:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

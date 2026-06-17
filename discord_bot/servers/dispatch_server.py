@@ -20,8 +20,9 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
+from discord_bot.interfaces.dispatch_protocols import WorkQueue
 from discord_bot.servers.base import AiohttpServerBase
-from discord_bot.utils.dispatch_queue import RedisDispatchQueue, dispatch_request_id
+from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class DispatchHttpServer(AiohttpServerBase):
     '''
 
     # bandit B104: '0.0.0.0' default is intentional — bot pods reach the dispatcher across the docker/k8s network; callers override host via constructor arg
-    def __init__(self, dispatcher, redis_queue: RedisDispatchQueue,
+    def __init__(self, dispatcher, redis_queue: WorkQueue,
                  host: str = '0.0.0.0', port: int = 8082):  # nosec B104
         super().__init__()
         self._dispatcher = dispatcher

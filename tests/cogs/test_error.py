@@ -9,7 +9,7 @@ from tests.helpers import fake_context  #pylint:disable=unused-import
 
 
 def make_cog(ctx_fixture):
-    return CommandErrorHandler(ctx_fixture['bot'], {})
+    return CommandErrorHandler(ctx_fixture['bot'], {}, dispatcher=ctx_fixture['dispatcher'])
 
 
 def make_ctx(fake_context):  #pylint:disable=redefined-outer-name

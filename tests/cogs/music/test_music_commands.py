@@ -35,7 +35,7 @@ def _set_author_voice(fake_context, channel=None):  # pylint: disable=redefined-
 async def test_check_author_voice_chat_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """Returns None and sends message when author is not in any voice channel."""
     # author.voice is None by default → AttributeError → early return
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     result = await cog._Music__check_author_voice_chat(fake_context['context'])  # pylint: disable=protected-access
     assert result is None
@@ -49,7 +49,7 @@ async def test_check_author_voice_chat_wrong_guild(fake_context):  # pylint: dis
     # FakeChannel() creates its own new FakeGuild → different guild.id object
     other_channel = FakeChannel()
     _set_author_voice(fake_context, channel=other_channel)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     result = await cog._Music__check_author_voice_chat(fake_context['context'])  # pylint: disable=protected-access
     assert result is None
@@ -62,7 +62,7 @@ async def test_check_author_voice_chat_no_check_returns_channel(fake_context):  
     """check_voice_chats=False skips guild comparison and returns channel even for 'other' guild."""
     other_channel = FakeChannel()
     _set_author_voice(fake_context, channel=other_channel)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     result = await cog._Music__check_author_voice_chat(  # pylint: disable=protected-access
         fake_context['context'], check_voice_chats=False
@@ -78,7 +78,7 @@ async def test_check_author_voice_chat_no_check_returns_channel(fake_context):  
 async def test_ensure_player_async_timeout(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """Returns None and sends message when joining voice channel times out."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(cog, 'get_player', side_effect=asyncio.TimeoutError('timed out'))
     result = await cog._Music__ensure_player(fake_context['context'], fake_context['channel'])  # pylint: disable=protected-access
@@ -94,7 +94,7 @@ async def test_ensure_player_async_timeout(fake_context, mocker):  # pylint: dis
 @pytest.mark.asyncio
 async def test_skip_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """skip_ returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.skip_.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -105,7 +105,7 @@ async def test_skip_no_voice(fake_context):  # pylint: disable=redefined-outer-n
 async def test_skip_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """skip_ returns early with 'not currently playing' when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     # No player created → check_voice_client_active=True → sends "not currently playing"
@@ -118,7 +118,7 @@ async def test_skip_no_player(fake_context, mocker):  # pylint: disable=redefine
 async def test_skip_not_playing(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """skip_ returns early at is_playing() check when nothing is playing."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -140,7 +140,7 @@ async def test_skip_not_playing(fake_context, mocker):  # pylint: disable=redefi
 @pytest.mark.asyncio
 async def test_clear_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """clear returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.clear.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -151,7 +151,7 @@ async def test_clear_no_voice(fake_context):  # pylint: disable=redefined-outer-
 async def test_clear_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """clear returns early with 'not currently playing' when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.clear.callback(cog, fake_context['context'])
@@ -163,7 +163,7 @@ async def test_clear_no_player(fake_context, mocker):  # pylint: disable=redefin
 async def test_clear_empty_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """clear sends 'no more queued videos' when the queue is empty."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -181,7 +181,7 @@ async def test_clear_empty_queue(fake_context, mocker):  # pylint: disable=redef
 @pytest.mark.asyncio
 async def test_history_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """history_ returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.history_.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -192,7 +192,7 @@ async def test_history_no_voice(fake_context):  # pylint: disable=redefined-oute
 async def test_history_empty(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """history_ sends 'no videos played' when history is empty."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -209,7 +209,7 @@ async def test_history_empty(fake_context, mocker):  # pylint: disable=redefined
 @pytest.mark.asyncio
 async def test_shuffle_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """shuffle_ returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.shuffle_.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -220,7 +220,7 @@ async def test_shuffle_no_voice(fake_context):  # pylint: disable=redefined-oute
 async def test_shuffle_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """shuffle_ returns early with 'not currently playing' when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.shuffle_.callback(cog, fake_context['context'])
@@ -232,7 +232,7 @@ async def test_shuffle_no_player(fake_context, mocker):  # pylint: disable=redef
 async def test_shuffle_empty_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """shuffle_ sends 'no more queued videos' when queue is empty."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -250,7 +250,7 @@ async def test_shuffle_empty_queue(fake_context, mocker):  # pylint: disable=red
 @pytest.mark.asyncio
 async def test_remove_item_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """remove_item returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.remove_item.callback(cog, fake_context['context'], '1')
     cog.dispatcher.send_message.assert_called_once()
@@ -261,7 +261,7 @@ async def test_remove_item_no_voice(fake_context):  # pylint: disable=redefined-
 async def test_remove_item_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """remove_item returns early when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.remove_item.callback(cog, fake_context['context'], '1')
@@ -273,7 +273,7 @@ async def test_remove_item_no_player(fake_context, mocker):  # pylint: disable=r
 async def test_remove_item_empty_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """remove_item sends 'no more queued videos' when queue is empty."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -288,7 +288,7 @@ async def test_remove_item_empty_queue(fake_context, mocker):  # pylint: disable
 async def test_remove_item_invalid_index(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """remove_item sends 'Invalid queue index' when a non-integer index is given."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -305,7 +305,7 @@ async def test_remove_item_invalid_index(fake_context, mocker):  # pylint: disab
 async def test_remove_item_not_found(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """remove_item sends 'Unable to remove' when index is out of range."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -326,7 +326,7 @@ async def test_remove_item_not_found(fake_context, mocker):  # pylint: disable=r
 @pytest.mark.asyncio
 async def test_bump_item_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """bump_item returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.bump_item.callback(cog, fake_context['context'], '1')
     cog.dispatcher.send_message.assert_called_once()
@@ -337,7 +337,7 @@ async def test_bump_item_no_voice(fake_context):  # pylint: disable=redefined-ou
 async def test_bump_item_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """bump_item returns early when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.bump_item.callback(cog, fake_context['context'], '1')
@@ -349,7 +349,7 @@ async def test_bump_item_no_player(fake_context, mocker):  # pylint: disable=red
 async def test_bump_item_empty_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """bump_item sends 'no more queued videos' when queue is empty."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -364,7 +364,7 @@ async def test_bump_item_empty_queue(fake_context, mocker):  # pylint: disable=r
 async def test_bump_item_invalid_index(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """bump_item sends 'Invalid queue index' when a non-integer index is given."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -381,7 +381,7 @@ async def test_bump_item_invalid_index(fake_context, mocker):  # pylint: disable
 async def test_bump_item_not_found(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """bump_item sends 'Unable to bump' when index is out of range."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -402,7 +402,7 @@ async def test_bump_item_not_found(fake_context, mocker):  # pylint: disable=red
 @pytest.mark.asyncio
 async def test_stop_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """stop_ returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.stop_.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -416,7 +416,7 @@ async def test_stop_no_voice(fake_context):  # pylint: disable=redefined-outer-n
 @pytest.mark.asyncio
 async def test_move_messages_here_no_voice(fake_context):  # pylint: disable=redefined-outer-name
     """move_messages_here returns early when author is not in voice."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.move_messages_here.callback(cog, fake_context['context'])
     cog.dispatcher.send_message.assert_called_once()
@@ -427,7 +427,7 @@ async def test_move_messages_here_no_voice(fake_context):  # pylint: disable=red
 async def test_move_messages_here_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """move_messages_here returns early when no player exists."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.move_messages_here.callback(cog, fake_context['context'])
@@ -439,7 +439,7 @@ async def test_move_messages_here_no_player(fake_context, mocker):  # pylint: di
 async def test_move_messages_here_same_channel(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """move_messages_here sends 'already sending messages' when channel unchanged."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -460,7 +460,7 @@ async def test_move_messages_here_same_channel(fake_context, mocker):  # pylint:
 async def test_play_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
     """play_ returns early when __ensure_player returns None (e.g., timeout joining channel)."""
     _set_author_voice(fake_context)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, None)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     # Patch the name-mangled method to return None (simulates timeout / failure)
     mocker.patch.object(cog, '_Music__ensure_player', new=AsyncMock(return_value=None))

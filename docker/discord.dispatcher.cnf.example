@@ -1,0 +1,20 @@
+# HA dispatcher config — for docker/docker-compose.multiprocess.yml (dispatcher service).
+# Entrypoint: discord-dispatcher (cli.dispatcher). No SQLAlchemy, no gateway —
+# only Redis-backed worker + DispatchHttpServer on :8082.
+#
+# Secrets resolve from env vars via pyaml_env. Set in docker/.env (gitignored).
+# Required: DISCORD_TOKEN.
+general:
+  discord_token: !ENV ${DISCORD_TOKEN}
+  redis_url: redis://redis:6379/0
+  dispatch_process_id: dispatcher-0
+  dispatch_shard_id: 0
+  dispatch_server:
+    host: 0.0.0.0
+    port: 8082
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
