@@ -1,33 +1,33 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 19d5a0b08eace26bc92198c2061b8ad3df3189f9
+    ref: 0193182a94c8cfed9d78a344a071fc83a20af241
     file: '/gitlab/tox-pipeline.yml'
 
 default:
@@ -121,6 +121,7 @@ tox-generate:
     # reaches tox-generate's heredoc literally; the child pipeline's
     # parallel: matrix: then substitutes it per Python minor at runtime.
     TOX_BASE_IMAGE: '${CI_BASE_IMAGE_PATH}:$${PYTHON_VERSION}'
+    TOX_GENERATE_IMAGE: '${CI_BASE_IMAGE_PATH}:3.14'
 
 tox-pipeline:
   extends: .tox-pipeline
