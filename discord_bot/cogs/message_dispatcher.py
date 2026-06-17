@@ -1165,14 +1165,33 @@ class MessageDispatcher(CogHelperBase):
             await self._redis_queue.release_lock(key)
 
     async def _remove_mutable_redis(self, key: str):
-        '''HTTP-mode: delete all messages for a bundle and remove it from Redis.'''
-        async with async_otel_span_wrapper('message_dispatcher.remove_mutable_redis', attributes={'key': key}):
-            bundle_dict = await redis_load_bundle(self._redis, key)
-            if bundle_dict:
-                bundle = MessageMutableBundle.from_dict(bundle_dict)
-                delete_funcs = bundle.clear_all_messages(self.bot.get_partial_messageable)
-                await self._execute_funcs(delete_funcs)
-            await self._delete_bundle_from_redis(key)
+        '''HTTP-mode: delete all messages for a bundle and remove it from Redis.
+
+        Acquires the same per-key execution lock as :meth:`_process_mutable_redis`
+        so a remove cannot run concurrently with an in-flight create/update for the
+        same bundle. Without the lock a remove issued during the Discord round-trip
+        of a create (e.g. the search→enqueue status-message handoff) loads the bundle
+        before the create has persisted it, deletes nothing, and the message the
+        create then sends is orphaned on screen — surfacing as a duplicate status
+        message. On contention we re-enqueue so the remove runs after the create
+        finishes and has saved the message_id, mirroring _process_mutable_redis.
+        '''
+        acquired = await self._redis_queue.acquire_lock(key)
+        if not acquired:
+            # A create/update for this bundle is in flight; re-enqueue so the remove
+            # runs once that update releases the lock (and has persisted message_id).
+            await self._redis_queue.enqueue_unique(f'{_MEMBER_REMOVE}{key}', {'key': key}, DispatchPriority.HIGH)
+            return
+        try:
+            async with async_otel_span_wrapper('message_dispatcher.remove_mutable_redis', attributes={'key': key}):
+                bundle_dict = await redis_load_bundle(self._redis, key)
+                if bundle_dict:
+                    bundle = MessageMutableBundle.from_dict(bundle_dict)
+                    delete_funcs = bundle.clear_all_messages(self.bot.get_partial_messageable)
+                    await self._execute_funcs(delete_funcs)
+                await self._delete_bundle_from_redis(key)
+        finally:
+            await self._redis_queue.release_lock(key)
 
     async def _process_send_redis(self, payload: dict):
         '''HTTP-mode: execute a send_message from Redis queue payload.'''

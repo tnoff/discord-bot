@@ -1985,6 +1985,48 @@ async def test_remove_mutable_redis_no_bundle_still_deletes_key():
     await dispatcher._remove_mutable_redis('missing')  # pylint: disable=protected-access  # should not raise
 
 
+@pytest.mark.asyncio
+async def test_remove_mutable_redis_lock_not_acquired_reenqueues():
+    '''_remove_mutable_redis re-enqueues (does not delete) when a create/update holds the lock.
+
+    Regression for the duplicate "Processing" status-message bug: a remove that ran
+    concurrently with an in-flight create deleted nothing and orphaned the just-sent
+    message. The remove must wait on the same per-key lock instead.
+    '''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, fake_queue = make_http_dispatcher(channels=[channel])
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
+
+    # A bundle with a live message exists, but the lock is held (create in flight).
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+    fake_queue._lock_held.add('k')  # pylint: disable=protected-access
+
+    await dispatcher._remove_mutable_redis('k')  # pylint: disable=protected-access
+
+    # Nothing deleted, bundle still present, and the remove was re-queued for later.
+    assert await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k') is not None
+    assert any(e[1] == 'remove:k' for e in fake_queue.enqueued)
+
+
+@pytest.mark.asyncio
+async def test_remove_mutable_redis_releases_lock():
+    '''_remove_mutable_redis releases the per-key lock after completing.'''
+    channel = FakeChannel(id=100)
+    fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    dispatcher, fake_queue = make_http_dispatcher(channels=[channel])
+    dispatcher.redis_manager = RedisManager.from_client(fake_redis)
+
+    bundle = MessageMutableBundle(guild_id=1, channel_id=100, sticky_messages=False)
+    await redis_save_bundle(fake_redis, 'k', bundle.to_dict())
+
+    await dispatcher._remove_mutable_redis('k')  # pylint: disable=protected-access
+
+    assert 'k' not in fake_queue._lock_held  # pylint: disable=protected-access
+    assert await fake_redis.get(f'{BUNDLE_KEY_PREFIX}k') is None
+
+
 # ---------------------------------------------------------------------------
 # _process_send_redis (lines 1275-1280)
 # ---------------------------------------------------------------------------
