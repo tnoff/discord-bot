@@ -2,7 +2,7 @@
 Registry of all optional cogs available to bot processes.
 
 Kept in a separate module so that dispatcher.py (which has no SQLAlchemy dep)
-can import cli/common.py without triggering heavy cog imports.
+can import cli/_lib/common.py without triggering heavy cog imports.
 '''
 from discord_bot.cogs.delete_messages import DeleteMessages
 from discord_bot.cogs.general import General

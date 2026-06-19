@@ -17,7 +17,7 @@ from discord_bot.servers.dispatch_server import DispatchHttpServer
 from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.utils.common import GeneralConfig
 
-from discord_bot.cli.common import (
+from discord_bot.cli._lib.common import (
     build_bot, bot_lifecycle, run_loop,
     setup_observability, parse_and_validate_config,
 )

@@ -14,13 +14,13 @@ from discord_bot.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQu
 from discord_bot.workers.message_dispatcher import MessageDispatcher
 from discord_bot.utils.common import GeneralConfig
 
-from discord_bot.cli.common import (
+from discord_bot.cli._lib.common import (
     build_bot, bot_lifecycle, load_cogs, run_loop,
     setup_observability, register_on_ready,
     parse_and_validate_config,
 )
-from discord_bot.cli.cog_registry import POSSIBLE_COGS
-from discord_bot.cli.db import managed_db, instrument_sqlalchemy
+from discord_bot.cli._lib.cog_registry import POSSIBLE_COGS
+from discord_bot.cli._lib.db import managed_db, instrument_sqlalchemy
 from discord_bot.cli.health import setup_health_server
 
 

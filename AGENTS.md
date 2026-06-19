@@ -14,7 +14,7 @@ internals, etc.
 | Full bot entry-point (gateway + cogs) | `discord_bot/cli/full.py` (registered as `discord-bot`) |
 | Min bot entry-point (cogs only, no in-process dispatcher) | `discord_bot/cli/bot.py` (registered as `discord-bot-min`) |
 | Dispatcher-only entry-point | `discord_bot/cli/dispatcher.py` (registered as `discord-dispatcher`) |
-| `POSSIBLE_COGS` registry | `discord_bot/cli/cog_registry.py` |
+| `POSSIBLE_COGS` registry | `discord_bot/cli/_lib/cog_registry.py` |
 | `CogHelperBase` + dispatch helpers | `discord_bot/cogs/common.py` (see `docs/common.md`) |
 | `CogHelper` (adds async DB session helpers) | `discord_bot/cogs/cog_helper.py` |
 | Per-guild priority dispatcher worker | `discord_bot/workers/message_dispatcher.py` (see `docs/message_dispatcher.md`) |
@@ -121,9 +121,11 @@ discord_bot/
     full.py                     # `discord-bot` entry-point (gateway + cogs + in-process dispatcher)
     bot.py                      # `discord-bot-min` entry-point (gateway + cogs, no dispatcher)
     dispatcher.py               # `discord-dispatcher` entry-point (dispatcher worker + HTTP server)
-    common.py                   # shared bot utilities (bot_lifecycle, load_cogs, setup_logging, etc.)
-    cog_registry.py             # POSSIBLE_COGS list (import here to add a new cog)
-    db.py                       # shared DB engine bootstrap
+    health.py                   # HealthServer factory (kept out of _lib so importing it doesn't pull sqlalchemy)
+    _lib/                       # shared CLI helpers (imported by the entry-points)
+      common.py                 # shared bot utilities (bot_lifecycle, load_cogs, setup_logging, etc.)
+      cog_registry.py           # POSSIBLE_COGS list (import here to add a new cog)
+      db.py                     # shared DB engine bootstrap
   common.py                     # DISCORD_MAX_MESSAGE_LENGTH = 2000
   database.py                   # SQLAlchemy models (BASE declarative)
   exceptions.py                 # DiscordBotException, CogMissingRequiredArg, ExitEarlyException

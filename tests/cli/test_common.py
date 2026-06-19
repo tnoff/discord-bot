@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 
-from discord_bot.cli.common import setup_logging
+from discord_bot.cli._lib.common import setup_logging
 from discord_bot.utils.common import GeneralConfig
 
 

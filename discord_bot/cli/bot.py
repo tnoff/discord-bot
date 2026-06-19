@@ -15,13 +15,13 @@ from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils.common import GeneralConfig
 
-from discord_bot.cli.common import (
+from discord_bot.cli._lib.common import (
     build_bot, bot_lifecycle, load_cogs, run_loop,
     setup_observability, register_on_ready,
     parse_and_validate_config,
 )
-from discord_bot.cli.cog_registry import POSSIBLE_COGS
-from discord_bot.cli.db import managed_db, instrument_sqlalchemy
+from discord_bot.cli._lib.cog_registry import POSSIBLE_COGS
+from discord_bot.cli._lib.db import managed_db, instrument_sqlalchemy
 from discord_bot.cli.health import setup_health_server
 
 

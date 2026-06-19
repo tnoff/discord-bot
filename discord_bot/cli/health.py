@@ -1,7 +1,7 @@
 '''
 HealthServer factory for the bot/full entry-points.
 
-Lives in its own module so importing ``discord_bot.cli.common`` does not
+Lives in its own module so importing ``discord_bot.cli._lib.common`` does not
 transitively pull in sqlalchemy via ``servers.health_server``. The
 dispatcher image installs only the base dependency set and would crash on
 that import; ``cli.dispatcher`` constructs ``DispatchHealthServer`` (which

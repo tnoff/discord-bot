@@ -14,7 +14,7 @@ from discord_bot.cli.dispatcher import main_loop as dispatcher_main_loop
 from discord_bot.cli.dispatcher import run_bot as dispatcher_run_bot
 from discord_bot.cli.full import main as full_main
 from discord_bot.cli.full import main_loop as full_main_loop
-from discord_bot.cli.common import FilterOKRetrySpans, read_config
+from discord_bot.cli._lib.common import FilterOKRetrySpans, read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
 
@@ -71,7 +71,7 @@ async def test_run_config_only_token(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -97,7 +97,7 @@ async def test_run_config_reject_list(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
 
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=guilds))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=guilds))
         runner = CliRunner()
         runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -118,7 +118,7 @@ async def test_run_config_no_reject_list(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         guilds = [FakeGuild()]
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=guilds))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=guilds))
         runner = CliRunner()
         runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -143,7 +143,7 @@ async def test_run_config_with_db(mocker, pg_test_db_url):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -168,7 +168,7 @@ async def test_run_config_with_intents(mocker, pg_test_db_url):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -719,7 +719,7 @@ def test_main_runner_no_event_loop(mocker):
         config_data = {'general': {'discord_token': 'foo', 'dispatch_http_url': 'http://localhost:8082'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert result.exception is None
@@ -738,15 +738,15 @@ def _patch_otlp(mocker):
         'MeterProvider', 'set_meter_provider', 'LoggerProvider', 'set_logger_provider',
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
-        mocker.patch(f'discord_bot.cli.common.{name}')
-    mocker.patch('discord_bot.cli.db.SQLAlchemyInstrumentor')
-    mocker.patch('discord_bot.cli.db.trace')
-    mocker.patch('discord_bot.cli.common.trace')
+        mocker.patch(f'discord_bot.cli._lib.common.{name}')
+    mocker.patch('discord_bot.cli._lib.db.SQLAlchemyInstrumentor')
+    mocker.patch('discord_bot.cli._lib.db.trace')
+    mocker.patch('discord_bot.cli._lib.common.trace')
     # LoggingHandler mock is added to the root logger; .level must be an int or
     # callHandlers() raises TypeError on "record.levelno >= hdlr.level"
     mock_handler = MagicMock(spec=stdlib_logging.Handler)
     mock_handler.level = stdlib_logging.NOTSET
-    mocker.patch('discord_bot.cli.common.LoggingHandler', return_value=mock_handler)
+    mocker.patch('discord_bot.cli._lib.common.LoggingHandler', return_value=mock_handler)
 
 
 @pytest.mark.asyncio
@@ -763,7 +763,7 @@ async def test_main_with_otlp_filter_enabled(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         _patch_otlp(mocker)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -784,7 +784,7 @@ async def test_main_with_otlp_filter_disabled(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         _patch_otlp(mocker)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -807,8 +807,8 @@ async def test_main_with_memory_profiling(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.MemoryProfiler')
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.MemoryProfiler')
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -831,8 +831,8 @@ async def test_main_with_process_metrics(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.ProcessMetricsProfiler')
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.ProcessMetricsProfiler')
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -859,7 +859,7 @@ async def test_main_with_health_server_monitoring(mocker):
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
         mocker.patch('discord_bot.cli.health.HealthServer', return_value=mock_hs)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -885,7 +885,7 @@ async def test_dispatcher_main_with_health_server(mocker):
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
         mocker.patch('discord_bot.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         mocker.patch('discord_bot.cli.dispatcher.run_bot')
         runner = CliRunner()
         result = runner.invoke(dispatcher_main, [temp_config.name])
@@ -903,9 +903,9 @@ def test_run_config_with_postgresql_db(mocker):
     mock_async_engine = AsyncMock()
     mock_async_engine.sync_engine = MagicMock()
     # Prevent actual DB connection
-    mocker.patch('discord_bot.cli.db.BASE.metadata.create_all')
-    create_async_engine_mock = mocker.patch('discord_bot.cli.db.create_async_engine', return_value=mock_async_engine)
-    mocker.patch('discord_bot.cli.db._create_tables', new=AsyncMock())
+    mocker.patch('discord_bot.cli._lib.db.BASE.metadata.create_all')
+    create_async_engine_mock = mocker.patch('discord_bot.cli._lib.db.create_async_engine', return_value=mock_async_engine)
+    mocker.patch('discord_bot.cli._lib.db._create_tables', new=AsyncMock())
     mocker.patch('discord_bot.cli.bot.run_bot')
 
     with NamedTemporaryFile(suffix='.yml') as temp_config:
@@ -931,7 +931,7 @@ def test_run_config_with_postgresql_db(mocker):
 
 def test_setup_db_rejects_non_postgres():
     '''Only postgresql drivers are supported; everything else raises.'''
-    from discord_bot.cli.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     with pytest.raises(ValueError, match='Unsupported database driver'):
         setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))
@@ -972,7 +972,7 @@ async def test_full_run_config_only_token(mocker):
         config_data = {'general': {'discord_token': 'foo'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(full_main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -992,7 +992,7 @@ async def test_full_run_config_reject_list(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli.common.Bot', side_effect=fake_bot_yielder(guilds=[fake_guild]))
+        mocker.patch('discord_bot.cli._lib.common.Bot', side_effect=fake_bot_yielder(guilds=[fake_guild]))
         runner = CliRunner()
         runner.invoke(full_main, [temp_config.name])
         await asyncio.sleep(.01)

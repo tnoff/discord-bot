@@ -1,6 +1,6 @@
 '''Database setup helpers for CLI entry points that include SQLAlchemy.
 
-Kept separate from cli/common.py so that the dispatcher process,
+Kept separate from cli/_lib/common.py so that the dispatcher process,
 which has no database, does not import SQLAlchemy at all.
 '''
 import asyncio
