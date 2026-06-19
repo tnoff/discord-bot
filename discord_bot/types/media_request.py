@@ -110,6 +110,18 @@ class MediaRequest(BaseModel):
         '''
         return self.search_result.proper_name or discord_format_string_embed(self.search_result.raw_search_string)
 
+    @property
+    def active_retry_information(self) -> RetryInformation:
+        '''The retry-info block for the request's current retry phase.
+
+        RETRY_DOWNLOAD reads ``download_retry_information``; every other stage
+        (RETRY_SEARCH, and any non-retry stage) reads the youtube-music block.
+        Only meaningful while the request is in a retry stage.
+        '''
+        if self.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD:
+            return self.download_retry_information
+        return self.youtube_music_retry_information
+
 class MediaRequestStateMachine:
     '''
     Encapsulates lifecycle stage transitions for a MediaRequest.
