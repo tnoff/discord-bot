@@ -268,6 +268,9 @@ async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_engine, 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
     req = _make_playlist_add_request(fake_context)
+    # In production the request is registered with the broker before download;
+    # register here so the FAILED lifecycle push lands on it.
+    await cog.media_broker.register_request(req)
     cog.download_client.submit(fake_context['guild'].id, req)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
@@ -339,3 +342,21 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_engine, fake_conte
             await cog.process_download_results()
 
             cog.media_broker.cache_cleanup.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
+async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """__ensure_video_download_result pushes FAILED to the broker when the
+    MediaDownload is None (download produced nothing)."""
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    media_request = fake_source_dict(fake_context)
+    await cog.media_broker.register_request(media_request)
+
+    result = await cog._Music__ensure_video_download_result(media_request, None)  # pylint: disable=protected-access
+
+    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
+    assert result is False
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
+    assert media_request.failure_reason is not None

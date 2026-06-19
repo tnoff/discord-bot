@@ -133,14 +133,11 @@ def test_media_request_roundtrip_optional_fields(fake_context):  # noqa: F811  #
 
 def test_media_request_deserialize_creates_fresh_state_machine(fake_context):  # noqa: F811  #pylint:disable=redefined-outer-name
     mr = fake_source_dict(fake_context)
-    callback_called = []
-    mr.state_machine.set_on_change(lambda req, stage: callback_called.append(stage))
 
     result = MediaRequest.deserialize(mr.serialize())
 
-    # Deserialized request has a fresh state machine with no callback
+    # Deserialized request has a fresh, working state machine
     result.state_machine.mark_queued()
-    assert not callback_called, 'on_change should not carry over after deserialization'
     assert result.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
 
 

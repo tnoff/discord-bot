@@ -10,8 +10,12 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_bot.database import Playlist, PlaylistItem
 from discord_bot.cogs.music import Music
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.media_request import MultiMediaRequestBundle
 from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.download import LifecycleEvent
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.types.playlist_add_result import PlaylistAddResult
+from discord_bot.types.search import SearchResult
+from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_client, yield_fake_search_client, yield_download_client_download_exception
@@ -1132,7 +1136,7 @@ async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_co
 
         # Mock the enqueue_media_requests method
         captured_requests = []
-        async def mock_enqueue(ctx, entries, bundle, player=None):  #pylint:disable=unused-argument
+        async def mock_enqueue(ctx, entries, bundle_uuid, player=None):  #pylint:disable=unused-argument
             captured_requests.extend(entries)
             return True
 
@@ -1183,11 +1187,10 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
 
 @pytest.mark.asyncio
 async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that enqueue_media_requests creates bundles with proper channel_id"""
+    """Test that enqueue_media_requests registers requests against a broker bundle"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    cog.dispatcher = MagicMock()
 
-    # Test the method that actually creates bundles - enqueue_media_requests
+    # Test the method that routes entries into the broker bundle
     entries = [fake_source_dict(fake_context), fake_source_dict(fake_context)]
 
     # Create a mock player
@@ -1195,22 +1198,23 @@ async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #p
     mock_player.guild = fake_context['guild']
     mock_player.text_channel = fake_context['channel']
 
-    # Create a bundle for the test
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
-    # Register the bundle manually since we're creating it outside the cog
-    cog.multirequest_bundles[bundle.uuid] = bundle
+    # Create a broker-owned bundle for the test
+    bundle_uuid = await cog.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
+    )
 
-    # Call enqueue_media_requests directly to test bundle creation
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle, mock_player)
+    # Call enqueue_media_requests directly to test bundle population
+    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle_uuid, mock_player)
 
-    # Verify bundle was created correctly
     assert result is True
-    assert len(cog.multirequest_bundles) == 1
 
-    # Verify bundle has correct channel_id
-    bundle = list(cog.multirequest_bundles.values())[0]
-    assert bundle.guild_id == fake_context['guild'].id
-    assert bundle.channel_id == fake_context['channel'].id
+    # Verify the broker holds the bundle with correct guild/channel and the
+    # two requests attached.
+    state = cog.media_broker.get_bundle_state(bundle_uuid)
+    assert state is not None
+    assert state.guild_id == fake_context['guild'].id
+    assert state.channel_id == fake_context['channel'].id
+    assert len(state.bundled_requests) == 2
 
 
 @pytest.mark.asyncio
@@ -1812,3 +1816,79 @@ async def test_playlist_random_play_success(fake_engine, mocker, fake_context): 
     assert kwargs.get('shuffle') is True
     assert kwargs.get('max_num') == 32
     assert kwargs.get('is_history') is True
+
+
+@pytest.mark.asyncio
+async def test_add_playlist_item_marks_failed_when_playlist_full(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__add_playlist_item pushes FAILED with the 'playlist too long' reason
+    when __playlist_insert_item raises PlaylistMaxLength."""
+    config = {'music': {'playlist': {'server_playlist_max_size': 1}}} | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+    cog.dispatcher = MagicMock()
+    push_mock = AsyncMock()
+    cog._push_state = push_mock  #pylint:disable=protected-access
+
+    async with async_mock_session(fake_engine) as session:
+        playlist = Playlist(server_id=fake_context['guild'].id, name='full',
+                            created_at=datetime.now(), is_history=False)
+        session.add(playlist)
+        await session.commit()
+        await session.refresh(playlist)
+        # Saturate to max so the next insert raises PlaylistMaxLength.
+        session.add(PlaylistItem(title='t', video_url='https://ex.com/a',
+                                 uploader='u', playlist_id=playlist.id))
+        await session.commit()
+        playlist_id = playlist.id
+
+    request = PlaylistAddRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_id=fake_context['author'].id,
+        requester_name=fake_context['author'].display_name,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='https://ex.com/b'),
+        playlist_id=playlist_id,
+    )
+    result = PlaylistAddResult(webpage_url='https://ex.com/b', title='B', uploader='u')
+    await cog._Music__add_playlist_item(request, result)  #pylint:disable=protected-access
+    push_mock.assert_awaited_once()
+    args, kwargs = push_mock.await_args
+    assert args[0] is request
+    assert args[1] is LifecycleEvent.FAILED
+    assert 'playlist too long' in kwargs['failure_reason']
+
+
+@pytest.mark.asyncio
+async def test_add_playlist_item_marks_failed_when_item_already_exists(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """__add_playlist_item pushes FAILED with 'already exists' when the item
+    URL is already in the playlist (insert returns None)."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog.dispatcher = MagicMock()
+    push_mock = AsyncMock()
+    cog._push_state = push_mock  #pylint:disable=protected-access
+
+    async with async_mock_session(fake_engine) as session:
+        playlist = Playlist(server_id=fake_context['guild'].id, name='dup',
+                            created_at=datetime.now(), is_history=False)
+        session.add(playlist)
+        await session.commit()
+        await session.refresh(playlist)
+        session.add(PlaylistItem(title='same', video_url='https://ex.com/same',
+                                 uploader='u', playlist_id=playlist.id))
+        await session.commit()
+        playlist_id = playlist.id
+
+    request = PlaylistAddRequest(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        requester_id=fake_context['author'].id,
+        requester_name=fake_context['author'].display_name,
+        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='https://ex.com/same'),
+        playlist_id=playlist_id,
+    )
+    result = PlaylistAddResult(webpage_url='https://ex.com/same', title='same', uploader='u')
+    await cog._Music__add_playlist_item(request, result)  #pylint:disable=protected-access
+    push_mock.assert_awaited_once()
+    args, kwargs = push_mock.await_args
+    assert args[0] is request
+    assert args[1] is LifecycleEvent.FAILED
+    assert 'already exists' in kwargs['failure_reason']

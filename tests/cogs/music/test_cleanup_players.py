@@ -7,7 +7,6 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.media_request import MultiMediaRequestBundle
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
@@ -63,8 +62,11 @@ async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
-    # Add an item to the search queue for this guild
+    # Add an item to the search queue for this guild.  In production the request
+    # is registered with the broker before it lands in a queue, so register it
+    # here too — cleanup discards it via a broker lifecycle push.
     request = fake_source_dict(fake_context)
+    await cog.media_broker.register_request(request)
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, request)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
@@ -83,16 +85,15 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
-    # Register a bundle for a DIFFERENT guild
+    # Register a broker bundle for a DIFFERENT guild
     from tests.helpers import FakeGuild  # pylint: disable=import-outside-toplevel
     other_guild = FakeGuild()
-    bundle = MultiMediaRequestBundle(other_guild.id, fake_context['channel'].id)
-    cog.multirequest_bundles[bundle.uuid] = bundle
+    bundle_uuid = await cog.create_bundle(other_guild.id, fake_context['channel'].id)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
     # Bundle for the other guild should still be present (not cleaned up)
-    assert bundle.uuid in cog.multirequest_bundles
+    assert bundle_uuid in await cog.broker_client.list_bundles_for_guild(other_guild.id)
 
 
 @pytest.mark.asyncio
@@ -104,10 +105,11 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
-    # Create a bundle for THIS guild with an active PlaylistAddRequest
-    bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
-    bundle.set_initial_search('https://example.com/playlist')
-    cog.multirequest_bundles[bundle.uuid] = bundle
+    # Create a broker bundle for THIS guild with an active PlaylistAddRequest
+    bundle_uuid = await cog.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='https://example.com/playlist', has_search_banner=True,
+    )
     search_result = SearchResult(search_type=SearchType.YOUTUBE, raw_search_string='https://example.com/video')
     playlist_req = PlaylistAddRequest(
         guild_id=fake_context['guild'].id,
@@ -117,14 +119,17 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
         search_result=search_result,
         playlist_id=1,
     )
-    bundle.add_media_request(playlist_req)
-    # playlist_req is in SEARCHING/non-terminal state and download_file=False
+    playlist_req.bundle_uuid = bundle_uuid
+    await cog.media_broker.register_request(playlist_req)
+    # playlist_req is in SEARCHING/non-terminal state and download_file=False.
+    # It must live in a queue so the cleanup preserve_predicate keeps it (and
+    # records its bundle as preserved).
+    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, playlist_req)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
-    # Bundle should NOT have been shut down (skipped due to active playlist-add)
-    assert bundle.uuid in cog.multirequest_bundles
-    assert not bundle.is_shutdown
+    # Bundle should NOT have been torn down (skipped due to active playlist-add)
+    assert bundle_uuid in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
 
 
 @pytest.mark.asyncio

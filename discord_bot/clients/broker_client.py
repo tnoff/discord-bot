@@ -28,6 +28,16 @@ class BrokerClient(Protocol):
         '''Release a CHECKED_OUT entry and clean up the guild-specific file.'''
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''Pre-stage the next limit items from the queue to local disk.'''
+    async def create_bundle(self, guild_id: int, channel_id: int,
+                            input_string: str | None = None,
+                            has_search_banner: bool = False) -> str:
+        '''Create a new bundle on the broker; returns the bundle uuid.'''
+    async def finalize_bundle(self, bundle_uuid: str) -> None:
+        '''Lock pagination and trigger the first full render of a bundle.'''
+    async def delete_bundle(self, bundle_uuid: str) -> None:
+        '''Tear down a bundle (broker also drops its Discord messages).'''
+    async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
+        '''Return uuids of every bundle currently stored for this guild.'''
 
 
 class InMemoryBrokerClient:
@@ -58,6 +68,27 @@ class InMemoryBrokerClient:
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''Delegate to broker.prefetch.'''
         await self._broker.prefetch(queue_items, guild_id, Path(guild_path) if guild_path else None, limit)
+
+    async def create_bundle(self, guild_id: int, channel_id: int,
+                            input_string: str | None = None,
+                            has_search_banner: bool = False) -> str:
+        '''Delegate to broker.create_bundle.'''
+        return await self._broker.create_bundle(
+            guild_id, channel_id,
+            input_string=input_string, has_search_banner=has_search_banner,
+        )
+
+    async def finalize_bundle(self, bundle_uuid: str) -> None:
+        '''Delegate to broker.finalize_bundle.'''
+        await self._broker.finalize_bundle(bundle_uuid)
+
+    async def delete_bundle(self, bundle_uuid: str) -> None:
+        '''Delegate to broker.delete_bundle.'''
+        await self._broker.delete_bundle(bundle_uuid)
+
+    async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
+        '''Delegate to broker.list_bundles_for_guild.'''
+        return await self._broker.list_bundles_for_guild(guild_id)
 
 
 class HttpBrokerClient(HttpClientMixin):

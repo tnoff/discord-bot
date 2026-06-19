@@ -484,6 +484,15 @@ class FakeMessageDispatcher():
                     pass
                 return
 
+    def update_mutable(self, _key: str, _guild_id: int, _content: list, _channel_id: int | None,
+                       sticky: bool = True, delete_after: int | None = None) -> None:
+        '''No-op stand-in for the BundleDispatchSink protocol.'''
+        # bandit: explicit no-op for the bundle dispatcher protocol used in tests
+        del sticky, delete_after  # unused
+
+    def remove_mutable(self, _key: str) -> None:
+        '''No-op stand-in for the BundleDispatchSink protocol.'''
+
     async def fetch_object(self, _guild_id: int, func: Callable, **_retry_kwargs: Any) -> Any:
         '''Call func and return its result.'''
         return await func()

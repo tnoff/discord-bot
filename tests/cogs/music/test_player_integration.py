@@ -211,21 +211,19 @@ async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: di
 @pytest.mark.asyncio
 async def test_add_source_to_player_queue_full_with_bundle(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """add_source_to_player sets failure_reason on the bundle when queue is full."""
-    from discord_bot.types.media_request import MultiMediaRequestBundle  # pylint: disable=import-outside-toplevel
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
-    cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'add_to_play_queue', side_effect=QueueFull())
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
-            # Register a bundle and link it to the media request
-            bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)
-            bundle.set_initial_search('test')
-            cog.multirequest_bundles[bundle.uuid] = bundle
-            bundle.add_media_request(media_download.media_request)
-            # bundle_uuid is now set on the media_request
+            # Register a broker bundle and link it to the media request
+            bundle_uuid = await cog.create_bundle(
+                fake_context['guild'].id, fake_context['channel'].id, input_string='test',
+            )
+            media_download.media_request.bundle_uuid = bundle_uuid
+            await cog.media_broker.register_request(media_download.media_request)
             result = await cog.add_source_to_player(media_download, player)
             assert result is False
             assert media_download.media_request.failure_reason is not None

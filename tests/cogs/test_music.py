@@ -10,14 +10,14 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.music import Music
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.search import SearchResult, SearchCollection
-from discord_bot.types.media_request import MediaRequest, MultiMediaRequestBundle
+from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, MultipleMutableType, SearchType
+from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
 
 from tests.helpers import fake_source_dict, fake_media_download
@@ -446,8 +446,8 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
     cog.dispatcher.send_message.assert_called()
     assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", message: woopsie'
 
-    # Bundle is immediately removed from multirequest_bundles when shutdown via _get_bundle_content
-    assert len(cog.multirequest_bundles) == 0
+    # Bundle is immediately torn down on the broker when the search fails
+    assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -814,76 +814,11 @@ def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=red
         assert call_args['format'] == 'worst'  # Should override default 'bestaudio/best'
 
 
-def test_music_backoff_integration_with_multimutable_type(fake_context):  #pylint:disable=redefined-outer-name
-    """Test BACKOFF status integration with MultipleMutableType - simpler integration test"""
-
-    # Test that BACKOFF can be used in the new workflow pattern
-    bundle = MultiMediaRequestBundle(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-    )
-
-    media_request = MediaRequest(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        requester_name='test_user',
-        requester_id=123456,
-        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
-    )
-
-    # Set up search banner (required for single-item bundles)
-    bundle.set_initial_search(media_request.search_result.raw_search_string)
-
-
-    # Add request and set to BACKOFF status
-    bundle.add_media_request(media_request)
-    bundle.all_requests_added()
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
-
-    # Test that bundle print shows the BACKOFF message
-    result = bundle.print()
-    result_text = ' '.join(result)
-
-    # Should contain backoff message in the expected format used by music.py
-    expected_message = 'Waiting to process: "test song"'
-    assert expected_message in result_text
-
-    # Test that MultipleMutableType can create the expected bundle key format
-    bundle_key = f'{MultipleMutableType.REQUEST_BUNDLE.value}-{bundle.uuid}'
-    assert bundle_key.startswith('request_bundle-request.bundle.')
-
-    # Verify bundle status is correctly set
-    assert not bundle.finished  # BACKOFF status means not finished
-
-
-def test_music_backoff_status_enum_usage(fake_context):  #pylint:disable=redefined-outer-name
+def test_music_backoff_status_enum_usage():
     """Test that BACKOFF enum value is properly imported and used"""
-
     # Test that BACKOFF enum exists and has correct value
     assert hasattr(MediaRequestLifecycleStage, 'BACKOFF')
     assert MediaRequestLifecycleStage.BACKOFF.value == 'backoff'
-
-    # Test that BACKOFF can be used in bundle status updates
-    bundle = MultiMediaRequestBundle(
-        fake_context['guild'].id,
-        fake_context['channel'].id,
-    )
-
-    media_request = MediaRequest(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        requester_name='test_user',
-        requester_id=123456,
-        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='test song')
-    )
-
-    bundle.add_media_request(media_request)
-    media_request.lifecycle_stage = MediaRequestLifecycleStage.BACKOFF
-    bundle.update_request_status()
-
-    # Verify status was set correctly
-    request_data = bundle.bundled_requests[0]
-    assert request_data.media_request.lifecycle_stage == MediaRequestLifecycleStage.BACKOFF
 
 
 # Memory leak fix tests
@@ -1237,8 +1172,10 @@ async def test_voice_client_cleanup_when_player_does_not_exist(fake_context, moc
 
 @pytest.mark.asyncio
 async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup handles bundles correctly when player doesn't exist"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    """Test that cleanup tears down broker bundles when player doesn't exist"""
+    dispatcher = Mock()
+    # The broker captures the dispatcher at construction time, so pass the spy in.
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, dispatcher)
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1249,37 +1186,23 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
 
     fake_context['guild'].voice_client = mock_voice_client
 
-    # Create a mock bundle for this guild
-    mock_bundle = mocker.MagicMock()
-    mock_bundle.guild_id = fake_context['guild'].id
-    mock_bundle.uuid = 'test-bundle-uuid'
-    mock_bundle.channel_id = fake_context['channel'].id
-    mock_bundle.shutdown = mocker.MagicMock()
-
-    # Add bundle to multirequest_bundles
-    cog.multirequest_bundles['bundle-1'] = mock_bundle
-
-    # Set dispatcher mock
-    cog.dispatcher = Mock()
+    # Create a real broker-owned bundle for this guild
+    bundle_uuid = await cog.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='test playlist', has_search_banner=True,
+    )
+    assert bundle_uuid in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
 
     # Call cleanup - should not raise exception even though player doesn't exist
     await cog.cleanup(fake_context['guild'])
 
-    # Verify bundle was shutdown
-    assert mock_bundle.shutdown.called
+    # Bundle is gone from the broker
+    assert bundle_uuid not in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
 
-    # Verify dispatcher update_mutable was called
-    # This verifies the bug fix where we use item.channel_id instead of player.text_channel.id
-    # (if we used player.text_channel, it would raise AttributeError since player is None)
-    cog.dispatcher.update_mutable.assert_called()
-
-    # Verify the bundle-specific call used item.channel_id
-    # Look for calls with the bundle UUID
-    bundle_calls = [call for call in cog.dispatcher.update_mutable.call_args_list
-                   if mock_bundle.uuid in str(call)]
-    if bundle_calls:
-        # Verify it used item.channel_id (4th positional argument, index 3)
-        assert bundle_calls[0][0][3] == mock_bundle.channel_id
+    # delete_bundle drops the bundle's mutable Discord message via the dispatcher
+    remove_calls = [call for call in dispatcher.remove_mutable.call_args_list
+                    if bundle_uuid in str(call)]
+    assert remove_calls
 
     # Verify voice client cleanup and disconnect were still called
     mock_voice_client.cleanup.assert_called_once()
