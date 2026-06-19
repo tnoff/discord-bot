@@ -18,11 +18,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, List, Protocol
 
+from opentelemetry.trace import SpanKind
+
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.interfaces.result_queue import DownloadResultQueue
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.utils.integrations.s3 import delete_file
+from discord_bot.utils.otel import async_otel_span_wrapper
 from discord_bot.workers.media_bundle import BundleRenderer, BundleState
 
 logger = logging.getLogger(__name__)
@@ -160,23 +164,44 @@ class MediaBrokerBase(ABC):
     bucket_name: str | None
 
     # ------------------------------------------------------------------
-    # Abstract interface
-    # ------------------------------------------------------------------
+    # Shared cache helpers (template methods)
     #
-    # check_cache / cache_cleanup are declared here but stay abstract until the
-    # first concrete engine lands (AsyncioBroker): the shared eviction body
-    # currently lives on the legacy cogs.music_helpers.MediaBroker, and lifting
-    # it onto this base as a template method only makes sense once that legacy
-    # impl is removed in the single-process cutover.  Declaring them now keeps
-    # the BrokerClient-facing contract complete.
+    # Concrete on the base now that AsyncioBroker is the single in-process
+    # engine: both it and the future RedisBroker share this eviction body, so
+    # it lives here rather than being duplicated per impl.
+    # ------------------------------------------------------------------
 
-    @abstractmethod
     async def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:
         '''Return a cached MediaDownload for the request URL, or None if no cache hit.'''
+        if not self.video_cache:
+            return None
+        return await self.video_cache.get_webpage_url_item(media_request)
 
-    @abstractmethod
+    async def _get_evictable_entries(self) -> list:
+        return [
+            vc
+            for vc in await self.video_cache.get_deletable_entries()
+            if await self.can_evict_base(vc.video_url)
+        ]
+
     async def cache_cleanup(self) -> bool:
         '''Evict stale cache entries. Returns True if at least one file was removed.'''
+        if not self.video_cache:
+            return False
+        async with async_otel_span_wrapper('music.broker.cache_cleanup', kind=SpanKind.INTERNAL) as span:
+            await self.video_cache.ready_remove()
+            to_delete = await self._get_evictable_entries()
+            span.set_attribute('music.broker.evicted_count', len(to_delete))
+            if not to_delete:
+                return False
+            for vc in to_delete:
+                delete_file(self.bucket_name, str(vc.base_path))
+            await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
+            return True
+
+    # ------------------------------------------------------------------
+    # Abstract interface
+    # ------------------------------------------------------------------
 
     @abstractmethod
     async def register_request(self, media_request: MediaRequest) -> None:

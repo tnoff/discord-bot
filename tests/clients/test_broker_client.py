@@ -8,7 +8,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 import aiohttp
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
@@ -16,8 +16,8 @@ from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerCl
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
 
-def _make_broker() -> MediaBroker:
-    return MediaBroker()
+def _make_broker() -> AsyncioBroker:
+    return AsyncioBroker()
 
 
 def _make_request():
@@ -33,18 +33,18 @@ class TestInMemoryBrokerClient:
     async def test_update_request_status_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker)
         await client.update_request_status(
             str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
         )
-        entry = broker.get_entry(str(mr.uuid))
+        entry = await broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_returns_media_download(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
@@ -91,15 +91,15 @@ class TestInMemoryBrokerClient:
     async def test_release_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker)
         await client.release(str(mr.uuid))
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_prefetch_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         client = InMemoryBrokerClient(broker)
         # prefetch is a no-op in local mode (no S3)
         await client.prefetch([], 123, None, 5)
@@ -118,26 +118,26 @@ class TestHttpBrokerClient:
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.register_request(mr)
-        entry = broker.get_entry(str(mr.uuid))
+        entry = await broker.get_entry(str(mr.uuid))
         assert entry is not None
 
     async def test_update_request_status(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = BrokerHttpServer(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.update_request_status(
                 str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
             )
-        entry = broker.get_entry(str(mr.uuid))
+        entry = await broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_returns_none(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = BrokerHttpServer(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
@@ -178,12 +178,12 @@ class TestHttpBrokerClient:
     async def test_release(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = BrokerHttpServer(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.release(str(mr.uuid))
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_prefetch(self):
         '''prefetch with empty list is a no-op that does not raise.'''

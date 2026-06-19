@@ -470,7 +470,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
-            mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+            mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = Mock()
             await cog.media_broker.register_download(sd)

@@ -3,7 +3,7 @@ from typing import Protocol
 
 import aiohttp
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
@@ -32,15 +32,15 @@ class BrokerClient(Protocol):
 
 class InMemoryBrokerClient:
     '''
-    BrokerClient backed by a local MediaBroker instance.
+    BrokerClient backed by a local MediaBrokerBase engine (AsyncioBroker).
     Used when all components run in the same process.
     '''
-    def __init__(self, broker: MediaBroker):
+    def __init__(self, broker: MediaBrokerBase):
         self._broker = broker
 
     async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''Delegate to broker.update_request_status.'''
-        self._broker.update_request_status(uuid, update)
+        await self._broker.update_request_status(uuid, update)
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
         '''Delegate to broker.register_download_result.'''
@@ -48,16 +48,16 @@ class InMemoryBrokerClient:
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
         '''Delegate to broker.checkout, converting path to/from str.'''
-        path = self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+        path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
         return str(path) if path else None
 
     async def release(self, uuid: str) -> None:
         '''Delegate to broker.release.'''
-        self._broker.release(uuid)
+        await self._broker.release(uuid)
 
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''Delegate to broker.prefetch.'''
-        self._broker.prefetch(queue_items, guild_id, Path(guild_path) if guild_path else None, limit)
+        await self._broker.prefetch(queue_items, guild_id, Path(guild_path) if guild_path else None, limit)
 
 
 class HttpBrokerClient(HttpClientMixin):

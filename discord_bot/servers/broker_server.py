@@ -10,7 +10,7 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
@@ -52,7 +52,7 @@ class BrokerHttpServer(AiohttpServerBase):
     '''
 
     # bandit B104: '0.0.0.0' default is intentional — worker pods reach the broker across the docker/k8s network; callers override host via constructor arg
-    def __init__(self, broker: MediaBroker, host: str = '0.0.0.0', port: int = 8081):  # nosec B104
+    def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081):  # nosec B104
         super().__init__()
         self._broker = broker
         self._host = host
@@ -81,7 +81,7 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.register_request', context=ctx, kind=SpanKind.SERVER):
-            self._broker.register_request(media_request)
+            await self._broker.register_request(media_request)
         return web.json_response({'status': 'ok'}, status=201)
 
     async def _handle_update_status(self, request: web.Request) -> web.Response:
@@ -93,7 +93,7 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.update_status', context=ctx, kind=SpanKind.SERVER):
-            self._broker.update_request_status(uuid, update)
+            await self._broker.update_request_status(uuid, update)
         return web.json_response({'status': 'ok'})
 
     async def _handle_register_download(self, request: web.Request) -> web.Response:
@@ -117,14 +117,14 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
-            path = self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+            path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
         return web.json_response({'guild_file_path': str(path) if path else None})
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.release', context=ctx, kind=SpanKind.SERVER):
-            self._broker.release(uuid)
+            await self._broker.release(uuid)
         return web.json_response({'status': 'ok'})
 
     async def _handle_prefetch(self, request: web.Request) -> web.Response:
@@ -139,5 +139,5 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         items = [_QueueItemProxy(uuid=u) for u in uuids]
         with otel_span_wrapper('broker.prefetch', context=ctx, kind=SpanKind.SERVER):
-            self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
+            await self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
         return web.json_response({'status': 'ok'})

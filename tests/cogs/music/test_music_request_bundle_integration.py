@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import QueueFull
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, MagicMock, AsyncMock
@@ -1036,6 +1037,7 @@ async def test_bundle_message_queue_updates_use_channel_id(fake_context):  #pyli
     bundle.add_media_request(req)
 
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     # Test bundle failure update via __ensure_video_download_result (music.py:867)
     # pylint: disable=protected-access
     await cog._Music__ensure_video_download_result(req, None)
@@ -1077,6 +1079,7 @@ async def test_playlist_add_message_updates_use_channel_id(fake_engine, fake_con
     bundle.add_media_request(req)
 
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     playlist_result = PlaylistAddResult(webpage_url='https://example.com/v', title='Test Title', uploader='Test Uploader')
 
     # Test the __add_playlist_item private method
@@ -1309,6 +1312,7 @@ async def test_single_request_terminal_failure_cleanup_via_on_change(mocker, fak
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     # Replicate _generate_media_requests_from_search
@@ -1383,6 +1387,7 @@ async def test_single_request_terminal_failure_no_bundle_leak(mocker, fake_conte
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
 
     bundle = MultiMediaRequestBundle(fake_context['guild'].id, fake_context['channel'].id)

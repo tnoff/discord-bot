@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone, timedelta
 from tempfile import TemporaryDirectory
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -128,6 +129,7 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
@@ -146,6 +148,7 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
@@ -165,6 +168,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
@@ -186,6 +190,7 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
@@ -286,6 +291,7 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await cog.search_youtube_music()
@@ -324,6 +330,7 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
+            cog.bot.loop = asyncio.get_running_loop()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
             await cog.post_play_processing()
@@ -344,6 +351,7 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
+    cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')

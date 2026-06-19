@@ -19,7 +19,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.interfaces.broker_protocols import MediaBrokerBase
 from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
@@ -53,7 +53,7 @@ class MusicPlayer:
                  dispatcher,
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
-                 broker: MediaBroker | None = None,
+                 broker: MediaBrokerBase | None = None,
                  prefetch_limit: int = 5):
         '''
         Music Player to sit in voice chat
@@ -91,7 +91,7 @@ class MusicPlayer:
         self.shutdown_reason: CleanupReason | None = None
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
-        self.broker: MediaBroker | None = broker
+        self.broker: MediaBrokerBase | None = broker
         self.prefetch_limit: int = prefetch_limit
 
     async def start_tasks(self):
@@ -118,8 +118,8 @@ class MusicPlayer:
         self.current_media_download = media_download
         guild_file_path = None
         if self.broker:
-            guild_file_path = await asyncio.to_thread(
-                self.broker.checkout, str(media_download.media_request.uuid), self.guild.id, self.file_dir
+            guild_file_path = await self.broker.checkout(
+                str(media_download.media_request.uuid), self.guild.id, self.file_dir
             )
 
         file_path = guild_file_path or media_download.file_path
@@ -139,7 +139,7 @@ class MusicPlayer:
             self.np_message = ''
             cleanup_source(audio_source)
             if self.broker:
-                self.broker.release(str(media_download.media_request.uuid))
+                await self.broker.release(str(media_download.media_request.uuid))
             if not self.shutdown_called:
                 self.destroy(reason=CleanupReason.VOICE_DISCONNECT)
             raise ExitEarlyException('No voice client in guild, ending loop') from e
@@ -156,7 +156,7 @@ class MusicPlayer:
         self.np_message = ''
         cleanup_source(audio_source)
         if self.broker:
-            self.broker.release(str(media_download.media_request.uuid))
+            await self.broker.release(str(media_download.media_request.uuid))
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
@@ -284,10 +284,11 @@ class MusicPlayer:
         can cancel it.  No-op in local mode or when prefetch_limit is 0.
         '''
         if self.broker and self.prefetch_limit > 0:
-            self._prefetch_task = asyncio.create_task(asyncio.to_thread(
-                self.broker.prefetch,
-                self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
-            ))
+            self._prefetch_task = asyncio.create_task(
+                self.broker.prefetch(
+                    self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
+                )
+            )
             self._prefetch_task.add_done_callback(self._on_prefetch_done)
 
     def add_to_play_queue(self, source_download: MediaDownload) -> bool:
@@ -303,14 +304,14 @@ class MusicPlayer:
         '''
         return self._play_queue.empty()
 
-    def clear_queue(self) -> List[MediaDownload]:
+    async def clear_queue(self) -> List[MediaDownload]:
         '''
         Clear queue and return items
         '''
         items = self._play_queue.clear()
         for item in items:
             if self.broker:
-                self.broker.remove(str(item.media_request.uuid))
+                await self.broker.remove(str(item.media_request.uuid))
         return items
 
     def shuffle_queue(self) -> bool:
@@ -369,7 +370,7 @@ class MusicPlayer:
         self._play_queue.block()
         cleanup_source(self.current_audio_source)
         if self.broker and self.current_media_download:
-            self.broker.release(str(self.current_media_download.media_request.uuid))
+            await self.broker.release(str(self.current_media_download.media_request.uuid))
         # Delete any messages from download queue
         # Delete any files in play queue that are already added
         while True:
@@ -377,7 +378,7 @@ class MusicPlayer:
                 media_download = self._play_queue.get_nowait()
                 self.logger.debug(f'Removing item {media_download} from play queue')
                 if self.broker:
-                    self.broker.remove(str(media_download.media_request.uuid))
+                    await self.broker.remove(str(media_download.media_request.uuid))
             except QueueEmpty:
                 break
 

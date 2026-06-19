@@ -79,7 +79,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+    mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as media_download:

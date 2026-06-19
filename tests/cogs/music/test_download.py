@@ -52,7 +52,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music_helpers.media_broker.get_file', return_value=True)
+            mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
             mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()

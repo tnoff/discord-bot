@@ -56,12 +56,6 @@ class _StorageBroker(MediaBrokerBase):
             await self._maybe_render_bundle(media_request)
 
     # --- unused registry surface (must exist to instantiate the ABC) -----
-    async def check_cache(self, media_request):  # pylint: disable=unused-argument
-        raise NotImplementedError
-
-    async def cache_cleanup(self):
-        raise NotImplementedError
-
     async def can_evict_base(self, webpage_url):  # pylint: disable=unused-argument
         raise NotImplementedError
 

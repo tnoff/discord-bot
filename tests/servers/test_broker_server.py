@@ -1,5 +1,5 @@
 '''
-Tests for BrokerHttpServer — the aiohttp HTTP server wrapping MediaBroker.
+Tests for BrokerHttpServer — the aiohttp HTTP server wrapping AsyncioBroker.
 '''
 import asyncio
 from tempfile import TemporaryDirectory
@@ -8,22 +8,22 @@ import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.cogs.music_helpers.media_broker import MediaBroker
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
 
-def _make_broker() -> MediaBroker:
-    return MediaBroker()
+def _make_broker() -> AsyncioBroker:
+    return AsyncioBroker()
 
 
 def _make_request():
     return fake_source_dict(generate_fake_context())
 
 
-def _make_server(broker: MediaBroker) -> BrokerHttpServer:
+def _make_server(broker: AsyncioBroker) -> BrokerHttpServer:
     return BrokerHttpServer(broker)
 
 
@@ -78,7 +78,7 @@ class TestUpdateStatus:
     async def test_valid_request_calls_broker(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
@@ -92,7 +92,7 @@ class TestUpdateStatus:
     async def test_retry_event_with_detail(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
@@ -116,7 +116,7 @@ class TestUpdateStatus:
             assert resp.status == 422
 
     async def test_unknown_uuid_still_returns_200(self):
-        # Matches current MediaBroker.update_request_status behavior: warns and continues
+        # Matches current AsyncioBroker.update_request_status behavior: warns and continues
         broker = _make_broker()
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -158,7 +158,7 @@ class TestRegisterDownload:
     async def test_valid_download_result_accepted(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
@@ -228,7 +228,7 @@ class TestRelease:
     async def test_release_known_entry(self):
         broker = _make_broker()
         mr = _make_request()
-        broker.register_request(mr)
+        await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.post(f'/requests/{mr.uuid}/release')
@@ -236,7 +236,7 @@ class TestRelease:
             data = await resp.json()
             assert data['status'] == 'ok'
         # Entry should be gone after release
-        assert broker.get_entry(str(mr.uuid)) is None
+        assert await broker.get_entry(str(mr.uuid)) is None
 
     async def test_release_unknown_uuid_is_no_op(self):
         broker = _make_broker()
