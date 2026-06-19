@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 from pathlib import Path
 import logging
@@ -8,6 +6,7 @@ from typing import List
 
 from opentelemetry.trace import SpanKind
 
+from discord_bot.interfaces.broker_protocols import Zone, BrokerEntry
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
@@ -17,26 +16,12 @@ from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 
-
-class Zone(Enum):
-    '''
-    Lifecycle zone for a tracked media item
-    '''
-    IN_FLIGHT = 'in_flight'       # Request active, no file on disk yet
-    AVAILABLE = 'available'       # File on disk, sitting in player queue
-    CHECKED_OUT = 'checked_out'   # Player has dequeued it and is playing
-
-
-@dataclass
-class BrokerEntry:
-    '''
-    Single entry in the broker registry
-    '''
-    request: MediaRequest
-    download: MediaDownload | None = None
-    zone: Zone = Zone.IN_FLIGHT
-    checked_out_by: int | None = None  # guild_id
-    guild_file_path: Path | None = None
+# Zone / BrokerEntry are re-exported from their canonical home in
+# interfaces.broker_protocols so the HA broker engine (MediaBrokerBase) and
+# this legacy single-process MediaBroker share one definition.  Imported here
+# so existing ``media_broker.Zone`` callers keep working until the AsyncioBroker
+# cutover retires this module.
+__all__ = ['MediaBroker', 'Zone', 'BrokerEntry']
 
 
 class MediaBroker:
