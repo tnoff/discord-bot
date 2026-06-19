@@ -28,7 +28,7 @@ from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage, PLAYHISTORY_PREFIX
 from discord_bot.cogs.music_helpers.download_client import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
+from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
@@ -822,7 +822,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if not player or player.shutdown_called:
                 self.logger.info(f'Player gone after download for guild {media_request.guild_id}, discarding "{str(media_request)}"')
                 self.media_broker.update_request_status(
-                    str(media_request.uuid), DownloadStatusUpdate(event=DownloadEvent.DISCARDED)
+                    str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED)
                 )
                 span.set_status(StatusCode.OK)
                 return

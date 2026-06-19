@@ -18,7 +18,7 @@ from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
-    DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate,
+    DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
 )
 from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
@@ -432,7 +432,7 @@ class DownloadClient():
         request_uuid = str(media_request.uuid)
         if self._broker is not None:
             await self._broker.update_request_status(
-                request_uuid, DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
+                request_uuid, LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
             )
         result = await self.create_source(media_request, self._max_retries)
 
@@ -443,8 +443,8 @@ class DownloadClient():
             self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
             self.logger.info('Failure queue: %s', self.failure_summary)
             if self._broker is not None:
-                await self._broker.update_request_status(request_uuid, DownloadStatusUpdate(
-                    event=DownloadEvent.RETRY,
+                await self._broker.update_request_status(request_uuid, LifecycleStatusUpdate(
+                    event=LifecycleEvent.RETRY,
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,
                 ))

@@ -10,7 +10,7 @@ import aiohttp
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
-from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatus, DownloadStatusUpdate
+from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
@@ -36,7 +36,7 @@ class TestInMemoryBrokerClient:
         broker.register_request(mr)
         client = InMemoryBrokerClient(broker)
         await client.update_request_status(
-            str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
+            str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
         )
         entry = broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
@@ -129,7 +129,7 @@ class TestHttpBrokerClient:
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.update_request_status(
-                str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS)
+                str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
             )
         entry = broker.get_entry(str(mr.uuid))
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS

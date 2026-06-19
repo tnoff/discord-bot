@@ -10,7 +10,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
-from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatus
+from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -83,7 +83,7 @@ class TestUpdateStatus:
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
                 f'/requests/{mr.uuid}/status',
-                json={'event': DownloadEvent.IN_PROGRESS.value},
+                json={'event': LifecycleEvent.IN_PROGRESS.value},
             )
             assert resp.status == 200
             data = await resp.json()
@@ -98,7 +98,7 @@ class TestUpdateStatus:
             resp = await client.put(
                 f'/requests/{mr.uuid}/status',
                 json={
-                    'event': DownloadEvent.RETRY.value,
+                    'event': LifecycleEvent.RETRY.value,
                     'error_detail': 'bot flagged',
                     'backoff_seconds': 30,
                 },
@@ -122,7 +122,7 @@ class TestUpdateStatus:
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.put(
                 '/requests/unknown-uuid/status',
-                json={'event': DownloadEvent.IN_PROGRESS.value},
+                json={'event': LifecycleEvent.IN_PROGRESS.value},
             )
             assert resp.status == 200
 

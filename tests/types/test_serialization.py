@@ -5,6 +5,7 @@ import pytest
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.media_request import MediaRequest, RetryInformation
+from discord_bot.types.playlist_add_request import PlaylistAddRequest, parse_media_request
 from discord_bot.types.search import SearchResult
 
 from tests.helpers import fake_context, fake_source_dict  # noqa: F401  # pylint: disable=unused-import
@@ -141,3 +142,25 @@ def test_media_request_deserialize_creates_fresh_state_machine(fake_context):  #
     result.state_machine.mark_queued()
     assert not callback_called, 'on_change should not carry over after deserialization'
     assert result.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
+
+
+# ---------------------------------------------------------------------------
+# AnyMediaRequest discriminated union
+# ---------------------------------------------------------------------------
+
+def test_parse_media_request_routes_by_download_file(fake_context):  # noqa: F811  #pylint:disable=redefined-outer-name
+    '''parse_media_request picks the subclass from the download_file discriminator.'''
+    mr = fake_source_dict(fake_context)
+
+    parsed = parse_media_request(mr.model_dump(mode='json'))
+    assert type(parsed) is MediaRequest  # pylint: disable=unidiomatic-typecheck
+    assert parsed.download_file is True
+    assert parsed.uuid == mr.uuid
+
+    data = mr.model_dump(mode='json')
+    data['download_file'] = False
+    data['playlist_id'] = 42
+    parsed_playlist = parse_media_request(data)
+    assert type(parsed_playlist) is PlaylistAddRequest  # pylint: disable=unidiomatic-typecheck
+    assert parsed_playlist.playlist_id == 42
+    assert parsed_playlist.download_file is False

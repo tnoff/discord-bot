@@ -12,7 +12,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
 from discord_bot.servers.base import AiohttpServerBase
-from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
+from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.otel import otel_span_wrapper
 
@@ -89,7 +89,7 @@ class BrokerHttpServer(AiohttpServerBase):
         uuid = request.match_info['uuid']
         try:
             body = await request.json()
-            update = DownloadStatusUpdate.model_validate(body)
+            update = LifecycleStatusUpdate.model_validate(body)
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.update_status', context=ctx, kind=SpanKind.SERVER):

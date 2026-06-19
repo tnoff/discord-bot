@@ -16,7 +16,7 @@ from discord_bot.cogs.music_helpers.download_client import (
 )
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.types.download import DownloadErrorType, DownloadEvent, DownloadResult, DownloadStatus as DlStatus
+from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -1052,8 +1052,8 @@ async def test_run_success_puts_result_on_result_queue():
     assert result.file_name == pcm_path
     broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
     # No backoff active → no BACKOFF status emitted; only IN_PROGRESS
-    assert DownloadEvent.BACKOFF not in broker_events
-    assert DownloadEvent.IN_PROGRESS in broker_events
+    assert LifecycleEvent.BACKOFF not in broker_events
+    assert LifecycleEvent.IN_PROGRESS in broker_events
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1075,7 +1075,7 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     # Input queue has the request again
     assert client.queue_size(mr.guild_id) == 1
     broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
-    assert DownloadEvent.RETRY in broker_events
+    assert LifecycleEvent.RETRY in broker_events
 
 
 @pytest.mark.asyncio(loop_scope="session")

@@ -10,7 +10,7 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker, Zone
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import VideoCache
-from discord_bot.types.download import DownloadEvent, DownloadStatusUpdate
+from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequestLifecycleStage
 
@@ -359,7 +359,7 @@ def test_update_request_status_backoff():
     mr = fake_source_dict(fake_context)
     broker = MediaBroker()
     broker.register_request(mr)
-    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.BACKOFF))
+    broker.update_request_status(str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.BACKOFF))
     assert mr.lifecycle_stage == MediaRequestLifecycleStage.BACKOFF
 
 
@@ -369,7 +369,7 @@ def test_update_request_status_in_progress():
     mr = fake_source_dict(fake_context)
     broker = MediaBroker()
     broker.register_request(mr)
-    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.IN_PROGRESS))
+    broker.update_request_status(str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS))
     assert mr.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
 
@@ -381,7 +381,7 @@ def test_update_request_status_retry():
     broker.register_request(mr)
     broker.update_request_status(
         str(mr.uuid),
-        DownloadStatusUpdate(event=DownloadEvent.RETRY, error_detail='timeout', backoff_seconds=45),
+        LifecycleStatusUpdate(event=LifecycleEvent.RETRY, error_detail='timeout', backoff_seconds=45),
     )
     assert mr.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
     assert mr.download_retry_information.retry_reason == 'timeout'
@@ -394,7 +394,7 @@ def test_update_request_status_discarded():
     mr = fake_source_dict(fake_context)
     broker = MediaBroker()
     broker.register_request(mr)
-    broker.update_request_status(str(mr.uuid), DownloadStatusUpdate(event=DownloadEvent.DISCARDED))
+    broker.update_request_status(str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED))
     assert mr.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
 
 
@@ -402,5 +402,5 @@ def test_update_request_status_unknown_uuid_logs_warning(mocker):
     '''update_request_status logs a warning and does not raise for an unknown UUID'''
     mock_logger = mocker.patch('discord_bot.cogs.music_helpers.media_broker.logger')
     broker = MediaBroker()
-    broker.update_request_status('nonexistent-uuid', DownloadStatusUpdate(event=DownloadEvent.BACKOFF))
+    broker.update_request_status('nonexistent-uuid', LifecycleStatusUpdate(event=LifecycleEvent.BACKOFF))
     mock_logger.warning.assert_called_once()

@@ -10,7 +10,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
-from discord_bot.types.download import DownloadEvent, DownloadResult, DownloadStatusUpdate
+from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.utils.integrations.s3 import get_file, delete_file
 from discord_bot.utils.otel import otel_span_wrapper, async_otel_span_wrapper
@@ -79,7 +79,7 @@ class MediaBroker:
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
 
-    def update_request_status(self, request_uuid: str, update: DownloadStatusUpdate) -> None:
+    def update_request_status(self, request_uuid: str, update: LifecycleStatusUpdate) -> None:
         '''
         Apply a lifecycle status update from the download worker.
         Looks up the request by UUID and drives the state machine transition.
@@ -91,13 +91,13 @@ class MediaBroker:
         if entry is None:
             logger.warning('update_request_status called for unknown uuid %s', request_uuid)
             return
-        if update.event == DownloadEvent.BACKOFF:
+        if update.event == LifecycleEvent.BACKOFF:
             entry.request.state_machine.mark_backoff()
-        elif update.event == DownloadEvent.IN_PROGRESS:
+        elif update.event == LifecycleEvent.IN_PROGRESS:
             entry.request.state_machine.mark_in_progress()
-        elif update.event == DownloadEvent.RETRY:
+        elif update.event == LifecycleEvent.RETRY:
             entry.request.state_machine.mark_retry_download(update.error_detail, update.backoff_seconds)
-        elif update.event == DownloadEvent.DISCARDED:
+        elif update.event == LifecycleEvent.DISCARDED:
             entry.request.state_machine.mark_discarded()
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload:

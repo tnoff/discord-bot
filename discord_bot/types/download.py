@@ -4,29 +4,36 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.playlist_add_request import AnyMediaRequest
 
 
-class DownloadEvent(str, Enum):
+class LifecycleEvent(str, Enum):
     '''
-    Lifecycle event emitted by the download worker for broker status updates.
-    Maps to a PUT /requests/{uuid}/status body in a future distributed deployment.
+    Lifecycle event for broker status updates.
+    Emitted by the download worker (BACKOFF/IN_PROGRESS/RETRY/DISCARDED) and by
+    the bot pod (QUEUED/COMPLETED/FAILED) so the broker can drive its bundle UI.
+    Maps to a PUT /requests/{uuid}/status body for the HTTP broker.
     '''
+    QUEUED = 'queued'
     BACKOFF = 'backoff'
     IN_PROGRESS = 'in_progress'
     RETRY = 'retry'
+    RETRY_SEARCH = 'retry_search'
     DISCARDED = 'discarded'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
 
 
-class DownloadStatusUpdate(BaseModel):
+class LifecycleStatusUpdate(BaseModel):
     '''
-    Status update payload from the download worker.
-    Passed to MediaBroker.update_request_status() today;
-    becomes a PUT /requests/{uuid}/status body in a future distributed deployment.
+    Status update payload pushed to MediaBroker.update_request_status.
+    failure_reason carries the user-facing message for FAILED events; the
+    broker stores it on the MediaRequest so bundle renders pick it up.
     '''
-    event: DownloadEvent
+    event: LifecycleEvent
     error_detail: str | None = None
     backoff_seconds: int | None = None
+    failure_reason: str | None = None
 
 
 class DownloadErrorType(str, Enum):
@@ -60,7 +67,7 @@ class DownloadResult(BaseModel):
     Represent a complete download result from the client
     '''
     status: DownloadStatus
-    media_request: MediaRequest
+    media_request: AnyMediaRequest
     ytdlp_data: dict | None
     file_name: Path | None
     download_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

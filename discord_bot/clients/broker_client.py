@@ -4,7 +4,7 @@ from typing import Protocol
 import aiohttp
 
 from discord_bot.cogs.music_helpers.media_broker import MediaBroker
-from discord_bot.types.download import DownloadResult, DownloadStatusUpdate
+from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.clients.http_client_base import HttpClientMixin
@@ -18,7 +18,7 @@ class BrokerClient(Protocol):
       InMemoryBrokerClient  — wraps MediaBroker directly (same process)
       HttpBrokerClient      — forwards calls to BrokerHttpServer over HTTP
     '''
-    async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
+    async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''Apply a lifecycle status update from the download worker.'''
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
         '''Register a completed DownloadResult; returns a MediaDownload or None for HTTP clients.'''
@@ -38,7 +38,7 @@ class InMemoryBrokerClient:
     def __init__(self, broker: MediaBroker):
         self._broker = broker
 
-    async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
+    async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''Delegate to broker.update_request_status.'''
         self._broker.update_request_status(uuid, update)
 
@@ -74,7 +74,7 @@ class HttpBrokerClient(HttpClientMixin):
         await self._http('POST', f'{self._base_url}/requests/{media_request.uuid}',
                          media_request.model_dump(mode='json'))
 
-    async def update_request_status(self, uuid: str, update: DownloadStatusUpdate) -> None:
+    async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''
         await self._http('PUT', f'{self._base_url}/requests/{uuid}/status', update.model_dump())
 
