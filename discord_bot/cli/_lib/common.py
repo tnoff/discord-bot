@@ -259,8 +259,8 @@ def run_loop(coro) -> None:
 
 def setup_observability(general_config: GeneralConfig) -> logging.Logger:
     '''Configure OTLP, logging, and profiling. Returns the main logger.'''
-    setup_otlp(general_config)
-    logger = setup_logging(general_config)
+    logger_provider = setup_otlp(general_config)
+    logger = setup_logging(general_config, logger_provider=logger_provider)
     setup_profiling(general_config, logger)
     return logger
 
