@@ -9,6 +9,8 @@ import asyncio
 import itertools
 
 from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_bot.interfaces.result_queue import DownloadResultQueue
+from discord_bot.types.download import DownloadResult
 
 
 class AsyncioBundleStore(BundleStore):
@@ -94,3 +96,29 @@ class AsyncioWorkQueue(WorkQueue):
 
     async def get_result(self, request_id: str) -> dict | None:
         return self._results.get(request_id)
+
+
+class AsyncioDownloadResultQueue(DownloadResultQueue):
+    '''In-memory DownloadResultQueue backed by asyncio.Queue.
+
+    Used in single-process deployments.  Exposes the underlying
+    asyncio.Queue via the ``raw_queue`` property so the cog's metric
+    callback can read ``qsize()`` synchronously.
+    '''
+
+    def __init__(self, queue: asyncio.Queue | None = None):
+        self._queue = queue if queue is not None else asyncio.Queue()
+
+    @property
+    def raw_queue(self) -> asyncio.Queue:
+        '''The wrapped asyncio.Queue — only meaningful in single-process.'''
+        return self._queue
+
+    async def put(self, result: DownloadResult) -> None:
+        self._queue.put_nowait(result)
+
+    async def get_nowait(self) -> DownloadResult | None:
+        try:
+            return self._queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None

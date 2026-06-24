@@ -1,14 +1,17 @@
-'''Tests for RedisBundleStore and RedisWorkQueue.'''
+'''Tests for RedisBundleStore, RedisWorkQueue, and RedisDownloadResultQueue.'''
 import pytest
 import fakeredis.aioredis
 
 from discord_bot.clients.redis_client import RedisManager
+from discord_bot.types.download import DownloadResult, DownloadStatus
 from discord_bot.workers.redis_queues import (
     load_bundle,
     save_bundle,
     RedisBundleStore,
+    RedisDownloadResultQueue,
     RedisWorkQueue,
 )
+from tests.helpers import fake_source_dict, generate_fake_context
 
 
 def _manager():
@@ -139,3 +142,65 @@ async def test_redis_work_queue_lazy_queue_creation():
     assert q._queue is None  # pylint: disable=protected-access
     q._get_queue()  # pylint: disable=protected-access
     assert q._queue is not None  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# RedisDownloadResultQueue
+# ---------------------------------------------------------------------------
+
+
+def _download_result() -> DownloadResult:
+    mr = fake_source_dict(generate_fake_context())
+    return DownloadResult(
+        status=DownloadStatus(success=True),
+        media_request=mr,
+        ytdlp_data={'id': 'x', 'title': 't', 'webpage_url': 'http://e/v'},
+        file_name=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_redis_download_result_queue_round_trip():
+    '''put then get_nowait returns a structurally-identical DownloadResult.'''
+    q = RedisDownloadResultQueue(_manager())
+    r = _download_result()
+    await q.put(r)
+    popped = await q.get_nowait()
+    assert popped is not None
+    assert str(popped.media_request.uuid) == str(r.media_request.uuid)
+    assert popped.ytdlp_data == r.ytdlp_data
+
+
+@pytest.mark.asyncio
+async def test_redis_download_result_queue_empty_returns_none():
+    '''get_nowait returns None when the Redis list is empty.'''
+    q = RedisDownloadResultQueue(_manager())
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_redis_download_result_queue_fifo_order():
+    '''Queue is FIFO — first put pops first.'''
+    manager = _manager()
+    q = RedisDownloadResultQueue(manager)
+    r1 = _download_result()
+    r2 = _download_result()
+    await q.put(r1)
+    await q.put(r2)
+    assert str((await q.get_nowait()).media_request.uuid) == str(r1.media_request.uuid)
+    assert str((await q.get_nowait()).media_request.uuid) == str(r2.media_request.uuid)
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_redis_download_result_queue_shared_across_instances():
+    '''Two RedisDownloadResultQueue instances pointing at the same manager
+    share the same backing list — proves multi-pod broker handoff works.'''
+    manager = _manager()
+    pod_a = RedisDownloadResultQueue(manager)
+    pod_b = RedisDownloadResultQueue(manager)
+    r = _download_result()
+    await pod_a.put(r)
+    popped = await pod_b.get_nowait()
+    assert popped is not None
+    assert str(popped.media_request.uuid) == str(r.media_request.uuid)

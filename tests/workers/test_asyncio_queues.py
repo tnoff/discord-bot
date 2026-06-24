@@ -1,7 +1,15 @@
-'''Tests for AsyncioBundleStore and AsyncioWorkQueue.'''
+'''Tests for AsyncioBundleStore, AsyncioWorkQueue, and AsyncioDownloadResultQueue.'''
+import asyncio
+
 import pytest
 
-from discord_bot.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
+from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.workers.asyncio_queues import (
+    AsyncioBundleStore,
+    AsyncioDownloadResultQueue,
+    AsyncioWorkQueue,
+)
+from tests.helpers import fake_source_dict, generate_fake_context
 
 
 # ---------------------------------------------------------------------------
@@ -154,3 +162,45 @@ async def test_work_queue_get_result_missing_returns_none():
     '''get_result returns None for an unknown request_id.'''
     q = AsyncioWorkQueue()
     assert await q.get_result('no-such-id') is None
+
+
+# ---------------------------------------------------------------------------
+# AsyncioDownloadResultQueue
+# ---------------------------------------------------------------------------
+
+
+def _result():
+    mr = fake_source_dict(generate_fake_context())
+    return DownloadResult(
+        status=DownloadStatus(success=True),
+        media_request=mr,
+        ytdlp_data={'id': 'x', 'title': 't', 'webpage_url': 'http://e/v'},
+        file_name=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_result_queue_put_then_get():
+    '''put then get_nowait returns the queued result.'''
+    q = AsyncioDownloadResultQueue()
+    r = _result()
+    await q.put(r)
+    popped = await q.get_nowait()
+    assert popped is r
+
+
+@pytest.mark.asyncio
+async def test_download_result_queue_get_empty_returns_none():
+    '''get_nowait on an empty queue returns None.'''
+    q = AsyncioDownloadResultQueue()
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_download_result_queue_raw_queue_is_underlying_queue():
+    '''raw_queue exposes the wrapped asyncio.Queue for sync metric reads.'''
+    raw = asyncio.Queue()
+    q = AsyncioDownloadResultQueue(raw)
+    assert q.raw_queue is raw
+    await q.put(_result())
+    assert raw.qsize() == 1

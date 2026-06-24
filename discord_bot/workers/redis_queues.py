@@ -11,6 +11,8 @@ import redis.asyncio as aioredis
 
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_bot.interfaces.result_queue import DownloadResultQueue
+from discord_bot.types.download import DownloadResult
 from discord_bot.utils.dispatch_queue import RedisDispatchQueue
 
 BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'
@@ -100,3 +102,28 @@ class RedisWorkQueue(WorkQueue):
 
     async def get_result(self, request_id: str) -> dict | None:
         return await self._get_queue().get_result(request_id)
+
+
+RESULT_QUEUE_KEY = 'discord_bot:broker:results'
+
+
+class RedisDownloadResultQueue(DownloadResultQueue):
+    '''DownloadResultQueue backed by a single Redis list.
+
+    Push -> LPUSH the JSON-serialised DownloadResult.  Pop -> RPOP and
+    deserialise.  Multiple broker pods share the same key so any pod can
+    answer GET /results/next, and a pod restart doesn't lose pending work.
+    '''
+
+    def __init__(self, manager: RedisManager, key: str = RESULT_QUEUE_KEY):
+        self._manager = manager
+        self._key = key
+
+    async def put(self, result: DownloadResult) -> None:
+        await self._manager.client.lpush(self._key, result.model_dump_json())
+
+    async def get_nowait(self) -> DownloadResult | None:
+        raw = await self._manager.client.rpop(self._key)
+        if raw is None:
+            return None
+        return DownloadResult.model_validate_json(raw)
