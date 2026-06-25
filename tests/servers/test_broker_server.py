@@ -3,11 +3,13 @@ Tests for BrokerHttpServer — the aiohttp HTTP server wrapping AsyncioBroker.
 '''
 import asyncio
 from tempfile import TemporaryDirectory
+from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from discord_bot.interfaces.broker_protocols import CheckoutResult
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus
@@ -214,6 +216,18 @@ class TestCheckout:
                         assert resp.status == 200
                         data = await resp.json()
                         assert data['guild_file_path'] is not None
+
+    async def test_checkout_s3_key_result_is_serialised(self):
+        '''An HA broker returning CheckoutResult(s3_key=...) is serialised as
+        {"s3_key": ...} so the bot fetches the file from S3 itself.'''
+        broker = _make_broker()
+        broker.checkout = AsyncMock(return_value=CheckoutResult(s3_key='guilds/1/x.mp3'))
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post('/requests/abc/checkout', json={'guild_id': 1})
+            assert resp.status == 200
+            data = await resp.json()
+            assert data == {'s3_key': 'guilds/1/x.mp3'}
 
     async def test_invalid_body_returns_422(self):
         broker = _make_broker()

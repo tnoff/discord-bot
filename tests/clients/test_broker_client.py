@@ -88,8 +88,11 @@ class TestInMemoryBrokerClient:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
                 result = await client.checkout(str(mr.uuid), 123)
-        # No guild_path means no staging — checkout marks CHECKED_OUT and returns None
-        assert result is None
+        # No guild_path means no local staging — the entry is marked CHECKED_OUT
+        # and the CheckoutResult carries no local_path (player falls back to the
+        # download's own file_path).
+        assert result.local_path is None
+        assert result.s3_key is None
 
     async def test_release_delegates(self):
         broker = _make_broker()

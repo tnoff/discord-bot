@@ -7,16 +7,18 @@ branches: the full update_request_status lifecycle ladder, the register_request
 bundle-attach path, get_cache_count with a cache, and the bundle-storage hooks.
 '''
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.interfaces.broker_protocols import CheckoutResult
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 
-from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
+from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
 
 
 async def _register(broker, fake_ctx):
@@ -112,3 +114,18 @@ async def test_bundle_storage_hooks_roundtrip(fake_context):  # pylint: disable=
     assert await broker.list_bundles_for_guild(9999) == [other]
     await broker.delete_bundle(a)
     assert broker.get_bundle_state(a) is None
+
+
+@pytest.mark.asyncio
+async def test_checkout_returns_checkoutresult_and_caches_local_path(fake_context): #pylint:disable=redefined-outer-name
+    '''checkout stages the file and returns CheckoutResult(local_path); a second
+    checkout hits the already-CHECKED_OUT early-return with the same local_path.'''
+    broker = AsyncioBroker()
+    with TemporaryDirectory() as guild_dir:
+        with fake_media_download(guild_dir, fake_context=fake_context) as md:
+            await broker.register_download(md)
+            first = await broker.checkout(str(md.media_request.uuid), 1, Path(guild_dir))
+            second = await broker.checkout(str(md.media_request.uuid), 1, Path(guild_dir))
+            assert isinstance(first, CheckoutResult)
+            assert first.local_path is not None
+            assert second.local_path == first.local_path

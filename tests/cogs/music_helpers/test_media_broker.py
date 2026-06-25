@@ -60,7 +60,7 @@ async def test_checkout_local_mode():
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
                 broker = AsyncioBroker()
                 await broker.register_download(md)
-                result = await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                result = (await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))).local_path
                 assert result is not None
                 assert result.exists()
                 entry = await broker.get_entry(str(md.media_request.uuid))
@@ -145,7 +145,7 @@ async def test_release_deletes_guild_file():
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
                 broker = AsyncioBroker()
                 await broker.register_download(md)
-                guild_path = await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                guild_path = (await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))).local_path
                 assert guild_path.exists()
                 await broker.release(str(md.media_request.uuid))
                 assert not guild_path.exists()
@@ -283,12 +283,12 @@ async def test_checkout_skips_restage_if_already_checked_out(mocker):
         await broker.register_download(md)
         # First checkout — stages the file
         guild_path = Path(guild_dir)
-        result1 = await broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)
+        result1 = (await broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)).local_path
         assert get_mock.call_count == 1
         # Manually create the staged file so exists() returns True
         result1.touch()
         # Second checkout — should skip re-staging
-        result2 = await broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)
+        result2 = (await broker.checkout(str(md.media_request.uuid), 123, guild_path=guild_path)).local_path
         assert get_mock.call_count == 1  # not called again
         assert result2 == result1
 

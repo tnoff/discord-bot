@@ -117,8 +117,12 @@ class BrokerHttpServer(AiohttpServerBase):
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
-            path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
-        return web.json_response({'guild_file_path': str(path) if path else None})
+            result = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+        if result is None:
+            return web.json_response({'guild_file_path': None})
+        if result.s3_key:
+            return web.json_response({'s3_key': result.s3_key})
+        return web.json_response({'guild_file_path': str(result.local_path) if result.local_path else None})
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)

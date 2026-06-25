@@ -369,14 +369,17 @@ async def test_register_download_calls_video_cache_iterate():
 
 @pytest.mark.asyncio
 async def test_checkout_returns_s3_key():
-    '''checkout returns the file_path from the download as a Path (S3 key).'''
-    broker = _make_broker()
+    '''checkout returns a CheckoutResult carrying the download file_path as the
+    S3 key plus the broker's bucket_name (HA — caller fetches from S3).'''
+    broker = _make_broker(bucket_name='my-bucket')
     req = _make_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/bucket/key.mp3'))
     await broker.register_download(dl)
-    path = await broker.checkout(str(req.uuid), guild_id=1)
-    assert path == Path('/s3/bucket/key.mp3')
+    result = await broker.checkout(str(req.uuid), guild_id=1)
+    assert result.s3_key == '/s3/bucket/key.mp3'
+    assert result.bucket_name == 'my-bucket'
+    assert result.local_path is None
 
 
 @pytest.mark.asyncio

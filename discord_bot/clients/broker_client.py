@@ -57,12 +57,8 @@ class InMemoryBrokerClient:
         return await self._broker.register_download_result(result)
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
-        '''Delegate to broker.checkout; the local engine stages the file, so wrap
-        the returned path as a CheckoutResult(local_path=...).'''
-        path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
-        if path is None:
-            return None
-        return CheckoutResult(local_path=path)
+        '''Delegate to broker.checkout, which already returns a CheckoutResult.'''
+        return await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
 
     async def release(self, uuid: str) -> None:
         '''Delegate to broker.release.'''

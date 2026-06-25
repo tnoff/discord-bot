@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from discord_bot.interfaces.broker_protocols import BrokerEntry, MediaBrokerBase, Zone
+from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
@@ -216,12 +216,13 @@ class RedisBroker(MediaBrokerBase):
     # ------------------------------------------------------------------
 
     async def checkout(self, media_request_uuid: str, guild_id: int,
-                       guild_path: Path | None = None) -> Path | None:
+                       guild_path: Path | None = None) -> CheckoutResult | None:
         '''
-        Atomically mark the entry CHECKED_OUT and return the S3 object key as a Path.
+        Atomically mark the entry CHECKED_OUT and return CheckoutResult(s3_key=...).
 
         guild_path is accepted for interface compatibility but ignored — file
-        staging is the caller's responsibility (HttpBrokerClient downloads from S3).
+        staging is the caller's responsibility (the bot downloads from S3 via the
+        returned s3_key + bucket_name).
         '''
         succeeded = await self._registry.atomic_checkout(media_request_uuid, guild_id)
         if not succeeded:
@@ -229,7 +230,7 @@ class RedisBroker(MediaBrokerBase):
         data = await self._registry.get_entry(media_request_uuid)
         if data is None or not data.get('download') or not data['download'].get('file_path'):
             return None
-        return Path(data['download']['file_path'])
+        return CheckoutResult(s3_key=data['download']['file_path'], bucket_name=self.bucket_name)
 
     async def remove(self, media_request_uuid: str) -> None:
         data = await self._registry.get_entry(media_request_uuid)

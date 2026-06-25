@@ -13,6 +13,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_bot.interfaces.broker_protocols import CheckoutResult
 from discord_bot.types.queue import Queue
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 
 from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
@@ -699,17 +700,26 @@ async def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disa
 
 
 @pytest.mark.asyncio
-async def test_player_loop_checkout_local_path_played(fake_context): #pylint:disable=redefined-outer-name
-    """A CheckoutResult with local_path plays that staged file directly."""
+async def test_player_loop_real_broker_checkout_plays(fake_context): #pylint:disable=redefined-outer-name
+    """End-to-end against a REAL AsyncioBroker: checkout stages the file locally
+    and returns CheckoutResult(local_path); the player opens and plays it, and the
+    track lands in history. Regression for the prod break where F2a passed a str
+    to the engine's checkout (str.mkdir crash) and expected a CheckoutResult the
+    engine didn't return — a mocked broker hid both. Drive the real engine here."""
     fake_context['guild'].voice_client = FakeVoiceClient()
-    with with_broker_player(fake_context) as player:
+    broker = AsyncioBroker()
+    with TemporaryDirectory() as tmp_dir:
+        dispatcher = Mock()
+        dispatcher.update_mutable = Mock()
+        player = MusicPlayer(
+            fake_context['context'], {}, 10, 0.01, Path(tmp_dir),
+            dispatcher, None, Queue(), broker=broker,
+        )
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            player.broker.checkout = AsyncMock(
-                return_value=CheckoutResult(local_path=media_download.file_path)
-            )
+            await broker.register_download(media_download)
             player.add_to_play_queue(media_download)
             await player.player_loop()
-            assert player.broker.checkout.called
+            assert player._history.get_nowait() == media_download #pylint:disable=protected-access
 
 
 @pytest.mark.asyncio

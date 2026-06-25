@@ -10,7 +10,7 @@ from typing import List
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.interfaces.broker_protocols import BrokerEntry, MediaBrokerBase, Zone
+from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
@@ -115,12 +115,14 @@ class AsyncioBroker(MediaBrokerBase):
     # ------------------------------------------------------------------
 
     async def checkout(self, media_request_uuid: str, guild_id: int,
-                       guild_path: Path | None = None) -> Path | None:
+                       guild_path: Path | None = None) -> CheckoutResult | None:
+        '''Stage the file locally (in-process engine) and return
+        CheckoutResult(local_path=...). Returns None for an unknown entry.'''
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return None
         if entry.zone == Zone.CHECKED_OUT and entry.guild_file_path and entry.guild_file_path.exists():
-            return entry.guild_file_path
+            return CheckoutResult(local_path=entry.guild_file_path)
         attributes = {
             'music.media_request.uuid': media_request_uuid,
             'music.guild_id': guild_id,
@@ -148,7 +150,7 @@ class AsyncioBroker(MediaBrokerBase):
                 entry.guild_file_path = uuid_path
             entry.zone = Zone.CHECKED_OUT
             entry.checked_out_by = guild_id
-            return entry.guild_file_path
+            return CheckoutResult(local_path=entry.guild_file_path)
 
     async def remove(self, media_request_uuid: str) -> None:
         entry = self._registry.pop(media_request_uuid, None)

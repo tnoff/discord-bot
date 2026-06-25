@@ -122,7 +122,7 @@ async def test_checkout_with_guild_path_copies_file():
             with fake_media_download(base_dir, media_request=mr) as md:
                 original_file_path = md.file_path
                 await broker.register_download(md)
-                guild_file_path = await broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))
+                guild_file_path = (await broker.checkout(str(mr.uuid), guild_id, Path(guild_dir))).local_path
                 # guild_file_path should be in the guild directory
                 assert guild_file_path is not None
                 assert guild_file_path.parent == Path(guild_dir)
@@ -340,7 +340,7 @@ async def test_full_lifecycle():
                 assert not await broker.can_evict_base(url)
 
                 # Step 3: player dequeues, broker copies to guild dir, CHECKED_OUT
-                guild_file_path = await broker.checkout(uuid, mr.guild_id, Path(guild_dir))
+                guild_file_path = (await broker.checkout(uuid, mr.guild_id, Path(guild_dir))).local_path
                 assert (await broker.get_entry(uuid)).zone == Zone.CHECKED_OUT
                 assert not await broker.can_evict_request(uuid)
                 assert not await broker.can_evict_base(url)

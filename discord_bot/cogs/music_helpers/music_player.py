@@ -120,7 +120,7 @@ class MusicPlayer:
         checkout_result: CheckoutResult | None = None
         if self.broker:
             checkout_result = await self.broker.checkout(
-                str(media_download.media_request.uuid), self.guild.id, str(self.file_dir)
+                str(media_download.media_request.uuid), self.guild.id, self.file_dir
             )
 
         # Default to the download's own path; override with whatever the broker
