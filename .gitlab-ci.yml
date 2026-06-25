@@ -42,12 +42,14 @@ stages:
   - notify
   - renovate
 
-# Shared rules for the image-build + image-scan jobs. On MRs that don't touch
-# anything baked into the image (the docker/ context, python source, deps, or
-# version), skip these jobs — they take ~10–17 min combined and otherwise burn
-# runner slots needed by the tox matrix. Cosmetic MRs (github-workflows ref
-# bumps, README/doc-only edits, renovate.json tweaks) get fast pipelines.
-# Fork MRs keep the manual gate; default-branch builds always run.
+# Shared rules for the image build-check + trufflehog image-scan jobs. These
+# are a pre-merge gate: they verify the image builds and scan it for secrets.
+# MR-only by design — on the default branch they add nothing, because
+# docker-push-* builds and publishes the image independently (needs: []), so
+# re-building it in validate just to scan it duplicates the push's build and
+# burns runner slots (and the scan already ran on the MR). On MRs that don't
+# touch anything baked into the image (the docker/ context, python source,
+# deps, or version), skip them too. Fork MRs keep the manual gate.
 .image-build-rules:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
@@ -60,7 +62,6 @@ stages:
         - docker/**/*
         - pyproject.toml
         - VERSION
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
 
 bump-version:
   extends: .bump-version
