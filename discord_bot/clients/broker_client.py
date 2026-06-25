@@ -1,60 +1,118 @@
+'''
+Cog-facing broker clients.
+
+InMemoryBrokerClient wraps a local MediaBrokerBase (AsyncioBroker) for
+single-process deployments; HttpBrokerClient forwards every call to a remote
+BrokerHttpServer for HA deployments.  Both satisfy the BrokerClient Protocol
+(interfaces/broker_protocols) so the cog depends only on the Protocol and lets
+config decide which is constructed.
+'''
 from pathlib import Path
-from typing import Protocol
 
 import aiohttp
+from opentelemetry.trace import SpanKind
 
-from discord_bot.interfaces.broker_protocols import CheckoutResult, MediaBrokerBase
+from discord_bot.interfaces.broker_protocols import (
+    BrokerClient,
+    CheckoutResult,
+    DownloadResultQueue,
+    MediaBrokerBase,
+)
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
+
+# Re-exported so `from discord_bot.clients.broker_client import CheckoutResult`
+# / `BrokerClient` keep working.  Canonical home is interfaces/broker_protocols.
+__all__ = ['BrokerClient', 'CheckoutResult', 'HttpBrokerClient', 'InMemoryBrokerClient']
 
 
-class BrokerClient(Protocol):
-    '''
-    Interface for interacting with the MediaBroker.
+def _media_download_to_dict(media_download: MediaDownload) -> dict:
+    '''Serialise a MediaDownload + its MediaRequest to a wire-friendly dict.'''
+    return {
+        'request': media_download.media_request.model_dump(mode='json'),
+        'file_path': str(media_download.file_path) if media_download.file_path else None,
+        'file_size_bytes': media_download.file_size_bytes,
+        'cache_hit': media_download.cache_hit,
+        'ytdl_data': {
+            'id': media_download.id,
+            'title': media_download.title,
+            'webpage_url': media_download.webpage_url,
+            'uploader': media_download.uploader,
+            'duration': media_download.duration,
+            'extractor': media_download.extractor,
+        },
+    }
 
-    Two implementations exist:
-      InMemoryBrokerClient  — wraps MediaBroker directly (same process)
-      HttpBrokerClient      — forwards calls to BrokerHttpServer over HTTP
-    '''
-    async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
-        '''Apply a lifecycle status update from the download worker.'''
-    async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
-        '''Register a completed DownloadResult; returns a MediaDownload or None for HTTP clients.'''
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
-        '''Mark a request CHECKED_OUT; returns a CheckoutResult with local_path or s3_key set.'''
-    async def release(self, uuid: str) -> None:
-        '''Release a CHECKED_OUT entry and clean up the guild-specific file.'''
-    async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
-        '''Pre-stage the next limit items from the queue to local disk.'''
-    async def create_bundle(self, guild_id: int, channel_id: int,
-                            input_string: str | None = None,
-                            has_search_banner: bool = False) -> str:
-        '''Create a new bundle on the broker; returns the bundle uuid.'''
-    async def finalize_bundle(self, bundle_uuid: str) -> None:
-        '''Lock pagination and trigger the first full render of a bundle.'''
-    async def delete_bundle(self, bundle_uuid: str) -> None:
-        '''Tear down a bundle (broker also drops its Discord messages).'''
-    async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
-        '''Return uuids of every bundle currently stored for this guild.'''
+
+def _media_download_from_dict(data: dict, media_request: MediaRequest) -> MediaDownload:
+    '''Reconstruct a MediaDownload from the dict shape produced by _to_dict.'''
+    file_path = Path(data['file_path']) if data.get('file_path') else None
+    md = MediaDownload(file_path, data.get('ytdl_data', {}), media_request,
+                       cache_hit=bool(data.get('cache_hit', False)))
+    md.file_size_bytes = data.get('file_size_bytes')
+    return md
 
 
 class InMemoryBrokerClient:
     '''
-    BrokerClient backed by a local MediaBrokerBase engine (AsyncioBroker).
-    Used when all components run in the same process.
+    BrokerClient backed by a local MediaBroker instance.  Used when all
+    components run in the same process.
+
+    The internal result_queue holds DownloadResults reported by the local
+    DownloadClient so next_result can hand them off to the cog's
+    process_download_results router.  Pass an explicit queue if it needs to
+    be shared with an embedded BrokerHttpServer (so external download workers
+    POSTing in land on the same queue the cog drains).
     '''
-    def __init__(self, broker: MediaBrokerBase):
+    def __init__(self, broker: MediaBrokerBase,
+                 result_queue: DownloadResultQueue | None = None):
         self._broker = broker
+        self._result_queue: DownloadResultQueue = (
+            result_queue if result_queue is not None else AsyncioDownloadResultQueue()
+        )
+
+    @property
+    def result_queue(self) -> DownloadResultQueue:
+        '''Internal queue exposed so an embedded BrokerHttpServer can share it.'''
+        return self._result_queue
+
+    @property
+    def local_broker(self) -> MediaBrokerBase:
+        '''The wrapped MediaBrokerBase instance.
+
+        Only meaningful in single-process mode — there is no equivalent on
+        HttpBrokerClient because HA mode doesn't host a local broker.  The cog
+        uses this to attach an embedded BrokerHttpServer for external workers.
+        '''
+        return self._broker
+
+    async def register_request(self, media_request) -> None:
+        '''Delegate to broker.register_request.'''
+        await self._broker.register_request(media_request)
 
     async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''Delegate to broker.update_request_status.'''
         await self._broker.update_request_status(uuid, update)
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
-        '''Delegate to broker.register_download_result.'''
-        return await self._broker.register_download_result(result)
+        '''Persist a successful DownloadResult on the local broker (zone=AVAILABLE)
+        and push the raw result onto the bot-ready queue for next_result.
+
+        Results without file_name (e.g. PlaylistAddRequest results that only
+        carry metadata) are queued for the cog to route but not persisted —
+        there's no media file to track.'''
+        if result.status.success and result.file_name is not None:
+            await self._broker.register_download_result(result)
+        await self._result_queue.put(result)
+        return None
+
+    async def next_result(self) -> DownloadResult | None:
+        '''Pop the next ready DownloadResult; returns None if the queue is empty.'''
+        return await self._result_queue.get_nowait()
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
         '''Delegate to broker.checkout, which already returns a CheckoutResult.'''
@@ -63,6 +121,30 @@ class InMemoryBrokerClient:
     async def release(self, uuid: str) -> None:
         '''Delegate to broker.release.'''
         await self._broker.release(uuid)
+
+    async def remove(self, uuid: str) -> None:
+        '''Delegate to broker.remove.'''
+        await self._broker.remove(uuid)
+
+    async def discard(self, uuid: str) -> None:
+        '''Delegate to broker.discard.'''
+        await self._broker.discard(uuid)
+
+    async def register_download(self, media_download: MediaDownload) -> None:
+        '''Delegate to broker.register_download.'''
+        await self._broker.register_download(media_download)
+
+    async def check_cache(self, media_request) -> MediaDownload | None:
+        '''Delegate to broker.check_cache.'''
+        return await self._broker.check_cache(media_request)
+
+    async def cache_cleanup(self) -> bool:
+        '''Delegate to broker.cache_cleanup.'''
+        return await self._broker.cache_cleanup()
+
+    async def get_cache_count(self) -> int:
+        '''Delegate to broker.get_cache_count.'''
+        return await self._broker.get_cache_count()
 
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''Delegate to broker.prefetch.'''
@@ -74,7 +156,8 @@ class InMemoryBrokerClient:
         '''Delegate to broker.create_bundle.'''
         return await self._broker.create_bundle(
             guild_id, channel_id,
-            input_string=input_string, has_search_banner=has_search_banner,
+            input_string=input_string,
+            has_search_banner=has_search_banner,
         )
 
     async def finalize_bundle(self, bundle_uuid: str) -> None:
@@ -94,6 +177,12 @@ class HttpBrokerClient(HttpClientMixin):
     '''
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
+
+    In HA mode checkout returns a CheckoutResult with s3_key set; the caller
+    (MusicPlayer) downloads the file from S3 before playback.
+
+    next_result polls the remote broker for the next bot-ready DownloadResult,
+    replacing the local-queue side-channel used in single-process mode.
     '''
     def __init__(self, base_url: str, bucket_name: str | None = None,
                  session: aiohttp.ClientSession | None = None):
@@ -103,46 +192,177 @@ class HttpBrokerClient(HttpClientMixin):
 
     async def register_request(self, media_request: MediaRequest) -> None:
         '''POST /requests/{uuid} — register a new MediaRequest with the remote broker.'''
-        await self._http('POST', f'{self._base_url}/requests/{media_request.uuid}',
-                         media_request.model_dump(mode='json'))
+        async with async_otel_span_wrapper(
+            'broker.register_request', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': str(media_request.uuid)},
+        ):
+            await self._http('POST', f'{self._base_url}/requests/{media_request.uuid}',
+                             media_request.model_dump(mode='json'))
 
     async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''
-        await self._http('PUT', f'{self._base_url}/requests/{uuid}/status', update.model_dump())
+        async with async_otel_span_wrapper(
+            'broker.update_status', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': uuid},
+        ):
+            await self._http('PUT', f'{self._base_url}/requests/{uuid}/status', update.model_dump())
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
-        '''POST /downloads — returns None; the broker processes the result server-side.'''
-        await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
+        '''POST /downloads — the broker stores success entries and pushes every
+        result onto its bot-ready queue.  Consumers fetch via next_result.'''
+        async with async_otel_span_wrapper('broker.register_download', kind=SpanKind.CLIENT):
+            await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
         return None
 
+    async def next_result(self) -> DownloadResult | None:
+        '''GET /results/next — returns the next ready DownloadResult, or None
+        when the broker has nothing in the bot-ready queue (HTTP 204).'''
+        async with async_otel_span_wrapper('broker.next_result', kind=SpanKind.CLIENT):
+            session = self._get_session()
+            async with session.get(f'{self._base_url}/results/next',
+                                   headers=self._trace_headers()) as resp:
+                if resp.status == 204:
+                    return None
+                resp.raise_for_status()
+                payload = await resp.json()
+                return DownloadResult.model_validate(payload)
+
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
-        '''POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
+        '''
+        POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
 
         Non-HA brokers stage the file themselves and respond with guild_file_path
-        (→ CheckoutResult(local_path=...)). HA brokers respond with an s3_key
-        (→ CheckoutResult(s3_key=..., bucket_name=...)) and leave the S3 download
-        to the caller (MusicPlayer).'''
+        (-> CheckoutResult(local_path=...)). HA brokers respond with an s3_key
+        (-> CheckoutResult(s3_key=...)) and leave the S3 download to the caller.
+        '''
         body: dict = {'guild_id': guild_id}
         if guild_path:
             body['guild_path'] = guild_path
-        data = await self._http('POST', f'{self._base_url}/requests/{uuid}/checkout', body)
-        if not data:
+        async with async_otel_span_wrapper(
+            'broker.checkout', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': uuid, 'music.guild_id': guild_id},
+        ):
+            data = await self._http('POST', f'{self._base_url}/requests/{uuid}/checkout', body)
+            if not data:
+                return None
+            s3_key = data.get('s3_key')
+            if s3_key:
+                return CheckoutResult(s3_key=s3_key, bucket_name=self._bucket_name)
+            guild_file_path = data.get('guild_file_path')
+            if guild_file_path:
+                return CheckoutResult(local_path=Path(guild_file_path))
             return None
-        s3_key = data.get('s3_key')
-        if s3_key:
-            return CheckoutResult(s3_key=s3_key, bucket_name=self._bucket_name)
-        guild_file_path = data.get('guild_file_path')
-        if guild_file_path:
-            return CheckoutResult(local_path=Path(guild_file_path))
-        return None
 
     async def release(self, uuid: str) -> None:
         '''POST /requests/{uuid}/release.'''
-        await self._http('POST', f'{self._base_url}/requests/{uuid}/release')
+        async with async_otel_span_wrapper(
+            'broker.release', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': uuid},
+        ):
+            await self._http('POST', f'{self._base_url}/requests/{uuid}/release')
+
+    async def remove(self, uuid: str) -> None:
+        '''POST /requests/{uuid}/remove.'''
+        async with async_otel_span_wrapper(
+            'broker.remove', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': uuid},
+        ):
+            await self._http('POST', f'{self._base_url}/requests/{uuid}/remove')
+
+    async def discard(self, uuid: str) -> None:
+        '''POST /requests/{uuid}/discard — drops entry and underlying file.'''
+        async with async_otel_span_wrapper(
+            'broker.discard', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': uuid},
+        ):
+            await self._http('POST', f'{self._base_url}/requests/{uuid}/discard')
+
+    async def register_download(self, media_download: MediaDownload) -> None:
+        '''POST /downloads/register — persist a downloaded MediaDownload.'''
+        async with async_otel_span_wrapper(
+            'broker.register_download', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': str(media_download.media_request.uuid)},
+        ):
+            await self._http(
+                'POST', f'{self._base_url}/downloads/register',
+                _media_download_to_dict(media_download),
+            )
+
+    async def check_cache(self, media_request) -> MediaDownload | None:
+        '''POST /cache/check — broker looks up its VideoCache for the request URL.'''
+        async with async_otel_span_wrapper(
+            'broker.check_cache', kind=SpanKind.CLIENT,
+            attributes={'music.media_request.uuid': str(media_request.uuid)},
+        ):
+            payload = await self._http(
+                'POST', f'{self._base_url}/cache/check',
+                media_request.model_dump(mode='json'),
+            )
+        if not payload or not payload.get('hit'):
+            return None
+        return _media_download_from_dict(payload['download'], media_request)
+
+    async def cache_cleanup(self) -> bool:
+        '''POST /cache/cleanup — broker evicts stale cache entries.'''
+        async with async_otel_span_wrapper('broker.cache_cleanup', kind=SpanKind.CLIENT):
+            payload = await self._http('POST', f'{self._base_url}/cache/cleanup')
+        return bool(payload and payload.get('removed'))
+
+    async def get_cache_count(self) -> int:
+        '''GET /cache/count — current entry count in the broker's VideoCache.'''
+        async with async_otel_span_wrapper('broker.get_cache_count', kind=SpanKind.CLIENT):
+            payload = await self._http('GET', f'{self._base_url}/cache/count')
+        if not payload:
+            return 0
+        return int(payload.get('count', 0))
 
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''POST /prefetch — sends UUIDs extracted from queue_items.'''
         uuids = [str(item.media_request.uuid) for item in queue_items]
-        await self._http('POST', f'{self._base_url}/prefetch', {
-            'uuids': uuids, 'guild_id': guild_id, 'guild_path': guild_path, 'limit': limit,
-        })
+        async with async_otel_span_wrapper(
+            'broker.prefetch', kind=SpanKind.CLIENT,
+            attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit},
+        ):
+            await self._http('POST', f'{self._base_url}/prefetch', {
+                'uuids': uuids, 'guild_id': guild_id, 'guild_path': guild_path, 'limit': limit,
+            })
+
+    async def create_bundle(self, guild_id: int, channel_id: int,
+                            input_string: str | None = None,
+                            has_search_banner: bool = False) -> str:
+        '''POST /bundles — broker creates a new bundle and returns its uuid.'''
+        async with async_otel_span_wrapper('broker.create_bundle', kind=SpanKind.CLIENT):
+            payload = await self._http('POST', f'{self._base_url}/bundles', {
+                'guild_id': guild_id, 'channel_id': channel_id,
+                'input_string': input_string, 'has_search_banner': has_search_banner,
+            })
+        if payload is None or 'uuid' not in payload:
+            raise RuntimeError('broker create_bundle returned no uuid')
+        return payload['uuid']
+
+    async def finalize_bundle(self, bundle_uuid: str) -> None:
+        '''POST /bundles/{uuid}/finalize.'''
+        async with async_otel_span_wrapper(
+            'broker.finalize_bundle', kind=SpanKind.CLIENT,
+            attributes={'music.bundle.uuid': bundle_uuid},
+        ):
+            await self._http('POST', f'{self._base_url}/bundles/{bundle_uuid}/finalize')
+
+    async def delete_bundle(self, bundle_uuid: str) -> None:
+        '''DELETE /bundles/{uuid}.'''
+        async with async_otel_span_wrapper(
+            'broker.delete_bundle', kind=SpanKind.CLIENT,
+            attributes={'music.bundle.uuid': bundle_uuid},
+        ):
+            await self._http('DELETE', f'{self._base_url}/bundles/{bundle_uuid}')
+
+    async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
+        '''GET /bundles?guild_id=N — returns bundle uuids for the guild.'''
+        async with async_otel_span_wrapper(
+            'broker.list_bundles_for_guild', kind=SpanKind.CLIENT,
+            attributes={'music.guild_id': guild_id},
+        ):
+            payload = await self._http('GET', f'{self._base_url}/bundles?guild_id={guild_id}')
+        if payload is None:
+            return []
+        return list(payload.get('uuids', []))

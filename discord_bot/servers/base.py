@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from aiohttp import web
+from opentelemetry.propagate import extract
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,21 @@ class AiohttpServerBase:
         self._draining: bool = False
         self._active_requests: int = 0
         self._shutdown_event: asyncio.Event = asyncio.Event()
+
+    @staticmethod
+    async def _read_body(request: web.Request) -> tuple:
+        '''Extract the inbound trace context and parse the JSON request body,
+        raising 422 on malformed JSON.  Returns (trace_context, body_dict); each
+        handler reads and validates its own fields from the dict (re-raising 422
+        on bad values).  Centralising the extract+parse here keeps the per-handler
+        boilerplate from duplicating across the broker and dispatch servers — the
+        duplicate-code (R0801) check compares those modules pairwise.'''
+        ctx = extract(request.headers)
+        try:
+            body = await request.json()
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        return ctx, body
 
     def _get_drain_middleware(self):
         '''
