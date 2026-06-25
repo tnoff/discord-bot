@@ -359,21 +359,27 @@ async def test_finished_single_track_bundle_is_torn_down(fake_context):  # pylin
 
 
 @pytest.mark.asyncio
-async def test_finished_multi_track_bundle_keeps_summary(fake_context):  # pylint: disable=redefined-outer-name
-    '''A completed multi-track bundle keeps its summary banner visible — the
-    content is non-empty so auto-teardown does not fire.'''
+async def test_finished_multi_track_bundle_expires_summary(fake_context):  # pylint: disable=redefined-outer-name
+    '''A completed multi-track bundle dispatches its final "Completed N/N" summary
+    with delete_after (Discord expires it on its own — the pre-broker behaviour).
+    No outright remove_mutable and no drop: the content is non-empty, so the
+    bundle stays tracked/queryable and the summary lingers until it auto-expires.'''
     dispatcher = _make_dispatcher()
-    broker = _StorageBroker(dispatcher=dispatcher)
+    broker = _StorageBroker(dispatcher=dispatcher, message_delete_after=300)
     bundle_uuid = await broker.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id,
         input_string='multi playlist', has_search_banner=True,
     )
     media_request = await _add_queued_request(broker, fake_context, bundle_uuid)
     await broker.finalize_bundle(bundle_uuid)
+    # While in flight, the render carries no delete_after (the banner persists).
+    assert broker.dispatcher.update_mutable.call_args.kwargs.get('delete_after') is None
     dispatcher.reset_mock()
     media_request.state_machine.mark_completed()
     await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
     dispatcher.remove_mutable.assert_not_called()
+    call = dispatcher.update_mutable.call_args
+    assert any('Completed processing' in line for line in call.args[2])
+    assert call.kwargs.get('delete_after') == 300
+    # Non-empty summary → bundle stays tracked (queryable) until Discord expires it.
     assert await broker._load_bundle(bundle_uuid) is not None  # pylint: disable=protected-access
-    content = dispatcher.update_mutable.call_args.args[2]
-    assert any('Completed processing' in line for line in content)

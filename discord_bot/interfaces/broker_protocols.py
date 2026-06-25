@@ -277,7 +277,8 @@ class MediaBrokerBase(ABC):
                  bucket_name: str | None = None,
                  dispatcher: 'BundleDispatchSink | None' = None,
                  download_max_retries: int = 3,
-                 search_max_retries: int = 3):
+                 search_max_retries: int = 3,
+                 message_delete_after: int | None = None):
         '''Common construction for all broker impls.
 
         dispatcher: pushes bundle-UI updates to Discord.  None disables UI
@@ -286,12 +287,17 @@ class MediaBrokerBase(ABC):
 
         download_max_retries / search_max_retries drive BundleRenderer's
         retry-summary "attempt N/M" rendering.
+
+        message_delete_after: seconds after which Discord auto-expires a
+        finished bundle's "Completed N/N" summary (and the failure/retry
+        summaries).  None leaves them until manually removed.
         '''
         self.video_cache = video_cache
         self.bucket_name = bucket_name
         self.dispatcher = dispatcher
         self.download_max_retries = download_max_retries
         self.search_max_retries = search_max_retries
+        self.message_delete_after = message_delete_after
         # Per-bundle locks for the in-memory default impl.  Without
         # serialisation, register_request and the download worker's
         # lifecycle pushes can both read the same snapshot, both modify
@@ -379,6 +385,9 @@ class MediaBrokerBase(ABC):
                 f'request_bundle-{bundle_uuid}',
                 renderer.state.guild_id, content, renderer.state.channel_id,
                 sticky=False,
+                # On finish, let Discord auto-expire the "Completed N/N" summary
+                # (restores the pre-broker behaviour); while in flight it stays.
+                delete_after=self.message_delete_after if renderer.finished else None,
             )
         # Best-effort failure / retry summaries — these are separate Discord
         # messages, not edits, so they go through send_message.
@@ -387,6 +396,7 @@ class MediaBrokerBase(ABC):
             for msg in failure:
                 self.dispatcher.send_message(
                     renderer.state.guild_id, renderer.state.channel_id, msg,
+                    delete_after=self.message_delete_after,
                 )
         retries = renderer.get_retry_summary(
             self.download_max_retries, self.search_max_retries,
@@ -395,6 +405,7 @@ class MediaBrokerBase(ABC):
             for msg in retries:
                 self.dispatcher.send_message(
                     renderer.state.guild_id, renderer.state.channel_id, msg,
+                    delete_after=self.message_delete_after,
                 )
         # Resave to preserve sent flags after summary emission.
         await self._save_bundle(renderer.state)
@@ -403,6 +414,10 @@ class MediaBrokerBase(ABC):
         # the previous IN_PROGRESS render ("Downloading and processing…")
         # sits forever as a stale Discord message.  Tear it down here so the
         # cog doesn't have to chase per-completion cleanup.
+        # Multi-track bundles keep their final "Completed N/N" summary (content
+        # is non-empty); it was dispatched above with delete_after, so Discord
+        # auto-expires it — the pre-broker behaviour — and the bundle stays
+        # tracked (queryable) until then.
         if not content and renderer.finished:
             self.dispatcher.remove_mutable(f'request_bundle-{bundle_uuid}')
             await self._drop_bundle(bundle_uuid)

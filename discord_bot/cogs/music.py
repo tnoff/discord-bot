@@ -249,6 +249,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             dispatcher=self.dispatcher,
             download_max_retries=self.config.download.max_download_retries,
             search_max_retries=self.config.download.max_youtube_music_search_retries,
+            message_delete_after=self.config.general.message_delete_after,
         )
 
         if self.config.broker_client:
