@@ -7,7 +7,9 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 import aiohttp
+from aiohttp import web
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.interfaces.broker_protocols import CheckoutResult
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
@@ -59,7 +61,7 @@ class TestInMemoryBrokerClient:
         assert returned is not None
         assert returned.media_request is mr
 
-    async def test_checkout_returns_str_path(self):
+    async def test_checkout_returns_local_path_checkout_result(self):
         broker = _make_broker()
         mr = _make_request()
         client = InMemoryBrokerClient(broker)
@@ -67,9 +69,10 @@ class TestInMemoryBrokerClient:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
                 with TemporaryDirectory() as guild_dir:
-                    path_str = await client.checkout(str(mr.uuid), 123, guild_dir)
-        assert path_str is not None
-        assert isinstance(path_str, str)
+                    result = await client.checkout(str(mr.uuid), 123, guild_dir)
+        assert isinstance(result, CheckoutResult)
+        assert result.local_path is not None
+        assert result.s3_key is None
 
     async def test_checkout_returns_none_for_unknown(self):
         broker = _make_broker()
@@ -161,7 +164,7 @@ class TestHttpBrokerClient:
             result = await hc.checkout('nonexistent', 123)
         assert result is None
 
-    async def test_checkout_with_valid_entry_returns_path_string(self):
+    async def test_checkout_with_valid_entry_returns_local_path(self):
         broker = _make_broker()
         mr = _make_request()
         server = BrokerHttpServer(broker)
@@ -172,8 +175,34 @@ class TestHttpBrokerClient:
                     async with TestClient(TestServer(server.build_app())) as tc:
                         hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                         result = await hc.checkout(str(mr.uuid), 123, guild_dir)
-        assert result is not None
-        assert isinstance(result, str)
+        assert isinstance(result, CheckoutResult)
+        assert result.local_path is not None
+        assert result.s3_key is None
+
+    async def test_checkout_s3_key_response_returns_s3_checkout_result(self):
+        '''An HA broker that responds with an s3_key yields CheckoutResult(s3_key,
+        bucket_name) so the player downloads the file from S3 itself.'''
+        async def _s3_checkout(_request):
+            return web.json_response({'s3_key': 'guilds/1/track.mp3'})
+        app = web.Application()
+        app.router.add_post('/requests/{uuid}/checkout', _s3_checkout)
+        async with TestClient(TestServer(app)) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), bucket_name='my-bucket', session=tc.session)
+            result = await hc.checkout('abc', 123, 'gdir')
+        assert isinstance(result, CheckoutResult)
+        assert result.s3_key == 'guilds/1/track.mp3'
+        assert result.bucket_name == 'my-bucket'
+        assert result.local_path is None
+
+    async def test_checkout_empty_response_returns_none(self):
+        '''An empty checkout response body yields None (the if-not-data guard).'''
+        async def _empty_checkout(_request):
+            return web.json_response({})
+        app = web.Application()
+        app.router.add_post('/requests/{uuid}/checkout', _empty_checkout)
+        async with TestClient(TestServer(app)) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            assert await hc.checkout('abc', 123) is None
 
     async def test_release(self):
         broker = _make_broker()

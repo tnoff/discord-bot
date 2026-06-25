@@ -3,7 +3,7 @@ from typing import Protocol
 
 import aiohttp
 
-from discord_bot.interfaces.broker_protocols import MediaBrokerBase
+from discord_bot.interfaces.broker_protocols import CheckoutResult, MediaBrokerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
@@ -22,8 +22,8 @@ class BrokerClient(Protocol):
         '''Apply a lifecycle status update from the download worker.'''
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
         '''Register a completed DownloadResult; returns a MediaDownload or None for HTTP clients.'''
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
-        '''Mark a request CHECKED_OUT; optionally stage the file and return the path string.'''
+    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+        '''Mark a request CHECKED_OUT; returns a CheckoutResult with local_path or s3_key set.'''
     async def release(self, uuid: str) -> None:
         '''Release a CHECKED_OUT entry and clean up the guild-specific file.'''
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
@@ -56,10 +56,13 @@ class InMemoryBrokerClient:
         '''Delegate to broker.register_download_result.'''
         return await self._broker.register_download_result(result)
 
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
-        '''Delegate to broker.checkout, converting path to/from str.'''
+    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+        '''Delegate to broker.checkout; the local engine stages the file, so wrap
+        the returned path as a CheckoutResult(local_path=...).'''
         path = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
-        return str(path) if path else None
+        if path is None:
+            return None
+        return CheckoutResult(local_path=path)
 
     async def release(self, uuid: str) -> None:
         '''Delegate to broker.release.'''
@@ -96,8 +99,10 @@ class HttpBrokerClient(HttpClientMixin):
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
     '''
-    def __init__(self, base_url: str, session: aiohttp.ClientSession | None = None):
+    def __init__(self, base_url: str, bucket_name: str | None = None,
+                 session: aiohttp.ClientSession | None = None):
         self._base_url = base_url.rstrip('/')
+        self._bucket_name = bucket_name
         self._session = session
 
     async def register_request(self, media_request: MediaRequest) -> None:
@@ -114,13 +119,26 @@ class HttpBrokerClient(HttpClientMixin):
         await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
         return None
 
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> str | None:
-        '''POST /requests/{uuid}/checkout — returns staged file path string or None.'''
+    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+        '''POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
+
+        Non-HA brokers stage the file themselves and respond with guild_file_path
+        (→ CheckoutResult(local_path=...)). HA brokers respond with an s3_key
+        (→ CheckoutResult(s3_key=..., bucket_name=...)) and leave the S3 download
+        to the caller (MusicPlayer).'''
         body: dict = {'guild_id': guild_id}
         if guild_path:
             body['guild_path'] = guild_path
         data = await self._http('POST', f'{self._base_url}/requests/{uuid}/checkout', body)
-        return data.get('guild_file_path') if data else None
+        if not data:
+            return None
+        s3_key = data.get('s3_key')
+        if s3_key:
+            return CheckoutResult(s3_key=s3_key, bucket_name=self._bucket_name)
+        guild_file_path = data.get('guild_file_path')
+        if guild_file_path:
+            return CheckoutResult(local_path=Path(guild_file_path))
+        return None
 
     async def release(self, uuid: str) -> None:
         '''POST /requests/{uuid}/release.'''

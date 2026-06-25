@@ -19,10 +19,11 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.interfaces.broker_protocols import MediaBrokerBase
+from discord_bot.interfaces.broker_protocols import CheckoutResult, MediaBrokerBase
 from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
+from discord_bot.utils.integrations.s3 import get_file
 
 
 
@@ -116,13 +117,25 @@ class MusicPlayer:
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
-        guild_file_path = None
+        checkout_result: CheckoutResult | None = None
         if self.broker:
-            guild_file_path = await self.broker.checkout(
-                str(media_download.media_request.uuid), self.guild.id, self.file_dir
+            checkout_result = await self.broker.checkout(
+                str(media_download.media_request.uuid), self.guild.id, str(self.file_dir)
             )
 
-        file_path = guild_file_path or media_download.file_path
+        # Default to the download's own path; override with whatever the broker
+        # checked out. local_path means the file is already staged locally (the
+        # single-process / non-HA path — behaviour-preserving). s3_key means an
+        # HA broker pod holds it in S3 and the bot must fetch it before playback.
+        file_path = media_download.file_path
+        if checkout_result and checkout_result.local_path:
+            file_path = checkout_result.local_path
+        elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
+            extension = ''.join(Path(checkout_result.s3_key).suffixes)
+            local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
+            self.file_dir.mkdir(exist_ok=True)
+            await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
+            file_path = local_path
         self.logger.debug(f'Gathered new file to play {str(file_path)}')
         with open(file_path, 'rb') as f:
             audio_data = BytesIO(f.read())

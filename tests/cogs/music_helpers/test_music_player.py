@@ -11,6 +11,7 @@ from discord.errors import ClientException
 from discord_bot.exceptions import ExitEarlyException
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
+from discord_bot.interfaces.broker_protocols import CheckoutResult
 from discord_bot.types.queue import Queue
 
 from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
@@ -695,3 +696,37 @@ async def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disa
             items = await player.clear_queue()
             assert len(items) == 1
             player.broker.remove.assert_called_once_with(str(sd.media_request.uuid))
+
+
+@pytest.mark.asyncio
+async def test_player_loop_checkout_local_path_played(fake_context): #pylint:disable=redefined-outer-name
+    """A CheckoutResult with local_path plays that staged file directly."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.broker.checkout = AsyncMock(
+                return_value=CheckoutResult(local_path=media_download.file_path)
+            )
+            player.add_to_play_queue(media_download)
+            await player.player_loop()
+            assert player.broker.checkout.called
+
+
+@pytest.mark.asyncio
+async def test_player_loop_checkout_s3_key_downloads(fake_context): #pylint:disable=redefined-outer-name
+    """A CheckoutResult with s3_key fetches the file from S3 before playback."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.broker.checkout = AsyncMock(
+                return_value=CheckoutResult(s3_key='track.mp3', bucket_name='my-bucket')
+            )
+
+            def _fake_get_file(_bucket, _key, dest):
+                Path(dest).write_bytes(b'audio')
+
+            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+                       side_effect=_fake_get_file) as mock_get:
+                player.add_to_play_queue(media_download)
+                await player.player_loop()
+                mock_get.assert_called_once_with('my-bucket', 'track.mp3', mock_get.call_args[0][2])
