@@ -34,6 +34,20 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  broker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.broker
+    volumes:
+      - ../volumes/cnf/discord.broker.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/broker-logs:/var/log/discord
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   bot:
     build:
       context: ..

@@ -96,6 +96,15 @@ docker-build-dispatcher:
     OUTPUT_TARBALL: image-dispatcher.tar
   rules: !reference [.image-build-rules, rules]
 
+docker-build-broker:
+  extends: .buildkit-build-check
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.broker
+    OUTPUT_NAME: discord-broker:ci
+    OUTPUT_TARBALL: image-broker.tar
+  rules: !reference [.image-build-rules, rules]
+
 trufflehog-bot-image:
   extends: .trufflehog-image
   stage: validate
@@ -110,6 +119,14 @@ trufflehog-dispatcher-image:
   needs: [docker-build-dispatcher]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-dispatcher.tar
+  rules: !reference [.image-build-rules, rules]
+
+trufflehog-broker-image:
+  extends: .trufflehog-image
+  stage: validate
+  needs: [docker-build-broker]
+  variables:
+    TRUFFLEHOG_IMAGE_TARBALL: image-broker.tar
   rules: !reference [.image-build-rules, rules]
 
 tox-generate:
@@ -167,6 +184,18 @@ docker-push-dispatcher:
     DOCKERFILE_NAME: Dockerfile.dispatcher
   before_script:
     - export OCI_REPO_NAME_64="$OCI_DISPATCHER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
+
+# Publishes discord_broker:<sha> on the default branch (OCIR repo + push perms
+# provisioned in terraform/oci). No trigger-bump yet — docker-apps doesn't
+# consume the broker pin until the F3 cutover; the bump producer lands then.
+docker-push-broker:
+  extends: .buildkit-docker-push
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.broker
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_BROKER_REPO_NAME_64"
     - !reference [.buildkit-docker-push, before_script]
 
 trigger-bump-docker-apps-dispatcher:

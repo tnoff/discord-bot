@@ -72,6 +72,7 @@ test = [
 discord-bot = "discord_bot.cli.full:main"
 discord-bot-min = "discord_bot.cli.bot:main"
 discord-dispatcher = "discord_bot.cli.dispatcher:main"
+discord-broker = "discord_bot.cli.broker:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
