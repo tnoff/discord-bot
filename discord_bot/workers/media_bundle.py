@@ -83,6 +83,12 @@ class BundleState(BaseModel):
     is_shutdown: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
+    # Set once the terminal "Completed N/N" summary has been dispatched with a
+    # delete_after.  That dispatch makes the message dispatcher drop its mutable
+    # tracking for the bundle key, so any later finished-render would create a
+    # duplicate summary instead of editing the existing one — this guards it to
+    # a single dispatch.
+    summary_dispatched: bool = False
 
 
 def _request_row_text(req_state: BundledRequestState) -> str:

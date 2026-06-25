@@ -380,15 +380,24 @@ class MediaBrokerBase(ABC):
                 and state.bundled_requests):
             return
         content = renderer.print()
-        if content:
+        # A finished bundle's "Completed N/N" summary is dispatched with a
+        # delete_after so Discord auto-expires it (the pre-broker behaviour).
+        # But that delete_after makes the message dispatcher drop its mutable
+        # tracking for the key, so a *second* finished-render — which fires for
+        # every later lifecycle push on a bundled request (e.g. as a playlist
+        # plays through) — would create a fresh duplicate summary instead of
+        # editing the original.  Dispatch the terminal summary exactly once.
+        final_summary = renderer.finished
+        already_dispatched_final = final_summary and renderer.state.summary_dispatched
+        if content and not already_dispatched_final:
             self.dispatcher.update_mutable(
                 f'request_bundle-{bundle_uuid}',
                 renderer.state.guild_id, content, renderer.state.channel_id,
                 sticky=False,
-                # On finish, let Discord auto-expire the "Completed N/N" summary
-                # (restores the pre-broker behaviour); while in flight it stays.
-                delete_after=self.message_delete_after if renderer.finished else None,
+                delete_after=self.message_delete_after if final_summary else None,
             )
+            if final_summary:
+                renderer.state.summary_dispatched = True
         # Best-effort failure / retry summaries — these are separate Discord
         # messages, not edits, so they go through send_message.
         failure = renderer.get_failure_summary()

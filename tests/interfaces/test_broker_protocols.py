@@ -383,3 +383,35 @@ async def test_finished_multi_track_bundle_expires_summary(fake_context):  # pyl
     assert call.kwargs.get('delete_after') == 300
     # Non-empty summary → bundle stays tracked (queryable) until Discord expires it.
     assert await broker._load_bundle(bundle_uuid) is not None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_finished_summary_dispatched_only_once(fake_context):  # pylint: disable=redefined-outer-name
+    '''Re-rendering an already-finished bundle must NOT re-dispatch the terminal
+    summary.  The first finished render sends "Completed N/N" with delete_after,
+    which makes the message dispatcher drop its mutable tracking; a second
+    dispatch would orphan-create a duplicate summary (the prod double-message
+    bug).  Guarded by BundleState.summary_dispatched.'''
+    dispatcher = _make_dispatcher()
+    broker = _StorageBroker(dispatcher=dispatcher, message_delete_after=300)
+    bundle_uuid = await broker.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='multi playlist', has_search_banner=True,
+    )
+    media_request = await _add_queued_request(broker, fake_context, bundle_uuid)
+    await broker.finalize_bundle(bundle_uuid)
+    media_request.state_machine.mark_completed()
+
+    # First finished render dispatches the terminal summary once.
+    await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
+    first = [c for c in dispatcher.update_mutable.call_args_list
+             if any('Completed processing' in line for line in c.args[2])]
+    assert len(first) == 1
+    assert first[0].kwargs.get('delete_after') == 300
+    assert (await broker._load_bundle(bundle_uuid)).summary_dispatched is True  # pylint: disable=protected-access
+
+    # A later lifecycle push re-renders the same finished bundle — no second summary.
+    dispatcher.reset_mock()
+    await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
+    dispatcher.update_mutable.assert_not_called()
+    dispatcher.remove_mutable.assert_not_called()
