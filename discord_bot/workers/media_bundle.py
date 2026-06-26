@@ -90,6 +90,24 @@ class BundleState(BaseModel):
     # a single dispatch.
     summary_dispatched: bool = False
 
+    def sync_request(self, media_request: AnyMediaRequest) -> bool:
+        '''Replace the stored copy of a bundled request (matched by uuid) with
+        ``media_request``, returning True when a matching row was found.
+
+        Brokers keep the authoritative MediaRequest in their registry; the
+        bundle holds its own copy.  In single-process those copies normally
+        share a Python reference, but the alias is lost when a registry entry is
+        rebuilt from a deserialised request, and in Redis the two are always
+        independent JSON blobs.  Both brokers call this to write the latest
+        lifecycle state back into the bundle before rendering.
+        '''
+        target = str(media_request.uuid)
+        for req_state in self.bundled_requests:
+            if str(req_state.media_request.uuid) == target:
+                req_state.media_request = media_request
+                return True
+        return False
+
 
 def _request_row_text(req_state: BundledRequestState) -> str:
     '''Compute the table-row text for a request given its current lifecycle stage.

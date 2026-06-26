@@ -9,13 +9,14 @@ bundle-attach path, get_cache_count with a cache, and the bundle-storage hooks.
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.interfaces.broker_protocols import CheckoutResult
+from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
@@ -55,6 +56,71 @@ async def test_update_request_status_unknown_uuid_warns(fake_context):  # pylint
     await AsyncioBroker().update_request_status(
         'nope', LifecycleStatusUpdate(event=LifecycleEvent.QUEUED),
     )
+
+
+@pytest.mark.asyncio
+async def test_update_request_status_clears_bundle_when_registry_alias_broke(fake_context):  # pylint: disable=redefined-outer-name
+    '''A terminal lifecycle push clears the bundle even when the registry entry
+    is no longer the same Python object the bundle attached.
+
+    Regression: a single-track "Downloading and processing…" message stayed on
+    screen forever after the track finished and played.  The bundle's stored
+    request normally shares a reference with the registry entry, but that alias
+    is lost when the registry entry is rebuilt from a deserialised request (e.g.
+    register_download's entry-absent branch fed a DownloadResult.media_request).
+    Once broken, the COMPLETED mark landed on the registry object while the
+    bundle kept rendering its stale IN_PROGRESS snapshot, so it never reached
+    finished and the message was never removed.  update_request_status must
+    re-sync the authoritative request into the bundle before rendering.
+    '''
+    dispatcher = MagicMock()
+    broker = AsyncioBroker(dispatcher=dispatcher, message_delete_after=60)
+    bundle_uuid = await broker.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='https://on.soundcloud.com/abc',
+    )
+    media_request = fake_source_dict(fake_context, is_direct_search=True)
+    media_request.bundle_uuid = bundle_uuid
+    await broker.register_request(media_request)
+    await broker.update_request_status(
+        str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.QUEUED))
+    await broker.finalize_bundle(bundle_uuid)
+    await broker.update_request_status(
+        str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS))
+    bundle_key = f'request_bundle-{bundle_uuid}'
+    assert any('Downloading and processing' in str(c.args[2])
+               for c in dispatcher.update_mutable.call_args_list)
+
+    # Break the alias the way a rebuilt registry entry does: the registry now
+    # holds a deserialised copy, while the bundle still references the original.
+    rebuilt = parse_media_request(media_request.model_dump(mode='json'))
+    assert rebuilt is not media_request
+    broker._registry[str(media_request.uuid)] = BrokerEntry(  # pylint: disable=protected-access
+        request=rebuilt, zone=Zone.AVAILABLE)
+
+    await broker.update_request_status(
+        str(rebuilt.uuid), LifecycleStatusUpdate(event=LifecycleEvent.COMPLETED))
+
+    # The finished single-track bundle is torn down rather than left showing the
+    # stale download line.
+    dispatcher.remove_mutable.assert_called_once_with(bundle_key)
+    assert broker.get_bundle_state(bundle_uuid) is None
+
+
+@pytest.mark.asyncio
+async def test_update_request_status_with_dangling_bundle_uuid_is_noop(fake_context):  # pylint: disable=redefined-outer-name
+    '''A lifecycle push for a request whose bundle_uuid points at no stored
+    bundle syncs/renders nothing and does not raise (the bundle-absent guard).'''
+    dispatcher = MagicMock()
+    broker = AsyncioBroker(dispatcher=dispatcher)
+    media_request = fake_source_dict(fake_context)
+    media_request.bundle_uuid = 'request.bundle.gone'
+    await broker.register_request(media_request)
+    await broker.update_request_status(
+        str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.COMPLETED))
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED
+    dispatcher.update_mutable.assert_not_called()
+    dispatcher.remove_mutable.assert_not_called()
 
 
 @pytest.mark.asyncio

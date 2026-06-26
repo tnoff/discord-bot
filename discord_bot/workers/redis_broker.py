@@ -171,12 +171,7 @@ class RedisBroker(MediaBrokerBase):
         if raw is None:
             return
         state = BundleState.model_validate(raw)
-        target = str(media_request.uuid)
-        for req_state in state.bundled_requests:
-            if str(req_state.media_request.uuid) == target:
-                req_state.media_request = media_request
-                break
-        else:
+        if not state.sync_request(media_request):
             return
         await self._registry.set_bundle(bundle_uuid, state.model_dump(mode='json'))
 

@@ -84,7 +84,37 @@ class AsyncioBroker(MediaBrokerBase):
             entry.request.state_machine.mark_completed()
         elif update.event == LifecycleEvent.FAILED:
             entry.request.state_machine.mark_failed(update.failure_reason)
-        await self._maybe_render_bundle(entry.request)
+        # Re-point the bundle's stored copy of this request at the registry's
+        # authoritative object before rendering.  We *usually* share a Python
+        # reference with bundled_requests, but that alias breaks whenever the
+        # registry entry was rebuilt from a deserialised request — e.g. the
+        # register_download entry-absent branch fed a DownloadResult's
+        # media_request.  When it breaks, the bundle keeps rendering the stale
+        # snapshot (stuck "Downloading and processing…") and never reaches
+        # finished, so the message is never cleared.  Syncing here makes the
+        # render reflect the lifecycle stage we just applied, alias or not.
+        bundle_uuid = entry.request.bundle_uuid
+        if bundle_uuid:
+            async with self._bundle_lock(bundle_uuid):
+                await self._sync_request_into_bundle(entry.request)
+                await self._render_and_dispatch_bundle_locked(bundle_uuid)
+        else:
+            await self._maybe_render_bundle(entry.request)
+
+    async def _sync_request_into_bundle(self, media_request: MediaRequest) -> None:
+        '''Re-attach the registry's authoritative request into its bundle.
+
+        Caller must already hold the per-bundle lock.  In-process the bundle's
+        bundled_requests normally share a Python reference with the registry
+        entry, but that alias is lost when the entry is rebuilt from a
+        deserialised request; this write-back restores it so the renderer sees
+        the latest lifecycle_stage / failure_reason.  No-op when the bundle or a
+        matching request row is absent.  The caller only invokes this for a
+        request that already has a bundle_uuid, so we don't re-check it here.
+        '''
+        state = self._bundles.get(media_request.bundle_uuid)
+        if state is not None:
+            state.sync_request(media_request)
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload:
         media_download = MediaDownload(result.file_name, result.ytdlp_data, result.media_request)
