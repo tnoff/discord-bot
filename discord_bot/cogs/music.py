@@ -159,6 +159,9 @@ class PlaylistMaxLength(Exception):
     '''
 
 OTEL_SPAN_PREFIX = 'music'
+# Idle backoff for process_download_results when the broker has no finished
+# result ready — in HA this paces the remote GET /results/next poll.
+_BROKER_POLL_INTERVAL_SECONDS = 1.0
 
 #
 class Music(CogHelper): #pylint:disable=too-many-public-methods
@@ -346,10 +349,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
     def __download_result_queue_depth_callback(self, _options):
         '''
-        Total pending download results waiting to be routed to players
+        Total pending download results waiting to be routed to players.
+
+        Only meaningful when broker_client owns a local result queue
+        (single-process / embedded broker server); HA mode reports 0 because the
+        queue lives on the broker pod and this gauge needs a synchronous read.
         '''
+        result_queue = getattr(self.broker_client, 'result_queue', None)
+        raw_queue = getattr(result_queue, 'raw_queue', None)
+        depth = raw_queue.qsize() if raw_queue is not None else 0
         return [
-            Observation(self.download_client.result_queue_depth(), attributes={
+            Observation(depth, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
             })
         ]
@@ -575,7 +585,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
-                await self.media_broker.register_download(media_download)
+                await self.broker_client.register_download(media_download)
                 player.trigger_prefetch()
                 await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
@@ -589,13 +599,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
                           if media_download.media_request.bundle_uuid else None)
                 await self._push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
-                await self.media_broker.discard(str(media_download.media_request.uuid))
+                await self.broker_client.discard(str(media_download.media_request.uuid))
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
             except PutsBlocked:
                 self.logger.info(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
                 await self._push_state(media_download.media_request, LifecycleEvent.DISCARDED)
-                await self.media_broker.discard(str(media_download.media_request.uuid))
+                await self.broker_client.discard(str(media_download.media_request.uuid))
                 return False
 
     # Take both source dict and media download
@@ -615,7 +625,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return
 
     async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
-        media_download = await self.media_broker.check_cache(media_request)
+        media_download = await self.broker_client.check_cache(media_request)
         if media_download:
             # Mark the original cached request (media_download.media_request) complete —
             # this is a different object from media_request (the current request).
@@ -756,10 +766,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
 
-        await sleep(.01)
-        try:
-            result = self.download_client.get_result_nowait()
-        except QueueEmpty:
+        result = await self.broker_client.next_result()
+        if result is None:
+            # Idle — the broker has no finished result for us right now.  Sleep
+            # before the loop runner re-calls so we don't busy-spin the broker
+            # (in HA this is a remote GET /results/next poll).
+            await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
 
         media_request = result.media_request
@@ -794,19 +806,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             player = await self.get_player(media_request.guild_id, create_player=False)
             if not player or player.shutdown_called:
                 self.logger.info(f'Player gone after download for guild {media_request.guild_id}, discarding "{str(media_request)}"')
-                await self.media_broker.update_request_status(
+                await self.broker_client.update_request_status(
                     str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED)
                 )
                 span.set_status(StatusCode.OK)
                 return
 
-            media_download = await self.media_broker.register_download_result(result)
+            # The broker already persisted this result when the download client
+            # reported it (locally for InMemoryBrokerClient, remotely for
+            # HttpBrokerClient) — build the MediaDownload the player needs from
+            # the result rather than from a return value the HTTP client can't
+            # round-trip.
+            media_download = MediaDownload(result.file_name, result.ytdlp_data, media_request)
+            media_download.file_size_bytes = result.file_size_bytes
             if not await self.__ensure_video_download_result(media_request, media_download):
                 span.set_status(StatusCode.ERROR)
                 return
             span.set_status(StatusCode.OK)
             await self.add_source_to_player(media_download, player)
-            await self.media_broker.cache_cleanup()
+            await self.broker_client.cache_cleanup()
 
     async def __get_history_playlist(self, guild_id: int):
         '''
@@ -964,7 +982,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
-                                     broker=self.media_broker,
+                                     broker=self.broker_client,
                                      prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
                 await player.start_tasks()
                 self.players[guild_id] = player
@@ -1052,7 +1070,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if media_request.span_context is None:
                 media_request.span_context = ctx_span_context
             media_request.bundle_uuid = bundle_uuid
-            await self.media_broker.register_request(media_request)
+            await self.broker_client.register_request(media_request)
             self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {bundle_uuid}')
             # Unless a direct or youtube url, pass into the search queue
             if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
@@ -1304,7 +1322,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Removed item {item.title} from queue',
             delete_after=self.config.general.message_delete_after)
-        await self.media_broker.remove(str(item.media_request.uuid))
+        await self.broker_client.remove(str(item.media_request.uuid))
         key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
         self.dispatcher.update_mutable(key, player.guild.id,
             self._get_play_order_content(player.guild.id), player.text_channel.id)

@@ -190,7 +190,6 @@ class DownloadClient():
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_available: asyncio.Event = asyncio.Event()
-        self._result_queue: DistributedQueue[DownloadResult] = DistributedQueue(queue_max_size)
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -334,17 +333,6 @@ class DownloadClient():
             media_request.span_context = capture_span_context()
         self._enqueue_request(guild_id, media_request, priority=priority)
 
-    def result_queue_depth(self) -> int:
-        '''Total number of completed results waiting to be processed across all guilds.'''
-        return sum(item.queue.size() for item in self._result_queue.queues.values())
-
-    def get_result_nowait(self) -> DownloadResult:
-        '''
-        Return the next completed DownloadResult, raising QueueEmpty if none available.
-        Results include both successes and terminal failures.
-        '''
-        return self._result_queue.get_nowait()
-
     def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
         a = self._input_queue.block(guild_id)
@@ -451,7 +439,13 @@ class DownloadClient():
             self._enqueue_request(media_request.guild_id, media_request)
             return
 
-        self._result_queue.put_nowait(media_request.guild_id, result)
+        # Report the finished result to the broker, which persists a successful
+        # download (zone=AVAILABLE) and queues every result for the cog's
+        # process_download_results router to drain via broker.next_result().
+        # In single-process this is the in-memory broker; in HA it POSTs to the
+        # broker pod.  Replaces the old download-client-owned result queue.
+        if self._broker is not None:
+            await self._broker.register_download_result(result)
 
     @staticmethod
     def _make_error_result(
