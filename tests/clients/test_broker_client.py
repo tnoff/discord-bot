@@ -2,6 +2,7 @@
 Tests for InMemoryBrokerClient and HttpBrokerClient.
 '''
 import asyncio
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
@@ -206,6 +207,25 @@ class TestHttpBrokerClient:
         assert result.local_path is not None
         assert result.s3_key is None
 
+    async def test_checkout_with_path_guild_dir_serializes(self):
+        '''Regression: the player passes self.file_dir (a Path) as guild_path.
+        A PosixPath is not JSON-serialisable, so without str()-ing it the real
+        aiohttp request raised TypeError before reaching the broker (prod music
+        wouldn't play after the HA cutover). Drive a real Path through the real
+        session — must round-trip, not raise.'''
+        broker = _make_broker()
+        mr = _make_request()
+        server = BrokerHttpServer(broker)
+        with TemporaryDirectory() as tmp_dir:
+            with fake_media_download(tmp_dir, media_request=mr) as md:
+                await broker.register_download(md)
+                with TemporaryDirectory() as guild_dir:
+                    async with TestClient(TestServer(server.build_app())) as tc:
+                        hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                        result = await hc.checkout(str(mr.uuid), 123, Path(guild_dir))
+        assert isinstance(result, CheckoutResult)
+        assert result.local_path is not None
+
     async def test_checkout_ha_broker_returns_s3_key(self):
         '''An HA broker returns CheckoutResult(s3_key); the server serialises it as
         s3_key and HttpBrokerClient surfaces it (with bucket_name) without downloading.'''
@@ -238,6 +258,16 @@ class TestHttpBrokerClient:
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.prefetch(queue_items, 123, None, 5)
+
+    async def test_prefetch_with_path_guild_dir_serializes(self):
+        '''Regression (same PosixPath bug as checkout): the player passes a Path
+        guild_path to prefetch. Must str()-serialise over HTTP rather than raise.'''
+        broker = _make_broker()
+        server = BrokerHttpServer(broker)
+        with TemporaryDirectory() as guild_dir:
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                await hc.prefetch([], 123, Path(guild_dir), 5)
 
     async def test_close_session(self):
         '''close() closes the underlying aiohttp session.'''

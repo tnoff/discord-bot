@@ -237,7 +237,10 @@ class HttpBrokerClient(HttpClientMixin):
         '''
         body: dict = {'guild_id': guild_id}
         if guild_path:
-            body['guild_path'] = guild_path
+            # str() it: the player passes self.file_dir (a Path), and aiohttp's
+            # json= can't serialise a PosixPath. The broker server takes the
+            # string and rebuilds the Path on its side.
+            body['guild_path'] = str(guild_path)
         async with async_otel_span_wrapper(
             'broker.checkout', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid, 'music.guild_id': guild_id},
@@ -324,7 +327,10 @@ class HttpBrokerClient(HttpClientMixin):
             attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit},
         ):
             await self._http('POST', f'{self._base_url}/prefetch', {
-                'uuids': uuids, 'guild_id': guild_id, 'guild_path': guild_path, 'limit': limit,
+                # str() guild_path — it arrives as a Path (self.file_dir) and a
+                # PosixPath isn't JSON-serialisable for the HTTP body.
+                'uuids': uuids, 'guild_id': guild_id,
+                'guild_path': str(guild_path) if guild_path else None, 'limit': limit,
             })
 
     async def create_bundle(self, guild_id: int, channel_id: int,
