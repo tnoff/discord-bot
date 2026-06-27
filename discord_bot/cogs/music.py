@@ -256,7 +256,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         )
 
         if self.config.broker_client:
-            self.broker_client = HttpBrokerClient(self.config.broker_client.url)
+            # bucket_name is load-bearing in HA: an HA broker's checkout returns
+            # CheckoutResult(s3_key=...), and the client stamps bucket_name onto
+            # it so MusicPlayer knows where to fetch the file from S3. Without it
+            # the player falls through to open() the raw s3_key and 404s.
+            self.broker_client = HttpBrokerClient(
+                self.config.broker_client.url, bucket_name=storage_bucket_name)
         else:
             self.broker_client = InMemoryBrokerClient(self.media_broker)
 

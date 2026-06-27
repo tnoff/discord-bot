@@ -1428,14 +1428,22 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
 
 
 def test_music_init_with_broker_client_config(fake_context):  #pylint:disable=redefined-outer-name
-    """HttpBrokerClient is created when broker_client config is present."""
+    """HttpBrokerClient is created — with the storage bucket wired — when
+    broker_client config is present.
+
+    The bucket_name wiring is load-bearing: an HA broker's checkout returns
+    CheckoutResult(s3_key=...), and the client stamps bucket_name onto it so
+    MusicPlayer can fetch the file from S3. Without it the player falls through
+    to open() the raw s3_key and 404s (prod regression on the F3 cutover)."""
     config = {
         'music': {
-            'broker_client': {'url': 'http://broker-host:8081'}
+            'broker_client': {'url': 'http://broker-host:8081'},
+            'download': {'storage': {'bucket_name': 'my-cache-bucket'}},
         }
     } | BASE_MUSIC_CONFIG
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     assert isinstance(cog.broker_client, HttpBrokerClient)
+    assert cog.broker_client._bucket_name == 'my-cache-bucket'  # pylint: disable=protected-access
 
 
 def test_music_init_without_broker_client_config_uses_in_memory(fake_context):  #pylint:disable=redefined-outer-name
