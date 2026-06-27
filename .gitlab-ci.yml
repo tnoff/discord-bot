@@ -206,6 +206,17 @@ trigger-bump-docker-apps-dispatcher:
   variables:
     BUMP_SOURCE: 'discord-dispatcher'
 
+# docker-apps now consumes the discord_broker pin (broker-app.yaml, deployed),
+# so publish-then-bump it like bot/dispatcher. BUMP_SOURCE=discord-broker drives
+# the docker-apps bump-discord-broker-pin + cleanup-discord-broker jobs.
+trigger-bump-docker-apps-broker:
+  extends: .trigger-bump
+  needs:
+    - job: docker-push-broker
+      artifacts: true
+  variables:
+    BUMP_SOURCE: 'discord-broker'
+
 notify-mr:
   extends: .discord-notify
   stage: notify
@@ -223,7 +234,7 @@ notify-mr:
 notify-failure:
   extends: .discord-notify
   stage: notify
-  needs: [tag-build, docker-push-bot, docker-push-dispatcher, trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher]
+  needs: [tag-build, docker-push-bot, docker-push-dispatcher, docker-push-broker, trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher, trigger-bump-docker-apps-broker]
   variables:
     NOTIFY_TYPE: failure
     DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
