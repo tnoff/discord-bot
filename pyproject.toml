@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 bot = [
     "dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0",
-    "alembic==1.18.4",
+    "alembic==1.18.5",
     "beautifulsoup4==4.14.3",
     "boto3==1.43.29",
     "google-api-python-client==2.197.0",
