@@ -102,6 +102,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
 
     def remove_mutable(self, key: str):
         '''Fire-and-forget: POST /dispatch/remove_mutable.'''
+        logger.debug('remove_mutable: key=%s', key)
         asyncio.create_task(self._post('/dispatch/remove_mutable', {'key': key}))
 
     def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int):

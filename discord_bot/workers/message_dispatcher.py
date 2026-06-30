@@ -381,6 +381,7 @@ class MessageDispatcher(DispatchClientBase):
 
     def remove_mutable(self, key: str):
         '''Enqueue a mutable bundle removal at HIGH priority.'''
+        self.logger.debug('remove_mutable: key=%s', key)
         asyncio.create_task(self._work_queue.enqueue_unique(
             f'{_MEMBER_REMOVE}{key}',
             {'key': key},

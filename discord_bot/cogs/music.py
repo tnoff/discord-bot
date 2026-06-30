@@ -632,8 +632,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
         media_download = await self.broker_client.check_cache(media_request)
         if media_download:
-            # Mark the original cached request (media_download.media_request) complete —
-            # this is a different object from media_request (the current request).
+            # check_cache binds the cached file to THIS media_request
+            # (video_cache_client.get_webpage_url_item passes it straight into the
+            # MediaDownload), so media_download.media_request is the same object —
+            # marking it COMPLETED advances this request's own bundle row toward
+            # teardown.  add_source_to_player and the SEARCH caller (below) re-push
+            # COMPLETED on the same request; the transitions are idempotent.
             await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
             if isinstance(media_request, PlaylistAddRequest):
                 playlist_result = PlaylistAddResult(

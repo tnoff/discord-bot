@@ -195,3 +195,40 @@ async def test_checkout_returns_checkoutresult_and_caches_local_path(fake_contex
             assert isinstance(first, CheckoutResult)
             assert first.local_path is not None
             assert second.local_path == first.local_path
+
+
+@pytest.mark.asyncio
+async def test_single_track_search_cache_hit_tears_down_bundle(fake_context):  # pylint: disable=redefined-outer-name
+    '''A single-track SEARCH→cache-hit bundle tears down once its request
+    completes — the message must not strand on "Media request queued…".
+
+    Drives the cog's real ordering for `!play <search>` that resolves from the
+    video cache: create_bundle (set_initial_search placeholder) → register_request
+    (SEARCHING) → finalize_bundle → QUEUED push → register_download then a
+    COMPLETED push (the cog pushes COMPLETED more than once; the transitions are
+    idempotent).  The terminal push must blank the single row, reach `finished`,
+    and dispatch remove_mutable + drop the bundle.
+    '''
+    dispatcher = MagicMock()
+    broker = AsyncioBroker(dispatcher=dispatcher, message_delete_after=60)
+    bundle_uuid = await broker.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='in the Yuma by Chris lake',
+    )
+    media_request = fake_source_dict(fake_context)
+    media_request.bundle_uuid = bundle_uuid
+    await broker.register_request(media_request)
+    await broker.finalize_bundle(bundle_uuid)
+
+    await broker.update_request_status(
+        str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.QUEUED))
+    with TemporaryDirectory() as tmpd:
+        with fake_media_download(Path(tmpd), media_request=media_request) as media_download:
+            await broker.register_download(media_download)
+            await broker.update_request_status(
+                str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.COMPLETED))
+            await broker.update_request_status(
+                str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.COMPLETED))
+
+    dispatcher.remove_mutable.assert_any_call(f'request_bundle-{bundle_uuid}')
+    assert broker.get_bundle_state(bundle_uuid) is None
