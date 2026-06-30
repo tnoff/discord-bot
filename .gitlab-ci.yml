@@ -10,6 +10,9 @@ include:
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
     ref: a5e9849f148c62b128b033e79676ffb8ab4ee129
+    file: '/gitlab/branch-cleanup.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: a5e9849f148c62b128b033e79676ffb8ab4ee129
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
     ref: a5e9849f148c62b128b033e79676ffb8ab4ee129
@@ -272,3 +275,29 @@ renovate:
     GITHUB_COM_TOKEN: $GITHUB_BOT_TOKEN
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
+
+# Scheduled prune of stale automation branches (bump/* + renovate/*) left
+# behind because remove_source_branch only fires on MR merge, not on the
+# API-driven close of a superseded bump/renovate MR. Rides the weekly
+# schedule and reuses RENOVATE_TOKEN. See the github-workflows
+# .branch-cleanup template and docs runbooks/branch-cleanup.md.
+branch-cleanup:
+  extends: .branch-cleanup
+  stage: renovate
+  variables:
+    CLEANUP_AGE_DAYS: "30"
+    DRY_RUN: "false"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+notify-cleanup-failure:
+  extends: .discord-notify
+  stage: renovate
+  needs: [branch-cleanup]
+  variables:
+    NOTIFY_TYPE: failure
+    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
+    NOTIFY_MESSAGE: 'Branch cleanup failed'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: on_failure
