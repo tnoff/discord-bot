@@ -27,6 +27,7 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
 from discord_bot.clients.download_client import InMemoryDownloadClient
+from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.interfaces.download_protocols import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
@@ -272,7 +273,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
-        self.download_client: DownloadClient = InMemoryDownloadClient(
+        download_worker = AsyncioDownloadWorker(
             self.logging_config,
             self.download_dir,
             extra_ytdlp_options=self.config.download.extra_ytdlp_options,
@@ -287,6 +288,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_retries=self.config.download.max_download_retries,
             queue_max_size=self.config.player.queue_max_size,
         )
+        self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,

@@ -50,7 +50,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    upload_mock = mocker.patch('discord_bot.clients.download_client.upload_file', return_value=True)
+    upload_mock = mocker.patch('discord_bot.interfaces.download_protocols.upload_file', return_value=True)
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             # Simulate what InMemoryDownloadClient does: upload then register with S3 key

@@ -177,7 +177,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
 
     # Verify request was added to download queue
     assert cog.download_client.queue_size(fake_context['guild'].id) > 0
-    download_item = cog.download_client.get_input_nowait()
+    download_item = cog.download_client.local_worker.get_input_nowait()
     assert download_item == media_request
 
     # Verify bundle status was updated
@@ -527,7 +527,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
 
     # Verify direct request went to download queue
     assert cog.download_client.queue_size(fake_context['guild'].id) > 0
-    download_queue_item = cog.download_client.get_input_nowait()
+    download_queue_item = cog.download_client.local_worker.get_input_nowait()
     assert download_queue_item == direct_request
 
     # Verify bundle was updated
@@ -655,7 +655,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
 
     download_queue_items = []
     for _ in range(3):
-        item = cog.download_client.get_input_nowait()
+        item = cog.download_client.local_worker.get_input_nowait()
         download_queue_items.append(item)
 
     # Check search queue has search requests (including spotify-originated)
