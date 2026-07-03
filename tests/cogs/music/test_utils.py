@@ -1,8 +1,8 @@
 import pytest
 
-from discord_bot.cogs.music_helpers.download_client import match_generator
+from discord_bot.clients.download_client import match_generator
 
-from discord_bot.cogs.music_helpers.download_client import VideoTooLong, VideoBanned
+from discord_bot.clients.download_client import VideoTooLong, VideoBanned
 
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 

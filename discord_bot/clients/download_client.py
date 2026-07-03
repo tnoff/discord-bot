@@ -133,9 +133,15 @@ def match_generator(max_video_length: int, banned_videos_list: List[str]):
 
     return filter_function
 
-class DownloadClient():
+class InMemoryDownloadClient():
     '''
-    Download Client using yt-dlp
+    Single-process DownloadClient backed by an in-process yt-dlp pipeline.
+
+    Owns the input queues and runs the download worker loop in the same
+    process as the cog (satisfies interfaces/download_protocols.DownloadClient).
+    A future HttpDownloadClient will forward the same surface to a remote
+    downloader pod for HA; the yt-dlp engine here is the seam a later MR
+    extracts into a standalone AsyncioDownloadWorker.
     '''
     def __init__(
         self,

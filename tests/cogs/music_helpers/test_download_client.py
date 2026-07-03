@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from yt_dlp.utils import DownloadError
 
-from discord_bot.cogs.music_helpers.download_client import (
-    DownloadClient, VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
+from discord_bot.clients.download_client import (
+    InMemoryDownloadClient, VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
     DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator,
     DirectItemAvailableException,
 )
@@ -77,8 +77,8 @@ def yield_dlp_error(message):
     return MockYTDLPError()
 
 def make_download_client(mock_ytdl=None, **kwargs):
-    '''Create a DownloadClient with an optional mock ytdl injected post-init.'''
-    client = DownloadClient(None, Path('/tmp'), **kwargs)
+    '''Create a InMemoryDownloadClient with an optional mock ytdl injected post-init.'''
+    client = InMemoryDownloadClient(None, Path('/tmp'), **kwargs)
     if mock_ytdl is not None:
         client.ytdl = mock_ytdl
     return client
@@ -101,7 +101,7 @@ async def test_prepare_source():
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
@@ -121,8 +121,8 @@ async def test_prepare_source_s3_mode():
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
     expected_s3_key = f'cache/{pcm_path.name}'
-    with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path) as edit_mock:
+    with patch('discord_bot.clients.download_client.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path) as edit_mock:
             result = await x.create_source(y, 3)
     assert result.status.success
     # edit_audio_file was called with the local download file, not an S3 key
@@ -149,8 +149,8 @@ async def test_prepare_source_s3_mode_audio_processing_error():
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
     expected_s3_key = f'cache/{download_path.name}'
-    with patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True) as upload_mock:
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
+    with patch('discord_bot.clients.download_client.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.clients.download_client.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
             result = await x.create_source(y, 3)
     assert not result.status.success
@@ -222,7 +222,7 @@ async def test_prepare_source_md5_match_no_warning(mocker):
     x = make_download_client(MockYTDLPWithMd5())
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
-    with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
+    with patch('discord_bot.clients.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
         result = await x.create_source(y, 3)
     assert result.status.success
@@ -248,7 +248,7 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     x = make_download_client(MockYTDLPWithWrongMd5())
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
-    with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
+    with patch('discord_bot.clients.download_client.edit_audio_file',
                return_value=file_path.with_suffix('.pcm')):
         result = await x.create_source(y, 3)
     assert result.status.success
@@ -266,7 +266,7 @@ async def test_prepare_source_no_md5_no_warning(mocker):
         mock_logger = mocker.patch.object(x, 'logger')
         y = fake_source_dict(fake_context)
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         mock_logger.warning.assert_not_called()
@@ -379,7 +379,7 @@ async def test_prepare_source_audio_processing_error():
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file',
+        with patch('discord_bot.clients.download_client.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
             result = await x.create_source(y, 3)
     assert not result.status.success
@@ -756,7 +756,7 @@ def test_failure_queue_status_summary_after_success_clears_item():
     assert "2 failures in queue" in queue.get_status_summary()
 
 
-# ========== DownloadClient.update_tracking Tests ==========
+# ========== InMemoryDownloadClient.update_tracking Tests ==========
 
 
 def _make_result(success, error_type=None, extractor='youtube', error_detail=None, ytdlp_data=None, is_direct_search=False):
@@ -1032,7 +1032,7 @@ def _reported_results(mock_broker):
     return [call.args[0] for call in mock_broker.register_download_result.await_args_list]
 
 
-# ========== DownloadClient.run() Tests ==========
+# ========== InMemoryDownloadClient.run() Tests ==========
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_run_success_reports_result_to_broker():
@@ -1045,7 +1045,7 @@ async def test_run_success_reports_result_to_broker():
         client.submit(mr.guild_id, mr)
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
     assert len(results) == 1
@@ -1208,7 +1208,7 @@ async def test_run_direct_item_bypasses_active_backoff():
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
     assert len(results) == 1
@@ -1231,7 +1231,7 @@ async def test_run_direct_item_interrupts_mid_wait():
             mr = fake_source_dict(fake_context, is_direct_search=True)
             client.submit(mr.guild_id, mr)
 
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             await asyncio.gather(client.run(shutdown), submit_after_delay())
 
     results = _reported_results(mock_broker)
@@ -1284,7 +1284,7 @@ async def test_run_three_direct_items_all_processed_with_backoff():
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             for _ in range(3):
                 await client.run(shutdown)
     assert len(_reported_results(mock_broker)) == 3
@@ -1309,7 +1309,7 @@ async def test_run_three_direct_items_arriving_mid_backoff():
                 client.submit(mr.guild_id, mr)
 
         async def run_until_three_results():
-            with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+            with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
                 while len(_reported_results(mock_broker)) < 3:
                     await client.run(shutdown)
 
@@ -1377,7 +1377,7 @@ async def test_run_no_backoff_preserves_submission_order():
         client.submit(mr_direct.guild_id, mr_direct)
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
-        with patch('discord_bot.cogs.music_helpers.download_client.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.clients.download_client.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
             await client.run(shutdown)
     results = _reported_results(mock_broker)

@@ -26,7 +26,8 @@ from sqlalchemy.engine.base import Engine
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
-from discord_bot.cogs.music_helpers.download_client import DownloadClient
+from discord_bot.clients.download_client import InMemoryDownloadClient
+from discord_bot.interfaces.download_protocols import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
@@ -271,7 +272,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
-        self.download_client = DownloadClient(
+        self.download_client: DownloadClient = InMemoryDownloadClient(
             self.logging_config,
             self.download_dir,
             extra_ytdlp_options=self.config.download.extra_ytdlp_options,

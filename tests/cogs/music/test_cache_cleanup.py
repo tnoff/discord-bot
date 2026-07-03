@@ -32,7 +32,7 @@ def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pyli
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
-    '''In S3 mode, upload_file is called by DownloadClient during create_source.
+    '''In S3 mode, upload_file is called by InMemoryDownloadClient during create_source.
     cache_cleanup is a no-op while the entry is still in the broker registry.'''
     config = {
         'music': {
@@ -50,10 +50,10 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    upload_mock = mocker.patch('discord_bot.cogs.music_helpers.download_client.upload_file', return_value=True)
+    upload_mock = mocker.patch('discord_bot.clients.download_client.upload_file', return_value=True)
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            # Simulate what DownloadClient does: upload then register with S3 key
+            # Simulate what InMemoryDownloadClient does: upload then register with S3 key
             s3_key = f'cache/{sd.media_request.uuid}.mp3'
             upload_mock(cog.media_broker.bucket_name, sd.file_path, s3_key)
             sd.file_path = Path(s3_key)

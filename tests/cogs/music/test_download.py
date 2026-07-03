@@ -7,7 +7,7 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.exceptions import ExitEarlyException
 
-from discord_bot.cogs.music_helpers.download_client import DownloadClient
+from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -25,7 +25,7 @@ async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disab
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -53,7 +53,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -63,7 +63,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
 def yield_download_client_bot_flagged():
-    class FakeDownloadClient(DownloadClient):
+    class FakeDownloadClient(InMemoryDownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(None, Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
@@ -83,7 +83,7 @@ def yield_download_client_bot_flagged():
 async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disable=redefined-outer-name
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_bot_flagged())
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_download_client_bot_flagged())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -100,7 +100,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_exception())
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_download_client_download_exception())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     s = fake_source_dict(fake_context)
@@ -115,7 +115,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_download_client_download_error())
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_download_client_download_error())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -129,7 +129,7 @@ async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     s = fake_source_dict(fake_context)
-    mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(None))
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(None))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -144,7 +144,7 @@ async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:di
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -160,7 +160,7 @@ async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:di
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
             cog.dispatcher = MagicMock()
             cog.download_client.submit(fake_context['guild'].id, sd.media_request)
@@ -190,7 +190,7 @@ async def test_download_files_empty_queue(mocker, fake_context):  # pylint: disa
 
 def yield_download_client_retry_limit_exceeded():
     """Fake download client that returns a RETRY_LIMIT_EXCEEDED DownloadResult"""
-    class FakeDownloadClient(DownloadClient):
+    class FakeDownloadClient(InMemoryDownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(None, Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
@@ -215,7 +215,7 @@ async def test_download_retry_limit_exceeded(mocker, fake_context):  # pylint: d
     """download_files handles RETRY_LIMIT_EXCEEDED by returning a bad video message."""
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.DownloadClient',
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient',
                  side_effect=yield_download_client_retry_limit_exceeded())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
@@ -243,7 +243,7 @@ def _make_playlist_add_request(fake_context):  # pylint: disable=redefined-outer
 
 def yield_download_client_success_no_data():
     """Fake download client that returns success but ytdlp_data=None."""
-    class FakeDownloadClient(DownloadClient):
+    class FakeDownloadClient(InMemoryDownloadClient):
         def __init__(self, *_args, **kwargs):
             super().__init__(None, Path('/tmp'),
                 failure_queue=kwargs.get('failure_queue'),
@@ -266,7 +266,7 @@ def yield_download_client_success_no_data():
 async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
     """download_files marks PlaylistAddRequest as failed when ytdlp_data is None."""
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch('discord_bot.cogs.music.DownloadClient',
+    mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient',
                  side_effect=yield_download_client_success_no_data())
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
@@ -300,7 +300,7 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
 
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
 
@@ -333,7 +333,7 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_engine, fake_conte
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.DownloadClient', side_effect=yield_fake_download_client(sd))
+            mocker.patch('discord_bot.cogs.music.InMemoryDownloadClient', side_effect=yield_fake_download_client(sd))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
