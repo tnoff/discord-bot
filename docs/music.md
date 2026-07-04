@@ -295,6 +295,18 @@ music:
     youtube_wait_period_max_variance: 15
 ```
 
+### Download Concurrency
+
+`max_concurrent_downloads` controls how many downloads the bot processes at once. It defaults to `1`, keeping downloads serial.
+
+Leave this at `1` unless you know the downloads egress over distinct source IPs. yt-dlp/YouTube rate-limits per source IP, so running multiple concurrent downloads behind a single egress IP (for example a shared VPN) gets the bot throttled or flagged quickly.
+
+```
+music:
+  download:
+    max_concurrent_downloads: 1  # Default: 1
+```
+
 ### Download Retry Logic
 
 The bot includes automatic retry logic for transient download failures. When certain temporary errors occur (such as network timeouts or TLS handshake failures), the bot will automatically retry the download up to a configurable number of times before marking it as failed.

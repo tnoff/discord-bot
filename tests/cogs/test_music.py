@@ -575,7 +575,7 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
 
     # Mock the tasks to None (default state)
     cog._cleanup_task = None  # pylint: disable=protected-access
-    cog._download_task = None  # pylint: disable=protected-access
+    cog._download_tasks = []  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Mock file operations at pathlib level
@@ -619,7 +619,7 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
     assert result[0].value == 1
 
     # Test download_file callback with finished task
-    cog._download_task = mock_task_finished  # pylint: disable=protected-access
+    cog._download_tasks = [mock_task_finished]  # pylint: disable=protected-access
     result = cog._Music__download_file_loop_active_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 0
@@ -719,7 +719,7 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
 
     # Set tasks to None to avoid cancellation
     cog._cleanup_task = None  # pylint: disable=protected-access
-    cog._download_task = None  # pylint: disable=protected-access
+    cog._download_tasks = []  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Add fake players with mock destroy method
@@ -843,7 +843,7 @@ async def test_shutdown_calls_cleanup_per_guild(fake_context, mocker):  #pylint:
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
     cog._cleanup_task = None  #pylint:disable=protected-access
-    cog._download_task = None  #pylint:disable=protected-access
+    cog._download_tasks = []  #pylint:disable=protected-access
     cog._post_play_processing_task = None  #pylint:disable=protected-access
     cog._youtube_search_task = None  #pylint:disable=protected-access
 
@@ -866,7 +866,7 @@ async def test_shutdown_no_players(fake_context, mocker):  #pylint:disable=redef
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
     cog._cleanup_task = None  #pylint:disable=protected-access
-    cog._download_task = None  #pylint:disable=protected-access
+    cog._download_tasks = []  #pylint:disable=protected-access
     cog._post_play_processing_task = None  #pylint:disable=protected-access
     cog._youtube_search_task = None  #pylint:disable=protected-access
 
@@ -892,7 +892,7 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
 
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
-    cog._download_task = mock_download_task
+    cog._download_tasks = [mock_download_task]
     cog._result_task = mock_result_task
     cog._post_play_processing_task = mock_history_task
     cog._youtube_search_task = mock_search_task
@@ -929,7 +929,7 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
 
     # Set tasks to None  #pylint:disable=protected-access
     cog._cleanup_task = None
-    cog._download_task = None
+    cog._download_tasks = []
     cog._post_play_processing_task = None
     cog._youtube_search_task = None
 
@@ -1469,3 +1469,41 @@ async def test_cog_load_starts_broker_server_when_configured(fake_context, mocke
     await cog.cog_load()
     # cog_load schedules 4 background tasks normally; +1 for the broker server = 5 total
     assert mock_loop.create_task.call_count == 5
+
+
+def test_max_concurrent_downloads_defaults_to_one(fake_context):  #pylint:disable=redefined-outer-name
+    """The download concurrency knob defaults to a single serial downloader."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert cog.config.download.max_concurrent_downloads == 1
+
+
+@pytest.mark.asyncio
+async def test_cog_load_spawns_configured_download_loops(fake_context):  #pylint:disable=redefined-outer-name
+    """cog_load starts one download loop per max_concurrent_downloads slot."""
+    config = {
+        'music': {
+            'download': {'max_concurrent_downloads': 3}
+        }
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
+    # cleanup + 3 download loops + result + youtube_search = 6 scheduled tasks
+    assert mock_loop.create_task.call_count == 6
+
+
+def test_download_file_callback_reports_active_loop(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """download_files heartbeat is 1 while at least one download loop is running."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    running = mocker.MagicMock()
+    running.done.return_value = False
+    finished = mocker.MagicMock()
+    finished.done.return_value = True
+    cog._download_tasks = [finished, running]  #pylint:disable=protected-access
+    result = cog._Music__download_file_loop_active_callback(None)  #pylint:disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 1

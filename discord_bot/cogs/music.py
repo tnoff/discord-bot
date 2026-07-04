@@ -106,6 +106,10 @@ class MusicDownloadConfig(BaseModel):
     banned_videos_list: list[str] = Field(default_factory=list)
     youtube_wait_period_minimum: int = Field(default=30, ge=1)
     youtube_wait_period_max_variance: int = Field(default=10, ge=1)
+    # Number of concurrent download loops. Defaults to 1: yt-dlp/YouTube
+    # rate-limits per source IP, so a single downloader per egress IP is the
+    # safe default. Raise only when downloads egress over distinct IPs.
+    max_concurrent_downloads: int = Field(default=1, ge=1)
     spotify_credentials: Optional[SpotifyCredentialsConfig] = None
     youtube_api_key: Optional[str] = None
     server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
@@ -174,7 +178,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.players = {}
         self._cleanup_task = None
-        self._download_task = None
+        self._download_tasks = []
         self._result_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
@@ -331,7 +335,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Loop active callback check
         '''
-        value = 1 if (self._download_task and not self._download_task.done()) else 0
+        value = 1 if any(not task.done() for task in self._download_tasks) else 0
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'download_files'
@@ -411,7 +415,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         When cog starts
         '''
         self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
-        self._download_task = self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+        # One download loop per configured slot. Defaults to 1 so downloads stay
+        # serial per egress IP (yt-dlp/YouTube rate-limits per source IP).
+        self._download_tasks = [
+            self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+            for _ in range(self.config.download.max_concurrent_downloads)
+        ]
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.config.broker_server:
@@ -448,8 +457,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self._init_task.cancel()
             if self._cleanup_task:
                 self._cleanup_task.cancel()
-            if self._download_task:
-                self._download_task.cancel()
+            for download_task in self._download_tasks:
+                download_task.cancel()
             if self._result_task:
                 self._result_task.cancel()
             if self._post_play_processing_task:
