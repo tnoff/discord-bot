@@ -43,7 +43,7 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient, MusicCacheConfig
 from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
@@ -92,12 +92,6 @@ class ServerQueuePriorityConfig(BaseModel):
     '''Server queue priority configuration'''
     server_id: int
     priority: int
-
-class MusicCacheConfig(BaseModel):
-    '''Music cache configuration'''
-    enable_cache_files: bool = False
-    max_cache_files: int = Field(default=2048, ge=1)
-    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''

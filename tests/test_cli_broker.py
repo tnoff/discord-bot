@@ -116,6 +116,19 @@ async def test_build_video_cache_no_size_limit(mocker):
 
 
 @pytest.mark.asyncio
+async def test_build_video_cache_defaults_max_cache_files_when_absent(mocker):
+    # Regression: caching enabled but max_cache_files omitted must fall back to
+    # the shared default (2048), not None — a None here crashes ready_remove's
+    # `cache_count - self.max_cache_files` subtraction in production.
+    mock_vc = mocker.patch('discord_bot.cli.broker.VideoCacheClient', return_value='VC')
+    broker_cli._build_video_cache(  # pylint: disable=protected-access
+        {'enable_cache_files': True},
+        MagicMock(), 'bucket',
+    )
+    assert mock_vc.call_args.args[0] == 2048
+
+
+@pytest.mark.asyncio
 async def test_main_loop_drains_on_signal(mocker):
     captured = {}
     mocker.patch('discord_bot.cli.broker.signal.signal', side_effect=captured.__setitem__)

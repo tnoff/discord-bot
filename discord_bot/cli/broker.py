@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient, MusicCacheConfig
 from discord_bot.servers.broker_health_server import BrokerHealthServer
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.utils.common import GeneralConfig
@@ -53,7 +53,11 @@ def main(config_file):
 
 def _build_video_cache(cache_cfg: dict, db_engine, bucket_name: str | None):
     '''Construct a VideoCacheClient if caching is enabled and a DB + bucket exist.'''
-    if not (cache_cfg.get('enable_cache_files') and db_engine and bucket_name):
+    # Validate through the shared model so raw-dict config gets the same
+    # defaults/validation as the cog path (a bare .get('max_cache_files')
+    # yields None and crashes ready_remove's subtraction).
+    cache = MusicCacheConfig(**cache_cfg)
+    if not (cache.enable_cache_files and db_engine and bucket_name):
         return None
 
     @asynccontextmanager
@@ -62,9 +66,9 @@ def _build_video_cache(cache_cfg: dict, db_engine, bucket_name: str | None):
         async with factory() as session:
             yield session
 
-    max_mb = cache_cfg.get('max_cache_size_mb')
+    max_mb = cache.max_cache_size_mb
     return VideoCacheClient(
-        cache_cfg.get('max_cache_files'),
+        cache.max_cache_files,
         partial(with_db_session),
         max_cache_size_bytes=(max_mb * 1024 * 1024 if max_mb else None),
         storage_type='s3',
