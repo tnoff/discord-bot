@@ -593,10 +593,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         attributes = media_download_attributes(media_download)
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
             try:
+                # Register with the broker BEFORE the item becomes visible to the
+                # player queue. For a cache hit this is the only point the broker
+                # learns of the entry, and the concurrent player_loop can pop +
+                # checkout the instant it is enqueued. If that race puts the
+                # checkout ahead of registration the broker has no entry, checkout
+                # returns None, and the player falls back to the raw S3 cache key
+                # (crashing on open()). Registering first closes the window.
+                await self.broker_client.register_download(media_download)
                 player.add_to_play_queue(media_download)
                 self.logger.info(f'Adding "{media_download.webpage_url}" '
                                  f'to queue in guild {media_download.media_request.guild_id}')
-                await self.broker_client.register_download(media_download)
                 player.trigger_prefetch()
                 await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
                 key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'

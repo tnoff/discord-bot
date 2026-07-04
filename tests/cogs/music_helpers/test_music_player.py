@@ -520,6 +520,23 @@ async def test_player_loop_broker_release_after_play(fake_context): #pylint:disa
             player.broker.release.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_player_loop_skips_when_file_missing(fake_context): #pylint:disable=redefined-outer-name
+    """A checkout miss that leaves an unresolved file path (e.g. the raw S3 cache key)
+    skips the track and releases the broker entry instead of crashing the loop."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            # checkout returns None (see with_broker_player) and the local file is
+            # gone, mirroring the cache-hit-before-registration race in prod.
+            media_download.file_path.unlink()
+            player.add_to_play_queue(media_download)
+            # Must not raise (previously FileNotFoundError killed the player loop).
+            await player.player_loop()
+            player.broker.release.assert_called_once_with(str(media_download.media_request.uuid))
+            assert player.np_message == ''
+
+
 # ---------------------------------------------------------------------------
 # history_playlist_id and history QueueFull
 # ---------------------------------------------------------------------------

@@ -876,6 +876,26 @@ async def test_shutdown_no_players(fake_context, mocker):  #pylint:disable=redef
     assert cog.bot_shutdown_event.is_set()
 
 @pytest.mark.asyncio
+async def test_add_source_to_player_registers_before_enqueue(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Broker registration must precede enqueue so the player_loop cannot checkout a
+    cache-hit item before the broker knows about it (which returns None and crashes
+    the player on the raw S3 key)."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = mocker.Mock()
+    order = []
+    cog.broker_client = mocker.Mock()
+    cog.broker_client.register_download = mocker.AsyncMock(side_effect=lambda *_a, **_k: order.append('register'))
+    cog._push_state = mocker.AsyncMock()  #pylint:disable=protected-access
+    cog._get_play_order_content = mocker.Mock(return_value=[])  #pylint:disable=protected-access
+    player = mocker.Mock()
+    player.add_to_play_queue = mocker.Mock(side_effect=lambda *_a, **_k: order.append('enqueue'))
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
+            result = await cog.add_source_to_player(media_download, player)
+    assert result is True
+    assert order == ['register', 'enqueue']
+
+@pytest.mark.asyncio
 async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that all tasks are properly cancelled during shutdown"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])

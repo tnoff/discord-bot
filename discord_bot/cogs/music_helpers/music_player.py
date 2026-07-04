@@ -136,6 +136,18 @@ class MusicPlayer:
             self.file_dir.mkdir(exist_ok=True)
             await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
             file_path = local_path
+        # A checkout miss (e.g. the broker has no entry yet) leaves file_path
+        # pointing at the download's own path, which in S3 mode is the object key
+        # ("cache/…"), not a local file. Skip the track rather than letting open()
+        # raise and take the whole player loop down for this guild.
+        if file_path is None or not Path(file_path).exists():
+            self.logger.warning(
+                f'No playable file for "{media_download.webpage_url}" in guild {self.guild.id} '
+                f'(resolved path {str(file_path)!r} does not exist); skipping track'
+            )
+            if self.broker:
+                await self.broker.release(str(media_download.media_request.uuid))
+            return
         self.logger.debug(f'Gathered new file to play {str(file_path)}')
         with open(file_path, 'rb') as f:
             audio_data = BytesIO(f.read())
