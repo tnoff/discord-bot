@@ -26,6 +26,10 @@ from discord_bot.utils.otel import (async_otel_span_wrapper, AttributeNaming, cr
 
 _DRAIN_TIMEOUT_SECONDS = 30
 
+# Backoff after a transient worker-loop error (e.g. a Redis/Valkey blip) before
+# retrying, so a persistent failure does not hot-spin the loop.
+_WORKER_ERROR_BACKOFF_SECONDS = 1.0
+
 # Work queue member prefixes — used when building and routing queue members.
 _MEMBER_MUTABLE = 'mutable:'
 _MEMBER_REMOVE = 'remove:'
@@ -451,13 +455,32 @@ class MessageDispatcher(DispatchClientBase):
     # ------------------------------------------------------------------
 
     async def _worker_loop(self):
-        '''Dequeue items from work_queue and dispatch them until shutdown.'''
+        '''Dequeue items from work_queue and dispatch them until shutdown.
+
+        A transient error (e.g. a Redis/Valkey master restart raising
+        ConnectionError/TimeoutError out of dequeue) is caught, logged, and
+        backed off so the loop keeps running instead of the task dying silently
+        and leaving a health-green zombie worker. asyncio.CancelledError is a
+        BaseException (not Exception), so it bypasses the handler below and
+        propagates — graceful drain/shutdown still works.
+        '''
         while not self._shutdown.is_set():
-            result = await self._work_queue.dequeue(timeout=1.0)
-            if result is None:
-                continue
-            member, payload = result
-            await self._dispatch_item(member, payload)
+            try:
+                result = await self._work_queue.dequeue(timeout=1.0)
+                if result is None:
+                    continue
+                member, payload = result
+                await self._dispatch_item(member, payload)
+            except Exception as exc:
+                self.logger.error(
+                    'MessageDispatcher :: worker loop error, backing off %ss and continuing: %s',
+                    _WORKER_ERROR_BACKOFF_SECONDS, exc, exc_info=True,
+                )
+                # Backoff, but wake immediately if shutdown is requested mid-sleep.
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(
+                        self._shutdown.wait(), timeout=_WORKER_ERROR_BACKOFF_SECONDS,
+                    )
 
     async def _dispatch_item(self, member: str, payload: dict):
         '''Route a work queue item to the appropriate handler based on its member prefix.'''

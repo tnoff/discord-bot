@@ -1,7 +1,11 @@
 from unittest.mock import AsyncMock
 import pytest
 import fakeredis.aioredis
+import redis
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
 
+from discord_bot.clients import redis_client as redis_client_module
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
@@ -81,16 +85,32 @@ def test_redis_manager_client_raises_before_start():
 
 @pytest.mark.asyncio
 async def test_redis_manager_start_opens_connection(mocker):
-    '''start() calls aioredis.from_url with decode_responses=True and stores the client.'''
+    '''start() calls aioredis.from_url with the resilience kwargs and stores the client.'''
     fake_client = AsyncMock()
     mock_from_url = mocker.patch(
         'discord_bot.clients.redis_client.aioredis.from_url',
         return_value=fake_client,
     )
+    retry_spy = mocker.spy(redis_client_module, 'Retry')
     manager = RedisManager('redis://localhost:6379/0')
     await manager.start()
-    mock_from_url.assert_called_once_with('redis://localhost:6379/0', decode_responses=True)
     assert manager.client is fake_client
+    mock_from_url.assert_called_once()
+    args, kwargs = mock_from_url.call_args
+    assert args == ('redis://localhost:6379/0',)
+    assert kwargs['decode_responses'] is True
+    assert kwargs['health_check_interval'] == 30
+    assert kwargs['socket_keepalive'] is True
+    assert kwargs['socket_connect_timeout'] == 5
+    assert kwargs['retry_on_error'] == [
+        redis.exceptions.ConnectionError, redis.exceptions.TimeoutError,
+    ]
+    assert isinstance(kwargs['retry'], Retry)
+    # Retry was built as Retry(ExponentialBackoff(), 3) — assert without touching internals.
+    retry_spy.assert_called_once()
+    (backoff_arg, retries_arg), _ = retry_spy.call_args
+    assert isinstance(backoff_arg, ExponentialBackoff)
+    assert retries_arg == 3
 
 
 @pytest.mark.asyncio

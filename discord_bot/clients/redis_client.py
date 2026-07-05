@@ -1,4 +1,7 @@
+import redis
 import redis.asyncio as aioredis
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
 
 
 class RedisManager:
@@ -16,8 +19,24 @@ class RedisManager:
         return self._client
 
     async def start(self) -> None:
-        '''Open the Redis connection.'''
-        self._client = aioredis.from_url(self._url, decode_responses=True)
+        '''Open the Redis connection.
+
+        Resilience options let a transient master blip (e.g. a Valkey failover or
+        restart) self-heal instead of surfacing an unhandled ConnectionError:
+          - retry: exponential backoff, up to 3 attempts per command
+          - retry_on_error: retry commands that hit a connection/timeout error
+          - health_check_interval: proactively ping idle connections
+          - socket_keepalive / socket_connect_timeout: detect dead sockets fast
+        '''
+        self._client = aioredis.from_url(
+            self._url,
+            decode_responses=True,
+            retry=Retry(ExponentialBackoff(), 3),
+            retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError],
+            health_check_interval=30,
+            socket_keepalive=True,
+            socket_connect_timeout=5,
+        )
 
     async def close(self) -> None:
         '''Close the Redis connection if open.'''

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import redis
 
 from discord.errors import NotFound
 
@@ -1331,3 +1332,76 @@ def test_bundle_serialization_roundtrip():
     assert len(restored.message_contexts) == 1
     assert restored.message_contexts[0].message_id == 12345
     assert restored.message_contexts[0].message_content == 'hello'
+
+
+# ---------------------------------------------------------------------------
+# _worker_loop resilience
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_worker_loop_survives_transient_error_and_keeps_looping(mocker):
+    '''
+    A transient ConnectionError from dequeue (e.g. a Valkey master restart) is
+    caught; the loop backs off and keeps dequeuing, dispatches the next item,
+    then exits cleanly when shutdown is set.
+
+    The loop is driven single-threaded: the fake dequeue advances through
+    error -> recovery-item -> shutdown itself, so there is no reliance on a
+    concurrent task (awaiting a fast fake coroutine never yields to the loop).
+    '''
+    dispatcher = make_dispatcher()
+    mocker.patch(
+        'discord_bot.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
+    )
+
+    calls = {'n': 0}
+    dispatched = []
+
+    async def fake_dequeue(timeout=1.0):  # pylint: disable=unused-argument
+        calls['n'] += 1
+        if calls['n'] == 1:
+            # First dequeue blows up like a mid-restart Redis connection would.
+            raise redis.exceptions.ConnectionError('valkey master restart')
+        if calls['n'] == 2:
+            # The loop must recover and hand the next item off to _dispatch_item.
+            return ('send:uuid', {'content': 'after-error'})
+        # Third dequeue: request shutdown, then return idle so the loop exits.
+        dispatcher._shutdown.set()  # pylint: disable=protected-access
+        return None
+
+    async def fake_dispatch(member, payload):
+        dispatched.append((member, payload))
+
+    # Drive the real loop with real coroutines (no Mock return-type mismatch).
+    dispatcher._work_queue.dequeue = fake_dequeue  # pylint: disable=protected-access
+    dispatcher._dispatch_item = fake_dispatch  # pylint: disable=protected-access
+
+    # wait_for guards the test against an accidental infinite loop.
+    await asyncio.wait_for(dispatcher._worker_loop(), timeout=5.0)  # pylint: disable=protected-access
+
+    # Loop survived the ConnectionError and kept dequeuing past it.
+    assert calls['n'] >= 3
+    # The item enqueued after the error was still dispatched (recovery succeeded).
+    assert dispatched == [('send:uuid', {'content': 'after-error'})]
+    # And it ended by exiting cleanly on shutdown, not by dying with the error.
+    assert dispatcher._shutdown.is_set()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_propagates_cancelled_error(mocker):
+    '''
+    CancelledError from within the loop must propagate (not be swallowed as a
+    transient error) so graceful drain / shutdown still works.
+    '''
+    dispatcher = make_dispatcher()
+
+    async def fake_dequeue(timeout=1.0):
+        raise asyncio.CancelledError()
+
+    mocker.patch.object(
+        dispatcher._work_queue, 'dequeue',  # pylint: disable=protected-access
+        new=AsyncMock(side_effect=fake_dequeue),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await dispatcher._worker_loop()  # pylint: disable=protected-access
