@@ -28,6 +28,24 @@ def _make_setup():
     return dispatcher, server
 
 
+async def _wait_for_call(dispatcher, name, timeout=5.0):
+    '''
+    Poll until the dispatcher records a `name` call, or fail after `timeout`.
+
+    Fire-and-forget client methods schedule the POST via asyncio.create_task and
+    return immediately, so there is no handle to await. A fixed sleep races the
+    background task against a slow/contended CI runner (and against session
+    teardown); polling fails fast on a real regression but tolerates a slow box.
+    '''
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if any(c[0] == name for c in dispatcher.calls):
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f'no {name} call within {timeout}s; calls={dispatcher.calls}')
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -81,8 +99,7 @@ async def test_send_message_posts_to_server():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.send_message(1, 2, 'hello')
-        await asyncio.sleep(0.1)  # let the fire-and-forget task execute
-    assert any(c[0] == 'send_message' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'send_message')
 
 
 @pytest.mark.asyncio
@@ -92,8 +109,7 @@ async def test_delete_message_posts_to_server():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.delete_message(1, 2, 999)
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'delete_message' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'delete_message')
 
 
 @pytest.mark.asyncio
@@ -103,8 +119,7 @@ async def test_update_mutable_posts_to_server():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.update_mutable('k', 1, ['msg'], 2)
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'update_mutable' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'update_mutable')
 
 
 @pytest.mark.asyncio
@@ -114,8 +129,7 @@ async def test_update_mutable_empty_content_routes_to_remove():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.update_mutable('k', 1, [], 2)
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'remove_mutable' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'remove_mutable')
 
 
 @pytest.mark.asyncio
@@ -125,8 +139,7 @@ async def test_remove_mutable_posts_to_server():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.remove_mutable('k')
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'remove_mutable' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'remove_mutable')
 
 
 @pytest.mark.asyncio
@@ -136,8 +149,7 @@ async def test_update_mutable_channel_posts_to_server():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
         client.update_mutable_channel('k', 1, 99)
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'update_mutable_channel' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'update_mutable_channel')
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +165,7 @@ async def test_submit_request_send():
         await client.submit_request(SendRequest(
             guild_id=1, channel_id=2, content='hi',
         ))
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'send_message' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'send_message')
 
 
 @pytest.mark.asyncio
@@ -166,8 +177,7 @@ async def test_submit_request_delete():
         await client.submit_request(DeleteRequest(
             guild_id=1, channel_id=2, message_id=3,
         ))
-        await asyncio.sleep(0.1)
-    assert any(c[0] == 'delete_message' for c in dispatcher.calls)
+        await _wait_for_call(dispatcher, 'delete_message')
 
 
 # ---------------------------------------------------------------------------
