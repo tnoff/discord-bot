@@ -1,36 +1,36 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/branch-cleanup.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 04c5fd3ccff6dca038591aafcc321d759630aad1
+    ref: b93e5aa4a28e1f32ec2de5cb26d462135ce9afc6
     file: '/gitlab/tox-pipeline.yml'
 
 default:
@@ -38,18 +38,17 @@ default:
     - self-hosted
 
 stages:
-  - validate
+  - pr-check
   - test
-  - tag
-  - build
+  - push
   - notify
   - renovate
 
 # Shared rules for the image build-check + trufflehog image-scan jobs. These
 # are a pre-merge gate: they verify the image builds and scan it for secrets.
 # MR-only by design — on the default branch they add nothing, because
-# docker-push-* builds and publishes the image independently (needs: []), so
-# re-building it in validate just to scan it duplicates the push's build and
+# push:image-* builds and publishes the image independently (needs: []), so
+# re-building it in pr-check just to scan it duplicates the push's build and
 # burns runner slots (and the scan already ran on the MR). On MRs that don't
 # touch anything baked into the image (the docker/ context, python source,
 # deps, or version), skip them too. Fork MRs keep the manual gate.
@@ -73,25 +72,27 @@ bump-version:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\/dev-/
 
-trufflehog:
+"pr-check:secrets":
   extends: .trufflehog
-  stage: validate
+  stage: pr-check
   rules:
     # Fork MRs require a project member to manually trigger jobs — prevents untrusted code from running CI automatically
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID != $CI_PROJECT_ID
       when: manual
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
-docker-build-bot:
+"pr-check:build-bot":
   extends: .buildkit-build-check
+  stage: pr-check
   variables:
     DOCKERFILE_DIR: docker
     OUTPUT_NAME: discord-bot:ci
     OUTPUT_TARBALL: image-bot.tar
   rules: !reference [.image-build-rules, rules]
 
-docker-build-dispatcher:
+"pr-check:build-dispatcher":
   extends: .buildkit-build-check
+  stage: pr-check
   variables:
     DOCKERFILE_DIR: docker
     DOCKERFILE_NAME: Dockerfile.dispatcher
@@ -99,8 +100,9 @@ docker-build-dispatcher:
     OUTPUT_TARBALL: image-dispatcher.tar
   rules: !reference [.image-build-rules, rules]
 
-docker-build-broker:
+"pr-check:build-broker":
   extends: .buildkit-build-check
+  stage: pr-check
   variables:
     DOCKERFILE_DIR: docker
     DOCKERFILE_NAME: Dockerfile.broker
@@ -108,32 +110,33 @@ docker-build-broker:
     OUTPUT_TARBALL: image-broker.tar
   rules: !reference [.image-build-rules, rules]
 
-trufflehog-bot-image:
+"pr-check:scan-bot":
   extends: .trufflehog-image
-  stage: validate
-  needs: [docker-build-bot]
+  stage: pr-check
+  needs: ["pr-check:build-bot"]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-bot.tar
   rules: !reference [.image-build-rules, rules]
 
-trufflehog-dispatcher-image:
+"pr-check:scan-dispatcher":
   extends: .trufflehog-image
-  stage: validate
-  needs: [docker-build-dispatcher]
+  stage: pr-check
+  needs: ["pr-check:build-dispatcher"]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-dispatcher.tar
   rules: !reference [.image-build-rules, rules]
 
-trufflehog-broker-image:
+"pr-check:scan-broker":
   extends: .trufflehog-image
-  stage: validate
-  needs: [docker-build-broker]
+  stage: pr-check
+  needs: ["pr-check:build-broker"]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-broker.tar
   rules: !reference [.image-build-rules, rules]
 
-tox-generate:
+"test:tox-generate":
   extends: .tox-generate
+  stage: test
   variables:
     # Pre-baked CI base image (ci-base-images:3.X) ships git + ffmpeg +
     # postgresql-client. ${CI_BASE_IMAGE_PATH} is the group-level plaintext
@@ -144,18 +147,20 @@ tox-generate:
     TOX_BASE_IMAGE: '${CI_BASE_IMAGE_PATH}:$${PYTHON_VERSION}'
     TOX_GENERATE_IMAGE: '${CI_BASE_IMAGE_PATH}:3.14'
 
-tox-pipeline:
+"test:tox":
   extends: .tox-pipeline
+  stage: test
 
-tag-build:
+"push:tag":
   extends: .tag
-  stage: tag
+  stage: push
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
 
-docker-push-bot:
+"push:image-bot":
   extends: .buildkit-docker-push
+  stage: push
   variables:
     DOCKERFILE_DIR: docker
 
@@ -166,8 +171,9 @@ docker-push-bot:
 # See github-workflows/gitlab/trigger-bump.yml for the template details.
 trigger-bump-docker-apps:
   extends: .trigger-bump
+  stage: push
   needs:
-    - job: docker-push-bot
+    - job: "push:image-bot"
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-bot'
@@ -180,8 +186,9 @@ trigger-bump-docker-apps:
 # discord_bot:<sha>, racing the docker-push-bot tag. Shell expansion of
 # $OCI_DISPATCHER_REPO_NAME_64 from env always works since the masked value is
 # injected normally.
-docker-push-dispatcher:
+"push:image-dispatcher":
   extends: .buildkit-docker-push
+  stage: push
   variables:
     DOCKERFILE_DIR: docker
     DOCKERFILE_NAME: Dockerfile.dispatcher
@@ -192,8 +199,9 @@ docker-push-dispatcher:
 # Publishes discord_broker:<sha> on the default branch (OCIR repo + push perms
 # provisioned in terraform/oci). No trigger-bump yet — docker-apps doesn't
 # consume the broker pin until the F3 cutover; the bump producer lands then.
-docker-push-broker:
+"push:image-broker":
   extends: .buildkit-docker-push
+  stage: push
   variables:
     DOCKERFILE_DIR: docker
     DOCKERFILE_NAME: Dockerfile.broker
@@ -203,8 +211,9 @@ docker-push-broker:
 
 trigger-bump-docker-apps-dispatcher:
   extends: .trigger-bump
+  stage: push
   needs:
-    - job: docker-push-dispatcher
+    - job: "push:image-dispatcher"
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-dispatcher'
@@ -214,13 +223,14 @@ trigger-bump-docker-apps-dispatcher:
 # the docker-apps bump-discord-broker-pin + cleanup-discord-broker jobs.
 trigger-bump-docker-apps-broker:
   extends: .trigger-bump
+  stage: push
   needs:
-    - job: docker-push-broker
+    - job: "push:image-broker"
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-broker'
 
-notify-mr:
+"notify:mr-opened":
   extends: .discord-notify
   stage: notify
   needs: []
@@ -234,10 +244,10 @@ notify-mr:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: always
 
-notify-failure:
+"notify:push-failure":
   extends: .discord-notify
   stage: notify
-  needs: [tag-build, docker-push-bot, docker-push-dispatcher, docker-push-broker, trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher, trigger-bump-docker-apps-broker]
+  needs: ["push:tag", "push:image-bot", "push:image-dispatcher", "push:image-broker", trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher, trigger-bump-docker-apps-broker]
   variables:
     NOTIFY_TYPE: failure
     DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
@@ -245,7 +255,7 @@ notify-failure:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_failure
 
-notify-renovate-failure:
+"notify:renovate-failure":
   extends: .discord-notify
   stage: renovate
   needs: [renovate]
@@ -257,7 +267,7 @@ notify-renovate-failure:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: on_failure
 
-notify-merged:
+"notify:merged":
   extends: .discord-notify
   stage: notify
   needs: []
@@ -290,7 +300,7 @@ branch-cleanup:
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
-notify-cleanup-failure:
+"notify:cleanup-failure":
   extends: .discord-notify
   stage: renovate
   needs: [branch-cleanup]
