@@ -1,3 +1,4 @@
+from asyncio import sleep
 from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -15,6 +16,18 @@ from discord_bot.cogs.schema import StorageConfig
 from discord_bot.exceptions import ExitEarlyException
 
 OTEL_SPAN_PREFIX = 'utils'
+
+# Backoff after an unexpected loop-runner error (e.g. a broker HTTP 500 raised
+# when the broker's Redis blips) before re-running the loop body, so a persistent
+# failure does not hot-spin the loop while it waits for the dependency to recover.
+_LOOP_ERROR_BACKOFF_SECONDS = 1.0
+
+# Give up the loop after this many CONSECUTIVE unexpected errors (the counter
+# resets on any successful iteration). A transient blip self-heals well under
+# this budget; a persistently broken loop stops retrying and exits, dropping its
+# heartbeat gauge to 0 so the alert fires — instead of a live-but-useless task
+# that keeps heartbeat=1 and hides the failure by retrying forever.
+_LOOP_MAX_CONSECUTIVE_ERRORS = 5
 
 # Pydantic models for config validation
 # Default patterns for high volume spans that are filtered when in OK state
@@ -160,9 +173,11 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
     async def loop_runner(): #pylint:disable=duplicate-code
         await bot.wait_until_ready()
 
+        consecutive_errors = 0
         while not bot.is_closed():
             try:
                 await function()
+                consecutive_errors = 0
             except continue_exceptions as e:
                 logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
                 continue
@@ -173,6 +188,25 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
                     span.set_status(StatusCode.OK)
                 return False
             except Exception as e:
-                logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
-                return False
+                # An unexpected/transient error (e.g. a broker HTTP 500 raised by
+                # next_result when the broker's Redis blips) must NOT permanently
+                # kill the loop task on the first hit and leave a health-green
+                # zombie: the process stays up, its heartbeat gauge reads 0, and
+                # k8s never restarts it. Log, back off, and retry so the loop
+                # self-heals once the dependency recovers. asyncio.CancelledError
+                # is a BaseException, so a real shutdown/drain still bypasses this
+                # handler and cancels the task cleanly.
+                consecutive_errors += 1
+                logger.exception('Exception in loop runner (%s/%s consecutive): %s',
+                                 consecutive_errors, _LOOP_MAX_CONSECUTIVE_ERRORS,
+                                 type(e).__name__, exc_info=True)
+                if consecutive_errors >= _LOOP_MAX_CONSECUTIVE_ERRORS:
+                    # Give up rather than retry forever: a live task keeps
+                    # heartbeat=1 and would hide a persistent failure. Exiting
+                    # drops it to 0 so the alert fires.
+                    logger.error('Loop runner giving up after %s consecutive errors',
+                                 _LOOP_MAX_CONSECUTIVE_ERRORS)
+                    return False
+                await sleep(_LOOP_ERROR_BACKOFF_SECONDS)
+                continue
     return loop_runner

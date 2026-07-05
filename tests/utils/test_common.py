@@ -2,9 +2,10 @@ from functools import partial
 import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import ValidationError as PydanticValidationError
+from aiohttp import ClientResponseError
 from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
 from opentelemetry.trace.status import StatusCode
 import pytest
@@ -307,12 +308,22 @@ async def test_return_loop_runner():
     assert await runner() is False
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_return_loop_runner_standard_exception():
-    def fake_func():
-        raise Exception('exiting') #pylint:disable=broad-exception-raised
+async def test_return_loop_runner_standard_exception_backs_off_and_continues(mocker):
+    # An unexpected error must not kill the loop task (health-green zombie); it
+    # should back off and re-run the loop body until the bot is actually closed.
+    mock_sleep = mocker.patch('discord_bot.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception('transient error') #pylint:disable=broad-exception-raised
+        fake_bot.bot_closed = True  # Second call closes bot to exit loop
     runner = return_loop_runner(fake_func, fake_bot, logging)
-    assert await runner() is False
+    assert await runner() is None  # Loop exits via bot close, not via the error
+    assert call_count == 2  # Survived the error and ran again
+    mock_sleep.assert_awaited_once()  # Backed off before continuing
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_continue_exception():
@@ -355,8 +366,14 @@ async def test_return_loop_runner_exit_exception_sets_span_ok(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker):
     """Test that standard exceptions do NOT set the span status to OK"""
-    def fake_func():
-        raise Exception('unexpected error') #pylint:disable=broad-exception-raised
+    mocker.patch('discord_bot.utils.common.sleep', new_callable=AsyncMock)
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception('unexpected error') #pylint:disable=broad-exception-raised
+        fake_bot.bot_closed = True  # Second call closes bot to exit loop
 
     # Mock the span
     mock_span = mocker.MagicMock()
@@ -366,11 +383,68 @@ async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker
     runner = return_loop_runner(fake_func, fake_bot, logging)
     result = await runner()
 
-    # Verify the function returns False
-    assert result is False
+    # Loop exits via bot close (returns None), not via the error
+    assert result is None
 
     # Verify that set_status was NOT called (standard exceptions shouldn't set OK status)
     mock_span.set_status.assert_not_called()
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_survives_broker_500(mocker):
+    """A broker HTTP 500 (Redis blip) must not wedge the result loop task."""
+    mock_sleep = mocker.patch('discord_bot.utils.common.sleep', new_callable=AsyncMock)
+    fake_bot = fake_bot_yielder()()
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ClientResponseError(
+                request_info=MagicMock(), history=(),
+                status=500, message='Internal Server Error',
+            )
+        fake_bot.bot_closed = True  # Second call closes bot to exit loop
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is None  # Loop survived the 500 and exited cleanly on close
+    assert call_count == 2
+    mock_sleep.assert_awaited_once()
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_gives_up_after_max_consecutive_errors(mocker):
+    # A persistently-failing loop must stop retrying and exit (heartbeat -> 0)
+    # instead of spinning forever with a live task that hides the failure.
+    mocker.patch('discord_bot.utils.common._LOOP_MAX_CONSECUTIVE_ERRORS', 3)
+    mock_sleep = mocker.patch('discord_bot.utils.common.sleep', new_callable=AsyncMock)
+    fake_bot = fake_bot_yielder()()
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        raise Exception('always broken') #pylint:disable=broad-exception-raised
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is False  # Gave up (task exits -> heartbeat 0 -> alert)
+    assert call_count == 3  # Tried exactly max times
+    assert mock_sleep.await_count == 2  # Backed off between tries, not before giving up
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_error_counter_resets_on_success(mocker):
+    # The give-up budget is CONSECUTIVE errors: a successful iteration resets it,
+    # so intermittent failures never accumulate to the limit.
+    mocker.patch('discord_bot.utils.common._LOOP_MAX_CONSECUTIVE_ERRORS', 3)
+    mocker.patch('discord_bot.utils.common.sleep', new_callable=AsyncMock)
+    fake_bot = fake_bot_yielder()()
+    call_count = 0
+    async def fake_func():
+        nonlocal call_count
+        call_count += 1
+        # 2 errors, a success (resets), 2 more errors, then close — never 3 in a row
+        if call_count in (1, 2, 4, 5):
+            raise Exception('intermittent') #pylint:disable=broad-exception-raised
+        if call_count == 6:
+            fake_bot.bot_closed = True
+    runner = return_loop_runner(fake_func, fake_bot, logging)
+    assert await runner() is None  # Never gave up despite 4 total errors
+    assert call_count == 6
 
 def test_discord_format_string_embed_no_url():
     """Test discord_format_string_embed with string containing no URLs"""
