@@ -55,7 +55,7 @@ test = [
     "freezegun==1.5.5",
     "pylint-pydantic==0.4.1",
     "pylint==4.0.6",
-    "pytest==9.0.3",
+    "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
     "pytest-freezegun==0.4.2",
@@ -65,7 +65,7 @@ test = [
     "requests-mock==1.12.1",
     # Currently required for pytest-freezegun, can remove once they have that fixed
     "setuptools==82.0.1",
-    "tox==4.55.1",
+    "tox==4.56.1",
 ]
 
 [project.scripts]
