@@ -63,10 +63,10 @@ def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the dispatcher process.'''
     setup_observability(general_config)
 
-    if not general_config.redis_url:
+    if not (general_config.redis_url or general_config.redis_sentinel):
         raise DiscordBotException('Redis required for dispatcher HA mode')
 
-    redis_manager = RedisManager(general_config.redis_url)
+    redis_manager = RedisManager.from_general_config(general_config)
 
     bundle_store = RedisBundleStore(redis_manager)
     shard_id = int(settings.get('general', {}).get('dispatch_shard_id', 0))

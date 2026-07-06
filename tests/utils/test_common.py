@@ -11,7 +11,7 @@ from opentelemetry.trace.status import StatusCode
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.utils.common import GeneralConfig, LoggingConfig, DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
+from discord_bot.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig, DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
 from discord_bot.utils.common import get_logger
 from discord_bot.utils.discord_retry import async_retry_command
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
@@ -546,3 +546,18 @@ def test_get_logger_with_otlp_logger(mocker):
     logging_config = LoggingConfig(log_level=30, otlp_only=True)
     logger = get_logger('test_otlp_logger', logging_config, otlp_logger=MagicMock())
     assert mock_handler in logger.handlers
+
+
+def test_redis_sentinel_addrs_parses_host_port():
+    '''sentinel_addrs splits each "host:port" entry into a (host, int(port)) tuple.'''
+    cfg = RedisSentinelConfig(
+        sentinels=['redis-sentinel:26379', 'other-host:26380'],
+        service_name='mymaster',
+    )
+    assert cfg.sentinel_addrs() == [('redis-sentinel', 26379), ('other-host', 26380)]
+
+
+def test_redis_sentinel_service_name_defaults_to_mymaster():
+    '''service_name defaults to Sentinel's conventional 'mymaster'.'''
+    cfg = RedisSentinelConfig(sentinels=['redis-sentinel:26379'])
+    assert cfg.service_name == 'mymaster'

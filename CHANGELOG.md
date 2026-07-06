@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.49
+
+HA:
+- `RedisManager` can now connect through Redis Sentinel: set `general.redis_sentinel` (`sentinels: ["host:port"]` + `service_name`) and the client discovers the current primary via `master_for()`, so a Valkey failover is transparent to callers. `redis_url` still works for local/dev and takes second place when both are set. Pairs with the Valkey + Sentinel topology in docker-apps.
+
 ## 2.5.39
 
 Music:

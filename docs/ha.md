@@ -162,6 +162,26 @@ general:
       port: 8080
 ```
 
+### Redis connection: direct URL vs. Sentinel
+
+`redis_url` connects to a single fixed endpoint — fine for local/dev, or a
+single-primary deployment. In production Redis runs as Valkey + Sentinel (three
+nodes, one primary), where the primary role floats across pods on failover. Set
+`redis_sentinel` instead so the client discovers the current primary via
+Sentinel on every connection — a promotion is then transparent to the app:
+
+```yaml
+general:
+  # redis_sentinel takes precedence over redis_url when both are set.
+  redis_sentinel:
+    sentinels:
+      - "redis-sentinel:26379"     # the redis-sentinel Service (one entry is enough; more sentinels are auto-discovered)
+    service_name: "mymaster"       # the monitored primary's name (Sentinel's `mymaster`)
+```
+
+The same `redis_sentinel` block applies to the dispatcher, the broker, and any
+process that opens Redis.
+
 ### Bot / cog pod
 
 ```yaml

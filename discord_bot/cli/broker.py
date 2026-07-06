@@ -108,7 +108,7 @@ def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: Re
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the standalone broker process.'''
     setup_observability(general_config)
-    redis_manager = RedisManager(general_config.redis_url)
+    redis_manager = RedisManager.from_general_config(general_config)
     registry = RedisBrokerRegistry(redis_manager)
 
     with managed_db(general_config) as db_engine:

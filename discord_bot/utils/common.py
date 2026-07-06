@@ -99,6 +99,23 @@ class IncludeConfig(BaseModel):
     music: bool = False
     delete_messages: bool = False
 
+class RedisSentinelConfig(BaseModel):
+    '''Redis Sentinel HA connection configuration.
+
+    ``sentinels`` is a list of "host:port" entries (the redis-sentinel Service),
+    ``service_name`` is the monitored primary's name (Sentinel's ``mymaster``).
+    '''
+    sentinels: list[str]
+    service_name: str = 'mymaster'
+
+    def sentinel_addrs(self) -> list[tuple[str, int]]:
+        '''Parse "host:port" entries into (host, port) tuples for redis-py.'''
+        addrs = []
+        for entry in self.sentinels:
+            host, _, port = entry.rpartition(':')
+            addrs.append((host, int(port)))
+        return addrs
+
 class GeneralConfig(BaseModel):
     '''General bot configuration'''
     discord_token: str
@@ -110,6 +127,7 @@ class GeneralConfig(BaseModel):
     intents: list[str] = Field(default_factory=list)
     rejectlist_guilds: list[int] = Field(default_factory=list)
     redis_url: Optional[str] = None
+    redis_sentinel: Optional[RedisSentinelConfig] = None
     dispatch_cross_process: bool = False
     dispatch_process_id: Optional[str] = None
     dispatch_shard_id: int = 0
