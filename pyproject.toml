@@ -64,7 +64,7 @@ test = [
     "psycopg[binary]==3.3.4",
     "requests-mock==1.12.1",
     # Currently required for pytest-freezegun, can remove once they have that fixed
-    "setuptools==82.0.1",
+    "setuptools==83.0.0",
     "tox==4.56.1",
 ]
 
