@@ -4,7 +4,7 @@ Tests for BrokerHttpServer — the aiohttp HTTP server wrapping MediaBroker.
 import asyncio
 import json
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import aiohttp
 import pytest
@@ -38,6 +38,51 @@ class TestQueueItemProxy:
     def test_uuid_accessible_via_media_request(self):
         proxy = _QueueItemProxy(uuid='abc-123')
         assert proxy.media_request.uuid == 'abc-123'
+
+
+class TestHeartbeatObservations:
+    def test_reports_zero_before_serving(self):
+        '''A freshly-built server is not serving yet, so heartbeat is 0.'''
+        server = _make_server(_make_broker())
+        (observation,) = server.heartbeat_observations()
+        assert observation.value == 0
+        assert observation.attributes == {'background_job': 'broker'}
+
+    def test_reports_one_while_serving(self, mocker):
+        '''While the server reports serving, heartbeat is 1 under background_job="broker".'''
+        server = _make_server(_make_broker())
+        mocker.patch.object(BrokerHttpServer, 'is_serving',
+                            new_callable=PropertyMock, return_value=True)
+        (observation,) = server.heartbeat_observations()
+        assert observation.value == 1
+        assert observation.attributes == {'background_job': 'broker'}
+
+
+@pytest.mark.asyncio
+class TestNextResultCounter:
+    async def test_empty_increments_empty_outcome(self, mocker):
+        '''GET /results/next with nothing queued returns 204 and counts "empty".'''
+        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=None)
+        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/results/next')
+            assert resp.status == 204
+        counter.add.assert_called_once_with(1, {'outcome': 'empty'})
+
+    async def test_hit_increments_hit_outcome(self, mocker):
+        '''GET /results/next with a result queued returns 200 and counts "hit".'''
+        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        result = MagicMock()
+        result.model_dump.return_value = {'ok': True}
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=result)
+        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/results/next')
+            assert resp.status == 200
+        counter.add.assert_called_once_with(1, {'outcome': 'hit'})
 
 
 @pytest.mark.asyncio

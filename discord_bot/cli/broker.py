@@ -33,6 +33,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient, 
 from discord_bot.servers.broker_health_server import BrokerHealthServer
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.utils.common import GeneralConfig
+from discord_bot.workers.broker_metrics import BrokerMetrics
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker
 from discord_bot.workers.redis_queues import RedisDownloadResultQueue
@@ -75,7 +76,8 @@ def _build_video_cache(cache_cfg: dict, db_engine, bucket_name: str | None):
     )
 
 
-async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager):
+async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
+                    broker_metrics: BrokerMetrics):
     '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server and Redis.'''
     await redis_manager.start()
     stop_event = asyncio.Event()
@@ -91,6 +93,8 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
         if health_server:
             asyncio.create_task(health_server.serve())
         asyncio.create_task(broker_server.serve())
+        # Metrics poller exits on its own when stop_event is set.
+        asyncio.create_task(broker_metrics.run(stop_event))
         logger.info('Main :: Broker running')
         await stop_event.wait()
     finally:
@@ -100,9 +104,10 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
         logger.info('Main :: Shutdown complete')
 
 
-def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager):
+def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
+               broker_metrics: BrokerMetrics):
     '''Schedule main_loop on an event loop.'''
-    run_loop(main_loop(broker_server, health_server, redis_manager))
+    run_loop(main_loop(broker_server, health_server, redis_manager, broker_metrics))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -136,6 +141,7 @@ def run(settings: dict, general_config: GeneralConfig):
         # Redis-backed bot-ready queue so multiple broker pods share it and a pod
         # restart doesn't lose in-flight DownloadResults.
         result_queue = RedisDownloadResultQueue(redis_manager)
+        broker_metrics = BrokerMetrics(result_queue, registry)
 
         broker_cfg = general_settings.get('broker_server', {})
         broker_server = BrokerHttpServer(
@@ -154,4 +160,4 @@ def run(settings: dict, general_config: GeneralConfig):
                 bind_address=general_config.monitoring.health_server.bind_address,
             )
 
-        run_broker(broker_server, health_server, redis_manager)
+        run_broker(broker_server, health_server, redis_manager, broker_metrics)

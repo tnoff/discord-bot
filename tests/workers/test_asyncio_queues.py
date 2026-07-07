@@ -197,6 +197,18 @@ async def test_download_result_queue_get_empty_returns_none():
 
 
 @pytest.mark.asyncio
+async def test_download_result_queue_depth():
+    '''depth() reflects qsize and drops as items are popped.'''
+    q = AsyncioDownloadResultQueue()
+    assert await q.depth() == 0
+    await q.put(_result())
+    await q.put(_result())
+    assert await q.depth() == 2
+    await q.get_nowait()
+    assert await q.depth() == 1
+
+
+@pytest.mark.asyncio
 async def test_download_result_queue_raw_queue_is_underlying_queue():
     '''raw_queue exposes the wrapped asyncio.Queue for sync metric reads.'''
     raw = asyncio.Queue()

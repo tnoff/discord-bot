@@ -21,6 +21,10 @@ class MetricNaming(Enum):
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
     DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
     DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
+    BROKER_ENTRIES = 'broker.entries'
+    BROKER_BUNDLES = 'broker.bundles'
+    BROKER_RESULT_FETCH = 'broker.result_fetch'
+    BROKER_READY_CHECK = 'broker.ready_check'
 
 class AttributeNaming(Enum):
     '''
@@ -29,6 +33,7 @@ class AttributeNaming(Enum):
     RETRY_COUNT = 'retry_count'
     BACKGROUND_JOB = 'background_job'
     OUTCOME = 'outcome'
+    ZONE = 'zone'
 
 class DiscordContextNaming(Enum):
     '''

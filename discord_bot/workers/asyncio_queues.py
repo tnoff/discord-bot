@@ -122,3 +122,6 @@ class AsyncioDownloadResultQueue(DownloadResultQueue):
             return self._queue.get_nowait()
         except asyncio.QueueEmpty:
             return None
+
+    async def depth(self) -> int:
+        return self._queue.qsize()

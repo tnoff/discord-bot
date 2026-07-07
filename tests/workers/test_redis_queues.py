@@ -179,6 +179,18 @@ async def test_redis_download_result_queue_empty_returns_none():
 
 
 @pytest.mark.asyncio
+async def test_redis_download_result_queue_depth():
+    '''depth() returns the LLEN of the shared list and drops as items are popped.'''
+    q = RedisDownloadResultQueue(_manager())
+    assert await q.depth() == 0
+    await q.put(_download_result())
+    await q.put(_download_result())
+    assert await q.depth() == 2
+    await q.get_nowait()
+    assert await q.depth() == 1
+
+
+@pytest.mark.asyncio
 async def test_redis_download_result_queue_fifo_order():
     '''Queue is FIFO — first put pops first.'''
     manager = _manager()

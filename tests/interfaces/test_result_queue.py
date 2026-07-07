@@ -29,9 +29,14 @@ async def test_concrete_subclass_round_trips():
         async def get_nowait(self):
             return self._items.pop(0) if self._items else None
 
+        async def depth(self):
+            return len(self._items)
+
     queue = _MemQueue()
     assert await queue.get_nowait() is None
+    assert await queue.depth() == 0
     sentinel = object()
     await queue.put(sentinel)
+    assert await queue.depth() == 1
     assert await queue.get_nowait() is sentinel
     assert await queue.get_nowait() is None

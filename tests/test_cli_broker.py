@@ -43,6 +43,7 @@ def _patch_run_deps(mocker, video_cache=None):
         'redis_manager': mocker.patch('discord_bot.cli.broker.RedisManager', return_value=MagicMock()),
         'registry': mocker.patch('discord_bot.cli.broker.RedisBrokerRegistry', return_value=MagicMock()),
         'result_queue': mocker.patch('discord_bot.cli.broker.RedisDownloadResultQueue', return_value=MagicMock()),
+        'metrics': mocker.patch('discord_bot.cli.broker.BrokerMetrics', return_value=MagicMock()),
         'video_cache': mocker.patch('discord_bot.cli.broker._build_video_cache', return_value=video_cache),
         'dispatch': mocker.patch('discord_bot.cli.broker.HttpDispatchClient', return_value=MagicMock()),
         'broker': mocker.patch('discord_bot.cli.broker.RedisBroker', return_value=MagicMock()),
@@ -67,6 +68,9 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     assert kwargs['search_max_retries'] == 4
     # Server gets the Redis-backed result queue, no ha_mode.
     assert m['server'].call_args.kwargs['result_queue'] is m['result_queue'].return_value
+    # Metrics poller built from the result queue + registry and handed to run_broker.
+    m['metrics'].assert_called_once_with(m['result_queue'].return_value, m['registry'].return_value)
+    assert m['run_broker'].call_args.args[3] is m['metrics'].return_value
 
 
 def test_run_without_dispatcher_or_health(mocker):
@@ -140,8 +144,11 @@ async def test_main_loop_drains_on_signal(mocker):
     redis_manager = MagicMock()
     redis_manager.start = AsyncMock()
     redis_manager.close = AsyncMock()
+    broker_metrics = MagicMock()
+    broker_metrics.run = AsyncMock()
 
-    task = asyncio.create_task(broker_cli.main_loop(broker_server, health_server, redis_manager))
+    task = asyncio.create_task(
+        broker_cli.main_loop(broker_server, health_server, redis_manager, broker_metrics))
     await asyncio.sleep(0)  # let main_loop reach stop_event.wait() and register handlers
     captured[_signal.SIGTERM](_signal.SIGTERM, None)  # simulate SIGTERM
     await task
@@ -149,6 +156,7 @@ async def test_main_loop_drains_on_signal(mocker):
     redis_manager.start.assert_awaited_once()
     broker_server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
+    broker_metrics.run.assert_called_once()  # metrics poller was started
 
 
 def test_run_broker_invokes_run_loop(mocker):
@@ -156,7 +164,7 @@ def test_run_broker_invokes_run_loop(mocker):
     sentinel = object()
     # Force a sync mock so main_loop(...) returns the sentinel rather than a coroutine.
     mocker.patch('discord_bot.cli.broker.main_loop', new=MagicMock(return_value=sentinel))
-    broker_cli.run_broker(MagicMock(), MagicMock(), MagicMock())
+    broker_cli.run_broker(MagicMock(), MagicMock(), MagicMock(), MagicMock())
     mock_run_loop.assert_called_once_with(sentinel)
 
 

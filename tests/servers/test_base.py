@@ -73,6 +73,41 @@ class TestBuildApp:
 
 
 # ---------------------------------------------------------------------------
+# _serving liveness flag
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestIsServing:
+    async def test_not_serving_before_serve(self):
+        assert SimpleServer().is_serving is False
+
+    async def test_serving_true_while_up_then_false_after_drain(self):
+        '''serve() reports is_serving True once listening; drain_and_stop()
+        (via start_draining) and the serve() teardown clear it.'''
+        server = SimpleServer(port=18110)
+        task = asyncio.create_task(server.serve())
+        await _wait_for_port('127.0.0.1', 18110)
+        try:
+            assert server.is_serving is True
+        finally:
+            await asyncio.wait_for(server.drain_and_stop(timeout=5.0), timeout=5.0)
+            await asyncio.wait_for(task, timeout=2.0)
+        assert server.is_serving is False
+
+    async def test_not_serving_after_cancel(self):
+        '''Cancelling serve() runs the finally block, clearing is_serving.'''
+        server = SimpleServer(port=18111)
+        task = asyncio.create_task(server.serve())
+        await _wait_for_port('127.0.0.1', 18111)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert server.is_serving is False
+
+
+# ---------------------------------------------------------------------------
 # Drain middleware (no real server needed — TestClient suffices)
 # ---------------------------------------------------------------------------
 

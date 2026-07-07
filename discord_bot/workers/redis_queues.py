@@ -127,3 +127,7 @@ class RedisDownloadResultQueue(DownloadResultQueue):
         if raw is None:
             return None
         return DownloadResult.model_validate_json(raw)
+
+    async def depth(self) -> int:
+        '''LLEN the shared result list — the true bot-ready backlog across pods.'''
+        return await self._manager.client.llen(self._key)

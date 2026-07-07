@@ -17,6 +17,10 @@ class AiohttpServerBase:
         self._draining: bool = False
         self._active_requests: int = 0
         self._shutdown_event: asyncio.Event = asyncio.Event()
+        # True only while the TCP site is up and accepting requests. Subclasses
+        # can surface this as a liveness/heartbeat signal; it flips False as soon
+        # as draining starts and once serve() tears the site down.
+        self._serving: bool = False
 
     @staticmethod
     async def _read_body(request: web.Request) -> tuple:
@@ -52,10 +56,17 @@ class AiohttpServerBase:
                 self._active_requests -= 1
         return drain_middleware
 
+    @property
+    def is_serving(self) -> bool:
+        '''True while the TCP site is up and accepting requests (False before
+        serve() starts, once draining begins, and after the site is torn down).'''
+        return self._serving
+
     def start_draining(self) -> None:
         '''Begin refusing new requests without waiting for in-flight ones to finish.
         Use drain_and_stop() to also wait and shut down.'''
         self._draining = True
+        self._serving = False
 
     async def drain_and_stop(self, timeout: float = 30.0) -> None:
         '''
@@ -86,8 +97,10 @@ class AiohttpServerBase:
         await runner.setup()
         site = web.TCPSite(runner, self._host, self._port)
         await site.start()
+        self._serving = True
         logger.info('%s listening on %s:%s', self.__class__.__name__, self._host, self._port)
         try:
             await self._shutdown_event.wait()
         finally:
+            self._serving = False
             await runner.cleanup()

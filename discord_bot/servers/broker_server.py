@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
+from opentelemetry.metrics import Observation
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
@@ -15,10 +16,20 @@ from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.playlist_add_request import parse_media_request
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
+                                     MetricNaming, AttributeNaming)
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
 
 logger = logging.getLogger(__name__)
+
+# Counts GET /results/next outcomes: 'hit' when a result was handed to the bot,
+# 'empty' on a 204. A healthy system alternates; a rising 'hit' rate with the
+# result-queue depth climbing means the bot side has stopped draining.
+_RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.BROKER_RESULT_FETCH.value,
+    description='GET /results/next outcomes (hit / empty)',
+    unit='1',
+)
 
 
 @dataclass
@@ -81,6 +92,26 @@ class BrokerHttpServer(AiohttpServerBase):
         self._result_queue: DownloadResultQueue = (
             result_queue if result_queue is not None else AsyncioDownloadResultQueue()
         )
+        # Heartbeat so the broker pod has a first-class liveness series like the
+        # bot cogs and the dispatcher. The broker previously emitted no heartbeat
+        # at all, so a broker that was down (or not yet accepting connections at
+        # startup) was invisible on the dashboard — its outage only surfaced
+        # indirectly as the bot's process_download_results loop dying. Emitted
+        # under job="discord-broker" in HA, or job="discord-bot" for the embedded
+        # broker in single-process mode.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                self.heartbeat_observations,
+                                'Broker HTTP server heartbeat')
+
+    def heartbeat_observations(self, _options=None):
+        '''OTEL observable-gauge callback: 1 while the HTTP server is up and
+        accepting requests, else 0. Public so it can be exercised directly.'''
+        value = 1 if self.is_serving else 0
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'broker',
+            })
+        ]
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
@@ -167,7 +198,9 @@ class BrokerHttpServer(AiohttpServerBase):
         with otel_span_wrapper('broker.next_result', context=ctx, kind=SpanKind.SERVER):
             result = await self._result_queue.get_nowait()
         if result is None:
+            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
             return web.Response(status=204)
+        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
         return web.json_response(result.model_dump(mode='json'))
 
     async def _handle_checkout(self, request: web.Request) -> web.Response:

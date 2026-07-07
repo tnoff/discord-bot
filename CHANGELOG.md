@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.51
+
+Observability:
+- The broker now emits its Redis-backed state as metrics, so the broker is no longer a near-blind box. A background poller (`BrokerMetrics`, refreshed every 15s so a slow/absent Redis never blocks the metric export path) publishes:
+  - `music.download_result_queue_depth` `{background_job="broker"}` — the true bot-ready backlog (`LLEN` of the shared list). The existing "Download Result Queue Depth" panel read `job="discord-bot"`, which is always 0 in HA (the queue lives on the broker); a rising depth is the leading indicator that the bot's `process_download_results` loop has stopped draining.
+  - `broker.entries` `{zone="available"|"checked_out"}` and `broker.bundles` — registry state, for backlog/leak detection.
+- `broker.result_fetch` counter (`outcome="hit"|"empty"`) on `GET /results/next`, and `broker.ready_check` counter (`outcome="ok"|"unavailable"`) on each broker health probe — a flapping outcome is early warning of Redis trouble. `DownloadResultQueue` gained a `depth()` method (both the Redis and asyncio impls).
+
+## 2.5.50
+
+Observability:
+- The standalone broker process now emits a `heartbeat` gauge (`background_job="broker"`, `job="discord-broker"`) — `1` while its HTTP server is accepting requests, `0` while draining. Previously the broker emitted no liveness series at all, so a broker that was down or not yet accepting connections at startup was invisible on the Discord Health dashboard and surfaced only indirectly as the bot's `process_download_results` loop dying. `AiohttpServerBase` gained a `_serving` flag to back this.
+
 ## 2.5.49
 
 HA:

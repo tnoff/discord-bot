@@ -26,3 +26,7 @@ class DownloadResultQueue(ABC):
     @abstractmethod
     async def get_nowait(self) -> DownloadResult | None:
         '''Pop the oldest DownloadResult, or None if the queue is empty.'''
+
+    @abstractmethod
+    async def depth(self) -> int:
+        '''Return the number of results currently waiting in the queue.'''
