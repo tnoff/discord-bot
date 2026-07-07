@@ -42,6 +42,26 @@ async def test_set_and_get_entry_roundtrip():
 
 
 @pytest.mark.asyncio
+async def test_set_entry_in_flight_uses_in_flight_ttl():
+    '''in_flight entries get the in_flight inactivity TTL.'''
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    reg = RedisBrokerRegistry(RedisManager.from_client(client))
+    await reg.set_entry('uuid-1', {'zone': 'in_flight'})
+    ttl = await client.ttl(f'{ENTRY_KEY_PREFIX}uuid-1')
+    assert 0 < ttl <= broker_registry.IN_FLIGHT_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_set_entry_available_uses_full_ttl():
+    '''Entries past in_flight (available / checked_out) get the full entry TTL.'''
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    reg = RedisBrokerRegistry(RedisManager.from_client(client))
+    await reg.set_entry('uuid-1', {'zone': 'available'})
+    ttl = await client.ttl(f'{ENTRY_KEY_PREFIX}uuid-1')
+    assert 0 < ttl <= broker_registry.ENTRY_TTL_SECONDS
+
+
+@pytest.mark.asyncio
 async def test_delete_entry_removes_entry():
     '''delete_entry removes the entry so get_entry returns None.'''
     reg = _registry()

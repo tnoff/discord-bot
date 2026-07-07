@@ -84,6 +84,11 @@ class AsyncioBroker(MediaBrokerBase):
             entry.request.state_machine.mark_completed()
         elif update.event == LifecycleEvent.FAILED:
             entry.request.state_machine.mark_failed(update.failure_reason)
+        # A DISCARDED/FAILED request is terminal — drop its registry entry so
+        # de-duplicated / failed requests don't accumulate. We keep the local
+        # `entry` reference, so the bundle sync/render below still works.
+        if update.event in (LifecycleEvent.DISCARDED, LifecycleEvent.FAILED):
+            self._registry.pop(request_uuid, None)
         # Re-point the bundle's stored copy of this request at the registry's
         # authoritative object before rendering.  We *usually* share a Python
         # reference with bundled_requests, but that alias breaks whenever the

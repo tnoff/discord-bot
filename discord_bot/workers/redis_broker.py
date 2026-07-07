@@ -142,7 +142,16 @@ class RedisBroker(MediaBrokerBase):
         elif update.event == LifecycleEvent.FAILED:
             media_request.state_machine.mark_failed(update.failure_reason)
         data['request'] = media_request.model_dump(mode='json')
-        await self._registry.set_entry(request_uuid, data)
+        # A DISCARDED/FAILED request is terminal — it will never yield a playable
+        # download — so drop its registry entry instead of leaving it parked in
+        # the in_flight zone until the 24h TTL. (The download worker emits
+        # DISCARDED for every de-duplicated request, so these otherwise pile up.)
+        # The bundle keeps its own synced copy below, so the UI still reflects
+        # the final state.
+        if update.event in (LifecycleEvent.DISCARDED, LifecycleEvent.FAILED):
+            await self._registry.delete_entry(request_uuid)
+        else:
+            await self._registry.set_entry(request_uuid, data)
         # Sync the bundle's copy of this request so the renderer sees the new
         # lifecycle_stage / failure_reason.  In single-process the registry
         # entry and bundled_requests share a Python reference; in Redis they

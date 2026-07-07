@@ -228,6 +228,28 @@ async def test_update_request_status_retry():
 
 
 @pytest.mark.asyncio
+async def test_update_request_status_discarded_deletes_entry():
+    '''A DISCARDED status update drops the registry entry (no in_flight leak).'''
+    broker = _make_broker()
+    req = _make_request()
+    await broker.register_request(req)
+    assert await broker.get_entry(str(req.uuid)) is not None
+    await broker.update_request_status(str(req.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED))
+    assert await broker.get_entry(str(req.uuid)) is None
+
+
+@pytest.mark.asyncio
+async def test_update_request_status_failed_deletes_entry():
+    '''A FAILED status update drops the registry entry.'''
+    broker = _make_broker()
+    req = _make_request()
+    await broker.register_request(req)
+    await broker.update_request_status(
+        str(req.uuid), LifecycleStatusUpdate(event=LifecycleEvent.FAILED, failure_reason='boom'))
+    assert await broker.get_entry(str(req.uuid)) is None
+
+
+@pytest.mark.asyncio
 async def test_update_request_status_discarded():
     '''update_request_status with DISCARDED does not raise.'''
     broker = _make_broker()
@@ -257,7 +279,10 @@ async def test_update_request_status_handles_every_event_branch(event):
     )
     await broker.update_request_status(str(req.uuid), update)
     entry = await broker.get_entry(str(req.uuid))
-    assert entry is not None  # didn't raise / wipe the entry
+    if event in (LifecycleEvent.DISCARDED, LifecycleEvent.FAILED):
+        assert entry is None  # terminal events drop the entry (no leak)
+    else:
+        assert entry is not None  # non-terminal branches keep it
 
 
 @pytest.mark.asyncio

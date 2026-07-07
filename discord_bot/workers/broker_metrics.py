@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL_SECONDS = 15.0
 # Zones always reported so a drop to zero is visible as 0, not an absent series.
-_KNOWN_ZONES = ('available', 'checked_out')
+_KNOWN_ZONES = ('in_flight', 'available', 'checked_out')
 
 
 class BrokerMetrics:

@@ -30,7 +30,8 @@ class TestObservations:
     def test_entry_observations_report_known_zones_as_zero(self):
         '''Known zones are always emitted (as 0) so a drop is visible, not absent.'''
         bm, _, _ = _metrics()
-        assert _zone_map(bm.entry_observations(None)) == {'available': 0, 'checked_out': 0}
+        assert _zone_map(bm.entry_observations(None)) == {
+            'in_flight': 0, 'available': 0, 'checked_out': 0}
 
     def test_bundle_observation_defaults_to_zero(self):
         bm, _, _ = _metrics()
@@ -45,7 +46,8 @@ class TestRefresh:
         bm, _, _ = _metrics(depth=5, entries=entries, bundles=2)
         await bm.refresh()
         assert bm.queue_depth_observations(None)[0].value == 5
-        assert _zone_map(bm.entry_observations(None)) == {'available': 2, 'checked_out': 1}
+        assert _zone_map(bm.entry_observations(None)) == {
+            'in_flight': 0, 'available': 2, 'checked_out': 1}
         assert bm.bundle_observations(None)[0].value == 2
 
     async def test_refresh_counts_extra_and_missing_zones(self):

@@ -28,6 +28,16 @@ LOCK_KEY_PREFIX = 'discord_bot:broker:lock:'
 BUNDLE_KEY_PREFIX = 'discord_bot:broker:bundle:'
 BUNDLE_LOCK_KEY_PREFIX = 'discord_bot:broker:bundlelock:'
 ENTRY_TTL_SECONDS = 86400  # 24h — stale cleanup if broker restarts without releasing
+# in_flight entries are transient (a request still downloading). Each lifecycle
+# status update rewrites the entry, refreshing this TTL — so it acts as an
+# inactivity timeout: a request that stalls without ever reaching a terminal
+# event (e.g. its download result never routes back) eventually expires instead
+# of squatting in the registry indefinitely. Held at the full 24h for now — a
+# deep download queue can legitimately keep a request in_flight for a long time
+# before it's serviced, so we don't want to evict a still-valid entry. The
+# terminal DISCARDED/FAILED deletion is what actually stops the leak; this is a
+# backstop that can be tuned down once we have a feel for real queue depth.
+IN_FLIGHT_TTL_SECONDS = 86400  # 24h
 LOCK_TTL_SECONDS = 10
 BUNDLE_TTL_SECONDS = 86400  # 24h — bundles share the entry TTL
 BUNDLE_LOCK_TTL_SECONDS = 10
@@ -57,9 +67,12 @@ class RedisBrokerRegistry:
         return json.loads(raw) if raw else None
 
     async def set_entry(self, uuid: str, data: dict) -> None:
-        '''Upsert an entry with a 24h TTL.'''
+        '''Upsert an entry. in_flight entries get a short TTL (inactivity
+        timeout); anything past in_flight (available / checked_out) gets the
+        full 24h.'''
+        ttl = IN_FLIGHT_TTL_SECONDS if data.get('zone') == 'in_flight' else ENTRY_TTL_SECONDS
         await self._client.set(
-            f'{ENTRY_KEY_PREFIX}{uuid}', json.dumps(data), ex=ENTRY_TTL_SECONDS
+            f'{ENTRY_KEY_PREFIX}{uuid}', json.dumps(data), ex=ttl
         )
 
     async def delete_entry(self, uuid: str) -> None:

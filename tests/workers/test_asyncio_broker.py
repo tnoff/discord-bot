@@ -51,6 +51,20 @@ async def test_update_request_status_drives_each_event(fake_context, event, expe
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('event,kwargs', [
+    (LifecycleEvent.DISCARDED, {}),
+    (LifecycleEvent.FAILED, {'failure_reason': 'dead'}),
+])
+async def test_update_request_status_terminal_drops_entry(fake_context, event, kwargs):  # pylint: disable=redefined-outer-name
+    '''DISCARDED/FAILED remove the registry entry so terminal requests don't leak.'''
+    broker = AsyncioBroker()
+    media_request = await _register(broker, fake_context)
+    assert await broker.get_entry(str(media_request.uuid)) is not None
+    await broker.update_request_status(str(media_request.uuid), LifecycleStatusUpdate(event=event, **kwargs))
+    assert await broker.get_entry(str(media_request.uuid)) is None
+
+
+@pytest.mark.asyncio
 async def test_update_request_status_unknown_uuid_warns(fake_context):  # pylint: disable=redefined-outer-name,unused-argument
     '''An update for an unregistered uuid logs and returns without raising.'''
     await AsyncioBroker().update_request_status(
