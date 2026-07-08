@@ -1,36 +1,36 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/branch-cleanup.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: efe31bf2562d945b344d7bcac48433ef70c80a83
+    ref: cef6a5425b71ba6ed1457ac7dfcf94d0060219bb
     file: '/gitlab/tox-pipeline.yml'
 
 default:
