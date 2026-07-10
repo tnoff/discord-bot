@@ -303,7 +303,7 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     await cog.process_download_results()
 
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
-    assert cog.download_client.queue_size(fake_context['guild'].id) > 0
+    assert await cog.download_client.queue_size(fake_context['guild'].id) > 0
 
 
 @pytest.mark.asyncio
@@ -321,7 +321,7 @@ async def test_playlist_history_queue(mocker, fake_engine, fake_context):  #pyli
             await cog.post_play_processing()
 
             await cog.playlist_queue.callback(cog, fake_context['context'], 0)
-            assert cog.download_client.queue_size(fake_context['guild'].id) > 0
+            assert await cog.download_client.queue_size(fake_context['guild'].id) > 0
 
 @pytest.mark.asyncio
 async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name

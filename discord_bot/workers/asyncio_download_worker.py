@@ -88,8 +88,8 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
     # Queue interface
     # ------------------------------------------------------------------
 
-    def _enqueue_request(self, guild_id: int, media_request: MediaRequest,
-                         priority: int | None = None) -> None:
+    async def _enqueue_request(self, guild_id: int, media_request: MediaRequest,
+                               priority: int | None = None) -> None:
         '''Route a MediaRequest to the correct input queue based on its search type.'''
         if media_request.search_result.search_type == SearchType.DIRECT:
             self._direct_input_queue.put_nowait(guild_id, media_request, priority=priority)
@@ -97,15 +97,15 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         else:
             self._input_queue.put_nowait(guild_id, media_request, priority=priority)
 
-    def block_guild(self, guild_id: int) -> bool:
+    async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
         a = self._input_queue.block(guild_id)
         b = self._direct_input_queue.block(guild_id)
         return a and b
 
-    def clear_guild_queue(self, guild_id: int,
-                          preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                          ) -> list[MediaRequest]:
+    async def clear_guild_queue(self, guild_id: int,
+                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
+                                ) -> list[MediaRequest]:
         '''Clear the input queue for a guild, returning the dropped requests.'''
         dropped = self._input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
         dropped += self._direct_input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
@@ -115,18 +115,18 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
             self._direct_available.clear()
         return dropped
 
-    def queue_size(self, guild_id: int) -> int:
+    async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
         return (self._input_queue.size(guild_id) or 0) + (self._direct_input_queue.size(guild_id) or 0)
 
-    def _dequeue_direct(self) -> MediaRequest:
+    async def _dequeue_direct(self) -> MediaRequest:
         '''Dequeue from the direct queue and clear the wakeup event if it is now empty.'''
         result = self._direct_input_queue.get_nowait()
         if self._direct_input_queue.total_size() == 0:
             self._direct_available.clear()
         return result
 
-    def _merged_get_nowait(self) -> MediaRequest:
+    async def _merged_get_nowait(self) -> MediaRequest:
         '''
         Dequeue the next item across both queues ordered by submission timestamp,
         raising QueueEmpty if both are empty.
@@ -136,5 +136,5 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         if direct_ts is None and regular_ts is None:
             raise QueueEmpty('No items in queue')
         if direct_ts is not None and (regular_ts is None or direct_ts <= regular_ts):
-            return self._dequeue_direct()
+            return await self._dequeue_direct()
         return self._input_queue.get_nowait()

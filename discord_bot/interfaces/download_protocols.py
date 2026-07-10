@@ -159,23 +159,24 @@ class DownloadClient(Protocol):
     Cog-facing handle for the download pipeline.
 
     The producer surface (submit / block_guild / clear_guild_queue /
-    queue_size) is synchronous; the cog drives the consumer via run() as a
-    background loop.  failure_summary / backoff_seconds_remaining expose the
-    worker's backoff state for logging and metrics.
+    queue_size) is async so a Redis-backed client can do its I/O inline; the
+    cog drives the consumer via run() as a background loop.  failure_summary /
+    backoff_seconds_remaining stay synchronous — they read cached backoff state
+    the run() loop refreshes — for logging and metrics.
     '''
-    def submit(self, guild_id: int, media_request: MediaRequest,
-               priority: int | None = None) -> None:
+    async def submit(self, guild_id: int, media_request: MediaRequest,
+                     priority: int | None = None) -> None:
         '''Enqueue a MediaRequest for download; results are reported to the broker.'''
 
-    def block_guild(self, guild_id: int) -> bool:
+    async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown/cleanup).'''
 
-    def clear_guild_queue(self, guild_id: int,
-                          preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                          ) -> list[MediaRequest]:
+    async def clear_guild_queue(self, guild_id: int,
+                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
+                                ) -> list[MediaRequest]:
         '''Clear the input queue for a guild, returning the dropped requests.'''
 
-    def queue_size(self, guild_id: int) -> int:
+    async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
 
     @property
@@ -279,10 +280,13 @@ class DownloadWorkerBase(ABC):
         new_timestamp = new_timestamp + (random.randint(1000, self._wait_period_max_variance * 1000) / 1000)  # nosec B311
         self._wait_timestamp = new_timestamp
 
-    def update_tracking(self, result: DownloadResult) -> int | None:
+    async def update_tracking(self, result: DownloadResult) -> int | None:
         '''
         Update failure queue and backoff timestamp based on a DownloadResult.
         Returns backoff_seconds_remaining so callers need not re-query.
+
+        Async so a Redis-backed subclass can persist shared backoff/failure state
+        inline; the in-process base body itself does no awaiting.
         '''
         error_type = result.status.error_type
 
@@ -342,30 +346,30 @@ class DownloadWorkerBase(ABC):
         '''True when at least one DIRECT item is waiting to bypass backoff.'''
 
     @abstractmethod
-    def _enqueue_request(self, guild_id: int, media_request: MediaRequest,
-                         priority: int | None = None) -> None:
+    async def _enqueue_request(self, guild_id: int, media_request: MediaRequest,
+                               priority: int | None = None) -> None:
         '''Route a MediaRequest to the correct input queue based on its search type.'''
 
     @abstractmethod
-    def block_guild(self, guild_id: int) -> bool:
+    async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
 
     @abstractmethod
-    def clear_guild_queue(self, guild_id: int,
-                          preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                          ) -> list[MediaRequest]:
+    async def clear_guild_queue(self, guild_id: int,
+                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
+                                ) -> list[MediaRequest]:
         '''Clear the input queue for a guild, returning the dropped requests.'''
 
     @abstractmethod
-    def queue_size(self, guild_id: int) -> int:
+    async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
 
     @abstractmethod
-    def _dequeue_direct(self) -> MediaRequest:
+    async def _dequeue_direct(self) -> MediaRequest:
         '''Dequeue the next DIRECT item, raising QueueEmpty if none available.'''
 
     @abstractmethod
-    def _merged_get_nowait(self) -> MediaRequest:
+    async def _merged_get_nowait(self) -> MediaRequest:
         '''
         Dequeue the next item across both queues ordered by submission timestamp,
         raising QueueEmpty if both are empty.
@@ -381,16 +385,16 @@ class DownloadWorkerBase(ABC):
         Raises DirectItemAvailableException if a DIRECT item arrives during the wait.
         '''
 
-    def submit(self, guild_id: int, media_request: MediaRequest,
-               priority: int | None = None) -> None:
+    async def submit(self, guild_id: int, media_request: MediaRequest,
+                     priority: int | None = None) -> None:
         '''Enqueue a MediaRequest for download.'''
         if media_request.span_context is None:
             media_request.span_context = capture_span_context()
-        self._enqueue_request(guild_id, media_request, priority=priority)
+        await self._enqueue_request(guild_id, media_request, priority=priority)
 
-    def get_input_nowait(self) -> MediaRequest:
+    async def get_input_nowait(self) -> MediaRequest:
         '''Return the next pending MediaRequest, raising QueueEmpty if none available.'''
-        return self._merged_get_nowait()
+        return await self._merged_get_nowait()
 
     # ------------------------------------------------------------------
     # Consumer loop
@@ -413,20 +417,20 @@ class DownloadWorkerBase(ABC):
         await sleep(0.01)
         if self.backoff_seconds_remaining:
             try:
-                media_request = self._dequeue_direct()
+                media_request = await self._dequeue_direct()
             except QueueEmpty:
                 try:
                     await self.backoff_wait(shutdown_event)
                 except DirectItemAvailableException:
-                    media_request = self._dequeue_direct()
+                    media_request = await self._dequeue_direct()
                 else:
                     try:
-                        media_request = self._merged_get_nowait()
+                        media_request = await self._merged_get_nowait()
                     except QueueEmpty:
                         return
         else:
             try:
-                media_request = self._merged_get_nowait()
+                media_request = await self._merged_get_nowait()
             except QueueEmpty:
                 return
 
@@ -449,7 +453,7 @@ class DownloadWorkerBase(ABC):
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,
                 ))
-            self._enqueue_request(media_request.guild_id, media_request)
+            await self._enqueue_request(media_request.guild_id, media_request)
             return
 
         # Report the finished result to the broker, which persists a successful
@@ -585,7 +589,7 @@ class DownloadWorkerBase(ABC):
         loop = asyncio.get_running_loop()
         to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
         result = await loop.run_in_executor(None, to_run)
-        self.update_tracking(result)
+        await self.update_tracking(result)
         if result.status.success and result.file_name is not None:
             try:
                 pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)

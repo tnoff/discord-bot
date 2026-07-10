@@ -91,7 +91,7 @@ def yield_download_worker_retryable_exception():
 
         async def create_source(self, media_request, *_args, **_kwargs):
             result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='Test retryable error'), media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -112,7 +112,7 @@ def yield_download_worker_bot_flagged():
 
         async def create_source(self, media_request, *_args, **_kwargs):
             result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='Bot download flagged'), media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -133,7 +133,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
 
     assert cog.download_client.local_worker.failure_queue.size == 0
 
@@ -163,7 +163,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
 
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
@@ -190,7 +190,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
 
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
 
     assert cog.download_client.local_worker.wait_timestamp is None
     await cog.download_client.run(cog.bot_shutdown_event)
@@ -224,7 +224,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
             assert cog.download_client.local_worker.failure_queue.size == 2
 
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
 
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()

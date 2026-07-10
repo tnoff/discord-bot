@@ -83,24 +83,24 @@ class InMemoryDownloadClient:
         '''The wrapped engine — only meaningful in single-process mode.'''
         return self._worker
 
-    def submit(self, guild_id: int, media_request: MediaRequest,
-               priority: int | None = None) -> None:
+    async def submit(self, guild_id: int, media_request: MediaRequest,
+                     priority: int | None = None) -> None:
         '''Enqueue a MediaRequest for download; results are reported to the broker.'''
-        self._worker.submit(guild_id, media_request, priority=priority)
+        await self._worker.submit(guild_id, media_request, priority=priority)
 
-    def block_guild(self, guild_id: int) -> bool:
+    async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown/cleanup).'''
-        return self._worker.block_guild(guild_id)
+        return await self._worker.block_guild(guild_id)
 
-    def clear_guild_queue(self, guild_id: int,
-                          preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                          ) -> list[MediaRequest]:
+    async def clear_guild_queue(self, guild_id: int,
+                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
+                                ) -> list[MediaRequest]:
         '''Clear the input queue for a guild, returning the dropped requests.'''
-        return self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve_predicate)
+        return await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve_predicate)
 
-    def queue_size(self, guild_id: int) -> int:
+    async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
-        return self._worker.queue_size(guild_id)
+        return await self._worker.queue_size(guild_id)
 
     @property
     def failure_summary(self) -> str:

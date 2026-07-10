@@ -29,7 +29,7 @@ async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disab
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -57,7 +57,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             assert cog.players[fake_context['guild'].id].get_queue_items()
@@ -74,7 +74,7 @@ def yield_download_worker_bot_flagged():
 
         async def create_source(self, media_request, *_args, **_kwargs):
             result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='foo'), media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -87,7 +87,7 @@ async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disabl
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -105,7 +105,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     cog.dispatcher = MagicMock()
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -119,7 +119,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -133,7 +133,7 @@ async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -148,7 +148,7 @@ async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:di
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             cog.players[fake_context['guild'].id].shutdown_called = True
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
@@ -163,7 +163,7 @@ async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:di
             mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
             cog.dispatcher = MagicMock()
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             assert fake_context['guild'].id not in cog.players
@@ -204,7 +204,7 @@ def yield_download_worker_retry_limit_exceeded():
                 status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED,
                                       error_detail='Too many retries', user_message='retry limit'),
                 media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -221,7 +221,7 @@ async def test_download_retry_limit_exceeded(mocker, fake_context):  # pylint: d
     cog.dispatcher = MagicMock()
     s = fake_source_dict(fake_context)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     assert not cog.players[fake_context['guild'].id].get_queue_items()
@@ -256,7 +256,7 @@ def yield_download_worker_success_no_data():
             result = DownloadResult(
                 status=DownloadStatus(success=True),
                 media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -274,7 +274,7 @@ async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_engine, 
     # In production the request is registered with the broker before download;
     # register here so the FAILED lifecycle push lands on it.
     await cog.media_broker.register_request(req)
-    cog.download_client.submit(fake_context['guild'].id, req)
+    await cog.download_client.submit(fake_context['guild'].id, req)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
     from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
@@ -317,7 +317,7 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
                 search_result=search_result,
                 playlist_id=1,
             )
-            cog.download_client.submit(fake_context['guild'].id, req)
+            await cog.download_client.submit(fake_context['guild'].id, req)
             # Patch __add_playlist_item to avoid DB operations
             mocker.patch.object(cog, '_Music__add_playlist_item')
             await cog.download_client.run(cog.bot_shutdown_event)
@@ -340,7 +340,7 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_engine, fake_conte
 
             cog.media_broker.cache_cleanup = AsyncMock(return_value=True)
 
-            cog.download_client.submit(fake_context['guild'].id, sd.media_request)
+            await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
 

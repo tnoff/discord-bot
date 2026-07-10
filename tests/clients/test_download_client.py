@@ -24,38 +24,42 @@ def test_local_worker_exposes_wrapped_engine():
     assert client.local_worker is worker
 
 
-def test_submit_delegates():
+@pytest.mark.asyncio
+async def test_submit_delegates():
     worker = _make_worker()
-    worker.submit = MagicMock()
+    worker.submit = AsyncMock()
     client = InMemoryDownloadClient(worker)
     media_request = MagicMock()
-    client.submit(42, media_request, priority=7)
+    await client.submit(42, media_request, priority=7)
     worker.submit.assert_called_once_with(42, media_request, priority=7)
 
 
-def test_block_guild_delegates():
+@pytest.mark.asyncio
+async def test_block_guild_delegates():
     worker = _make_worker()
-    worker.block_guild = MagicMock(return_value=True)
+    worker.block_guild = AsyncMock(return_value=True)
     client = InMemoryDownloadClient(worker)
-    assert client.block_guild(42) is True
+    assert await client.block_guild(42) is True
     worker.block_guild.assert_called_once_with(42)
 
 
-def test_clear_guild_queue_delegates():
+@pytest.mark.asyncio
+async def test_clear_guild_queue_delegates():
     worker = _make_worker()
     dropped = [MagicMock()]
-    worker.clear_guild_queue = MagicMock(return_value=dropped)
+    worker.clear_guild_queue = AsyncMock(return_value=dropped)
     client = InMemoryDownloadClient(worker)
     predicate = MagicMock()
-    assert client.clear_guild_queue(42, preserve_predicate=predicate) is dropped
+    assert await client.clear_guild_queue(42, preserve_predicate=predicate) is dropped
     worker.clear_guild_queue.assert_called_once_with(42, preserve_predicate=predicate)
 
 
-def test_queue_size_delegates():
+@pytest.mark.asyncio
+async def test_queue_size_delegates():
     worker = _make_worker()
-    worker.queue_size = MagicMock(return_value=3)
+    worker.queue_size = AsyncMock(return_value=3)
     client = InMemoryDownloadClient(worker)
-    assert client.queue_size(42) == 3
+    assert await client.queue_size(42) == 3
     worker.queue_size.assert_called_once_with(42)
 
 

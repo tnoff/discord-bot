@@ -4,6 +4,7 @@ from typing import List
 from unittest.mock import patch, Mock, AsyncMock
 
 import asyncio
+import fakeredis.aioredis
 import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -14,6 +15,8 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
+from discord_bot.workers.redis_download_worker import RedisDownloadWorker
+from discord_bot.clients.redis_client import RedisManager
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
@@ -75,7 +78,7 @@ def yield_fake_download_worker(media_download: MediaDownload):
                     'extractor': media_download.extractor,
                 }
                 result = DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=ytdlp_data, file_name=media_download.file_path)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -94,7 +97,7 @@ def yield_download_worker_download_exception():
 
         async def create_source(self, media_request, *_args, **_kwargs):
             result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -113,7 +116,7 @@ def yield_download_worker_download_error():
 
         async def create_source(self, media_request, *_args, **_kwargs):
             result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
-            self.update_tracking(result)
+            await self.update_tracking(result)
             return result
 
     return FakeDownloadWorker
@@ -158,7 +161,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
             await cog.players[fake_context['guild'].id]._history.put(sd) #pylint:disable=protected-access
             await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
             assert fake_context['guild'].id not in cog.players
-            assert cog.download_client.queue_size(fake_context['guild'].id) == 0
+            assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 @pytest.mark.asyncio
 async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -168,9 +171,9 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     s = fake_source_dict(fake_context)
-    cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-    assert cog.download_client.queue_size(fake_context['guild'].id) == 0
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 
 @pytest.mark.asyncio
@@ -221,8 +224,8 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     await cog.play_(cog, fake_context['context'], search='foo bar')
     await cog.search_youtube_music()
     await cog.search_youtube_music()
-    item0 = cog.download_client.local_worker.get_input_nowait()
-    item1 = cog.download_client.local_worker.get_input_nowait()
+    item0 = await cog.download_client.local_worker.get_input_nowait()
+    item1 = await cog.download_client.local_worker.get_input_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
     assert item0.search_result.raw_search_string == s.search_result.raw_search_string
     assert item0.search_result.search_type == s.search_result.search_type
@@ -370,7 +373,7 @@ async def test_stop(fake_engine, mocker, fake_context):  #pylint:disable=redefin
             # After destroy(), the player should be marked for shutdown
             player = cog.players[fake_context['guild'].id]
             assert player.shutdown_called is True
-            assert cog.download_client.queue_size(fake_context['guild'].id) == 0
+            assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 @pytest.mark.asyncio()
 async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -405,8 +408,8 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = Mock()
     # Put source dict so we can a download queue to block
-    cog.download_client.submit(fake_context['guild'].id, s)
-    cog.download_client.block_guild(fake_context['guild'].id)
+    await cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.block_guild(fake_context['guild'].id)
     await cog.play_(cog, fake_context['context'], search='foo bar')
 
 @pytest.mark.asyncio()
@@ -1527,3 +1530,20 @@ def test_download_file_callback_reports_active_loop(fake_context, mocker):  #pyl
     result = cog._Music__download_file_loop_active_callback(None)  #pylint:disable=protected-access
     assert len(result) == 1
     assert result[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_backed_config_selects_redis_download_worker(fake_context):  #pylint:disable=redefined-outer-name
+    '''redis_backed=True + a redis_manager wires the cog to a RedisDownloadWorker.'''
+    manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
+    config = {'general': {'include': {'music': True}}, 'music': {'download': {'redis_backed': True}}}
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], redis_manager=manager)
+    assert isinstance(cog.download_client.local_worker, RedisDownloadWorker)
+
+
+@pytest.mark.asyncio
+async def test_redis_backed_without_manager_falls_back_to_asyncio(fake_context):  #pylint:disable=redefined-outer-name
+    '''redis_backed=True but no redis_manager falls back to the in-process worker.'''
+    config = {'general': {'include': {'music': True}}, 'music': {'download': {'redis_backed': True}}}
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    assert isinstance(cog.download_client.local_worker, AsyncioDownloadWorker)

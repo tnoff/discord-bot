@@ -28,6 +28,7 @@ from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
 from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
+from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 from discord_bot.interfaces.download_protocols import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
@@ -110,6 +111,13 @@ class MusicDownloadConfig(BaseModel):
     # rate-limits per source IP, so a single downloader per egress IP is the
     # safe default. Raise only when downloads egress over distinct IPs.
     max_concurrent_downloads: int = Field(default=1, ge=1)
+    # Back the download queue with Redis (RedisDownloadWorker) instead of the
+    # in-process AsyncioDownloadWorker, so downloads can be shared across pods.
+    # Requires a redis_manager; falls back to in-process if unset.
+    redis_backed: bool = False
+    # Per-egress bucket for the shared YouTube backoff/failure keys. Pods behind
+    # distinct egress IPs should use distinct keys so their rate-limits don't couple.
+    youtube_egress_key: str = 'default'
     spotify_credentials: Optional[SpotifyCredentialsConfig] = None
     youtube_api_key: Optional[str] = None
     server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
@@ -271,21 +279,35 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             max_size=self.config.download.failure_tracking_max_size,
             max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
         )
-        download_worker = AsyncioDownloadWorker(
-            self.logging_config,
-            self.download_dir,
-            extra_ytdlp_options=self.config.download.extra_ytdlp_options,
-            max_video_length=self.config.download.max_video_length,
-            banned_video_list=self.config.download.banned_videos_list,
-            failure_queue=failure_queue,
-            wait_period_minimum=self.config.download.youtube_wait_period_minimum,
-            wait_period_max_variance=self.config.download.youtube_wait_period_max_variance,
-            bucket_name=storage_bucket_name,
-            normalize_audio=self.config.download.normalize_audio,
-            broker=self.broker_client,
-            max_retries=self.config.download.max_download_retries,
-            queue_max_size=self.config.player.queue_max_size,
-        )
+        download_worker_kwargs = {
+            'extra_ytdlp_options': self.config.download.extra_ytdlp_options,
+            'max_video_length': self.config.download.max_video_length,
+            'banned_video_list': self.config.download.banned_videos_list,
+            'failure_queue': failure_queue,
+            'wait_period_minimum': self.config.download.youtube_wait_period_minimum,
+            'wait_period_max_variance': self.config.download.youtube_wait_period_max_variance,
+            'bucket_name': storage_bucket_name,
+            'normalize_audio': self.config.download.normalize_audio,
+            'broker': self.broker_client,
+            'max_retries': self.config.download.max_download_retries,
+        }
+        if self.config.download.redis_backed and self.redis_manager:
+            # Redis-backed queue: shareable across downloader pods (MR 2b runs it
+            # in-process; the download_server/HttpDownloadClient split is later).
+            download_worker = RedisDownloadWorker(
+                self.logging_config,
+                self.download_dir,
+                redis_manager=self.redis_manager,
+                youtube_egress_key=self.config.download.youtube_egress_key,
+                **download_worker_kwargs,
+            )
+        else:
+            download_worker = AsyncioDownloadWorker(
+                self.logging_config,
+                self.download_dir,
+                queue_max_size=self.config.player.queue_max_size,
+                **download_worker_kwargs,
+            )
         self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
         self.youtube_music_failure_queue = FailureQueue(
             max_size=self.config.download.failure_tracking_max_size,
@@ -729,7 +751,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             try:
                 self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
-                self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+                await self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
             except PutsBlocked:
                 self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
                 await self._push_state(media_request, LifecycleEvent.DISCARDED)
@@ -900,9 +922,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.debug(f'Started disconnect task for guild {guild.id}')
 
             # Block download queue for later
-            # Clear queues before blocking: clear_queue restores preserved items via
-            # put_nowait, which would fail if the queue is already blocked.
-            # No await between clear_queue and block() so no race condition.
+            # Clear queues before blocking: the in-process clear_queue restores
+            # preserved items via put_nowait, which raises once the queue is blocked,
+            # so block-first is not an option here (holds for the Redis worker too,
+            # whose clear leaves preserved items in place). The clear/block calls are
+            # now async, so this runs during guild teardown (shutdown/disconnect) when
+            # the submit loops are already winding down — the narrow post-clear window
+            # is acceptable for a guild being torn down.
             # We also record any bundle uuids belonging to preserved (playlist-add)
             # items so we can skip deleting those bundles below — their requests
             # are still in flight and will keep updating the broker bundle UI.
@@ -916,7 +942,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                         preserved_bundle_uuids.add(req.bundle_uuid)
                     return keep
 
-            dropped = self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
+            dropped = await self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
             self.logger.debug(f'Cleanup found {len(dropped)} existing download items')
             for item in dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
@@ -926,7 +952,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
 
-            self.download_client.block_guild(guild.id)
+            await self.download_client.block_guild(guild.id)
             self.youtube_music_search_queue.block(guild.id)
 
             player = None
@@ -1009,7 +1035,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
-                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not self.download_client.queue_size(guild_id)):
+                pending_downloads = await self.download_client.queue_size(guild_id)
+                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not pending_downloads):
                     self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                         'I am not currently playing anything',
                         delete_after=self.config.general.message_delete_after)
@@ -1113,7 +1140,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self._push_state(media_request, LifecycleEvent.COMPLETED)
                 continue
             try:
-                self.download_client.submit(media_request.guild_id, media_request)
+                await self.download_client.submit(media_request.guild_id, media_request)
                 await self._push_state(media_request, LifecycleEvent.QUEUED)
             except PutsBlocked:
                 await self.delete_bundle(ctx.guild.id, bundle_uuid)

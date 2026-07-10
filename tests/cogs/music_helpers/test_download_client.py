@@ -803,106 +803,116 @@ def _make_result(success, error_type=None, extractor='youtube', error_detail=Non
     return DownloadResult(status=status, media_request=media_request, ytdlp_data=ytdlp_data, file_name=None)
 
 
-def test_update_tracking_success_youtube_sets_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_success_youtube_sets_timestamp():
     """Success with youtube extractor adds success item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='youtube')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert queue.size == 0  # success removes one item (queue was empty, stays 0)
     assert client.wait_timestamp is not None
 
-def test_update_tracking_success_non_youtube_no_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_success_non_youtube_no_timestamp():
     """Success with non-youtube extractor adds success item but does NOT set timestamp."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='spotify')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert client.wait_timestamp is None
 
-def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_retryable_adds_failure_and_sets_timestamp():
     """RETRYABLE error adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='timeout')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert queue.size == 1
     assert client.wait_timestamp is not None
 
-def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_bot_flagged_adds_failure_and_sets_timestamp():
     """BOT_FLAGGED error adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.BOT_FLAGGED, error_detail='bot check')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert queue.size == 1
     assert client.wait_timestamp is not None
 
-def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_retry_limit_exceeded_adds_failure_and_sets_timestamp():
     """RETRY_LIMIT_EXCEEDED adds failure item and sets backoff timestamp."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRY_LIMIT_EXCEEDED, error_detail='too many')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert queue.size == 1
     assert client.wait_timestamp is not None
 
-def test_update_tracking_terminal_error_sets_timestamp_no_failure():
+@pytest.mark.asyncio
+async def test_update_tracking_terminal_error_sets_timestamp_no_failure():
     """Terminal errors (AGE_RESTRICTED etc.) set timestamp but do not add failure item."""
     queue = DownloadFailureQueue(max_size=10)
     client = make_download_client(failure_queue=queue, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.AGE_RESTRICTED)
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert queue.size == 0
     assert client.wait_timestamp is not None
 
-def test_update_tracking_no_failure_queue():
+@pytest.mark.asyncio
+async def test_update_tracking_no_failure_queue():
     """update_tracking works when failure_queue is None."""
     client = make_download_client(failure_queue=None, wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE)
 
-    client.update_tracking(result)  # Should not raise
+    await client.update_tracking(result)  # Should not raise
     assert client.wait_timestamp is not None
 
 
-def test_update_tracking_direct_retryable_does_not_set_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_direct_retryable_does_not_set_timestamp():
     """RETRYABLE error from a DIRECT source does not set a backoff timestamp."""
     client = make_download_client(wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.RETRYABLE, is_direct_search=True)
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert client.wait_timestamp is None
 
 
-def test_update_tracking_direct_bot_flagged_does_not_set_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_direct_bot_flagged_does_not_set_timestamp():
     """BOT_FLAGGED error from a DIRECT source does not set a backoff timestamp."""
     client = make_download_client(wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.BOT_FLAGGED, is_direct_search=True)
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert client.wait_timestamp is None
 
 
-def test_update_tracking_direct_terminal_error_does_not_set_timestamp():
+@pytest.mark.asyncio
+async def test_update_tracking_direct_terminal_error_does_not_set_timestamp():
     """Terminal errors from a DIRECT source do not set a backoff timestamp."""
     client = make_download_client(wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=False, error_type=DownloadErrorType.AGE_RESTRICTED, is_direct_search=True)
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     assert client.wait_timestamp is None
 
@@ -912,12 +922,13 @@ def test_backoff_seconds_remaining_none_when_no_timestamp():
     assert client.backoff_seconds_remaining is None
 
 
-def test_backoff_seconds_remaining_after_tracking():
+@pytest.mark.asyncio
+async def test_backoff_seconds_remaining_after_tracking():
     """backoff_seconds_remaining returns a non-negative int after update_tracking."""
     client = make_download_client(wait_period_minimum=30, wait_period_max_variance=10)
     result = _make_result(success=True, extractor='youtube')
 
-    client.update_tracking(result)
+    await client.update_tracking(result)
 
     remaining = client.backoff_seconds_remaining
     assert remaining is not None
@@ -989,72 +1000,79 @@ async def test_backoff_wait_returns_when_elapsed():
 
 # ========== Queue Interface Tests ==========
 
-def test_submit_and_queue_size():
+@pytest.mark.asyncio
+async def test_submit_and_queue_size():
     '''submit enqueues a request; queue_size reflects it'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
-    assert client.queue_size(mr.guild_id) == 0
-    client.submit(mr.guild_id, mr)
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 0
+    await client.submit(mr.guild_id, mr)
+    assert await client.queue_size(mr.guild_id) == 1
 
 
-def test_submit_captures_span_context():
+@pytest.mark.asyncio
+async def test_submit_captures_span_context():
     '''submit sets span_context on the media request (None when no active span)'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
     assert mr.span_context is None
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     # No active OTEL span in tests → capture_span_context returns None, which is fine
     assert mr.span_context is None
 
 
-def test_submit_does_not_overwrite_existing_span_context():
+@pytest.mark.asyncio
+async def test_submit_does_not_overwrite_existing_span_context():
     '''submit preserves an already-set span_context on the media request'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
     existing_ctx = {'trace_id': 1, 'span_id': 2, 'trace_flags': 1}
     mr.span_context = existing_ctx
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     assert mr.span_context == existing_ctx
 
 
-def test_submit_with_priority():
+@pytest.mark.asyncio
+async def test_submit_with_priority():
     '''submit with priority stores the request without error'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr, priority=10)
-    assert client.queue_size(mr.guild_id) == 1
+    await client.submit(mr.guild_id, mr, priority=10)
+    assert await client.queue_size(mr.guild_id) == 1
 
 
-def test_block_guild_prevents_submissions():
+@pytest.mark.asyncio
+async def test_block_guild_prevents_submissions():
     '''block_guild blocks further put_nowait calls for that guild'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
-    client.block_guild(mr.guild_id)
+    await client.submit(mr.guild_id, mr)
+    await client.block_guild(mr.guild_id)
     with pytest.raises(PutsBlocked):
-        client.submit(mr.guild_id, fake_source_dict(fake_context))
+        await client.submit(mr.guild_id, fake_source_dict(fake_context))
 
 
-def test_clear_guild_queue_returns_dropped():
+@pytest.mark.asyncio
+async def test_clear_guild_queue_returns_dropped():
     '''clear_guild_queue removes all requests and returns them'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr1 = fake_source_dict(fake_context)
     mr2 = fake_source_dict(fake_context)
-    client.submit(mr1.guild_id, mr1)
-    client.submit(mr1.guild_id, mr2)
-    dropped = client.clear_guild_queue(mr1.guild_id)
+    await client.submit(mr1.guild_id, mr1)
+    await client.submit(mr1.guild_id, mr2)
+    dropped = await client.clear_guild_queue(mr1.guild_id)
     assert len(dropped) == 2
-    assert client.queue_size(mr1.guild_id) == 0
+    assert await client.queue_size(mr1.guild_id) == 0
 
 
-def test_clear_guild_queue_with_predicate():
+@pytest.mark.asyncio
+async def test_clear_guild_queue_with_predicate():
     '''preserve_predicate keeps matching items in the queue'''
     fake_context = generate_fake_context()
     client = make_download_client()
@@ -1068,12 +1086,12 @@ def test_clear_guild_queue_with_predicate():
         search_result=SearchResult(search_type=SearchType.DIRECT, raw_search_string='https://x.com/v'),
         playlist_id=1,
     )
-    client.submit(mr.guild_id, mr)
-    client.submit(par.guild_id, par)
+    await client.submit(mr.guild_id, mr)
+    await client.submit(par.guild_id, par)
     # Preserve PlaylistAddRequests (download_file=False)
-    dropped = client.clear_guild_queue(mr.guild_id, preserve_predicate=lambda r: not r.download_file)
+    dropped = await client.clear_guild_queue(mr.guild_id, preserve_predicate=lambda r: not r.download_file)
     assert len(dropped) == 1
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 1
 
 
 def _reported_results(mock_broker):
@@ -1093,7 +1111,7 @@ async def test_run_success_reports_result_to_broker():
     with NamedTemporaryFile(delete=False) as tmp_file:
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr = fake_source_dict(fake_context)
-        client.submit(mr.guild_id, mr)
+        await client.submit(mr.guild_id, mr)
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
@@ -1116,7 +1134,7 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
     assert mr.download_retry_information.retry_count == 0
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
     # Retryable goes back to the input queue — nothing reported to the broker
@@ -1124,7 +1142,7 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     # retry_count incremented
     assert mr.download_retry_information.retry_count == 1
     # Input queue has the request again
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 1
     broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
     assert LifecycleEvent.RETRY in broker_events
 
@@ -1136,7 +1154,7 @@ async def test_run_terminal_error_reports_result_to_broker():
     mock_broker = AsyncMock()
     client = make_download_client(yield_dlp_error('Private video'), broker=mock_broker)
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
     results = _reported_results(mock_broker)
@@ -1161,7 +1179,7 @@ async def test_run_shutdown_during_backoff_does_not_lose_item():
     fake_context = generate_fake_context()
     client = make_download_client(yield_dlp_error('Private video'))
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     # Force an active backoff
     client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
     shutdown = asyncio.Event()
@@ -1169,7 +1187,7 @@ async def test_run_shutdown_during_backoff_does_not_lose_item():
     with pytest.raises(ExitEarlyException):
         await client.run(shutdown)
     # Item must still be in the input queue
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 1
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1180,57 +1198,61 @@ async def test_run_without_broker_still_works():
     fake_context = generate_fake_context()
     client = make_download_client(yield_dlp_error('Private video'))
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)  # must not raise despite broker=None
-    assert client.queue_size(mr.guild_id) == 0
+    assert await client.queue_size(mr.guild_id) == 0
 
 
 # ========== DIRECT item bypass tests ==========
 
-def test_clear_guild_queue_clears_direct_event_when_no_direct_remain():
+@pytest.mark.asyncio
+async def test_clear_guild_queue_clears_direct_event_when_no_direct_remain():
     '''Clearing all DIRECT items disarms _direct_available so backoff_wait is not spuriously interrupted'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context, is_direct_search=True)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     assert client.has_direct_pending
-    client.clear_guild_queue(mr.guild_id)
+    await client.clear_guild_queue(mr.guild_id)
     assert not client.has_direct_pending
 
 
-def test_clear_guild_queue_keeps_direct_event_when_other_guild_has_direct():
+@pytest.mark.asyncio
+async def test_clear_guild_queue_keeps_direct_event_when_other_guild_has_direct():
     '''_direct_available stays set if another guild still has DIRECT items after a clear'''
     fake_context_a = generate_fake_context()
     fake_context_b = generate_fake_context()
     client = make_download_client()
     mr_a = fake_source_dict(fake_context_a, is_direct_search=True)
     mr_b = fake_source_dict(fake_context_b, is_direct_search=True)
-    client.submit(mr_a.guild_id, mr_a)
-    client.submit(mr_b.guild_id, mr_b)
+    await client.submit(mr_a.guild_id, mr_a)
+    await client.submit(mr_b.guild_id, mr_b)
     # Clear only guild A's queue; guild B's DIRECT item still present
-    client.clear_guild_queue(mr_a.guild_id)
+    await client.clear_guild_queue(mr_a.guild_id)
     assert client.has_direct_pending
 
 
-def test_submit_direct_routes_to_direct_queue():
+@pytest.mark.asyncio
+async def test_submit_direct_routes_to_direct_queue():
     '''DIRECT items go to the direct queue; queue_size counts both queues'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr_search = fake_source_dict(fake_context)
     mr_direct = fake_source_dict(fake_context, is_direct_search=True)
-    client.submit(mr_search.guild_id, mr_search)
-    client.submit(mr_direct.guild_id, mr_direct)
-    assert client.queue_size(mr_search.guild_id) == 2
+    await client.submit(mr_search.guild_id, mr_search)
+    await client.submit(mr_direct.guild_id, mr_direct)
+    assert await client.queue_size(mr_search.guild_id) == 2
     assert client.has_direct_pending
 
 
-def test_submit_non_direct_does_not_set_direct_event():
+@pytest.mark.asyncio
+async def test_submit_non_direct_does_not_set_direct_event():
     '''Submitting a non-DIRECT item does not set the direct_available event'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     assert not client.has_direct_pending
 
 
@@ -1242,7 +1264,7 @@ async def test_backoff_wait_raises_direct_item_available():
     client = make_download_client(wait_period_minimum=60, wait_period_max_variance=10)
     client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 120
     mr = fake_source_dict(fake_context, is_direct_search=True)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     with pytest.raises(DirectItemAvailableException):
         await client.backoff_wait(shutdown)
 
@@ -1255,7 +1277,7 @@ async def test_run_direct_item_bypasses_active_backoff():
     with NamedTemporaryFile(delete=False) as tmp_file:
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr = fake_source_dict(fake_context, is_direct_search=True)
-        client.submit(mr.guild_id, mr)
+        await client.submit(mr.guild_id, mr)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
@@ -1280,7 +1302,7 @@ async def test_run_direct_item_interrupts_mid_wait():
         async def submit_after_delay():
             await asyncio.sleep(0.05)
             mr = fake_source_dict(fake_context, is_direct_search=True)
-            client.submit(mr.guild_id, mr)
+            await client.submit(mr.guild_id, mr)
 
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await asyncio.gather(client.run(shutdown), submit_after_delay())
@@ -1296,13 +1318,13 @@ async def test_run_non_direct_still_waits_backoff():
     fake_context = generate_fake_context()
     client = make_download_client(yield_dlp_error('Private video'))
     mr = fake_source_dict(fake_context)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
     shutdown = asyncio.Event()
     shutdown.set()
     with pytest.raises(ExitEarlyException):
         await client.run(shutdown)
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 1
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -1312,13 +1334,13 @@ async def test_run_direct_retryable_requeues_to_direct_queue():
     mock_broker = AsyncMock()
     client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
     mr = fake_source_dict(fake_context, is_direct_search=True)
-    client.submit(mr.guild_id, mr)
+    await client.submit(mr.guild_id, mr)
     shutdown = asyncio.Event()
     await client.run(shutdown)
     # Retryable goes back to the direct queue — nothing reported to the broker
     mock_broker.register_download_result.assert_not_awaited()
     # Item re-queued and direct event re-set
-    assert client.queue_size(mr.guild_id) == 1
+    assert await client.queue_size(mr.guild_id) == 1
     assert client.has_direct_pending
 
 
@@ -1331,7 +1353,7 @@ async def test_run_three_direct_items_all_processed_with_backoff():
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mrs = [fake_source_dict(fake_context, is_direct_search=True) for _ in range(3)]
         for mr in mrs:
-            client.submit(mr.guild_id, mr)
+            await client.submit(mr.guild_id, mr)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
@@ -1357,7 +1379,7 @@ async def test_run_three_direct_items_arriving_mid_backoff():
             for _ in range(3):
                 await asyncio.sleep(0.05)
                 mr = fake_source_dict(fake_context, is_direct_search=True)
-                client.submit(mr.guild_id, mr)
+                await client.submit(mr.guild_id, mr)
 
         async def run_until_three_results():
             with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
@@ -1370,36 +1392,39 @@ async def test_run_three_direct_items_arriving_mid_backoff():
     assert not client.has_direct_pending
 
 
-def test_get_input_nowait_returns_older_item_first():
+@pytest.mark.asyncio
+async def test_get_input_nowait_returns_older_item_first():
     '''get_input_nowait picks the item with the older submission timestamp across both queues'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr_search = fake_source_dict(fake_context)
     mr_direct = fake_source_dict(fake_context, is_direct_search=True)
     # Submit search first, then direct — search should come out first
-    client.submit(mr_search.guild_id, mr_search)
-    client.submit(mr_direct.guild_id, mr_direct)
-    first = client.get_input_nowait()
+    await client.submit(mr_search.guild_id, mr_search)
+    await client.submit(mr_direct.guild_id, mr_direct)
+    first = await client.get_input_nowait()
     assert first.uuid == mr_search.uuid
 
 
-def test_get_input_nowait_direct_first_when_older():
+@pytest.mark.asyncio
+async def test_get_input_nowait_direct_first_when_older():
     '''get_input_nowait picks DIRECT when it was submitted before the non-DIRECT item'''
     fake_context = generate_fake_context()
     client = make_download_client()
     mr_direct = fake_source_dict(fake_context, is_direct_search=True)
     mr_search = fake_source_dict(fake_context)
-    client.submit(mr_direct.guild_id, mr_direct)
-    client.submit(mr_search.guild_id, mr_search)
-    first = client.get_input_nowait()
+    await client.submit(mr_direct.guild_id, mr_direct)
+    await client.submit(mr_search.guild_id, mr_search)
+    first = await client.get_input_nowait()
     assert first.uuid == mr_direct.uuid
 
 
-def test_get_input_nowait_raises_when_both_empty():
+@pytest.mark.asyncio
+async def test_get_input_nowait_raises_when_both_empty():
     '''get_input_nowait raises QueueEmpty when both queues are empty'''
     client = make_download_client()
     with pytest.raises(QueueEmpty):
-        client.get_input_nowait()
+        await client.get_input_nowait()
 
 
 
@@ -1424,8 +1449,8 @@ async def test_run_no_backoff_preserves_submission_order():
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         mr_search = fake_source_dict(fake_context)
         mr_direct = fake_source_dict(fake_context, is_direct_search=True)
-        client.submit(mr_search.guild_id, mr_search)
-        client.submit(mr_direct.guild_id, mr_direct)
+        await client.submit(mr_search.guild_id, mr_search)
+        await client.submit(mr_direct.guild_id, mr_direct)
         shutdown = asyncio.Event()
         pcm_path = Path(tmp_file.name).with_suffix('.pcm')
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
