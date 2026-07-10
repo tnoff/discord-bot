@@ -249,7 +249,11 @@ async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fa
     cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
 
     with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as cached_download:
+        # The real broker.check_cache binds the cached download to the SAME
+        # media_request it was queried with (see _media_download_from_dict), so the
+        # COMPLETED push inside _enqueue_media_download_from_cache advances THIS
+        # request. Bind the same object here so the mock reflects that contract.
+        with fake_media_download(tmp_dir, media_request=media_request) as cached_download:
             mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=cached_download))
 
             mock_player = MagicMock()

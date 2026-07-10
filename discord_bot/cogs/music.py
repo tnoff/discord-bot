@@ -719,12 +719,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             # Check if cache item exists already
             if await self._enqueue_media_download_from_cache(media_request):
-                # Cache hit: mark the current request completed so the bundle finishes.
-                # The DIRECT/YOUTUBE path in enqueue_media_requests does this too; without
-                # it the SEARCH request stays in QUEUED forever and its bundle row never
-                # gets cleared, leaving the "Media request queued for download" message
-                # in the channel.
-                await self._push_state(media_request, LifecycleEvent.COMPLETED)
+                # Cache hit: _enqueue_media_download_from_cache already pushed COMPLETED
+                # on this same media_request (check_cache binds the cached download to
+                # this request object), which advances the bundle row toward teardown.
+                # A second COMPLETED here is redundant and trails an extra render behind
+                # the remove — the source of the stranded "Media request queued for
+                # download" status message — so it is intentionally omitted.
                 return True
 
             try:

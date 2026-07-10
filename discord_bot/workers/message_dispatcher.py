@@ -30,6 +30,25 @@ _DRAIN_TIMEOUT_SECONDS = 30
 # retrying, so a persistent failure does not hot-spin the loop.
 _WORKER_ERROR_BACKOFF_SECONDS = 1.0
 
+# Tombstone of recently-removed bundle keys. Under lock serialization a stale
+# mutable: work item can trail a remove: for the same key (confirmed in Tempo: a
+# process_mutable ran 154ms after remove_mutable completed on a cache hit). With
+# nothing in the store the mutable would RE-CREATE the just-removed bundle and
+# re-send its status message — now with no teardown behind it, so it strands
+# forever. A short-lived tombstone lets a trailing mutable detect the removal and
+# drop instead of re-creating.
+#
+# SCOPED to request_bundle-<uuid4> keys only: those are one-shot — a finished
+# bundle is never legitimately recreated. play_order-<guild_id> keys (the
+# now-playing message) ARE legitimately removed (empty-content update_mutable
+# routes to remove_mutable) and RE-CREATED on the next song, so tombstoning them
+# would suppress the now-playing message.
+_TOMBSTONE_KEY_PREFIX = 'request_bundle-'
+_TOMBSTONE_TTL_SECONDS = 300
+# Prune expired tombstones opportunistically once the dict grows past this, to
+# bound memory without a background sweeper.
+_TOMBSTONE_PRUNE_THRESHOLD = 4096
+
 # Work queue member prefixes — used when building and routing queue members.
 _MEMBER_MUTABLE = 'mutable:'
 _MEMBER_REMOVE = 'remove:'
@@ -256,6 +275,9 @@ class MessageDispatcher(DispatchClientBase):
 
         self._shutdown: asyncio.Event = asyncio.Event()
         self._worker_tasks: list[asyncio.Task] = []
+
+        # key -> monotonic expiry time (loop.time()); see _TOMBSTONE_KEY_PREFIX.
+        self._tombstones: dict[str, float] = {}
 
         # Heartbeat so the dispatcher process shows up in the App ControlPanel
         # aggregate ratio. Emitted from whichever process owns this dispatcher:
@@ -516,16 +538,29 @@ class MessageDispatcher(DispatchClientBase):
                                                   DispatchPriority.HIGH, overwrite=False)
             return
         try:
+            # Ordered vs _remove_mutable under the same per-key lock: if a remove
+            # tombstoned this key, a trailing (stale) mutable must NOT re-create the
+            # just-removed bundle and re-send an orphaned status message. Drop it.
+            if self._is_tombstoned(key):
+                self.logger.info(
+                    'MessageDispatcher :: dropping mutable for tombstoned (already-removed) '
+                    'key=%s — prevented orphan re-create', key,
+                )
+                return
             async with async_otel_span_wrapper('message_dispatcher.process_mutable',
                                                attributes={'key': key, 'discord.guild': payload.get('guild_id', 0)}):
                 bundle_dict = await self._bundle_store.load(key)
                 if bundle_dict is not None:
+                    self.logger.debug('MessageDispatcher :: updating existing bundle for key=%s', key)
                     bundle = MessageMutableBundle.from_dict(bundle_dict)
                 else:
                     channel_id = payload.get('channel_id')
                     if channel_id is None:
                         self.logger.info('MessageDispatcher :: cannot create bundle "%s" without channel_id', key)
                         return
+                    # Smoking gun for a re-create: a NEW bundle where a remove should
+                    # have already torn one down.
+                    self.logger.debug('MessageDispatcher :: creating NEW bundle for key=%s', key)
                     bundle = MessageMutableBundle(
                         guild_id=payload['guild_id'],
                         channel_id=channel_id,
@@ -601,11 +636,26 @@ class MessageDispatcher(DispatchClientBase):
         try:
             async with async_otel_span_wrapper('message_dispatcher.remove_mutable', attributes={'key': key}):
                 bundle_dict = await self._bundle_store.load(key)
+                found_bundle = bool(bundle_dict)
+                had_message_id = False
+                deleted_count = 0
                 if bundle_dict:
                     bundle = MessageMutableBundle.from_dict(bundle_dict)
+                    # Read counts before clear_all_messages empties message_contexts.
+                    had_message_id = any(ctx.message_id is not None for ctx in bundle.message_contexts)
                     delete_funcs = bundle.clear_all_messages(self.bot.get_partial_messageable)
+                    deleted_count = len(delete_funcs)
                     await self._execute_funcs(delete_funcs)
                 await self._delete_bundle_from_store(key)
+                # Tombstone UNCONDITIONALLY (even when the store held nothing): the
+                # orphan case is remove-finds-nothing then a trailing mutable creates,
+                # so the tombstone must be set regardless of whether a bundle existed.
+                self._tombstone(key)
+                self.logger.debug(
+                    'MessageDispatcher :: remove_mutable outcome key=%s found_bundle=%s '
+                    'had_message_id=%s deleted=%d tombstoned=%s',
+                    key, found_bundle, had_message_id, deleted_count, self._is_tombstoned(key),
+                )
         finally:
             await self._work_queue.release_lock(key)
 
@@ -745,6 +795,33 @@ class MessageDispatcher(DispatchClientBase):
     async def _execute_funcs(self, funcs: List[Callable]):
         for func in funcs:
             await async_retry_discord_message_command(func)
+
+    def _tombstone(self, key: str) -> None:
+        '''Record *key* as recently-removed so a trailing mutable can't re-create it.
+
+        Only request_bundle- keys are tombstoned (one-shot; never legitimately
+        recreated). Other keys (e.g. play_order-) are left alone so their normal
+        remove -> recreate lifecycle still works.
+        '''
+        if not key.startswith(_TOMBSTONE_KEY_PREFIX):
+            return
+        loop_time = asyncio.get_running_loop().time()
+        self._tombstones[key] = loop_time + _TOMBSTONE_TTL_SECONDS
+        # Opportunistically prune expired entries so the dict can't grow unbounded.
+        if len(self._tombstones) > _TOMBSTONE_PRUNE_THRESHOLD:
+            self._tombstones = {
+                k: expiry for k, expiry in self._tombstones.items() if expiry > loop_time
+            }
+
+    def _is_tombstoned(self, key: str) -> bool:
+        '''Return True if *key* was recently removed and its tombstone has not expired.'''
+        expiry = self._tombstones.get(key)
+        if expiry is None:
+            return False
+        if asyncio.get_running_loop().time() >= expiry:
+            del self._tombstones[key]
+            return False
+        return True
 
     async def _save_bundle_to_store(self, key: str, bundle: MessageMutableBundle) -> None:
         '''Persist *bundle* to the bundle store; logs and swallows any error.'''

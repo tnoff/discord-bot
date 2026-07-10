@@ -1405,3 +1405,192 @@ async def test_worker_loop_propagates_cancelled_error(mocker):
 
     with pytest.raises(asyncio.CancelledError):
         await dispatcher._worker_loop()  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# Tombstone: prevent a trailing mutable from re-creating a removed bundle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_remove_then_mutable_on_request_bundle_key_is_dropped(fake_context):  # pylint: disable=redefined-outer-name
+    '''After removing a request_bundle- bundle, a trailing mutable is dropped.
+
+    Regression for the stranded "Media request queued for download" status
+    message: on a cache hit the whole create->complete->remove lifecycle happens
+    in ~465ms, so a stale mutable: work item can trail the remove: for the same
+    key. Without the tombstone it re-creates the just-removed bundle and re-sends
+    the message with no teardown behind it.
+    '''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = 'request_bundle-abc123'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    # Establish the bundle (create + send), then remove it.
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['queued'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 1
+    await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+    assert len(channel.messages) == 0
+    assert dispatcher._is_tombstoned(key)  # pylint: disable=protected-access
+
+    # A stale mutable trailing the remove must be dropped: no message, no bundle.
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['queued'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 0
+    assert await dispatcher._bundle_store.load(key) is None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_remove_tombstones_even_when_store_empty(fake_context):  # pylint: disable=redefined-outer-name
+    '''_remove_mutable sets the tombstone even when it finds nothing in the store.
+
+    The orphan case is remove-finds-nothing (the create had not persisted yet)
+    then a trailing mutable creates, so the tombstone must be set regardless of
+    whether a bundle existed.
+    '''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = 'request_bundle-empty'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    # Remove a key that was never in the store.
+    await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+    assert dispatcher._is_tombstoned(key)  # pylint: disable=protected-access
+
+    # A trailing mutable is still dropped.
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['queued'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 0
+
+
+@pytest.mark.asyncio
+async def test_tombstone_does_not_apply_to_play_order_key(fake_context):  # pylint: disable=redefined-outer-name
+    '''play_order- keys are NOT tombstoned: a mutable after a remove still creates/sends.
+
+    The now-playing message is legitimately removed (empty-content update_mutable)
+    and re-created on the next song; tombstoning it would suppress it.
+    '''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'play_order-{guild_id}'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['now playing v1'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 1
+    await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+    assert len(channel.messages) == 0
+    assert not dispatcher._is_tombstoned(key)  # pylint: disable=protected-access
+
+    # Next song re-creates and re-sends — must NOT be dropped.
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['now playing v2'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 1
+    assert channel.messages[0].content == 'now playing v2'
+
+
+@pytest.mark.asyncio
+async def test_expired_tombstone_no_longer_blocks(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    '''An expired tombstone no longer blocks a mutable (and is pruned on read).'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = 'request_bundle-expired'
+    dispatcher = make_dispatcher(channels=[channel])
+    mocker.patch(
+        'discord_bot.workers.message_dispatcher._TOMBSTONE_TTL_SECONDS', 0.0,
+    )
+
+    await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+    # TTL of 0 → already expired: _is_tombstoned returns False and drops the entry.
+    assert not dispatcher._is_tombstoned(key)  # pylint: disable=protected-access
+    assert key not in dispatcher._tombstones  # pylint: disable=protected-access
+
+    # A later mutable is allowed to create/send again.
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['reborn'], 'channel_id': channel.id, 'sticky': False,
+    })
+    assert len(channel.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_tombstone_prunes_expired_entries_when_over_threshold(mocker):
+    '''_tombstone prunes expired entries once the dict grows past the threshold.'''
+    dispatcher = make_dispatcher()
+    mocker.patch(
+        'discord_bot.workers.message_dispatcher._TOMBSTONE_PRUNE_THRESHOLD', 2,
+    )
+    loop_time = asyncio.get_running_loop().time()
+    # Seed two already-expired entries so the dict is at the threshold.
+    dispatcher._tombstones['request_bundle-old1'] = loop_time - 10  # pylint: disable=protected-access
+    dispatcher._tombstones['request_bundle-old2'] = loop_time - 10  # pylint: disable=protected-access
+
+    # Adding a live entry pushes past the threshold and triggers the prune.
+    dispatcher._tombstone('request_bundle-new')  # pylint: disable=protected-access
+
+    assert 'request_bundle-old1' not in dispatcher._tombstones  # pylint: disable=protected-access
+    assert 'request_bundle-old2' not in dispatcher._tombstones  # pylint: disable=protected-access
+    assert 'request_bundle-new' in dispatcher._tombstones  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_dropping_tombstoned_mutable_logs_info(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''Dropping a mutable due to a tombstone logs at INFO (alertable in Loki).'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = 'request_bundle-log'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+
+    with caplog.at_level('INFO', logger='discord_bot.cogs.messagedispatcher'):
+        await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+            'key': key, 'guild_id': guild_id, 'content': ['queued'], 'channel_id': channel.id, 'sticky': False,
+        })
+    assert any('tombstoned' in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_process_mutable_logs_create_vs_update(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''_process_mutable logs "creating NEW" then "updating existing" at DEBUG.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'play_order-{guild_id}'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    with caplog.at_level('DEBUG', logger='discord_bot.cogs.messagedispatcher'):
+        await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+            'key': key, 'guild_id': guild_id, 'content': ['v1'], 'channel_id': channel.id, 'sticky': False,
+        })
+        await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+            'key': key, 'guild_id': guild_id, 'content': ['v2'], 'channel_id': channel.id, 'sticky': False,
+        })
+    messages = [r.getMessage() for r in caplog.records]
+    assert any('creating NEW bundle' in m for m in messages)
+    assert any('updating existing bundle' in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_remove_mutable_logs_outcome(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''_remove_mutable logs found_bundle / had_message_id / deleted / tombstoned at DEBUG.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = 'request_bundle-outcome'
+    dispatcher = make_dispatcher(channels=[channel])
+
+    await dispatcher._process_mutable(key, {  # pylint: disable=protected-access
+        'key': key, 'guild_id': guild_id, 'content': ['queued'], 'channel_id': channel.id, 'sticky': False,
+    })
+
+    with caplog.at_level('DEBUG', logger='discord_bot.cogs.messagedispatcher'):
+        await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
+    outcome = [r.getMessage() for r in caplog.records if 'remove_mutable outcome' in r.getMessage()]
+    assert outcome
+    assert 'found_bundle=True' in outcome[0]
+    assert 'had_message_id=True' in outcome[0]
+    assert 'tombstoned=True' in outcome[0]
