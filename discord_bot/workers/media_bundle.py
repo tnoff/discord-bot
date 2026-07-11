@@ -17,7 +17,7 @@ in Redis, so we split the class into two halves:
 The on-the-wire shape is BundleState; the renderer is purely process-local.
 '''
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from uuid import uuid4
 
 from dappertable import DapperTable, PaginationLength, shorten_string
@@ -49,7 +49,11 @@ class BundledRequestState(BaseModel):
     row_collection_index: Optional[int] = None
     row_index_in_collection: Optional[int] = None
     failure_reason_sent: bool = False
-    retry_reason_sent: bool = False
+    # True while a per-request retry summary message is live in Discord. The
+    # message is mutable (keyed request_retry-{bundle}-{uuid}), so it is edited
+    # in place across retries and torn down once the request reaches a terminal
+    # stage — deleting the "Retrying …" note the moment a later attempt succeeds.
+    retry_message_outstanding: bool = False
     stored_status: MediaRequestLifecycleStage = MediaRequestLifecycleStage.SEARCHING
 
 
@@ -459,8 +463,15 @@ class BundleRenderer:
 
     def get_retry_summary(
         self, download_max_retries: int, search_max_retries: int
-    ) -> Optional[List[str]]:
-        '''Return a list of per-retry messages for unsent retries, or None.'''
+    ) -> Optional[List[Tuple[str, str]]]:
+        '''Return ``(request_uuid, message)`` pairs for unsent retries, or None.
+
+        Each pair is dispatched as a per-request mutable message so that a later
+        successful attempt (or terminal failure) can delete it — see
+        ``get_retry_cleanups``. The message reports the real attempt number
+        (``attempt N/M``); it deliberately makes no promise about *when* the
+        retry runs, since the request simply goes back on the queue.
+        '''
         retry_stages = {
             MediaRequestLifecycleStage.RETRY_DOWNLOAD,
             MediaRequestLifecycleStage.RETRY_SEARCH,
@@ -474,7 +485,7 @@ class BundleRenderer:
         if not retries:
             return None
 
-        messages: List[str] = []
+        messages: List[Tuple[str, str]] = []
         for req in retries:
             info = req.media_request.active_retry_information
             max_r = (
@@ -482,23 +493,35 @@ class BundleRenderer:
                 if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
                 else search_max_retries
             )
-            backoff_str = ''
-            if info.retry_backoff_seconds:
-                if info.retry_backoff_seconds >= 60:
-                    minutes = info.retry_backoff_seconds // 60
-                    backoff_str = (
-                        f', retrying in ~{minutes} minute'
-                        f'{"s" if minutes != 1 else ""}'
-                    )
-                else:
-                    backoff_str = f', retrying in ~{info.retry_backoff_seconds} seconds'
             prefix = (
                 f'Retrying "{req.media_request.display_name}" '
-                f'(attempt {info.retry_count}/{max_r}{backoff_str}):\n```\n'
+                f'(attempt {info.retry_count}/{max_r}):\n```\n'
             )
             suffix = '\n```'
             available = DISCORD_MAX_MESSAGE_LENGTH - len(prefix) - len(suffix)
             truncated = shorten_string(info.retry_reason, available)
-            messages.append(f'{prefix}{truncated}{suffix}')
+            messages.append((str(req.media_request.uuid), f'{prefix}{truncated}{suffix}'))
             info.retry_reason_sent = True
+            req.retry_message_outstanding = True
         return messages
+
+    def get_retry_cleanups(self) -> List[str]:
+        '''Return uuids of requests whose retry message should now be removed.
+
+        A retry message is torn down once its request leaves the retry stages
+        for good — either it finally downloaded (COMPLETED) or gave up
+        (FAILED/DISCARDED). The outstanding flag is cleared so we only emit the
+        removal once.
+        '''
+        terminal_stages = {
+            MediaRequestLifecycleStage.COMPLETED,
+            MediaRequestLifecycleStage.FAILED,
+            MediaRequestLifecycleStage.DISCARDED,
+        }
+        cleanups: List[str] = []
+        for req in self.state.bundled_requests:
+            if (req.retry_message_outstanding
+                    and req.media_request.lifecycle_stage in terminal_stages):
+                cleanups.append(str(req.media_request.uuid))
+                req.retry_message_outstanding = False
+        return cleanups

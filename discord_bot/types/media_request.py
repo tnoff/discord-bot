@@ -145,16 +145,35 @@ class MediaRequestStateMachine:
         '''Transition to BACKOFF'''
         self._transition(MediaRequestLifecycleStage.BACKOFF)
 
-    def mark_retry_download(self, reason: str, backoff_seconds: int | None = None):
-        '''Transition to RETRY_DOWNLOAD and record retry details'''
-        self._request.download_retry_information.retry_reason = reason
-        self._request.download_retry_information.retry_backoff_seconds = backoff_seconds
+    def mark_retry_download(self, reason: str, backoff_seconds: int | None = None,
+                            retry_count: int | None = None):
+        '''Transition to RETRY_DOWNLOAD and record retry details.
+
+        retry_count is the worker's authoritative attempt number; when provided
+        it is stored so the "attempt N/M" summary renders the real count instead
+        of this copy's stale zero. retry_reason_sent is reset so a later retry
+        re-renders the message with the bumped count.
+        '''
+        info = self._request.download_retry_information
+        info.retry_reason = reason
+        info.retry_backoff_seconds = backoff_seconds
+        if retry_count is not None:
+            info.retry_count = retry_count
+        info.retry_reason_sent = False
         self._transition(MediaRequestLifecycleStage.RETRY_DOWNLOAD)
 
-    def mark_retry_search(self, reason: str, backoff_seconds: int | None = None):
-        '''Transition to RETRY_SEARCH and record retry details'''
-        self._request.youtube_music_retry_information.retry_reason = reason
-        self._request.youtube_music_retry_information.retry_backoff_seconds = backoff_seconds
+    def mark_retry_search(self, reason: str, backoff_seconds: int | None = None,
+                          retry_count: int | None = None):
+        '''Transition to RETRY_SEARCH and record retry details.
+
+        See mark_retry_download for retry_count / retry_reason_sent semantics.
+        '''
+        info = self._request.youtube_music_retry_information
+        info.retry_reason = reason
+        info.retry_backoff_seconds = backoff_seconds
+        if retry_count is not None:
+            info.retry_count = retry_count
+        info.retry_reason_sent = False
         self._transition(MediaRequestLifecycleStage.RETRY_SEARCH)
 
     def mark_failed(self, reason: str | None = None):

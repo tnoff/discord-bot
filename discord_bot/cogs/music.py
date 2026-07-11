@@ -730,7 +730,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 else:
                     self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     await self._push_state(media_request, LifecycleEvent.RETRY_SEARCH,
-                                           error_detail=str(e), backoff_seconds=backoff_seconds)
+                                           error_detail=str(e), backoff_seconds=backoff_seconds,
+                                           retry_count=media_request.youtube_music_retry_information.retry_count)
                 span.set_status(StatusCode.ERROR)
                 return False
             if youtube_music_result:

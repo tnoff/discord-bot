@@ -407,15 +407,25 @@ class MediaBrokerBase(ABC):
                     renderer.state.guild_id, renderer.state.channel_id, msg,
                     delete_after=self.message_delete_after,
                 )
+        # Retry notes are per-request *mutable* messages (not one-shot sends) so
+        # they can be edited across attempts and, crucially, deleted the moment
+        # the request stops retrying. No delete_after — that would make the
+        # dispatcher drop its mutable tracking and orphan the message.
         retries = renderer.get_retry_summary(
             self.download_max_retries, self.search_max_retries,
         )
         if retries:
-            for msg in retries:
-                self.dispatcher.send_message(
-                    renderer.state.guild_id, renderer.state.channel_id, msg,
-                    delete_after=self.message_delete_after,
+            for req_uuid, msg in retries:
+                self.dispatcher.update_mutable(
+                    f'request_retry-{bundle_uuid}-{req_uuid}',
+                    renderer.state.guild_id, msg, renderer.state.channel_id,
+                    sticky=False,
                 )
+        # Tear down the retry note once its request reaches a terminal stage:
+        # deletes "Retrying …" as soon as a later attempt succeeds (or the
+        # request finally fails, where the failure summary takes over).
+        for req_uuid in renderer.get_retry_cleanups():
+            self.dispatcher.remove_mutable(f'request_retry-{bundle_uuid}-{req_uuid}')
         # Resave to preserve sent flags after summary emission.
         await self._save_bundle(renderer.state)
         # Single-track bundles render to '' once their request reaches a
@@ -479,7 +489,15 @@ class MediaBrokerBase(ABC):
     async def delete_bundle(self, bundle_uuid: str) -> None:
         '''Tear down a bundle: tell the dispatcher to drop its Discord messages
         and wipe the broker's stored state.'''
-        if self.dispatcher is not None:
-            self.dispatcher.remove_mutable(f'request_bundle-{bundle_uuid}')
         async with self._bundle_lock(bundle_uuid):
+            state = await self._load_bundle(bundle_uuid)
+            if self.dispatcher is not None:
+                self.dispatcher.remove_mutable(f'request_bundle-{bundle_uuid}')
+                # Drop any still-live per-request retry notes so they don't
+                # outlive the bundle when it's torn down mid-retry.
+                if state is not None:
+                    for req in state.bundled_requests:
+                        if req.retry_message_outstanding:
+                            self.dispatcher.remove_mutable(
+                                f'request_retry-{bundle_uuid}-{req.media_request.uuid}')
             await self._drop_bundle(bundle_uuid)

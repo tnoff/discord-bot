@@ -129,11 +129,11 @@ class RedisBroker(MediaBrokerBase):
             media_request.state_machine.mark_in_progress()
         elif update.event == LifecycleEvent.RETRY:
             media_request.state_machine.mark_retry_download(
-                update.error_detail, update.backoff_seconds
+                update.error_detail, update.backoff_seconds, update.retry_count
             )
         elif update.event == LifecycleEvent.RETRY_SEARCH:
             media_request.state_machine.mark_retry_search(
-                update.error_detail, update.backoff_seconds
+                update.error_detail, update.backoff_seconds, update.retry_count
             )
         elif update.event == LifecycleEvent.DISCARDED:
             media_request.state_machine.mark_discarded()

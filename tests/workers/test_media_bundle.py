@@ -231,10 +231,37 @@ def test_get_retry_summary_includes_attempt_count(fake_context):  # pylint: disa
     mr.state_machine.mark_retry_download('http 500', backoff_seconds=15)
     messages = renderer.get_retry_summary(download_max_retries=3, search_max_retries=3)
     assert messages is not None
-    assert any('attempt 2/3' in m for m in messages)
-    assert any('http 500' in m for m in messages)
+    # Each entry is (request_uuid, message_content).
+    assert any(uuid == str(mr.uuid) and 'attempt 2/3' in content
+               for uuid, content in messages)
+    assert any('http 500' in content for _uuid, content in messages)
+    # No timing promise is made — the request just goes back on the queue.
+    assert all('retrying in' not in content for _uuid, content in messages)
     # Second call returns None because retry_reason_sent is set.
     assert renderer.get_retry_summary(3, 3) is None
+
+
+def test_get_retry_cleanups_fires_once_on_terminal(fake_context):  # pylint: disable=redefined-outer-name
+    '''A request with a live retry note is cleaned up once it reaches a terminal
+    stage; still-retrying requests are left alone and cleanup is not repeated.'''
+    renderer = BundleRenderer.new(
+        fake_context['guild'].id, fake_context['channel'].id,
+    )
+    mr = fake_source_dict(fake_context)
+    mr.state_machine.mark_queued()
+    renderer.add_media_request(mr)
+    renderer.all_requests_added()
+
+    mr.state_machine.mark_retry_download('http 500', retry_count=1)
+    messages = renderer.get_retry_summary(download_max_retries=3, search_max_retries=3)
+    assert messages is not None
+    # Still retrying → nothing to clean up yet.
+    assert not renderer.get_retry_cleanups()
+
+    mr.state_machine.mark_completed()
+    assert renderer.get_retry_cleanups() == [str(mr.uuid)]
+    # Idempotent: the outstanding flag was cleared, so it won't fire again.
+    assert not renderer.get_retry_cleanups()
 
 
 # ---------------------------------------------------------------------------
@@ -485,9 +512,9 @@ def test_finished_true_when_enqueued_with_no_requests(fake_context):  # pylint: 
     assert renderer.finished is True
 
 
-def test_retry_summary_search_retry_uses_minute_backoff(fake_context):  # pylint: disable=redefined-outer-name
+def test_retry_summary_search_retry_uses_search_max(fake_context):  # pylint: disable=redefined-outer-name
     '''RETRY_SEARCH pulls youtube_music_retry_information + search_max_retries,
-    and a backoff >= 60s renders as minutes.'''
+    and makes no timing promise regardless of the backoff.'''
     renderer = BundleRenderer.new(fake_context['guild'].id, fake_context['channel'].id)
     mr = fake_source_dict(fake_context)
     mr.state_machine.mark_queued()
@@ -499,9 +526,9 @@ def test_retry_summary_search_retry_uses_minute_backoff(fake_context):  # pylint
     messages = renderer.get_retry_summary(download_max_retries=3, search_max_retries=5)
 
     assert messages is not None
-    assert any('attempt 1/5' in m for m in messages)
-    assert any('retrying in ~2 minutes' in m for m in messages)
-    assert any('throttled' in m for m in messages)
+    assert any('attempt 1/5' in content for _uuid, content in messages)
+    assert all('retrying in' not in content for _uuid, content in messages)
+    assert any('throttled' in content for _uuid, content in messages)
 
 
 def test_rebuild_single_track_not_enqueued_keeps_search_placeholder(fake_context):  # pylint: disable=redefined-outer-name

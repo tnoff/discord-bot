@@ -321,7 +321,8 @@ async def test_failed_request_emits_failure_summary(fake_context):  # pylint: di
 
 @pytest.mark.asyncio
 async def test_retrying_request_emits_retry_summary(fake_context):  # pylint: disable=redefined-outer-name
-    '''A RETRY_DOWNLOAD request with a reason triggers a retry-summary message.'''
+    '''A RETRY_DOWNLOAD request emits a per-request mutable retry note keyed by
+    uuid, carrying the real attempt count and no timing promise.'''
     dispatcher = _make_dispatcher()
     broker = _StorageBroker(dispatcher=dispatcher)
     bundle_uuid = await broker.create_bundle(
@@ -331,10 +332,66 @@ async def test_retrying_request_emits_retry_summary(fake_context):  # pylint: di
     media_request = await _add_queued_request(broker, fake_context, bundle_uuid)
     await broker.finalize_bundle(bundle_uuid)
     dispatcher.reset_mock()
-    media_request.state_machine.mark_retry_download('rate limited', backoff_seconds=120)
+    media_request.download_retry_information.retry_count = 1
+    media_request.state_machine.mark_retry_download(
+        'rate limited', backoff_seconds=120, retry_count=1)
     await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
-    sent = ' '.join(str(c.args[2]) for c in dispatcher.send_message.call_args_list)
-    assert 'Retrying' in sent
+    retry_key = f'request_retry-{bundle_uuid}-{media_request.uuid}'
+    retry_calls = [c for c in dispatcher.update_mutable.call_args_list
+                   if c.args[0] == retry_key]
+    assert len(retry_calls) == 1
+    content = retry_calls[0].args[2]
+    assert 'Retrying' in content
+    assert 'attempt 1/' in content
+    assert 'retrying in' not in content
+    # No delete_after — the note is torn down explicitly, not auto-expired.
+    assert retry_calls[0].kwargs.get('delete_after') is None
+    # It is not removed while still retrying.
+    assert all(c.args[0] != retry_key
+               for c in dispatcher.remove_mutable.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_retry_note_removed_when_request_completes(fake_context):  # pylint: disable=redefined-outer-name
+    '''Once a retried request downloads, its retry note is deleted so the
+    "Retrying …" message doesn't linger after a later attempt succeeds.'''
+    dispatcher = _make_dispatcher()
+    broker = _StorageBroker(dispatcher=dispatcher)
+    bundle_uuid = await broker.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='multi', has_search_banner=True,
+    )
+    media_request = await _add_queued_request(broker, fake_context, bundle_uuid)
+    await broker.finalize_bundle(bundle_uuid)
+    media_request.state_machine.mark_retry_download(
+        'rate limited', retry_count=1)
+    await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
+    dispatcher.reset_mock()
+
+    retry_key = f'request_retry-{bundle_uuid}-{media_request.uuid}'
+    media_request.state_machine.mark_completed()
+    await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
+    dispatcher.remove_mutable.assert_any_call(retry_key)
+
+
+@pytest.mark.asyncio
+async def test_delete_bundle_removes_outstanding_retry_notes(fake_context):  # pylint: disable=redefined-outer-name
+    '''Tearing down a bundle mid-retry drops the still-live retry note too.'''
+    dispatcher = _make_dispatcher()
+    broker = _StorageBroker(dispatcher=dispatcher)
+    bundle_uuid = await broker.create_bundle(
+        fake_context['guild'].id, fake_context['channel'].id,
+        input_string='multi', has_search_banner=True,
+    )
+    media_request = await _add_queued_request(broker, fake_context, bundle_uuid)
+    await broker.finalize_bundle(bundle_uuid)
+    media_request.state_machine.mark_retry_download('rate limited', retry_count=1)
+    await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
+    dispatcher.reset_mock()
+
+    await broker.delete_bundle(bundle_uuid)
+    retry_key = f'request_retry-{bundle_uuid}-{media_request.uuid}'
+    dispatcher.remove_mutable.assert_any_call(retry_key)
 
 
 @pytest.mark.asyncio

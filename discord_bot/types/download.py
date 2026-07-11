@@ -34,6 +34,11 @@ class LifecycleStatusUpdate(BaseModel):
     error_detail: str | None = None
     backoff_seconds: int | None = None
     failure_reason: str | None = None
+    # Authoritative attempt number for RETRY / RETRY_SEARCH events. The worker
+    # increments its own copy of the request; the broker's display copy never
+    # sees that bump, so it is carried here and stored on the request for the
+    # "attempt N/M" retry summary to render.
+    retry_count: int | None = None
 
 
 class DownloadErrorType(str, Enum):
