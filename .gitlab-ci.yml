@@ -1,36 +1,39 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/branch-cleanup.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
+    file: '/gitlab/assemble-changelog.yml'
+  - project: 'tnoff-projects/github-workflows'
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: cfe4637ce67d24b088e57e2f26db6ed9cc047f5b
+    ref: 54fe29a3aad737c40f2b89ae2f25d7f48edeb127
     file: '/gitlab/tox-pipeline.yml'
 
 default:
@@ -69,8 +72,31 @@ bump-version:
   extends: .bump-version
   variables:
     GITLAB_PUSH_TOKEN: $RENOVATE_TOKEN
+    # Writes a per-MR changelog.d/<slug>.md fragment (conflict-free); folded at
+    # release by assemble-changelog.
+    BUMP_CHANGELOG: 'true'
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^renovate\/dev-/
+
+# Heavy-repo guard: the assemble fold pushes a "docs: assemble changelog for X"
+# commit -> follow-up pipeline. Exclude that commit from the image-push +
+# trigger-bump jobs so the follow-up only re-tags (a byte-identical rebuild would
+# skip the tag write and trigger-bump would pin a non-existent tag -> phantom pin).
+.not-on-changelog-fold:
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /^docs: assemble changelog/'
+      when: never
+
+# Folds accumulated changelog.d/*.md fragments into CHANGELOG.md on the default
+# branch at release, deletes them, pushes back (idempotent). GATE_ON_FRAGMENTS on
+# push:tag defers tagging to the drained follow-up pipeline.
+"assemble-changelog":
+  extends: .assemble-changelog
+  stage: .pre
+  variables:
+    GITLAB_PUSH_TOKEN: $RENOVATE_TOKEN
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
 
 "pr-check:secrets":
   extends: .trufflehog
@@ -154,6 +180,8 @@ bump-version:
 "push:tag":
   extends: .tag
   stage: push
+  variables:
+    GATE_ON_FRAGMENTS: 'true'
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
@@ -163,6 +191,10 @@ bump-version:
   stage: push
   variables:
     DOCKERFILE_DIR: docker
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 # Producer side of the docker-apps image-pin bump flow. One trigger job
 # per pushed image that has a consumer pin in docker-apps — each fires a
@@ -177,6 +209,10 @@ trigger-bump-docker-apps:
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-bot'
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 # OCI_REPO_NAME_64 is set per-image via shell-export in before_script rather
 # than the YAML-level `OCI_REPO_NAME_64: $OCI_DISPATCHER_REPO_NAME_64` form,
@@ -195,6 +231,10 @@ trigger-bump-docker-apps:
   before_script:
     - export OCI_REPO_NAME_64="$OCI_DISPATCHER_REPO_NAME_64"
     - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 # Publishes discord_broker:<sha> on the default branch (OCIR repo + push perms
 # provisioned in terraform/oci). No trigger-bump yet — docker-apps doesn't
@@ -208,6 +248,10 @@ trigger-bump-docker-apps:
   before_script:
     - export OCI_REPO_NAME_64="$OCI_BROKER_REPO_NAME_64"
     - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 trigger-bump-docker-apps-dispatcher:
   extends: .trigger-bump
@@ -217,6 +261,10 @@ trigger-bump-docker-apps-dispatcher:
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-dispatcher'
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 # docker-apps now consumes the discord_broker pin (broker-app.yaml, deployed),
 # so publish-then-bump it like bot/dispatcher. BUMP_SOURCE=discord-broker drives
@@ -229,6 +277,10 @@ trigger-bump-docker-apps-broker:
       artifacts: true
   variables:
     BUMP_SOURCE: 'discord-broker'
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
 
 "notify:mr-opened":
   extends: .discord-notify
@@ -247,7 +299,20 @@ trigger-bump-docker-apps-broker:
 "notify:push-failure":
   extends: .discord-notify
   stage: notify
-  needs: ["push:tag", "push:image-bot", "push:image-dispatcher", "push:image-broker", trigger-bump-docker-apps, trigger-bump-docker-apps-dispatcher, trigger-bump-docker-apps-broker]
+  needs:
+    - "push:tag"
+    - job: "push:image-bot"
+      optional: true
+    - job: "push:image-dispatcher"
+      optional: true
+    - job: "push:image-broker"
+      optional: true
+    - job: trigger-bump-docker-apps
+      optional: true
+    - job: trigger-bump-docker-apps-dispatcher
+      optional: true
+    - job: trigger-bump-docker-apps-broker
+      optional: true
   variables:
     NOTIFY_TYPE: failure
     DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
@@ -275,6 +340,7 @@ trigger-bump-docker-apps-broker:
     NOTIFY_TYPE: mr_merged
     DISCORD_WEBHOOK_URL: $DISCORD_MR_MERGED_WEBHOOK
   rules:
+    - !reference [.not-on-changelog-fold, rules]
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: always
 
