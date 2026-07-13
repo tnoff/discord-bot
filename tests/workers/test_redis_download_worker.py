@@ -520,3 +520,33 @@ async def test_pop_lock_falls_through_on_contention(monkeypatch):
     w._manager.client.set = AsyncMock(return_value=None)
     async with w._pop_lock(direct=True):
         pass  # no exception == fell through cleanly
+
+
+# --------------------------------------------------------------------------- #
+# status_snapshot (download HTTP server's /downloads/status source)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_status_snapshot_reports_per_guild_sizes_and_defaults():
+    w = _worker()
+    await w.submit(7, _mk(guild_id=7, direct=False))
+    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(8, _mk(guild_id=8, direct=False))
+    snapshot = await w.status_snapshot()
+    # Guild 7 has one youtube + one direct item; guild 8 has one youtube item.
+    assert snapshot['queue_sizes'] == {'7': 2, '8': 1}
+    assert snapshot['failure_summary'] == '0 failures in queue'
+    # Startup floor disabled in _worker() and no backoff claimed -> None.
+    assert snapshot['backoff_seconds_remaining'] is None
+
+
+@pytest.mark.asyncio
+async def test_status_snapshot_reports_backoff_and_failures():
+    w = _worker()
+    # A YouTube failure extends the shared wait window and grows the failure ZSET.
+    await w.update_tracking(_result(_mk(direct=False), success=False,
+                                    error_type=DownloadErrorType.RETRYABLE))
+    snapshot = await w.status_snapshot()
+    assert snapshot['backoff_seconds_remaining'] is not None
+    assert snapshot['backoff_seconds_remaining'] > 0
+    assert snapshot['failure_summary'] == '1 failures in queue'

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
-from opentelemetry.metrics import Observation
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
@@ -106,12 +105,7 @@ class BrokerHttpServer(AiohttpServerBase):
     def heartbeat_observations(self, _options=None):
         '''OTEL observable-gauge callback: 1 while the HTTP server is up and
         accepting requests, else 0. Public so it can be exercised directly.'''
-        value = 1 if self.is_serving else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'broker',
-            })
-        ]
+        return self._serving_heartbeat_observations('broker')
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''

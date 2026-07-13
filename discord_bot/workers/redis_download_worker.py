@@ -470,3 +470,27 @@ class RedisDownloadWorker(DownloadWorkerBase):
         await self._refresh_failure_summary()
         await self._effective_backoff_remaining()
         return self.backoff_seconds_remaining
+
+    async def status_snapshot(self) -> dict:
+        '''
+        Live status for the download HTTP server's GET /downloads/status endpoint.
+
+        Refreshes the shared failure summary + YouTube backoff window from Redis,
+        then collects each active guild's pending count across both round-robin
+        pools.  Bounded by the number of guilds with queued work, not by total
+        request count.  The download server (running in the worker pod) serves this
+        to the bot pod's HttpDownloadClient poller, which can't read Redis itself.
+        '''
+        await self._refresh_failure_summary()
+        backoff = await self._effective_backoff_remaining()
+        client = self._manager.client
+        queue_sizes: dict[str, int] = {}
+        for direct in (False, True):
+            guild_ids = await client.zrange(self._guilds_zset_key(direct=direct), 0, -1)
+            for guild_id in guild_ids:
+                queue_sizes[str(guild_id)] = await self.queue_size(int(guild_id))
+        return {
+            'failure_summary': self._failure_summary_cache,
+            'backoff_seconds_remaining': backoff or None,
+            'queue_sizes': queue_sizes,
+        }

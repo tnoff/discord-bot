@@ -3,7 +3,10 @@ import asyncio
 import logging
 
 from aiohttp import web
+from opentelemetry.metrics import Observation
 from opentelemetry.propagate import extract
+
+from discord_bot.utils.otel import AttributeNaming
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,14 @@ class AiohttpServerBase:
         '''True while the TCP site is up and accepting requests (False before
         serve() starts, once draining begins, and after the site is torn down).'''
         return self._serving
+
+    def _serving_heartbeat_observations(self, job_name: str):
+        '''Shared OTEL observable-gauge body: 1 while the TCP site is up and
+        accepting requests, else 0, tagged with the given background-job label.
+        Subclasses register a zero-arg callback that delegates here so the broker
+        and downloader heartbeat gauges don't duplicate the body (R0801).'''
+        value = 1 if self.is_serving else 0
+        return [Observation(value, attributes={AttributeNaming.BACKGROUND_JOB.value: job_name})]
 
     def start_draining(self) -> None:
         '''Begin refusing new requests without waiting for in-flight ones to finish.
