@@ -33,7 +33,7 @@ dependencies = [
 
 [project.optional-dependencies]
 bot = [
-    "dappertable @ git+https://github.com/tnoff/dappertable.git@v1.0.0",
+    "dappertable @ https://gitlab.com/tnoff-projects/dappertable/-/archive/v1.0.0/dappertable-v1.0.0.tar.gz",
     "alembic==1.18.5",
     "beautifulsoup4==4.15.0",
     "boto3==1.43.46",
@@ -73,6 +73,7 @@ discord-bot = "discord_bot.cli.full:main"
 discord-bot-min = "discord_bot.cli.bot:main"
 discord-dispatcher = "discord_bot.cli.dispatcher:main"
 discord-broker = "discord_bot.cli.broker:main"
+discord-downloader = "discord_bot.cli.downloader:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

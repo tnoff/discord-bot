@@ -114,6 +114,7 @@ class RedisDownloadWorker(DownloadWorkerBase):
         self._youtube_failures_key = youtube_failures_key(youtube_egress_key)
         # Per-pod cache for the sync properties, refreshed by the async hooks.
         self._failure_summary_cache = '0 failures in queue'
+        self._failure_count_cache = 0
         self._direct_pending_cache = False
         # Cold-start floor: a freshly-(re)started pod waits wait_period_minimum
         # before its first YouTube pop even if the shared stamp was GC'd.
@@ -445,8 +446,9 @@ class RedisDownloadWorker(DownloadWorkerBase):
         await self._record_failure(direct=True)
 
     async def _refresh_failure_summary(self) -> None:
-        '''Recompute the cached failure_summary from the shared YouTube ZSET.'''
-        count = await self._manager.client.zcard(self._youtube_failures_key)
+        '''Recompute the cached failure_summary + count from the shared YouTube ZSET.'''
+        count = await self._manager.client.zcard(self._youtube_failures_key) or 0
+        self._failure_count_cache = count
         self._failure_summary_cache = (
             f'{count} failures in queue' if count else '0 failures in queue'
         )
@@ -491,6 +493,7 @@ class RedisDownloadWorker(DownloadWorkerBase):
                 queue_sizes[str(guild_id)] = await self.queue_size(int(guild_id))
         return {
             'failure_summary': self._failure_summary_cache,
+            'failure_count': self._failure_count_cache,
             'backoff_seconds_remaining': backoff or None,
             'queue_sizes': queue_sizes,
         }

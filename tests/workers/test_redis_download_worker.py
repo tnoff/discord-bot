@@ -536,6 +536,7 @@ async def test_status_snapshot_reports_per_guild_sizes_and_defaults():
     # Guild 7 has one youtube + one direct item; guild 8 has one youtube item.
     assert snapshot['queue_sizes'] == {'7': 2, '8': 1}
     assert snapshot['failure_summary'] == '0 failures in queue'
+    assert snapshot['failure_count'] == 0
     # Startup floor disabled in _worker() and no backoff claimed -> None.
     assert snapshot['backoff_seconds_remaining'] is None
 
@@ -550,3 +551,4 @@ async def test_status_snapshot_reports_backoff_and_failures():
     assert snapshot['backoff_seconds_remaining'] is not None
     assert snapshot['backoff_seconds_remaining'] > 0
     assert snapshot['failure_summary'] == '1 failures in queue'
+    assert snapshot['failure_count'] == 1

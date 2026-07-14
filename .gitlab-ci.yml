@@ -136,6 +136,21 @@ bump-version:
     OUTPUT_TARBALL: image-broker.tar
   rules: !reference [.image-build-rules, rules]
 
+# No push counterpart yet: the downloader image lands dormant until the
+# docker-apps Deployment (and terraform!185's OCI_DOWNLOADER_REPO_NAME_64) are
+# in place. This MR-gate build-check needs no OCIR creds — it just builds the
+# tarball — so it verifies Dockerfile.downloader (the git-drop/tarball-URL dep
+# swap + the mesa/LLVM purge) from the MR that introduces it.
+"pr-check:build-downloader":
+  extends: .buildkit-build-check
+  stage: pr-check
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.downloader
+    OUTPUT_NAME: discord-downloader:ci
+    OUTPUT_TARBALL: image-downloader.tar
+  rules: !reference [.image-build-rules, rules]
+
 "pr-check:scan-bot":
   extends: .trufflehog-image
   stage: pr-check
@@ -158,6 +173,14 @@ bump-version:
   needs: ["pr-check:build-broker"]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-broker.tar
+  rules: !reference [.image-build-rules, rules]
+
+"pr-check:scan-downloader":
+  extends: .trufflehog-image
+  stage: pr-check
+  needs: ["pr-check:build-downloader"]
+  variables:
+    TRUFFLEHOG_IMAGE_TARBALL: image-downloader.tar
   rules: !reference [.image-build-rules, rules]
 
 "test:tox-generate":

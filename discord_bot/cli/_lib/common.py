@@ -257,6 +257,31 @@ def run_loop(coro) -> None:
         asyncio.run(coro)
 
 
+@contextlib.contextmanager
+def shutdown_event_signals() -> Iterator[asyncio.Event]:
+    '''
+    Register SIGTERM/SIGINT handlers that set an asyncio.Event, for the no-bot
+    worker pods (broker/downloader) whose main_loop awaits an Event rather than a
+    Bot's closed state.
+
+    Yields the stop_event; a signal (thread-safely) sets it so the caller's
+    ``await stop_event.wait()`` returns and shutdown drains.  Must be entered from
+    inside a running event loop.
+    '''
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    logger = logging.getLogger('main')
+
+    def _handle_signal(signum, _frame):
+        logger.info('Main :: Received %s, triggering graceful shutdown...',
+                    signal.Signals(signum).name)
+        loop.call_soon_threadsafe(stop_event.set)
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+    yield stop_event
+
+
 def setup_observability(general_config: GeneralConfig) -> logging.Logger:
     '''Configure OTLP, logging, and profiling. Returns the main logger.'''
     logger_provider = setup_otlp(general_config)
