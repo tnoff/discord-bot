@@ -170,6 +170,10 @@ OTEL_SPAN_PREFIX = 'music'
 # Idle backoff for process_download_results when the broker has no finished
 # result ready — in HA this paces the remote GET /results/next poll.
 _BROKER_POLL_INTERVAL_SECONDS = 1.0
+# Idle backoff for the post_play_processing / search_youtube_music loops when
+# their queue is empty. Sleeping ONLY on the empty path (not every iteration)
+# keeps busy work back-to-back while cutting idle allocation churn (OOM fix).
+_IDLE_POLL_BACKOFF_SECONDS = 0.25
 
 #
 class Music(CogHelper): #pylint:disable=too-many-public-methods
@@ -502,12 +506,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Update history playlists
         '''
-        await sleep(.01)
         try:
             history_item = self.history_playlist_queue.get_nowait()
         except QueueEmpty:
             if self.bot_shutdown_event.is_set():
                 raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
+            # Idle: nothing to process — back off before the loop runner re-calls
+            # rather than busy-spinning every ~10ms.
+            await sleep(_IDLE_POLL_BACKOFF_SECONDS)
             return
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.post_play_processing', kind=SpanKind.CONSUMER):
@@ -696,10 +702,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
-        await sleep(.01)
         try:
             media_request = self.youtube_music_search_queue.get_nowait()
         except QueueEmpty:
+            # Idle: no search queued — back off before the loop runner re-calls
+            # rather than busy-spinning every ~10ms.
+            await sleep(_IDLE_POLL_BACKOFF_SECONDS)
             return True
 
         # Default lifecycle_stage is already SEARCHING — register_request rendered

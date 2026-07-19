@@ -130,6 +130,10 @@ class BotDownloadFlagged(RetryableException):
     '''
 
 OTEL_SPAN_PREFIX = 'music.download_client'
+# Idle backoff for the run() consumer loop when no request is pending. Sleeping
+# ONLY on the empty path (not before a successful dequeue) keeps back-to-back
+# downloads at full throughput while cutting idle allocation churn (OOM fix).
+_IDLE_POLL_BACKOFF_SECONDS = 0.25
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 # bandit B104: yt-dlp's source-address config, not a server bind; '0.0.0.0' lets the OS pick (avoids ipv6 issues)
 YTDLP_SOURCE_ADDRESS = '0.0.0.0'  # nosec B104
@@ -414,7 +418,6 @@ class DownloadWorkerBase(ABC):
         non-DIRECT items wait for the backoff to expire.  A DIRECT item
         arriving mid-wait interrupts the wait via DirectItemAvailableException.
         '''
-        await sleep(0.01)
         if self.backoff_seconds_remaining:
             try:
                 media_request = await self._dequeue_direct()
@@ -427,11 +430,17 @@ class DownloadWorkerBase(ABC):
                     try:
                         media_request = await self._merged_get_nowait()
                     except QueueEmpty:
+                        # Idle: nothing ready after backoff — back off before the
+                        # loop runner re-calls rather than busy-spinning.
+                        await sleep(_IDLE_POLL_BACKOFF_SECONDS)
                         return
         else:
             try:
                 media_request = await self._merged_get_nowait()
             except QueueEmpty:
+                # Idle: no pending request — back off before re-poll instead of
+                # busy-spinning every ~10ms (which throttled busy downloads too).
+                await sleep(_IDLE_POLL_BACKOFF_SECONDS)
                 return
 
         request_uuid = str(media_request.uuid)

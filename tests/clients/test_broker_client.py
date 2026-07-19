@@ -8,12 +8,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from opentelemetry.trace import SpanKind
 
 import aiohttp
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
+from discord_bot.clients import broker_client as broker_client_module
 from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
 
@@ -356,8 +358,9 @@ class TestHttpBrokerClientCacheAndQueue:
                 assert str(result.file_path) == str(md.file_path)
                 assert result.webpage_url == md.webpage_url
 
-    async def test_next_result_returns_payload_when_queue_has_one(self):
-        '''next_result decodes the JSON payload into a DownloadResult.'''
+    async def test_next_result_returns_payload_when_queue_has_one(self, mocker):
+        '''next_result decodes the JSON payload into a DownloadResult AND opens the
+        broker.next_result span only on the result path.'''
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
@@ -374,17 +377,30 @@ class TestHttpBrokerClientCacheAndQueue:
                 async with TestClient(TestServer(server.build_app())) as tc:
                     hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                     await hc.register_download_result(result)
+                    # Spy only around next_result (register_download_result opens
+                    # its own span). wraps= keeps the real span behaviour intact.
+                    span_spy = mocker.patch.object(
+                        broker_client_module, 'async_otel_span_wrapper',
+                        wraps=broker_client_module.async_otel_span_wrapper,
+                    )
                     popped = await hc.next_result()
         assert popped is not None
         assert str(popped.media_request.uuid) == str(mr.uuid)
+        span_spy.assert_called_once_with('broker.next_result', kind=SpanKind.CLIENT)
 
-    async def test_next_result_returns_none_on_204(self):
-        '''next_result returns None when the broker has nothing queued.'''
+    async def test_next_result_returns_none_on_204(self, mocker):
+        '''next_result returns None when the broker has nothing queued, and mints
+        NO span on the idle 204 path (the OOM churn fix).'''
         broker = _make_broker()
         server = BrokerHttpServer(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            span_spy = mocker.patch.object(
+                broker_client_module, 'async_otel_span_wrapper',
+                wraps=broker_client_module.async_otel_span_wrapper,
+            )
             assert await hc.next_result() is None
+        span_spy.assert_not_called()
 
     async def test_create_bundle_raises_when_payload_missing_uuid(self):
         '''create_bundle raises if the broker response lacks the uuid field.'''

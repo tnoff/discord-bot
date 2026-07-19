@@ -216,15 +216,20 @@ class HttpBrokerClient(HttpClientMixin):
 
     async def next_result(self) -> DownloadResult | None:
         '''GET /results/next — returns the next ready DownloadResult, or None
-        when the broker has nothing in the bot-ready queue (HTTP 204).'''
-        async with async_otel_span_wrapper('broker.next_result', kind=SpanKind.CLIENT):
-            session = self._get_session()
-            async with session.get(f'{self._base_url}/results/next',
-                                   headers=self._trace_headers()) as resp:
-                if resp.status == 204:
-                    return None
-                resp.raise_for_status()
-                payload = await resp.json()
+        when the broker has nothing in the bot-ready queue (HTTP 204).
+
+        The empty (204) path intentionally mints NO span: this endpoint is polled
+        ~1/second even while idle, and a span per empty poll churns ~86k
+        allocations/day (glibc arena fragmentation → OOM). The broker.next_result
+        span is only opened once an actual result is being parsed.'''
+        session = self._get_session()
+        async with session.get(f'{self._base_url}/results/next',
+                               headers=self._trace_headers()) as resp:
+            if resp.status == 204:
+                return None
+            resp.raise_for_status()
+            payload = await resp.json()
+            async with async_otel_span_wrapper('broker.next_result', kind=SpanKind.CLIENT):
                 return DownloadResult.model_validate(payload)
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:

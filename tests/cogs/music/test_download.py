@@ -1,3 +1,5 @@
+import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock
@@ -7,6 +9,7 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.exceptions import ExitEarlyException
 
+from discord_bot.interfaces import download_protocols
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
@@ -363,3 +366,30 @@ async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_cont
     assert result is False
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
     assert media_request.failure_reason is not None
+
+
+@pytest.mark.asyncio()
+async def test_run_idle_empty_queue_backs_off(mocker):
+    """run() sleeps the idle backoff (not every iteration) when both input queues
+    are empty and no backoff is active — cutting idle busy-loop churn."""
+    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    worker = AsyncioDownloadWorker(None, Path('/tmp'))
+    assert worker.backoff_seconds_remaining is None  # else-branch (no backoff)
+    await worker.run(asyncio.Event())
+    sleep_mock.assert_awaited_once_with(download_protocols._IDLE_POLL_BACKOFF_SECONDS)  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio()
+async def test_run_idle_backoff_active_empty_queue_backs_off(mocker):
+    """With backoff active but nothing queued, run() reaches the merged-empty path
+    after the backoff wait and applies the idle backoff sleep before returning."""
+    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    worker = AsyncioDownloadWorker(None, Path('/tmp'))
+    # Future timestamp → backoff_seconds_remaining truthy → backoff branch taken.
+    worker.wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+    assert worker.backoff_seconds_remaining
+    # backoff_wait has its own dedicated tests; stub it to "elapsed, no DIRECT item"
+    # so control falls through to the real (empty) merged_get_nowait idle path.
+    mocker.patch.object(worker, 'backoff_wait', new=AsyncMock(return_value=None))
+    await worker.run(asyncio.Event())
+    sleep_mock.assert_awaited_once_with(download_protocols._IDLE_POLL_BACKOFF_SECONDS)  # pylint: disable=protected-access
