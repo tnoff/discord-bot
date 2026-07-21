@@ -2,6 +2,7 @@
 Process metrics utilities
 Tracks process-level metrics (memory, CPU, etc.) using psutil and reports via logging
 """
+import ctypes
 import logging
 import time
 from threading import Thread
@@ -9,6 +10,54 @@ from threading import Thread
 import psutil
 
 logger = logging.getLogger(__name__)
+
+
+class _MallInfo2(ctypes.Structure):
+    """
+    ctypes mirror of glibc's ``struct mallinfo2`` (glibc >= 2.33), whose fields
+    are ``size_t`` so they don't overflow past 2 GiB like the legacy ``mallinfo``.
+    Only a few fields are surfaced; the rest are declared so the layout matches.
+    """
+    _fields_ = [
+        ('arena', ctypes.c_size_t),     # non-mmapped heap bytes obtained via sbrk
+        ('ordblks', ctypes.c_size_t),
+        ('smblks', ctypes.c_size_t),
+        ('hblks', ctypes.c_size_t),
+        ('hblkhd', ctypes.c_size_t),    # bytes obtained via mmap
+        ('usmblks', ctypes.c_size_t),
+        ('fsmblks', ctypes.c_size_t),
+        ('uordblks', ctypes.c_size_t),  # total in-use (allocated) bytes
+        ('fordblks', ctypes.c_size_t),  # free bytes held by the allocator, not the OS
+        ('keepcost', ctypes.c_size_t),  # releasable free space at the top of the heap
+    ]
+
+
+def get_glibc_malloc_stats():
+    """
+    Read glibc allocator internals via ``mallinfo2`` so we can tell apart
+    *fragmentation* (bytes freed by the app but retained by the allocator,
+    ``fordblks``) from a genuine *native leak* (in-use bytes, ``uordblks`` +
+    mmapped ``hblkhd``, that keep growing). This is exactly the split tracemalloc
+    cannot make, since it only sees Python-level allocations.
+
+    Returns a dict of the interesting fields (bytes), or ``None`` on a non-glibc
+    platform or a glibc older than 2.33 where the symbol is absent.
+    """
+    try:
+        libc = ctypes.CDLL('libc.so.6')
+        mallinfo2 = libc.mallinfo2
+    except (OSError, AttributeError):
+        return None
+    mallinfo2.restype = _MallInfo2
+    mallinfo2.argtypes = []
+    info = mallinfo2()
+    return {
+        'arena': info.arena,
+        'hblkhd': info.hblkhd,
+        'in_use': info.uordblks,
+        'free_retained': info.fordblks,
+        'trimmable': info.keepcost,
+    }
 
 class ProcessMetricsProfiler:
     """
@@ -77,6 +126,7 @@ class ProcessMetricsProfiler:
                 'children': children,
                 'total_rss': total_rss,  # Including children
                 'total_cpu': total_cpu,  # Including children
+                'glibc': get_glibc_malloc_stats(),  # None on non-glibc platforms
             }
 
             return metrics
@@ -130,6 +180,25 @@ class ProcessMetricsProfiler:
             lines.append(f"  Main USS Delta:     {uss_delta / (1024**2):>+8.2f} MB")
             if metrics['children'] or self._last_metrics.get('children'):
                 lines.append(f"  Total RSS Delta:    {total_rss_delta / (1024**2):>+8.2f} MB")
+
+        # glibc allocator section — the fragmentation-vs-native-leak discriminator.
+        # in_use climbing => genuine native retention; free_retained climbing (with
+        # in_use flat) => arena fragmentation the OS never gets back (fix: malloc_trim).
+        glibc = metrics.get('glibc')
+        if glibc:
+            lines.append("")
+            lines.append("Glibc Allocator (mallinfo2):")
+            lines.append(f"  In-use:             {glibc['in_use'] / (1024**2):>8.2f} MB")
+            lines.append(f"  Free (retained):    {glibc['free_retained'] / (1024**2):>8.2f} MB")
+            lines.append(f"  Heap (arena):       {glibc['arena'] / (1024**2):>8.2f} MB")
+            lines.append(f"  Mmapped:            {glibc['hblkhd'] / (1024**2):>8.2f} MB")
+            lines.append(f"  Trimmable:          {glibc['trimmable'] / (1024**2):>8.2f} MB")
+            last_glibc = self._last_metrics.get('glibc') if self._last_metrics else None
+            if last_glibc:
+                in_use_delta = glibc['in_use'] - last_glibc['in_use']
+                free_delta = glibc['free_retained'] - last_glibc['free_retained']
+                lines.append(f"  In-use Delta:       {in_use_delta / (1024**2):>+8.2f} MB")
+                lines.append(f"  Free-retained Delta:{free_delta / (1024**2):>+8.2f} MB")
 
         # CPU and resource section
         lines.append("")

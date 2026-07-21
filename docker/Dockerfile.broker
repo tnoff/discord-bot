@@ -25,8 +25,14 @@ COPY pyproject.toml VERSION "${APPDIR}/"
 # Broker needs the full [bot] dependency set: SQLAlchemy/asyncpg for the
 # VideoCacheClient + boto3 for S3 checkout (unlike the dispatcher, which runs
 # on the slim base deps).
+# INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
+# (default off) — see docker/entrypoint.sh + the :heaptrack CI job.
+ARG INSTALL_HEAPTRACK=false
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
+    if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
+        apt-get install -y --no-install-recommends heaptrack; \
+    fi && \
     rm -rf /var/lib/apt/lists/* && \
     pip install "${APPDIR}[bot]" && \
     apt-get remove -y git && apt-get autoremove -y
@@ -34,6 +40,13 @@ RUN apt-get update && \
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
 RUN chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
+
+# Route through the shared entrypoint so HEAPTRACK_ENABLE=true launches the
+# process under heaptrack (parity with the bot image). DISCORD_BOT_CMD selects
+# the broker console script; behaviour is identical to the old direct ENTRYPOINT.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV DISCORD_BOT_CMD=discord-broker
 
 EXPOSE 8080 8081
 
@@ -51,5 +64,5 @@ RUN mkdir -p /opt/discord/.cache
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD python3 -c "import socket; socket.create_connection(('localhost', 8081), timeout=5).close()"
 
-ENTRYPOINT ["discord-broker"]
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/opt/discord/cnf/discord.cnf"]

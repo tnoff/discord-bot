@@ -219,6 +219,63 @@ bump-version:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
 
+# On-demand native-heap-profiler build for the OOM leak hunt. Builds the bot
+# image with the heaptrack binary baked in (INSTALL_HEAPTRACK=true) and pushes
+# it under the :heaptrack channel tag via TAG_OVERRIDE, so it NEVER displaces
+# :latest or the :<sha> pin. Manual-only and deliberately has no trigger-bump —
+# docker-apps must not be auto-pinned to a diagnostic image. Deploy it by hand
+# (HEAPTRACK_ENABLE=true + a writable output dir + a temporary mem bump) for a
+# bounded window, pull the .zst, then revert. See docs findings/OOM runbook.
+"push:image-bot-heaptrack":
+  extends: .buildkit-docker-push
+  stage: push
+  variables:
+    DOCKERFILE_DIR: docker
+    BUILD_ARGS: '--opt build-arg:INSTALL_HEAPTRACK=true'
+    TAG_OVERRIDE: 'heaptrack'
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: manual
+      allow_failure: true
+
+# heaptrack variants of the split images, same channel-tag + manual + no-bump
+# rules as the bot one. Each overrides OCI_REPO_NAME_64 to its per-image repo
+# via before_script (mirrors the matching push:image-* job), since a masked-var
+# YAML-level override no-ops. (No downloader variant yet — it has no OCIR push
+# repo until terraform!185's OCI_DOWNLOADER_REPO_NAME_64 + its docker-apps
+# Deployment land; its Dockerfile is heaptrack-ready for when it does.)
+"push:image-dispatcher-heaptrack":
+  extends: .buildkit-docker-push
+  stage: push
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.dispatcher
+    BUILD_ARGS: '--opt build-arg:INSTALL_HEAPTRACK=true'
+    TAG_OVERRIDE: 'heaptrack'
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_DISPATCHER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: manual
+      allow_failure: true
+
+"push:image-broker-heaptrack":
+  extends: .buildkit-docker-push
+  stage: push
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.broker
+    BUILD_ARGS: '--opt build-arg:INSTALL_HEAPTRACK=true'
+    TAG_OVERRIDE: 'heaptrack'
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_BROKER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: manual
+      allow_failure: true
+
 # Producer side of the docker-apps image-pin bump flow. One trigger job
 # per pushed image that has a consumer pin in docker-apps — each fires a
 # downstream pipeline that rewrites the matching pin and opens an MR.
