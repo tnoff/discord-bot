@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
 
-from discord_bot.cli._lib.common import setup_logging, setup_observability
+from discord_bot.cli._lib.common import setup_logging, setup_observability, setup_profiling
 from discord_bot.utils.common import GeneralConfig
 
 
@@ -77,3 +77,32 @@ def test_setup_observability_threads_logger_provider_from_otlp_into_logging():
         setup_observability(cfg)
         mock_otlp.assert_called_once_with(cfg)
         mock_logging.assert_called_once_with(cfg, logger_provider=provider)
+
+
+def _profiling_config(gc_census):
+    '''MagicMock GeneralConfig with only the gc_census monitoring block populated.'''
+    cfg = MagicMock(name='general_config')
+    # Null the other two blocks so their setup_profiling branches short-circuit
+    # (a bare MagicMock would look "enabled" and spawn real profiler threads).
+    cfg.monitoring.memory_profiling = None
+    cfg.monitoring.process_metrics = None
+    cfg.monitoring.gc_census = gc_census
+    return cfg
+
+
+def test_setup_profiling_starts_gc_census_when_enabled():
+    '''gc_census.enabled starts a GcCensusProfiler with the configured params.'''
+    gc_census = MagicMock(enabled=True, interval_seconds=300, top_n=25)
+    cfg = _profiling_config(gc_census)
+    with patch('discord_bot.cli._lib.common.GcCensusProfiler') as profiler_cls:
+        setup_profiling(cfg, MagicMock())
+    profiler_cls.assert_called_once_with(interval_seconds=300, top_n=25)
+    profiler_cls.return_value.start.assert_called_once_with()
+
+
+def test_setup_profiling_skips_gc_census_when_absent():
+    '''No gc_census block -> GcCensusProfiler is never constructed.'''
+    cfg = _profiling_config(None)
+    with patch('discord_bot.cli._lib.common.GcCensusProfiler') as profiler_cls:
+        setup_profiling(cfg, MagicMock())
+    profiler_cls.assert_not_called()

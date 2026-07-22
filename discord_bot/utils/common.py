@@ -56,6 +56,12 @@ class MonitoringProcessMetricsConfig(BaseModel):
     enabled: bool = False
     interval_seconds: int = Field(default=15, ge=1)
 
+class MonitoringGcCensusConfig(BaseModel):
+    '''GC object-census monitoring configuration'''
+    enabled: bool = False
+    interval_seconds: int = Field(default=300, ge=1)
+    top_n: int = Field(default=25, ge=1)
+
 class MonitoringHealthServerConfig(BaseModel):
     '''Health server monitoring configuration'''
     enabled: bool = False
@@ -68,6 +74,7 @@ class MonitoringConfig(BaseModel):
     otlp: MonitoringOtlpConfig
     memory_profiling: Optional[MonitoringMemoryProfilingConfig] = None
     process_metrics: Optional[MonitoringProcessMetricsConfig] = None
+    gc_census: Optional[MonitoringGcCensusConfig] = None
     health_server: Optional[MonitoringHealthServerConfig] = None
 
 class LoggingConfig(BaseModel):

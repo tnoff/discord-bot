@@ -37,6 +37,7 @@ from discord_bot.utils.common import get_logger, GeneralConfig
 # cli.bot and cli.full import it via discord_bot.cli.health instead.
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
+from discord_bot.utils.gc_census import GcCensusProfiler
 
 
 class FilterOKRetrySpans(SpanProcessor):
@@ -149,6 +150,13 @@ def setup_profiling(general_config: GeneralConfig, logger):
         logger.info('Main :: Starting process metrics profiler')
         interval_seconds = general_config.monitoring.process_metrics.interval_seconds
         ProcessMetricsProfiler(interval_seconds=interval_seconds).start()
+
+    if general_config.monitoring and general_config.monitoring.gc_census \
+            and general_config.monitoring.gc_census.enabled:
+        logger.info('Main :: Starting GC census profiler')
+        interval_seconds = general_config.monitoring.gc_census.interval_seconds
+        top_n = general_config.monitoring.gc_census.top_n
+        GcCensusProfiler(interval_seconds=interval_seconds, top_n=top_n).start()
 
 
 class ShutdownState:
