@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from discord_bot.clients.dispatch_client_base import DispatchClientBase
+from discord_bot.clients.dispatch_client_base import DispatchClientBase, RESULT_QUEUE_MAX_SIZE
 from discord_bot.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,
@@ -97,3 +97,34 @@ async def test_register_cog_queue_returns_asyncio_queue():
     q = client.register_cog_queue('my_cog')
     assert isinstance(q, asyncio.Queue)
     assert client._cog_queues['my_cog'] is q  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# Bounded queue + non-blocking delivery (drop-on-full instead of leaking)
+# ---------------------------------------------------------------------------
+
+def test_register_cog_queue_is_bounded():
+    '''register_cog_queue caps the queue so a dead consumer can't leak unboundedly.'''
+    client = _ConcreteClient()
+    q = client.register_cog_queue('c')
+    assert q.maxsize == RESULT_QUEUE_MAX_SIZE
+
+
+def test_deliver_enqueues_when_room():
+    '''_deliver enqueues the result when the queue has room.'''
+    client = _ConcreteClient()
+    q = asyncio.Queue(maxsize=2)
+    client._deliver(q, 'r', 'markov')  # pylint: disable=protected-access
+    assert q.get_nowait() == 'r'
+
+
+def test_deliver_drops_and_logs_when_full(mocker):
+    '''_deliver drops (and warns) instead of blocking/leaking when the queue is full.'''
+    mock_logger = mocker.patch('discord_bot.clients.dispatch_client_base.logger')
+    client = _ConcreteClient()
+    q = asyncio.Queue(maxsize=1)
+    q.put_nowait('first')
+    client._deliver(q, 'second', 'markov')  # pylint: disable=protected-access
+    assert q.qsize() == 1  # 'second' dropped, not enqueued
+    assert q.get_nowait() == 'first'
+    mock_logger.warning.assert_called_once()

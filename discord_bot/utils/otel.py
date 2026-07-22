@@ -20,6 +20,7 @@ class MetricNaming(Enum):
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
     DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
+    DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
     DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
     DOWNLOAD_QUEUE_DEPTH = 'download_queue_depth'
     DOWNLOAD_YOUTUBE_BACKOFF = 'download_youtube_backoff_seconds'

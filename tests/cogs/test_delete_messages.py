@@ -293,3 +293,60 @@ async def test_delete_result_loop_deletes_old_message(fake_context):  #pylint:di
     except asyncio.CancelledError:
         pass
     assert fake_message.deleted is True
+
+
+# ---------------------------------------------------------------------------
+# Result-consumer heartbeat + queue-depth gauges, and the loop guard
+# ---------------------------------------------------------------------------
+
+def test_result_loop_active_callback_task_none(fake_context):  #pylint:disable=redefined-outer-name
+    '''__result_loop_active_callback returns 0 when _result_task is None'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    result = getattr(cog, '_DeleteMessages__result_loop_active_callback')(None)
+    assert result[0].value == 0
+
+
+def test_result_loop_active_callback_task_running(fake_context):  #pylint:disable=redefined-outer-name
+    '''__result_loop_active_callback returns 1 when _result_task is set and not done'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    fake_task = MagicMock()
+    fake_task.done.return_value = False
+    setattr(cog, '_result_task', fake_task)
+    result = getattr(cog, '_DeleteMessages__result_loop_active_callback')(None)
+    assert result[0].value == 1
+
+
+def test_result_queue_depth_callback_no_queue(fake_context):  #pylint:disable=redefined-outer-name
+    '''__result_queue_depth_callback returns 0 before register_result_queue'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    result = getattr(cog, '_DeleteMessages__result_queue_depth_callback')(None)
+    assert result[0].value == 0
+
+
+def test_result_queue_depth_callback_reports_qsize(fake_context):  #pylint:disable=redefined-outer-name
+    '''__result_queue_depth_callback reports the number of pending results'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    cog.register_result_queue()
+    cog._result_queue.put_nowait(ChannelHistoryResult(guild_id=1, channel_id=2, messages=[]))  #pylint:disable=protected-access
+    result = getattr(cog, '_DeleteMessages__result_queue_depth_callback')(None)
+    assert result[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_result_loop_survives_processing_error(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''A processing error is logged and the consumer keeps draining (no silent death -> no leak)'''
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    cog.register_result_queue()
+    cog.logger = mocker.MagicMock()
+    mocker.patch.object(cog, '_process_delete_result', side_effect=RuntimeError('boom'))
+    cog._result_queue.put_nowait(ChannelHistoryResult(guild_id=1, channel_id=2, messages=[]))  #pylint:disable=protected-access
+    task = asyncio.create_task(cog._delete_result_loop())  #pylint:disable=protected-access
+    await asyncio.sleep(0.05)
+    still_alive = not task.done()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert still_alive
+    assert cog.logger.exception.called

@@ -655,3 +655,60 @@ async def test_process_history_result_channel_not_in_db(fake_engine, fake_contex
     await cog._process_history_result(result)  #pylint:disable=protected-access
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
+
+
+# ---------------------------------------------------------------------------
+# Result-consumer heartbeat + queue-depth gauges, and the loop guard
+# ---------------------------------------------------------------------------
+
+def test_result_loop_active_callback_not_running(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Result-loop heartbeat returns 0 when _result_task is None'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    observations = cog._Markov__result_loop_active_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 0
+
+
+def test_result_loop_active_callback_running(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''Result-loop heartbeat returns 1 when _result_task is set and not done'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    mock_task = mocker.Mock()
+    mock_task.done.return_value = False
+    cog._result_task = mock_task  #pylint:disable=protected-access
+    observations = cog._Markov__result_loop_active_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 1
+
+
+def test_result_queue_depth_callback_no_queue(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Queue-depth gauge returns 0 before the result queue is registered'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    observations = cog._Markov__result_queue_depth_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 0
+
+
+def test_result_queue_depth_callback_reports_qsize(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Queue-depth gauge reports the number of pending results'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog.register_result_queue()
+    cog._result_queue.put_nowait(GuildEmojisResult(guild_id=1, emojis=[]))  #pylint:disable=protected-access
+    observations = cog._Markov__result_queue_depth_callback(None)  #pylint:disable=protected-access
+    assert observations[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_markov_result_loop_survives_processing_error(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''A processing error is logged and the consumer keeps draining (no silent death -> no leak)'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog.register_result_queue()
+    cog.logger = mocker.MagicMock()
+    mocker.patch.object(cog, '_process_history_result', side_effect=RuntimeError('boom'))
+    cog._result_queue.put_nowait(ChannelHistoryResult(guild_id=1, channel_id=2, messages=[]))  #pylint:disable=protected-access
+    task = asyncio.create_task(cog._markov_result_loop())  #pylint:disable=protected-access
+    await asyncio.sleep(0.05)
+    still_alive = not task.done()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert still_alive
+    assert cog.logger.exception.called

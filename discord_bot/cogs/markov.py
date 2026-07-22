@@ -131,6 +131,8 @@ class Markov(CogHelper):
         self._emoji_cache: dict[int, list] = {}
         self._init_task = None
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_loop_active_callback, 'Markov result loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Markov dispatch result queue depth')
 
     def __loop_active_callback(self, _options):
         '''
@@ -140,6 +142,28 @@ class Markov(CogHelper):
         return [
             Observation(value, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
+            })
+        ]
+
+    def __result_loop_active_callback(self, _options):
+        '''
+        Heartbeat for the result-consumer loop (0 when dead or never started).
+        '''
+        value = 1 if (self._result_task and not self._result_task.done()) else 0
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'markov_result'
+            })
+        ]
+
+    def __result_queue_depth_callback(self, _options):
+        '''
+        Depth of the dispatch result queue — climbs if the consumer stalls or dies.
+        '''
+        depth = self._result_queue.qsize() if self._result_queue else 0
+        return [
+            Observation(depth, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'markov_result'
             })
         ]
 
@@ -264,13 +288,19 @@ class Markov(CogHelper):
         '''
         while True:
             result = await self._result_queue.get()
-            if isinstance(result, GuildEmojisResult):
-                if result.error:
-                    self.logger.error(f'Markov :: Failed to fetch emojis for guild {result.guild_id}: {result.error}')
-                    continue
-                self._emoji_cache[result.guild_id] = result.emojis
-            elif isinstance(result, ChannelHistoryResult):
-                await self._process_history_result(result)
+            try:
+                if isinstance(result, GuildEmojisResult):
+                    if result.error:
+                        self.logger.error(f'Markov :: Failed to fetch emojis for guild {result.guild_id}: {result.error}')
+                        continue
+                    self._emoji_cache[result.guild_id] = result.emojis
+                elif isinstance(result, ChannelHistoryResult):
+                    await self._process_history_result(result)
+            except Exception:  # pylint: disable=broad-except
+                # A single bad result must NOT kill the consumer: the producer keeps
+                # filling the queue, so a dead consumer leaks memory unboundedly
+                # (docs findings/2026-07-19 OOM root cause). Log and drain the next.
+                self.logger.exception('Markov :: error processing dispatch result')
 
     async def _process_history_result(self, result: ChannelHistoryResult):
         '''
