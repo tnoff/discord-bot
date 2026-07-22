@@ -147,11 +147,11 @@ bump-version:
     OUTPUT_TARBALL: image-broker.tar
   rules: !reference [.image-build-rules, rules]
 
-# No push counterpart yet: the downloader image lands dormant until the
-# docker-apps Deployment (and terraform!185's OCI_DOWNLOADER_REPO_NAME_64) are
-# in place. This MR-gate build-check needs no OCIR creds — it just builds the
-# tarball — so it verifies Dockerfile.downloader (the git-drop/tarball-URL dep
-# swap + the mesa/LLVM purge) from the MR that introduces it.
+# MR-gate build-check for the downloader image. Needs no OCIR creds — it just
+# builds the tarball (like pr-check:build-broker) — so it verifies
+# Dockerfile.downloader (the git-drop/tarball-URL dep swap + the mesa/LLVM
+# purge) on every MR that touches the image context. The default-branch publish
+# is push:image-downloader below (terraform!184/!185 provisioned the repo+var).
 "pr-check:build-downloader":
   extends: .buildkit-build-check
   stage: pr-check
@@ -344,6 +344,28 @@ trigger-bump-docker-apps:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
 
+# Publishes discord_downloader:<sha> on the default branch. OCIR repo + push
+# perms and the OCI_DOWNLOADER_REPO_NAME_64 var come from terraform!184/!185.
+# Same masked-var footgun as dispatcher/broker: shell-export OCI_REPO_NAME_64
+# from $OCI_DOWNLOADER_REPO_NAME_64 in before_script rather than the YAML-level
+# override (GitLab doesn't reliably substitute between two masked vars, so the
+# image would otherwise fall back to the bot repo). No trigger-bump yet —
+# docker-apps doesn't consume the downloader pin until the downloader Deployment
+# lands; the bump producer (trigger-bump-docker-apps-downloader) lands with it.
+"push:image-downloader":
+  extends: .buildkit-docker-push
+  stage: push
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.downloader
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_DOWNLOADER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
 trigger-bump-docker-apps-dispatcher:
   extends: .trigger-bump
   stage: push
@@ -397,6 +419,8 @@ trigger-bump-docker-apps-broker:
     - job: "push:image-dispatcher"
       optional: true
     - job: "push:image-broker"
+      optional: true
+    - job: "push:image-downloader"
       optional: true
     - job: trigger-bump-docker-apps
       optional: true
