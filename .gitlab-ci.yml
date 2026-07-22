@@ -37,6 +37,17 @@ include:
     file: '/gitlab/tox-pipeline.yml'
 
 default:
+  # Ride out ci-pool cold-starts / node churn (warm ci floor + autoscaler
+  # scale-down grace live in terraform nodes_v2_ci and docker-apps
+  # cluster-autoscaler). These `when:` classes are infra-side failures, never
+  # `script_failure`, so a failing test/lint is never silently retried. GitLab
+  # caps retry:max at 2 (= 3 total attempts).
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - scheduler_failure
   tags:
     - self-hosted
 
