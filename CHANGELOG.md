@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.59] - 2026-07-22
+
+### Changed
+
+- CI: publish the `discord_downloader` image on the default branch via `push:image-downloader`, so the standalone downloader pod has an image to deploy (dormant until docker-apps consumes the pin).
+
 ## [2.5.59] - 2026-07-21
 
 ### Changed
