@@ -41,11 +41,12 @@ class MarkovConfig(BaseModel):
     history_retention_days: int = 365
     server_reject_list: list[int] = Field(default_factory=list)
 
-def clean_message(content: str, emojis: List[str]):
+def clean_message(content: str, emojis: List[dict]):
     '''
     Clean channel message
     content :   Full message content to clean
-    emojis  :   List of server emoji ids, so we can remove any not from server
+    emojis  :   List of server emoji dicts ({'id', 'name', 'animated'}, as the
+                dispatcher serialises them), so we can remove any not from server
 
     Returns "corpus", list of cleaned words
     '''
@@ -58,7 +59,7 @@ def clean_message(content: str, emojis: List[str]):
     # Strip blank ends
     message_text = message_text.strip()
     corpus = []
-    emoji_ids = [emoji.id for emoji in emojis]
+    emoji_ids = [emoji['id'] for emoji in emojis]
     for word in message_text.split(' '):
         if word in ('', ' '):
             continue

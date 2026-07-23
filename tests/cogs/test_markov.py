@@ -14,7 +14,7 @@ from discord_bot.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
-from tests.helpers import FakeEmjoi, FakeChannel, FakeMessage
+from tests.helpers import FakeChannel, FakeMessage
 
 GENERIC_CONFIG = {
     'general': {
@@ -73,12 +73,14 @@ def test_invalid_emojis():
     ]
 
 def test_valid_emojis():
-    '''clean_message keeps emojis that belong to the server'''
-    fake_emoji = FakeEmjoi()
-    message = f'test message <:Derp:{fake_emoji.id}>'
-    corpus = clean_message(message, [fake_emoji])
+    '''clean_message keeps emojis that belong to the server (emojis are dicts, as
+    the dispatcher serialises them — object access here caused a silent consumer
+    crash + memory leak, see docs findings/2026-07-19)'''
+    server_emoji = {'id': 1234, 'name': 'Derp', 'animated': False}
+    message = f'test message <:Derp:{server_emoji["id"]}>'
+    corpus = clean_message(message, [server_emoji])
     assert corpus == [
-        'test', 'message', f'<:Derp:{fake_emoji.id}>'
+        'test', 'message', f'<:Derp:{server_emoji["id"]}>'
     ]
 
 
