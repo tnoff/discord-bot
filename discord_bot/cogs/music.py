@@ -2,7 +2,7 @@
 # Music taken from https://gist.github.com/EvieePy/ab667b74e9758433b3eb806c53a19f34
 
 import asyncio
-from asyncio import sleep, create_task
+from asyncio import sleep
 from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
 from datetime import datetime, timezone
 from functools import partial
@@ -580,6 +580,25 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             LifecycleStatusUpdate(event=event, **details),
         )
 
+    async def _cleanup_orphaned_voice_clients(self):
+        '''
+        Disconnect any voice client that has no backing MusicPlayer in
+        self.players. Such an orphan appears when a player is removed but its
+        voice connection is not (e.g. a disconnect that failed part-way through
+        cleanup). The per-player logic in cleanup_players only walks
+        self.players, so without this sweep an orphan sits in the channel until
+        the pod restarts.
+        '''
+        for voice_client in list(self.bot.voice_clients):
+            guild = getattr(voice_client, 'guild', None)
+            if guild is None or guild.id in self.players:
+                continue
+            self.logger.warning(f'Found orphaned voice client in guild {guild.id} with no active player, disconnecting')
+            try:
+                await voice_client.disconnect()
+            except Exception as e:
+                self.logger.warning(f'Error disconnecting orphaned voice client in guild {guild.id}: {e}')
+
     async def cleanup_players(self):
         '''
         Check for players with no members, cleanup bot in channels that do
@@ -587,6 +606,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot in shutdown, exiting early')
         await sleep(1)
+
+        # Reap orphaned voice clients first — runs even when self.players is
+        # empty, which is exactly the state a stranded connection leaves behind.
+        await self._cleanup_orphaned_voice_clients()
 
         if not self.players:
             return
@@ -917,18 +940,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
 
-            # Store reference before disconnect() clears it
+            # Disconnect the voice client BEFORE the broker/queue teardown below.
+            # That teardown can raise (e.g. a broker HTTP 500 on a Redis blip), and
+            # doing the disconnect last as a fire-and-forget task — the previous
+            # behaviour — meant such a raise skipped it while the player was already
+            # popped from self.players. The bot was then stranded in the channel with
+            # nothing left to reap it (cleanup_players only walks self.players).
+            # disconnect() also frees native memory / drops the client from the state
+            # cache, so we must NOT call voice_client.cleanup() first: that detaches
+            # the socket and can suppress the gateway leave.
             voice_client = guild.voice_client
-            disconnect_task = None
-
             if voice_client:
-                # cleanup() must be called to free native memory and remove from state cache
-                voice_client.cleanup()
-                self.logger.debug(f'Called cleanup() on voice client for guild {guild.id}')
-
-                # Start disconnect in background (don't block here)
-                disconnect_task = create_task(voice_client.disconnect())
-                self.logger.debug(f'Started disconnect task for guild {guild.id}')
+                try:
+                    await voice_client.disconnect()
+                    self.logger.debug(f'Disconnected voice client for guild {guild.id}')
+                except Exception as e:
+                    self.logger.warning(f'Error disconnecting voice client for guild {guild.id}: {e}')
 
             # Block download queue for later
             # Clear queues before blocking: the in-process clear_queue restores
@@ -996,13 +1023,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 guild_player_path = self.player_dir / f'{guild.id}'
                 if guild_player_path.exists():
                     rm_tree(guild_player_path)
-
-            # Wait for voice disconnect to complete
-            # Skip on BOT_SHUTDOWN — cog_unload handles directory teardown and
-            # we don't need to block on graceful disconnect when the process is ending
-            if disconnect_task and reason != CleanupReason.BOT_SHUTDOWN:
-                await disconnect_task
-                self.logger.debug(f'Disconnected voice client for guild {guild.id}')
 
     async def get_player(self, guild_id: int,
                          join_channel = None,

@@ -1,6 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,7 +14,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_engine, fake_context, fake_source_dict #pylint:disable=unused-import
+from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context, fake_source_dict #pylint:disable=unused-import
 
 @pytest.mark.asyncio
 async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -86,7 +86,6 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
     # Register a broker bundle for a DIFFERENT guild
-    from tests.helpers import FakeGuild  # pylint: disable=import-outside-toplevel
     other_guild = FakeGuild()
     bundle_uuid = await cog.create_bundle(other_guild.id, fake_context['channel'].id)
 
@@ -172,3 +171,76 @@ async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  
         await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
         assert guild_player_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_disconnect_error_still_reaps_player(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """A voice-client disconnect error is logged but does not abort cleanup or
+    leave the player behind (the strand this fix prevents)."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
+                         create_player=True, join_channel=fake_context['channel'])
+
+    # get_player(join_channel=...) connected a voice client; make its disconnect blow up
+    async def _boom():
+        raise RuntimeError('gateway boom')
+    fake_context['guild'].voice_client.disconnect = _boom
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
+
+    # Disconnect raised, but cleanup still completed and removed the player
+    assert fake_context['guild'].id not in cog.players
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphaned_voice_client_disconnected(fake_context):  # pylint: disable=redefined-outer-name
+    """The sweep disconnects a voice client that has no backing player."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    orphan_guild = FakeGuild()
+    voice_client = FakeVoiceClient(guild=orphan_guild)
+    voice_client.disconnect = AsyncMock()
+    cog.bot.voice_clients = [voice_client]
+
+    await cog._cleanup_orphaned_voice_clients()  # pylint: disable=protected-access
+
+    voice_client.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphaned_skips_backed_and_guildless(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """The sweep leaves alone clients backed by a player, or with no guild."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True)
+
+    backed = FakeVoiceClient(guild=fake_context['guild'])  # guild IS in cog.players
+    backed.disconnect = AsyncMock()
+    guildless = FakeVoiceClient(guild=None)
+    guildless.disconnect = AsyncMock()
+    cog.bot.voice_clients = [backed, guildless]
+
+    await cog._cleanup_orphaned_voice_clients()  # pylint: disable=protected-access
+
+    backed.disconnect.assert_not_awaited()
+    guildless.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphaned_disconnect_error_swallowed(fake_context):  # pylint: disable=redefined-outer-name
+    """A disconnect error during the orphan sweep is logged, not raised."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    orphan_guild = FakeGuild()
+    voice_client = FakeVoiceClient(guild=orphan_guild)
+
+    async def _boom():
+        raise RuntimeError('boom')
+    voice_client.disconnect = _boom
+    cog.bot.voice_clients = [voice_client]
+
+    # Must not raise
+    await cog._cleanup_orphaned_voice_clients()  # pylint: disable=protected-access

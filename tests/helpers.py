@@ -316,6 +316,7 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
             self.intents = FakeIntents()
             self.bot_closed = False
             self.loop = None
+            self.voice_clients = []
 
         async def fetch_channel(self, channel_id: int) -> Optional[Any]:
             for channel in self.channels:
@@ -376,8 +377,9 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
     return FakeBot
 
 class FakeVoiceClient():
-    def __init__(self) -> None:
+    def __init__(self, guild: Optional[Any] = None) -> None:
         self.channel = None
+        self.guild = guild
 
     def play(self, *_args: Any, after: Optional[Callable] = None, **_kwargs: Any) -> bool:
         if after:
