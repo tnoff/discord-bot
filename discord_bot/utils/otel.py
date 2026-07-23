@@ -16,6 +16,7 @@ class MetricNaming(Enum):
     '''
     HEARTBEAT = 'heartbeat'
     ACTIVE_PLAYERS = 'active_players'
+    VOICE_CLIENTS_CONNECTED = 'voice_clients_connected'
     CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'

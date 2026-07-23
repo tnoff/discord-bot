@@ -321,6 +321,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.VOICE_CLIENTS_CONNECTED.value, self.__voice_clients_connected_callback, 'Active voice client connections')
         # Cache filesystem stats — only meaningful in local mode with a dedicated mount
         if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
@@ -415,6 +416,24 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         for key in self.players:
             items.append(Observation(1, attributes={
                 DiscordContextNaming.GUILD.value: key,
+            }))
+        return items
+
+    def __voice_clients_connected_callback(self, _options):
+        '''
+        Active voice connections, one observation per connected guild.
+
+        Unlike active_players (which counts MusicPlayer objects in self.players),
+        this reflects the raw voice socket, so an orphaned connection whose player
+        was already reaped still shows here — the signal a stranded bot leaves.
+        '''
+        items = []
+        for voice_client in self.bot.voice_clients:
+            guild = getattr(voice_client, 'guild', None)
+            if guild is None:
+                continue
+            items.append(Observation(1, attributes={
+                DiscordContextNaming.GUILD.value: guild.id,
             }))
         return items
 

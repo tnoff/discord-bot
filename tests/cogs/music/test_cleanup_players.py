@@ -10,6 +10,7 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.utils.otel import DiscordContextNaming
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
@@ -244,3 +245,17 @@ async def test_cleanup_orphaned_disconnect_error_swallowed(fake_context):  # pyl
 
     # Must not raise
     await cog._cleanup_orphaned_voice_clients()  # pylint: disable=protected-access
+
+
+def test_voice_clients_connected_gauge(fake_context):  # pylint: disable=redefined-outer-name
+    """The voice-clients gauge reports one observation per connected guild and
+    skips clients that have no guild."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    guild_a = FakeGuild()
+    cog.bot.voice_clients = [FakeVoiceClient(guild=guild_a), FakeVoiceClient(guild=None)]
+
+    observations = cog._Music__voice_clients_connected_callback(None)  # pylint: disable=protected-access
+
+    assert len(observations) == 1
+    assert observations[0].value == 1
+    assert observations[0].attributes[DiscordContextNaming.GUILD.value] == guild_a.id
