@@ -12,18 +12,20 @@ from dappertable import DapperTable, Column, Columns, PaginationLength
 from discord import PCMAudio
 from discord.ext.commands import Context
 from discord.errors import ClientException
+from opentelemetry.trace import SpanKind
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.interfaces.broker_protocols import CheckoutResult, MediaBrokerBase
 from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.integrations.s3 import get_file
+from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming, span_links_from_context
 
 
 
@@ -117,65 +119,76 @@ class MusicPlayer:
             self.destroy()
             raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
         self.current_media_download = media_download
-        checkout_result: CheckoutResult | None = None
-        if self.broker:
-            checkout_result = await self.broker.checkout(
-                str(media_download.media_request.uuid), self.guild.id, self.file_dir
-            )
+        # Span the active play-start path — broker checkout, file staging and the
+        # voice_client.play() call — so a failed/absent voice client (the
+        # "Voice client unavailable" case) is recorded as an ERROR span instead of
+        # only a log line. Scoped to track start, not the preceding queue wait or
+        # the song's full playback, to keep the span bounded. Linked back to the
+        # request that queued the track so the play correlates with its download.
+        span_attributes = media_download_attributes(media_download)
+        span_attributes[DiscordContextNaming.GUILD.value] = self.guild.id
+        async with async_otel_span_wrapper(
+                'music.play_track', kind=SpanKind.INTERNAL, attributes=span_attributes,
+                links=span_links_from_context(media_download.media_request.span_context)):
+            checkout_result: CheckoutResult | None = None
+            if self.broker:
+                checkout_result = await self.broker.checkout(
+                    str(media_download.media_request.uuid), self.guild.id, self.file_dir
+                )
 
-        # Default to the download's own path; override with whatever the broker
-        # checked out. local_path means the file is already staged locally (the
-        # single-process / non-HA path — behaviour-preserving). s3_key means an
-        # HA broker pod holds it in S3 and the bot must fetch it before playback.
-        file_path = media_download.file_path
-        if checkout_result and checkout_result.local_path:
-            file_path = checkout_result.local_path
-        elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
-            extension = ''.join(Path(checkout_result.s3_key).suffixes)
-            local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
-            self.file_dir.mkdir(exist_ok=True)
-            await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
-            file_path = local_path
-        # A checkout miss (e.g. the broker has no entry yet) leaves file_path
-        # pointing at the download's own path, which in S3 mode is the object key
-        # ("cache/…"), not a local file. Skip the track rather than letting open()
-        # raise and take the whole player loop down for this guild.
-        if file_path is None or not Path(file_path).exists():
-            self.logger.warning(
-                f'No playable file for "{media_download.webpage_url}" in guild {self.guild.id} '
-                f'(resolved path {str(file_path)!r} does not exist); skipping track'
-            )
-            if self.broker:
-                await self.broker.release(str(media_download.media_request.uuid))
-            return
-        self.logger.debug(f'Gathered new file to play {str(file_path)}')
-        with open(file_path, 'rb') as f:
-            audio_data = BytesIO(f.read())
-        audio_source = PCMAudio(audio_data)
-        self.current_audio_source = audio_source
-        self.video_skipped = False
-        try:
-            self.guild.voice_client.play(audio_source, after=self.set_next)
-        except (AttributeError, ClientException) as e:
-            self.logger.warning(
-                f'Voice client unavailable for guild {self.guild.id} ({type(e).__name__}: {e}), '
-                f'shutting down player with {self._play_queue.size()} item(s) still queued'
-            )
-            self.np_message = ''
-            cleanup_source(audio_source)
-            if self.broker:
-                await self.broker.release(str(media_download.media_request.uuid))
-            if not self.shutdown_called:
-                self.destroy(reason=CleanupReason.VOICE_DISCONNECT)
-            raise ExitEarlyException('No voice client in guild, ending loop') from e
-        self.trigger_prefetch()
-        self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
-                            f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
-                            f'"{media_download.webpage_url}"')
-        self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
-        key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
-        self.dispatcher.update_mutable(key, self.guild.id,
-                                       self.get_queue_order_messages(), self.text_channel.id)
+            # Default to the download's own path; override with whatever the broker
+            # checked out. local_path means the file is already staged locally (the
+            # single-process / non-HA path — behaviour-preserving). s3_key means an
+            # HA broker pod holds it in S3 and the bot must fetch it before playback.
+            file_path = media_download.file_path
+            if checkout_result and checkout_result.local_path:
+                file_path = checkout_result.local_path
+            elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
+                extension = ''.join(Path(checkout_result.s3_key).suffixes)
+                local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
+                self.file_dir.mkdir(exist_ok=True)
+                await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
+                file_path = local_path
+            # A checkout miss (e.g. the broker has no entry yet) leaves file_path
+            # pointing at the download's own path, which in S3 mode is the object key
+            # ("cache/…"), not a local file. Skip the track rather than letting open()
+            # raise and take the whole player loop down for this guild.
+            if file_path is None or not Path(file_path).exists():
+                self.logger.warning(
+                    f'No playable file for "{media_download.webpage_url}" in guild {self.guild.id} '
+                    f'(resolved path {str(file_path)!r} does not exist); skipping track'
+                )
+                if self.broker:
+                    await self.broker.release(str(media_download.media_request.uuid))
+                return
+            self.logger.debug(f'Gathered new file to play {str(file_path)}')
+            with open(file_path, 'rb') as f:
+                audio_data = BytesIO(f.read())
+            audio_source = PCMAudio(audio_data)
+            self.current_audio_source = audio_source
+            self.video_skipped = False
+            try:
+                self.guild.voice_client.play(audio_source, after=self.set_next)
+            except (AttributeError, ClientException) as e:
+                self.logger.warning(
+                    f'Voice client unavailable for guild {self.guild.id} ({type(e).__name__}: {e}), '
+                    f'shutting down player with {self._play_queue.size()} item(s) still queued'
+                )
+                self.np_message = ''
+                cleanup_source(audio_source)
+                if self.broker:
+                    await self.broker.release(str(media_download.media_request.uuid))
+                if not self.shutdown_called:
+                    self.destroy(reason=CleanupReason.VOICE_DISCONNECT)
+                raise ExitEarlyException('No voice client in guild, ending loop') from e
+            self.trigger_prefetch()
+            self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
+                                f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
+                                f'"{media_download.webpage_url}"')
+            self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
+            key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
+            self.dispatcher.update_mutable(key, self.guild.id,
+                                           self.get_queue_order_messages(), self.text_channel.id)
 
         await self.next.wait()
         self.np_message = ''
@@ -255,19 +268,45 @@ class MusicPlayer:
 
         channel : Voice channel to join
         '''
-        if not self.guild.voice_client:
-            # Turn off reconnect
-            # If bot is having issues this just ends up connecting and reconnecting over and over
-            # Tends to be more annoying that anything
+        attributes = {
+            DiscordContextNaming.GUILD.value: self.guild.id,
+            DiscordContextNaming.CHANNEL.value: channel.id,
+        }
+        # Span + logs so a failed/timed-out voice join is visible in telemetry — the
+        # wrapper records any exception that propagates and marks the span ERROR.
+        async with async_otel_span_wrapper('music.join_voice', kind=SpanKind.CLIENT, attributes=attributes):
+            if not self.guild.voice_client:
+                # Turn off reconnect
+                # If bot is having issues this just ends up connecting and reconnecting over and over
+                # Tends to be more annoying that anything
+                self.logger.info(f'Connecting to voice channel {channel.id} in guild {self.guild.id}')
+                try:
+                    await channel.connect()
+                except async_timeout as error:
+                    self.logger.warning(
+                        f'Timed out connecting to voice channel {channel.id} in guild {self.guild.id}'
+                    )
+                    raise ClientException('Timed out connecting to voice channel, please try again') from error
+                except Exception as error:
+                    self.logger.warning(
+                        f'Failed to connect to voice channel {channel.id} in guild {self.guild.id} '
+                        f'({type(error).__name__}: {error})'
+                    )
+                    raise
+                self.logger.info(f'Connected to voice channel {channel.id} in guild {self.guild.id}')
+                return True
+            if self.guild.voice_client.channel and self.guild.voice_client.channel.id == channel.id:
+                return True
+            self.logger.info(f'Moving to voice channel {channel.id} in guild {self.guild.id}')
             try:
-                await channel.connect()
-            except async_timeout as error:
-                raise ClientException('Timed out connecting to voice channel, please try again') from error
+                await self.guild.voice_client.move_to(channel)
+            except Exception as error:
+                self.logger.warning(
+                    f'Failed to move to voice channel {channel.id} in guild {self.guild.id} '
+                    f'({type(error).__name__}: {error})'
+                )
+                raise
             return True
-        if self.guild.voice_client.channel and self.guild.voice_client.channel.id == channel.id:
-            return True
-        await self.guild.voice_client.move_to(channel)
-        return True
 
     def voice_channel_inactive_timeout(self, timeout_seconds: int = 60) -> bool:
         '''

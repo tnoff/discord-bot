@@ -91,6 +91,26 @@ async def test_music_player_join_move_to(fake_context): #pylint:disable=redefine
         assert fake_context['guild'].voice_client.channel == c
 
 @pytest.mark.asyncio
+async def test_music_player_join_voice_connect_error(fake_context): #pylint:disable=redefined-outer-name
+    '''A non-timeout connect failure is logged and re-raised unchanged'''
+    with with_music_player(fake_context) as player:
+        c = FakeChannel()
+        c.connect = AsyncMock(side_effect=RuntimeError('boom'))
+        with pytest.raises(RuntimeError, match='boom'):
+            await player.join_voice(c)
+
+@pytest.mark.asyncio
+async def test_music_player_join_voice_move_error(fake_context): #pylint:disable=redefined-outer-name
+    '''A move_to failure is logged and re-raised'''
+    voice_client = FakeVoiceClient()
+    voice_client.move_to = AsyncMock(side_effect=RuntimeError('boom'))
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        c = FakeChannel()
+        with pytest.raises(RuntimeError, match='boom'):
+            await player.join_voice(c)
+
+@pytest.mark.asyncio
 async def test_music_player_voice_channel_inactive_no_voice(fake_context): #pylint:disable=redefined-outer-name
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
