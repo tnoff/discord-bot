@@ -51,7 +51,7 @@ bot = [
 ]
 test = [
     "bandit==1.9.4",
-    "fakeredis==2.36.2",
+    "fakeredis==2.37.0",
     "freezegun==1.5.5",
     "pylint-pydantic==0.4.1",
     "pylint==4.0.6",
@@ -65,7 +65,7 @@ test = [
     "requests-mock==1.12.1",
     # Currently required for pytest-freezegun, can remove once they have that fixed
     "setuptools==83.0.0",
-    "tox==4.57.0",
+    "tox==4.58.0",
 ]
 
 [project.scripts]
