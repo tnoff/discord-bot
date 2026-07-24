@@ -55,6 +55,22 @@ def test_setup_logging_disables_propagate_to_avoid_double_export():
     _drop_handlers('main', 'discord_bot', 'discord')
 
 
+def test_setup_logging_ships_discord_gateway_logs_at_info():
+    '''Gateway/voice sub-loggers are lowered to INFO so discord.py voice-drop
+    diagnostics ship past the third-party WARNING gate; the discord tree does not
+    propagate so those records aren't double-exported via root.'''
+    _drop_handlers('main', 'discord_bot', 'discord')
+    for name in ('discord.gateway', 'discord.voice_state', 'discord.voice_client', 'discord.client'):
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    with TemporaryDirectory() as tmp_dir:
+        cfg = _make_config(tmp_dir)
+        setup_logging(cfg, logger_provider=MagicMock())
+        assert logging.getLogger('discord').propagate is False
+        for name in ('discord.gateway', 'discord.voice_state', 'discord.voice_client', 'discord.client'):
+            assert logging.getLogger(name).level == logging.INFO, f'expected INFO on {name}'
+    _drop_handlers('main', 'discord_bot', 'discord')
+
+
 def test_setup_logging_no_otlp_logger_still_works():
     '''Calling setup_logging without a logger_provider does not attach LoggingHandler.'''
     _drop_handlers('main', 'discord_bot', 'discord')

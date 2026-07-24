@@ -133,6 +133,18 @@ def setup_logging(general_config: GeneralConfig, logger_provider=None):
     root_logger.setLevel(third_party_level)
     discord_logger = get_logger('discord', general_config.logging, otlp_logger=logger_provider)
     discord_logger.setLevel(third_party_level)
+    # propagate=False so discord records export once via this logger's own OTLP
+    # handler instead of also bubbling up to root's handler (matches main/discord_bot).
+    discord_logger.propagate = False
+    # discord.py logs voice/gateway lifecycle — websocket close codes (e.g. 4014
+    # kicked, 4006 session invalid), reconnect attempts, "voice connection is now
+    # closed" — at INFO, which the third-party WARNING gate above drops. Lower just
+    # the gateway/voice sub-loggers so those diagnostics reach OTLP without pulling
+    # INFO noise from every other third-party library. They propagate up to the
+    # discord logger's OTLP handler, so no extra handler is needed.
+    gateway_level = general_config.logging.discord_gateway_log_level if general_config.logging else 20
+    for sub_logger in ('discord.gateway', 'discord.voice_state', 'discord.voice_client', 'discord.client'):
+        logging.getLogger(sub_logger).setLevel(gateway_level)
     return logger
 
 

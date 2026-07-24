@@ -87,6 +87,10 @@ class LoggingConfig(BaseModel):
     logging_format: str = '%(asctime)s - %(levelname)s - %(message)s'
     logging_date_format: str = '%Y-%m-%dT%H-%M-%S'
     third_party_log_level: Literal[0, 10, 20, 30, 40, 50] = 30  # Default to WARNING (30)
+    # discord.py logs voice/gateway lifecycle (websocket close codes, reconnects,
+    # "voice connection is now closed") at INFO, below the third-party WARNING gate.
+    # Keep this at INFO so those diagnostics ship without flooding from other libs.
+    discord_gateway_log_level: Literal[0, 10, 20, 30, 40, 50] = 20  # Default to INFO (20)
 
     @model_validator(mode='after')
     def require_file_fields_when_not_otlp_only(self):
