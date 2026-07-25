@@ -21,6 +21,7 @@ from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.utils.otel import async_otel_span_wrapper
 from discord_bot.interfaces.download_protocols import (
+    ClearGuildResult,
     DownloadClient,
     DownloadWorkerBase,
     DirectItemAvailableException,
@@ -103,9 +104,23 @@ class InMemoryDownloadClient:
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> list[MediaRequest]:
-        '''Clear the input queue for a guild, returning the dropped requests.'''
-        return await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve_predicate)
+                                ) -> ClearGuildResult:
+        '''Clear the input queue for a guild.
+
+        Wraps the predicate to record the bundle_uuids of preserved items so the
+        result carries them uniformly with the HTTP client (whose downloader pod
+        runs the predicate remotely).'''
+        preserved_bundle_uuids: set[str] = set()
+        if preserve_predicate is not None:
+            def wrapped(media_request: MediaRequest) -> bool:
+                keep = preserve_predicate(media_request)
+                if keep and media_request.bundle_uuid:
+                    preserved_bundle_uuids.add(media_request.bundle_uuid)
+                return keep
+        else:
+            wrapped = None
+        dropped = await self._worker.clear_guild_queue(guild_id, preserve_predicate=wrapped)
+        return ClearGuildResult(dropped=dropped, preserved_bundle_uuids=preserved_bundle_uuids)
 
     async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''
@@ -179,25 +194,25 @@ class HttpDownloadClient(HttpClientMixin):
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> list[MediaRequest]:
-        '''POST /downloads/clear — drop the guild's pending requests, returning them.
+                                ) -> ClearGuildResult:
+        '''POST /downloads/clear — drop the guild's pending requests.
 
         A predicate can't cross HTTP, so we forward preserve_playlist_adds=True when a
         predicate is supplied (the cog only passes one to preserve the metadata-only
         playlist-add items); the downloader translates that to a server-side predicate.
-        The dropped requests are returned so the cog can still push their DISCARDED
-        lifecycle states from the bot pod.
-
-        NOTE (HA gap for the cog cutover, MR 5): the cog's predicate also records the
-        bundle_uuids of *preserved* items to skip deleting their bundles.  Preserved
-        items stay on the downloader pod and are not returned here, so that side-effect
-        does not run in HA mode — the bundle-preservation reconciliation moves to the
-        cog cutover.
+        The response carries the dropped requests (so the cog can still push their
+        DISCARDED lifecycle states from the bot pod) and the bundle_uuids the
+        downloader preserved (so the cog skips deleting those bundles — the
+        reconciliation the local client does in-process).
         '''
         body = {'guild_id': guild_id, 'preserve_playlist_adds': preserve_predicate is not None}
         async with async_otel_span_wrapper('downloader.clear', kind=SpanKind.CLIENT):
             resp = await self._http('POST', f'{self._base_url}/downloads/clear', body)
-        return [parse_media_request(item) for item in (resp or {}).get('dropped', [])]
+        resp = resp or {}
+        return ClearGuildResult(
+            dropped=[parse_media_request(item) for item in resp.get('dropped', [])],
+            preserved_bundle_uuids=set(resp.get('preserved_bundle_uuids', [])),
+        )
 
     async def queue_size(self, guild_id: int) -> int:
         '''Cached pending count for a guild, refreshed by the background poller.'''

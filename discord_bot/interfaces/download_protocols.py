@@ -21,6 +21,7 @@ impl is constructed — mirroring the BrokerClient seam.
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import QueueEmpty, sleep
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
@@ -158,6 +159,25 @@ def match_generator(max_video_length: int, banned_videos_list: List[str]):
     return filter_function
 
 
+@dataclass(frozen=True)
+class ClearGuildResult:
+    '''Result of DownloadClient.clear_guild_queue.
+
+    dropped
+        Requests removed from the guild's input queue; the cog pushes a
+        DISCARDED lifecycle state for each.
+    preserved_bundle_uuids
+        bundle_uuids of items the preserve predicate KEPT (metadata-only
+        playlist-add requests still in flight).  The cog skips deleting those
+        bundles.  Both clients populate this — the in-process client from the
+        predicate it runs, the HTTP client from the downloader's response — so
+        bundle preservation works in HA, where the predicate can't run on the
+        bot side.
+    '''
+    dropped: list[MediaRequest]
+    preserved_bundle_uuids: set[str] = field(default_factory=set)
+
+
 class DownloadClient(Protocol):
     '''
     Cog-facing handle for the download pipeline.
@@ -177,8 +197,13 @@ class DownloadClient(Protocol):
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> list[MediaRequest]:
-        '''Clear the input queue for a guild, returning the dropped requests.'''
+                                ) -> ClearGuildResult:
+        '''Clear the input queue for a guild.
+
+        Returns a ClearGuildResult carrying the dropped requests plus the
+        bundle_uuids of any items the predicate preserved (so the cog can skip
+        deleting those bundles, including in HA where the predicate runs on the
+        downloader pod, not the bot).'''
 
     async def queue_size(self, guild_id: int) -> int:
         '''Return the number of pending requests for a guild, or 0 if none.'''

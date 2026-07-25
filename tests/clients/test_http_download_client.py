@@ -29,10 +29,11 @@ def _media_request(guild_id: int = 1) -> MediaRequest:
     )
 
 
-def _playlist_add_request(guild_id: int = 1) -> PlaylistAddRequest:
+def _playlist_add_request(guild_id: int = 1, bundle_uuid: str | None = None) -> PlaylistAddRequest:
     return PlaylistAddRequest(
         guild_id=guild_id, channel_id=2, requester_id=3, requester_name='req',
         playlist_id=99,
+        bundle_uuid=bundle_uuid,
         search_result=SearchResult(
             search_type=SearchType.SEARCH, raw_search_string='song name',
         ),
@@ -121,14 +122,18 @@ async def test_submit_posts_serialised_request():
 async def test_clear_forwards_preserve_flag_and_returns_dropped():
     '''With a predicate, clear preserves non-download items server-side and returns
     only the dropped (downloadable) requests, deserialised back to MediaRequests.'''
-    worker = _FakeWorker(clear_items=[_media_request(7), _playlist_add_request(7)])
+    worker = _FakeWorker(clear_items=[
+        _media_request(7), _playlist_add_request(7, bundle_uuid='keep-bundle')])
     _, server = _make_server(worker)
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
-        dropped = await client.clear_guild_queue(7, preserve_predicate=lambda r: not r.download_file)
+        result = await client.clear_guild_queue(7, preserve_predicate=lambda r: not r.download_file)
     # The playlist-add (download_file=False) is preserved; only the download drops.
-    assert len(dropped) == 1
-    assert dropped[0].download_file is True
+    assert len(result.dropped) == 1
+    assert result.dropped[0].download_file is True
+    # The downloader reports the preserved item's bundle_uuid back over HTTP so the
+    # cog can skip deleting that bundle in HA (the reconciliation for MR 5).
+    assert result.preserved_bundle_uuids == {'keep-bundle'}
     _, kwargs = worker.clear_guild_queue.await_args
     assert kwargs['preserve_predicate'] is not None
 
@@ -140,8 +145,9 @@ async def test_clear_without_predicate_drops_everything():
     _, server = _make_server(worker)
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
-        dropped = await client.clear_guild_queue(7)
-    assert len(dropped) == 2
+        result = await client.clear_guild_queue(7)
+    assert len(result.dropped) == 2
+    assert result.preserved_bundle_uuids == set()
     _, kwargs = worker.clear_guild_queue.await_args
     assert kwargs['preserve_predicate'] is None
 

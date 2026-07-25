@@ -18,6 +18,8 @@ from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
+from discord_bot.interfaces.download_protocols import ClearGuildResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
@@ -1512,6 +1514,108 @@ async def test_cog_load_spawns_configured_download_loops(fake_context):  #pylint
     assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
     # cleanup + 3 download loops + result + youtube_search = 6 scheduled tasks
     assert mock_loop.create_task.call_count == 6
+
+
+def test_music_init_with_download_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
+    """HttpDownloadClient (pointed at the downloader pod) is built when
+    download_client config is present — the HA cutover selection."""
+    config = {
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    assert isinstance(cog.download_client, HttpDownloadClient)
+    assert cog.download_client._base_url == 'http://downloader-host:8083'  # pylint: disable=protected-access
+
+
+def test_music_init_without_download_client_uses_in_memory(fake_context):  #pylint:disable=redefined-outer-name
+    """InMemoryDownloadClient (in-process worker) is used by default."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.download_client, InMemoryDownloadClient)
+
+
+def test_download_heartbeat_gauge_registered_without_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """The bot-side download_files heartbeat gauge is registered in single-process mode."""
+    gauge = mocker.patch('discord_bot.cogs.music.create_observable_gauge')
+    Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    descriptions = [call.args[3] for call in gauge.call_args_list if len(call.args) > 3]
+    assert 'Download files loop heartbeat' in descriptions
+
+
+def test_download_heartbeat_gauge_skipped_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """In HA the download loop lives in the downloader pod, so the bot skips the
+    download_files heartbeat gauge (it would sit at 0 and trip the stalled-loop alert)."""
+    gauge = mocker.patch('discord_bot.cogs.music.create_observable_gauge')
+    config = {
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    } | BASE_MUSIC_CONFIG
+    Music(fake_context['bot'], config, fake_context['dispatcher'])
+    descriptions = [call.args[3] for call in gauge.call_args_list if len(call.args) > 3]
+    assert 'Download files loop heartbeat' not in descriptions
+
+
+@pytest.mark.asyncio
+async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=redefined-outer-name
+    """In HA, cog_load starts the client's status poller and spawns no download loops."""
+    config = {
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.download_client = Mock()
+    cog.download_client.start = AsyncMock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    cog.download_client.start.assert_awaited_once()
+    assert cog._download_tasks == []  #pylint:disable=protected-access
+    # cleanup + result + youtube_search only — no download loops, no broker server.
+    assert mock_loop.create_task.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_stops_download_client_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """In HA, cog_unload stops the status poller / closes the HTTP session."""
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+    config = {
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.download_client = Mock()
+    cog.download_client.stop = AsyncMock()
+    cog.players = {}
+    await cog.cog_unload()
+    cog.download_client.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """The HA reconciliation: even though the cog's local predicate never sees the
+    preserved items (they stay on the downloader pod), the bundle_uuids the pod
+    reports via clear_guild_queue are unioned in, so their bundles are NOT deleted."""
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+    config = {
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    } | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    guild = Mock()
+    guild.id = 4242
+    # Downloader pod ran the predicate and preserved 'keep-bundle'; the cog never
+    # saw those items locally, so only the pod-reported set carries it.
+    cog.download_client = Mock()
+    cog.download_client.clear_guild_queue = AsyncMock(
+        return_value=ClearGuildResult(dropped=[], preserved_bundle_uuids={'keep-bundle'}))
+    cog.download_client.block_guild = AsyncMock()
+    cog.youtube_music_search_queue = Mock()
+    cog.youtube_music_search_queue.clear_queue = Mock(return_value=[])
+    cog.youtube_music_search_queue.block = Mock()
+    cog.broker_client = Mock()
+    cog.broker_client.list_bundles_for_guild = AsyncMock(return_value=['keep-bundle', 'drop-bundle'])
+    cog.delete_bundle = AsyncMock()
+    cog.players = {}
+    await cog.cleanup(guild, reason=CleanupReason.QUEUE_TIMEOUT)
+    # keep-bundle preserved by the downloader → skipped; drop-bundle deleted.
+    cog.delete_bundle.assert_awaited_once_with(4242, 'drop-bundle')
 
 
 def test_download_file_callback_reports_active_loop(fake_context, mocker):  #pylint:disable=redefined-outer-name

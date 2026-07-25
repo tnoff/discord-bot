@@ -88,8 +88,10 @@ class DownloadHttpServer(AiohttpServerBase):
         so preserve_playlist_adds=True translates server-side to preserving the
         metadata-only (non-downloading) requests — i.e. playlist-add items — which
         is exactly what the cog's `not req.download_file` predicate keeps.  The
-        dropped MediaRequests are returned so the cog can still push their
-        DISCARDED lifecycle states from the bot pod.
+        response returns the dropped MediaRequests (so the cog can still push their
+        DISCARDED lifecycle states from the bot pod) plus the bundle_uuids of the
+        preserved items (so the cog can skip deleting those bundles — the
+        reconciliation it does in-process when the worker is local).
         '''
         ctx, body = await self._read_body(request)
         try:
@@ -97,11 +99,23 @@ class DownloadHttpServer(AiohttpServerBase):
             preserve_playlist_adds = bool(body.get('preserve_playlist_adds', False))
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
-        preserve = (lambda mr: not mr.download_file) if preserve_playlist_adds else None
+        preserved_bundle_uuids: set[str] = set()
+        if preserve_playlist_adds:
+            def preserve(media_request):
+                keep = not media_request.download_file
+                if keep and media_request.bundle_uuid:
+                    preserved_bundle_uuids.add(media_request.bundle_uuid)
+                return keep
+        else:
+            preserve = None
         with otel_span_wrapper('downloader.clear', context=ctx, kind=SpanKind.SERVER):
             dropped = await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve)
         return web.json_response(
-            {'dropped': [mr.model_dump(mode='json') for mr in dropped]}, status=200,
+            {
+                'dropped': [mr.model_dump(mode='json') for mr in dropped],
+                'preserved_bundle_uuids': sorted(preserved_bundle_uuids),
+            },
+            status=200,
         )
 
     async def _handle_block(self, request: web.Request) -> web.Response:
