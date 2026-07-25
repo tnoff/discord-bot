@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Music: add `music.download_client.url` to run downloads on a standalone downloader pod over HTTP (HA mode) — the cog builds an `HttpDownloadClient` and skips the in-process worker/loop; unset keeps the single-process in-memory downloader. `clear_guild_queue` now returns the preserved bundle_uuids so playlist-add bundles are not deleted during cleanup in HA.
+
+## [2.5.60] - 2026-07-25
+
+### Changed
+
 - Bumped boto3 to v1.43.56
 
 ## [2.5.59] - 2026-07-22
