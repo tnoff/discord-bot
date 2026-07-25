@@ -341,9 +341,14 @@ async def test_retrying_request_emits_retry_summary(fake_context):  # pylint: di
                    if c.args[0] == retry_key]
     assert len(retry_calls) == 1
     content = retry_calls[0].args[2]
-    assert 'Retrying' in content
-    assert 'attempt 1/' in content
-    assert 'retrying in' not in content
+    # update_mutable expects a list of page-strings, one Discord message per
+    # element. A bare str would be iterated character-by-character, rendering
+    # "Retrying" as one letter per message (prod bug 2026-07-24).
+    assert isinstance(content, list)
+    assert len(content) == 1
+    assert 'Retrying' in content[0]
+    assert 'attempt 1/' in content[0]
+    assert 'retrying in' not in content[0]
     # No delete_after — the note is torn down explicitly, not auto-expired.
     assert retry_calls[0].kwargs.get('delete_after') is None
     # It is not removed while still retrying.

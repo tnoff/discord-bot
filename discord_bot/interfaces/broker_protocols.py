@@ -416,9 +416,13 @@ class MediaBrokerBase(ABC):
         )
         if retries:
             for req_uuid, msg in retries:
+                # update_mutable expects a list of page-strings (one Discord
+                # message per element); the retry note is a single pre-sized
+                # message, so wrap it. Passing a bare str makes the dispatcher
+                # iterate it character-by-character — one message per letter.
                 self.dispatcher.update_mutable(
                     f'request_retry-{bundle_uuid}-{req_uuid}',
-                    renderer.state.guild_id, msg, renderer.state.channel_id,
+                    renderer.state.guild_id, [msg], renderer.state.channel_id,
                     sticky=False,
                 )
         # Tear down the retry note once its request reaches a terminal stage:
