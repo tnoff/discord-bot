@@ -36,7 +36,7 @@ bot = [
     "dappertable @ https://gitlab.com/tnoff-projects/dappertable/-/archive/v1.0.0/dappertable-v1.0.0.tar.gz",
     "alembic==1.18.5",
     "beautifulsoup4==4.15.0",
-    "boto3==1.43.51",
+    "boto3==1.43.56",
     "google-api-python-client==2.198.0",
     "moviepy==2.2.1",
     "davey==0.1.6",
