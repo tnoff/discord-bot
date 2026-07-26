@@ -188,6 +188,12 @@ This is to ensure:
 
 After download, each file is converted to raw PCM (16-bit little-endian stereo 48 kHz). The converted `.pcm` file replaces the original download before playback begins.
 
+#### Audio quality
+
+Audio is already pulled at maximum quality and there is nothing to tune for it. The download uses yt-dlp's `format: bestaudio/best` selector, which fetches the single highest-quality audio stream available, and that stream is then converted straight to lossless raw PCM (above) for playback. No lossy re-encode happens anywhere in this path.
+
+Note that yt-dlp's `--audio-quality` flag (its `FFmpegExtractAudio` postprocessor `preferredquality`) does **not** apply here and is intentionally not set. That flag only controls the VBR quality of a *lossy* re-encode performed when yt-dlp extracts audio to a compressed codec (mp3, etc.) via `-x`. Because the bot keeps the best source stream untouched and converts to uncompressed PCM itself, adding an `FFmpegExtractAudio` postprocessor via [`extra_ytdlp_options`](#extra-yt-dlp-options) would insert a lossy transcode *before* the PCM step — lowering quality and adding CPU, not improving anything. Leave it unset to keep audio at its best.
+
 Audio normalization (EBU R128 loudness via ffmpeg's `loudnorm` filter) is available but disabled by default due to processing time. Enable it with:
 
 ```yaml
