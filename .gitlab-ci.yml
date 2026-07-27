@@ -349,9 +349,9 @@ trigger-bump-docker-apps:
 # Same masked-var footgun as dispatcher/broker: shell-export OCI_REPO_NAME_64
 # from $OCI_DOWNLOADER_REPO_NAME_64 in before_script rather than the YAML-level
 # override (GitLab doesn't reliably substitute between two masked vars, so the
-# image would otherwise fall back to the bot repo). No trigger-bump yet —
-# docker-apps doesn't consume the downloader pin until the downloader Deployment
-# lands; the bump producer (trigger-bump-docker-apps-downloader) lands with it.
+# image would otherwise fall back to the bot repo). docker-apps now consumes the
+# downloader pin (downloader-app.yaml, deployed), so trigger-bump-docker-apps-downloader
+# below publishes-then-bumps it like the others.
 "push:image-downloader":
   extends: .buildkit-docker-push
   stage: push
@@ -395,6 +395,22 @@ trigger-bump-docker-apps-broker:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       when: on_success
 
+# docker-apps consumes the discord_downloader pin (downloader-app.yaml, deployed),
+# so publish-then-bump it like bot/dispatcher/broker. BUMP_SOURCE=discord-downloader
+# drives the docker-apps bump-discord-downloader-pin + cleanup-discord-downloader jobs.
+trigger-bump-docker-apps-downloader:
+  extends: .trigger-bump
+  stage: push
+  needs:
+    - job: "push:image-downloader"
+      artifacts: true
+  variables:
+    BUMP_SOURCE: 'discord-downloader'
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
 "notify:mr-opened":
   extends: .discord-notify
   stage: notify
@@ -427,6 +443,8 @@ trigger-bump-docker-apps-broker:
     - job: trigger-bump-docker-apps-dispatcher
       optional: true
     - job: trigger-bump-docker-apps-broker
+      optional: true
+    - job: trigger-bump-docker-apps-downloader
       optional: true
   variables:
     NOTIFY_TYPE: failure
