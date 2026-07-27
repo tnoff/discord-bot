@@ -1,39 +1,39 @@
 include:
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/tag.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/discord-notify.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/renovate.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/branch-cleanup.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/bump-version.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/assemble-changelog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/trufflehog.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/trufflehog-image.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/trigger-bump.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/buildkit-build-check.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/buildkit-docker-push.yml'
   - project: 'tnoff-projects/github-workflows'
-    ref: 618e1754c3f52d78998c6d78b91f60c52ea7e05a
+    ref: 21573c982171f7285e10af8bbfc80d40b24fe693
     file: '/gitlab/tox-pipeline.yml'
 
 default:
