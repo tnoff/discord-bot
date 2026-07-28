@@ -280,6 +280,31 @@ music:
       proxy: http://localhost:8888
 ```
 
+### Egress Exit Attribution
+
+When downloads egress through a VPN/proxy (see [Extra YT-DLP Options](#extra-yt-dlp-options)), a flagged or throttled exit IP looks the same as any other download failure. Enabling an **egress probe** attributes each download to the exit it actually left from, so a bad exit is identifiable and can be pruned.
+
+`egress_probe` selects a probe by name. It is **off by default** — when unset, exit attribution reads `unknown` and nothing extra is polled. When set, the probe polls an IP-reporting endpoint **through the same proxy** yt-dlp uses (on a slow interval, so it never adds meaningful load) and caches the live exit. Supported values:
+
+| Value | Provider | Endpoint |
+| --- | --- | --- |
+| `mullvad` | Mullvad VPN | `am.i.mullvad.net/json` |
+
+```
+music:
+  download:
+    egress_probe: mullvad
+    extra_ytdlp_options:
+      proxy: http://localhost:8888
+```
+
+When enabled, the live exit is attached to observability — deliberately **not** as a high-cardinality metric label:
+
+- the `music.download_client.create_source` span gets `egress.hostname` / `egress.ip` attributes
+- each YouTube download failure logs `Download failure (<type>) attributed to egress exit <hostname>`
+
+Aggregate failure alerting stays on the existing `download_failure_count` metric; the per-exit breakdown is a trace/log drill-down. The probe runs in the standalone [HA downloader](ha.md) process, which owns the proxy. An unknown `egress_probe` value fails at startup rather than silently disabling attribution. Add a new provider by subclassing `ExitProbe` in `discord_bot/utils/integrations/egress_probe.py` and registering it in `EXIT_PROBE_TYPES`.
+
 ### YTDLP Wait Time
 
 Add a minimum wait time being youtube extractor downloads with yt-dlp, along with a "variance" of random time to add in between. The variance is to make the traffic look more natural.

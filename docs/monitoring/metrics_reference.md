@@ -158,6 +158,7 @@ Common trace attributes:
 - `guild_id` - Discord guild context
 - `user_id` - Discord user context
 - `channel_id` - Discord channel context
+- `egress.hostname` / `egress.ip` - Live VPN/proxy exit a download left from, on `music.download_client.create_source` spans (or `unknown`); requires `music.download.egress_probe` (see [music docs](../music.md#egress-exit-attribution))
 
 ## Logs
 

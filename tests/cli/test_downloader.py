@@ -48,6 +48,7 @@ def _patch_collaborators(mocker):
         'DownloadHttpServer': mocker.patch.object(downloader_cli, 'DownloadHttpServer'),
         'RedisPingHealthServer': mocker.patch.object(downloader_cli, 'RedisPingHealthServer'),
         'DownloadMetrics': mocker.patch.object(downloader_cli, 'DownloadMetrics'),
+        'build_exit_probe': mocker.patch.object(downloader_cli, 'build_exit_probe'),
         'run_downloader': mocker.patch.object(downloader_cli, 'run_downloader'),
     }
 
@@ -85,10 +86,27 @@ def test_run_wires_collaborators(mocker):
     mocks['DownloadMetrics'].assert_called_once_with(worker)
     download_metrics = mocks['DownloadMetrics'].return_value
 
+    # Egress exit probe built (default: unconfigured -> no type, no proxy) and wired.
+    mocks['build_exit_probe'].assert_called_once_with(None, None)
+    exit_probe = mocks['build_exit_probe'].return_value
+    worker.set_exit_probe.assert_called_once_with(exit_probe)
+
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
     mocks['run_downloader'].assert_called_once_with(
-        worker, server, None, redis_manager, download_metrics)
+        worker, server, None, redis_manager, download_metrics, exit_probe)
+
+
+def test_run_builds_exit_probe_from_config(mocker):
+    '''The egress probe is built from music.download.egress_probe + the yt-dlp proxy.'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_probe': 'mullvad',
+        'extra_ytdlp_options': {'proxy': 'http://discord-vpn:8888'}})
+    downloader_cli.run(settings, _GeneralConfig())
+    mocks['build_exit_probe'].assert_called_once_with('mullvad', 'http://discord-vpn:8888')
+    worker = mocks['RedisDownloadWorker'].return_value
+    worker.set_exit_probe.assert_called_once_with(mocks['build_exit_probe'].return_value)
 
 
 def test_run_respects_configured_server_host_and_port(mocker):
@@ -218,6 +236,8 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
 
     metrics = mocker.Mock()
     metrics.run = mocker.AsyncMock()
+    exit_probe = mocker.Mock()
+    exit_probe.run = mocker.AsyncMock()
 
     captured = {}
 
@@ -234,7 +254,8 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
         handler(cli_common.signal.SIGTERM, None)
 
     await asyncio.gather(
-        downloader_cli.main_loop(worker, server, health_server, redis_manager, metrics),
+        downloader_cli.main_loop(worker, server, health_server, redis_manager, metrics,
+                                 exit_probe),
         _fire_sigterm(),
     )
 
@@ -242,13 +263,14 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
     server.serve.assert_awaited_once()
     health_server.serve.assert_awaited_once()
     metrics.run.assert_awaited_once()
+    exit_probe.run.assert_awaited_once()
     server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_main_loop_without_health_server(mocker):
-    '''main_loop tolerates a None health_server (still drains on shutdown).'''
+    '''main_loop tolerates a None health_server and a None exit_probe (still drains).'''
     redis_manager = mocker.Mock()
     redis_manager.start = mocker.AsyncMock()
     redis_manager.close = mocker.AsyncMock()
@@ -277,8 +299,9 @@ async def test_main_loop_without_health_server(mocker):
         await asyncio.sleep(0)
         captured[cli_common.signal.SIGINT](cli_common.signal.SIGINT, None)
 
+    # exit_probe=None (attribution disabled) -> the guard skips scheduling it.
     await asyncio.gather(
-        downloader_cli.main_loop(worker, server, None, redis_manager, metrics),
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
         _fire(),
     )
     server.drain_and_stop.assert_awaited_once()
@@ -291,10 +314,11 @@ def test_run_downloader_delegates_to_run_loop(mocker):
     sentinel = object()
     main_loop = mocker.Mock(return_value=sentinel)
     mocker.patch.object(downloader_cli, 'main_loop', new=main_loop)
-    worker, server, health, redis_manager, metrics = (
-        object(), object(), object(), object(), object())
-    downloader_cli.run_downloader(worker, server, health, redis_manager, metrics)
-    main_loop.assert_called_once_with(worker, server, health, redis_manager, metrics)
+    worker, server, health, redis_manager, metrics, exit_probe = (
+        object(), object(), object(), object(), object(), object())
+    downloader_cli.run_downloader(worker, server, health, redis_manager, metrics, exit_probe)
+    main_loop.assert_called_once_with(worker, server, health, redis_manager, metrics,
+                                      exit_probe)
     run_loop.assert_called_once_with(sentinel)
 
 

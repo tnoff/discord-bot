@@ -433,6 +433,9 @@ class RedisDownloadWorker(DownloadWorkerBase):
         if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED,
                           DownloadErrorType.RETRYABLE,
                           DownloadErrorType.BOT_FLAGGED}:
+            # Prod path: RedisDownloadWorker.update_tracking overrides the base and
+            # never calls super, so the by-exit failure log must fire here too.
+            self._log_exit_failure(error_type)
             count = await self._record_failure(direct=False)
             await self._extend_wait_until(multiplier=2 ** count)
             return

@@ -15,6 +15,7 @@ from discord_bot.clients.download_client import (
     DirectItemAvailableException,
 )
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
+from discord_bot.interfaces import download_protocols
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus
@@ -1459,3 +1460,87 @@ async def test_run_no_backoff_preserves_submission_order():
     results = _reported_results(mock_broker)
     assert results[0].media_request.uuid == mr_search.uuid
     assert results[1].media_request.uuid == mr_direct.uuid
+
+
+class _FakeExitProbe:
+    '''Minimal ExitProbe stand-in exposing cached exit accessors.'''
+    def __init__(self, hostname='us-lax-wg-101', ip='1.2.3.4'):
+        self.exit_hostname = hostname
+        self.exit_ip = ip
+
+
+def _failed_youtube_result(fake_context):
+    '''Build a failed (RETRYABLE) DownloadResult for a non-DIRECT request.'''
+    media_request = fake_source_dict(fake_context)
+    return DownloadResult(
+        status=DlStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='boom'),
+        media_request=media_request, ytdlp_data=None, file_name=None,
+    )
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_update_tracking_failure_logs_egress_hostname(mocker):
+    '''An in-process failure logs the cached egress exit for Loki drill-down.'''
+    x = make_download_client()
+    x.set_exit_probe(_FakeExitProbe())
+    logger = mocker.patch.object(x, 'logger')
+    await x.update_tracking(_failed_youtube_result(generate_fake_context()))
+    logger.warning.assert_called_once()
+    assert 'us-lax-wg-101' in logger.warning.call_args.args
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_update_tracking_failure_logs_unknown_without_probe(mocker):
+    '''Without a probe wired, the failure log attributes to unknown.'''
+    x = make_download_client()
+    logger = mocker.patch.object(x, 'logger')
+    await x.update_tracking(_failed_youtube_result(generate_fake_context()))
+    logger.warning.assert_called_once()
+    assert 'unknown' in logger.warning.call_args.args
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_update_tracking_success_does_not_log_egress(mocker):
+    '''A successful result never emits the by-exit failure log.'''
+    x = make_download_client()
+    x.set_exit_probe(_FakeExitProbe())
+    logger = mocker.patch.object(x, 'logger')
+    media_request = fake_source_dict(generate_fake_context())
+    result = DownloadResult(
+        status=DlStatus(success=True), media_request=media_request,
+        ytdlp_data={'extractor': 'youtube'}, file_name=None,
+    )
+    await x.update_tracking(result)
+    logger.warning.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_stamps_egress_on_span(mocker):
+    '''create_source stamps egress.hostname / egress.ip on the create_source span.'''
+    x = make_download_client(yield_dlp_error('Video unavailable'))
+    x.set_exit_probe(_FakeExitProbe())
+    spy = mocker.patch.object(download_protocols, 'otel_span_wrapper',
+                              wraps=download_protocols.otel_span_wrapper)
+    y = fake_source_dict(generate_fake_context())
+    await x.create_source(y, 3)
+    create_calls = [c for c in spy.call_args_list
+                    if c.args and c.args[0].endswith('.create_source')]
+    assert len(create_calls) == 1
+    attributes = create_calls[0].kwargs['attributes']
+    assert attributes['egress.hostname'] == 'us-lax-wg-101'
+    assert attributes['egress.ip'] == '1.2.3.4'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_stamps_unknown_exit_when_no_probe(mocker):
+    '''With no probe attached, the span attributes fall back to unknown.'''
+    x = make_download_client(yield_dlp_error('Video unavailable'))
+    spy = mocker.patch.object(download_protocols, 'otel_span_wrapper',
+                              wraps=download_protocols.otel_span_wrapper)
+    y = fake_source_dict(generate_fake_context())
+    await x.create_source(y, 3)
+    create_calls = [c for c in spy.call_args_list
+                    if c.args and c.args[0].endswith('.create_source')]
+    attributes = create_calls[0].kwargs['attributes']
+    assert attributes['egress.hostname'] == 'unknown'
+    assert attributes['egress.ip'] == 'unknown'

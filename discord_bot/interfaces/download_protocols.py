@@ -44,7 +44,11 @@ from discord_bot.types.download import (
 )
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
-from discord_bot.utils.otel import capture_span_context, otel_span_wrapper, span_links_from_context
+from discord_bot.utils.integrations.egress_probe import cached_exit_attributes, cached_exit_hostname
+from discord_bot.utils.otel import (
+    AttributeNaming, capture_span_context,
+    otel_span_wrapper, span_links_from_context,
+)
 from discord_bot.utils.common import get_logger, LoggingConfig
 
 
@@ -288,6 +292,23 @@ class DownloadWorkerBase(ABC):
         self.normalize_audio: bool = normalize_audio
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
+        # Optional ExitProbe, wired by the downloader entrypoint; None on the
+        # in-process/bot path, in which case exit attribution reads 'unknown'.
+        self._exit_probe = None
+
+    def set_exit_probe(self, exit_probe) -> None:
+        '''Attach an ExitProbe whose cached exit the download path attributes to.'''
+        self._exit_probe = exit_probe
+
+    def _log_exit_failure(self, error_type: DownloadErrorType) -> None:
+        '''
+        Log the egress exit a YouTube failure left from, so failures can be grouped
+        by exit in Loki without paying the metric cardinality of a per-exit label.
+        Shared by the in-process base failure branch and the Redis worker's
+        YouTube-failure path so both attribute failures to the exit that was live.
+        '''
+        self.logger.warning('Download failure (%s) attributed to egress exit %s',
+                             error_type.value, cached_exit_hostname(self._exit_probe))
 
     @property
     def wait_timestamp(self) -> float | None:
@@ -329,6 +350,7 @@ class DownloadWorkerBase(ABC):
             return self.backoff_seconds_remaining
 
         if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED, DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
+            self._log_exit_failure(error_type)
             if self.failure_queue is not None:
                 self.failure_queue.add_item(FailureStatus(
                     success=False,
@@ -524,6 +546,11 @@ class DownloadWorkerBase(ABC):
         max_retries: Max retries before throwing hands up
         '''
         span_attributes = media_request_attributes(media_request)
+        # Stamp the live egress exit onto the span so a download failure can be
+        # traced back to the exit it left from. Runs in BOTH workers.
+        exit_hostname, exit_ip = cached_exit_attributes(self._exit_probe)
+        span_attributes[AttributeNaming.EGRESS_HOSTNAME.value] = exit_hostname
+        span_attributes[AttributeNaming.EGRESS_IP.value] = exit_ip
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes, links=span_links_from_context(media_request.span_context)) as span:
             span_context = capture_span_context()
             try:

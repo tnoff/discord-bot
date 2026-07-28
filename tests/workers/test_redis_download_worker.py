@@ -552,3 +552,48 @@ async def test_status_snapshot_reports_backoff_and_failures():
     assert snapshot['backoff_seconds_remaining'] > 0
     assert snapshot['failure_summary'] == '1 failures in queue'
     assert snapshot['failure_count'] == 1
+
+
+# --------------------------------------------------------------------------- #
+# egress-exit failure log (prod YouTube-failure path)
+# --------------------------------------------------------------------------- #
+
+class _FakeExitProbe:
+    '''Minimal ExitProbe stand-in exposing cached exit accessors.'''
+    def __init__(self, hostname='us-lax-wg-101', ip='1.2.3.4'):
+        self.exit_hostname = hostname
+        self.exit_ip = ip
+
+
+@pytest.mark.asyncio
+async def test_youtube_failure_logs_egress_exit(mocker):
+    '''Prod path: a YouTube failure logs the cached egress exit hostname.'''
+    w = _worker()
+    w.set_exit_probe(_FakeExitProbe())
+    logger = mocker.patch.object(w, 'logger')
+    result = _result(_mk(direct=False), success=False, error_type=DownloadErrorType.RETRYABLE)
+    await w.update_tracking(result)
+    logger.warning.assert_called_once()
+    assert 'us-lax-wg-101' in logger.warning.call_args.args
+
+
+@pytest.mark.asyncio
+async def test_direct_failure_does_not_log_egress(mocker):
+    '''DIRECT failures don't go through the YouTube path, so nothing is logged there.'''
+    w = _worker()
+    w.set_exit_probe(_FakeExitProbe())
+    log_exit = mocker.patch.object(w, '_log_exit_failure')
+    result = _result(_mk(direct=True), success=False, error_type=DownloadErrorType.RETRYABLE)
+    await w.update_tracking(result)
+    log_exit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_youtube_success_does_not_log_egress(mocker):
+    '''A successful YouTube result never emits the by-exit failure log.'''
+    w = _worker()
+    w.set_exit_probe(_FakeExitProbe())
+    log_exit = mocker.patch.object(w, '_log_exit_failure')
+    result = _result(_mk(direct=False), success=True, extractor='youtube')
+    await w.update_tracking(result)
+    log_exit.assert_not_called()

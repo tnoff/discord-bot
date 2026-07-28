@@ -39,6 +39,11 @@ class AttributeNaming(Enum):
     BACKGROUND_JOB = 'background_job'
     OUTCOME = 'outcome'
     ZONE = 'zone'
+    # Provider-agnostic egress exit the download traffic left from (see
+    # utils/integrations/egress_probe.py).  High-cardinality attribution lives on
+    # spans/logs, never a metric label.
+    EGRESS_HOSTNAME = 'egress.hostname'
+    EGRESS_IP = 'egress.ip'
 
 class DiscordContextNaming(Enum):
     '''

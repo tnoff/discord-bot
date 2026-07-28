@@ -38,6 +38,7 @@ from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
 from discord_bot.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 
@@ -85,7 +86,7 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
 
 async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                     health_server, redis_manager: RedisManager,
-                    download_metrics: DownloadMetrics):
+                    download_metrics: DownloadMetrics, exit_probe: ExitProbe | None):
     '''Run the downloader until SIGTERM/SIGINT, then drain the HTTP server and Redis.'''
     await redis_manager.start()
     with shutdown_event_signals() as stop_event:
@@ -97,6 +98,10 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
             asyncio.create_task(_drive_worker(worker, stop_event, logger))
             # Metrics poller exits on its own when stop_event is set.
             asyncio.create_task(download_metrics.run(stop_event))
+            # Egress exit probe (optional): refreshes the cached exit through the
+            # proxy; failures never propagate into the download path.
+            if exit_probe is not None:
+                asyncio.create_task(exit_probe.run(stop_event))
             logger.info('Main :: Downloader running')
             await stop_event.wait()
         finally:
@@ -108,10 +113,10 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
 
 def run_downloader(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                    health_server, redis_manager: RedisManager,
-                   download_metrics: DownloadMetrics):
+                   download_metrics: DownloadMetrics, exit_probe: ExitProbe | None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(worker, download_http_server, health_server, redis_manager,
-                       download_metrics))
+                       download_metrics, exit_probe))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -177,8 +182,18 @@ def run(settings: dict, general_config: GeneralConfig):
 
     download_metrics = DownloadMetrics(worker)
 
+    # Probe the live egress exit through the SAME proxy yt-dlp downloads use, and
+    # give the worker a handle so create_source spans + failure logs can read the
+    # cached exit hostname. Selected by music.download.egress_probe (e.g. 'mullvad');
+    # absent -> no probe and attribution reads 'unknown'. Proxy may be absent too,
+    # in which case the probe just queries the exit directly.
+    extra_ytdlp_options = download_cfg.get('extra_ytdlp_options') or {}
+    exit_probe = build_exit_probe(download_cfg.get('egress_probe'),
+                                  extra_ytdlp_options.get('proxy'))
+    worker.set_exit_probe(exit_probe)
+
     run_downloader(worker, download_http_server, health_server, redis_manager,
-                   download_metrics)
+                   download_metrics, exit_probe)
 
 
 if __name__ == '__main__':  # pragma: no cover
