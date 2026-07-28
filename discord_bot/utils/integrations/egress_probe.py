@@ -132,9 +132,14 @@ class ExitProbe(ABC):
         while not stop_event.is_set():
             try:
                 await self.refresh()
-            except Exception:
-                logger.exception('%s :: refresh failed; keeping last value',
-                                 type(self).__name__)
+            except Exception as exc:
+                # Best-effort probe: a proxy blip / gluetun tunnel re-establish
+                # (ConnectionRefused) or an odd response is expected and tolerated,
+                # so keep the last-known exit and log at WARNING with a one-line
+                # summary — not logger.exception(), whose ERROR + full stacktrace
+                # every tick would spam error dashboards for a non-error condition.
+                logger.warning('%s :: refresh failed (%s); keeping last value',
+                               type(self).__name__, exc)
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=interval)
             except asyncio.TimeoutError:
