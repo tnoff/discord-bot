@@ -1,3 +1,7 @@
+# White-box tests reach into the extracted search worker (client.local_worker
+# internals: the injected ytmusic client, the input queue, the failure queue and
+# backoff timestamp), mirroring tests/workers/test_redis_download_worker.py.
+# pylint: disable=protected-access
 import asyncio
 from asyncio import QueueFull
 from datetime import datetime, timezone
@@ -126,7 +130,7 @@ async def test_search_youtube_music_empty_queue(mocker, fake_context):  #pylint:
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient()
 
     # Queue is empty, should return without error
     result = await cog.search_youtube_music()
@@ -158,14 +162,14 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -194,14 +198,14 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Create mock cached item
     with TemporaryDirectory() as tmp_dir:
@@ -240,13 +244,13 @@ async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fa
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, None)
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     media_request = create_test_media_request(fake_context, 'test search')
     bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                      all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     with TemporaryDirectory() as tmp_dir:
         # The real broker.check_cache binds the cached download to the SAME
@@ -278,14 +282,14 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient(None)  # No result
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient(None)  # No result
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()
 
@@ -305,14 +309,14 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -336,14 +340,14 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -366,14 +370,14 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and playlist add request
     media_request = create_test_playlist_add_request(fake_context, playlist_id=123, search_string='test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Create mock cached item
     with TemporaryDirectory() as tmp_dir:
@@ -525,8 +529,8 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     assert result is True
 
     # Verify search request went to search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) > 0
-    search_queue_item = cog.youtube_music_search_queue.get_nowait()
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) > 0
+    search_queue_item = cog.youtube_music_search_client.local_worker._input_queue.get_nowait()
     assert search_queue_item == search_request
 
     # Verify direct request went to download queue
@@ -554,14 +558,14 @@ async def test_search_youtube_music_search_client_exception(mocker, fake_context
             raise RuntimeError("Network error")
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = FailingYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = FailingYoutubeMusicClient()
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Should handle exception gracefully and not crash
     try:
@@ -589,14 +593,14 @@ async def test_search_youtube_music_search_client_timeout(mocker, fake_context):
             raise asyncio.TimeoutError("Search timeout")
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = TimeoutYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = TimeoutYoutubeMusicClient()
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Should handle timeout gracefully
     try:
@@ -646,7 +650,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     assert result is True
 
     # Verify search requests (including spotify-originated) went to search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 2
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 2
 
     # Verify direct and youtube requests went to download queue
     assert await cog.download_client.queue_size(fake_context['guild'].id) == 3
@@ -654,7 +658,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     # Verify correct items in each queue
     search_queue_items = []
     for _ in range(2):
-        item = cog.youtube_music_search_queue.get_nowait()
+        item = cog.youtube_music_search_client.local_worker._input_queue.get_nowait()
         search_queue_items.append(item)
 
     download_queue_items = []
@@ -707,10 +711,10 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     assert result is True
 
     # Verify item went to search queue with correct priority
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 1
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 1
 
     # Check that the guild queue has the correct priority
-    guild_queue_data = cog.youtube_music_search_queue.queues[fake_context['guild'].id]
+    guild_queue_data = cog.youtube_music_search_client.local_worker._input_queue.queues[fake_context['guild'].id]
     assert guild_queue_data.priority == test_priority
 
 
@@ -723,14 +727,14 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -786,10 +790,10 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
 
     assert result is True
     # Verify the search queue size is configured correctly
-    assert cog.youtube_music_search_queue.max_size == 4
+    assert cog.youtube_music_search_client.local_worker._input_queue.max_size == 4
 
     # All 10 items should fit in search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 4
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 4
 
     # Download queue should be empty initially
     assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
@@ -808,14 +812,14 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     # failure during the search push.
     dispatcher = MagicMock()
     cog = Music(fake_context['bot'], config, dispatcher)
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -844,7 +848,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Create multiple broker bundles with one request each
     media_request1 = create_test_media_request(fake_context, 'test search 1')
@@ -853,8 +857,8 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     bundle2, media_request2 = await make_broker_bundle(cog, fake_context, request=media_request2)
 
     # Add both to search queue
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request1)
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request2)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request1)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request2)
 
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
@@ -887,16 +891,16 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = RateLimitedYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = RateLimitedYoutubeMusicClient()
 
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                       all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     result = await cog.search_youtube_music()
 
@@ -905,7 +909,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     assert media_request.youtube_music_retry_information.retry_count == 1
     assert media_request.youtube_music_retry_information.retry_reason is not None
     # Item should be back in the search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 1
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 1
     # Not in download queue
     assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
 
@@ -917,26 +921,26 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = RateLimitedYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = RateLimitedYoutubeMusicClient()
 
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                       all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     freezer.move_to('2025-01-01 12:00:00 UTC')
-    assert cog.youtube_music_wait_timestamp is None
+    assert cog.youtube_music_search_client.local_worker._wait_timestamp is None
 
     await cog.search_youtube_music()
 
     # Failure queue size is 1, so multiplier is 2^1 = 2
     # Expected: now (1735732800) + 30*2 + 5 = 1735732865
-    assert cog.youtube_music_wait_timestamp == 1735732865
-    assert cog.youtube_music_failure_queue.size == 1
+    assert cog.youtube_music_search_client.local_worker._wait_timestamp == 1735732865
+    assert cog.youtube_music_search_client.local_worker._failure_queue.size == 1
 
 
 @pytest.mark.asyncio()
@@ -946,29 +950,29 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = RateLimitedYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = RateLimitedYoutubeMusicClient()
 
     # Pre-populate failure queue with 2 existing failures
-    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
-    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
-    assert cog.youtube_music_failure_queue.size == 2
+    cog.youtube_music_search_client.local_worker._failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    cog.youtube_music_search_client.local_worker._failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    assert cog.youtube_music_search_client.local_worker._failure_queue.size == 2
 
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                       all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     freezer.move_to('2025-01-01 12:00:00 UTC')
     await cog.search_youtube_music()
 
     # Failure queue size is now 3, so multiplier is 2^3 = 8
     # Expected: now (1735732800) + 30*8 + 5 = 1735733045
-    assert cog.youtube_music_failure_queue.size == 3
-    assert cog.youtube_music_wait_timestamp == 1735733045
+    assert cog.youtube_music_search_client.local_worker._failure_queue.size == 3
+    assert cog.youtube_music_search_client.local_worker._wait_timestamp == 1735733045
 
 
 @pytest.mark.asyncio()
@@ -979,10 +983,10 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     }
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.random.randint', return_value=5000)
+    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = RateLimitedYoutubeMusicClient()
+    cog.youtube_music_search_client.local_worker._client = RateLimitedYoutubeMusicClient()
 
     media_request = create_test_media_request(fake_context, 'test search')
     # Simulate already at retry limit
@@ -990,14 +994,14 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                       all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()
 
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
     assert media_request.failure_reason is not None
     # Should NOT be re-queued in search queue
-    assert cog.youtube_music_search_queue.size(fake_context['guild'].id) == 0
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 0
 
 
 @pytest.mark.asyncio()
@@ -1018,16 +1022,16 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
             return 'test-video-id'
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = SucceedOnSecondCallClient()
+    cog.youtube_music_search_client.local_worker._client = SucceedOnSecondCallClient()
 
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request,
                                                       all_added=True)
 
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     # First call hits 429
-    mocker.patch.object(cog, 'youtube_music_backoff_time', return_value=True)
+    mocker.patch.object(cog.youtube_music_search_client.local_worker, 'backoff_wait', new=AsyncMock())
     await cog.search_youtube_music()
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
 
@@ -1044,23 +1048,23 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.youtube_music_client = MockYoutubeMusicClient('test-video-id')
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
     # Pre-populate failure queue
-    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
-    cog.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
-    assert cog.youtube_music_failure_queue.size == 2
+    cog.youtube_music_search_client.local_worker._failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    cog.youtube_music_search_client.local_worker._failure_queue.add_item(FailureStatus(success=False, exception_type='YoutubeMusicRetryException'))
+    assert cog.youtube_music_search_client.local_worker._failure_queue.size == 2
 
     media_request = create_test_media_request(fake_context, 'test search')
     _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()
 
     # Successful search should remove one failure from the queue
-    assert cog.youtube_music_failure_queue.size == 1
+    assert cog.youtube_music_search_client.local_worker._failure_queue.size == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1069,12 +1073,12 @@ async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_co
 
 @pytest.mark.asyncio
 async def test_youtube_backoff_time_expired_returns_true(fake_context):  # pylint: disable=redefined-outer-name
-    """youtube_music_backoff_time returns True immediately when timestamp is in the past."""
+    """backoff_wait returns immediately when the timestamp is in the past."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     # Set timestamp to the past (now - 100 seconds)
-    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() - 100
-    result = await cog.youtube_music_backoff_time()
-    assert result is True
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() - 100
+    result = await cog.youtube_music_search_client.local_worker.backoff_wait(cog.bot_shutdown_event)
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -1082,21 +1086,21 @@ async def test_youtube_backoff_time_shutdown_raises(fake_context):  # pylint: di
     """youtube_music_backoff_time raises ExitEarlyException when shutdown is set."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     # Set timestamp to the future
-    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
     cog.bot_shutdown_event.set()
     with pytest.raises(ExitEarlyException):
-        await cog.youtube_music_backoff_time()
+        await cog.youtube_music_search_client.local_worker.backoff_wait(cog.bot_shutdown_event)
 
 
 @pytest.mark.asyncio
 async def test_youtube_backoff_time_waits_until_timeout(fake_context):  # pylint: disable=redefined-outer-name
-    """youtube_music_backoff_time waits for the event and returns True when it times out."""
+    """backoff_wait waits for the event and returns when it times out."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     # Set timestamp to just slightly in the future (tiny wait)
-    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 0.05
-    # bot_shutdown NOT set → wait_for will time out → returns True
-    result = await cog.youtube_music_backoff_time()
-    assert result is True
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() + 0.05
+    # bot_shutdown NOT set → wait_for will time out → returns None
+    result = await cog.youtube_music_search_client.local_worker.backoff_wait(cog.bot_shutdown_event)
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -1104,7 +1108,7 @@ async def test_youtube_backoff_time_raises_when_event_set_during_wait(fake_conte
     """youtube_music_backoff_time raises ExitEarlyException when shutdown is set during wait."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     # Set timestamp far in the future so wait_for won't time out before the event fires
-    cog.youtube_music_wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
 
     async def _set_event_soon():
         await asyncio.sleep(0.02)
@@ -1113,7 +1117,7 @@ async def test_youtube_backoff_time_raises_when_event_set_during_wait(fake_conte
     asyncio.ensure_future(_set_event_soon())
 
     with pytest.raises(ExitEarlyException):
-        await cog.youtube_music_backoff_time()
+        await cog.youtube_music_search_client.local_worker.backoff_wait(cog.bot_shutdown_event)
 
 
 @pytest.mark.asyncio()
@@ -1167,7 +1171,7 @@ async def test_enqueue_media_requests_search_queue_blocked_deletes_bundle(mocker
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     search_request = create_test_media_request(fake_context, 'search term', search_type=SearchType.SEARCH)
-    mocker.patch.object(cog.youtube_music_search_queue, 'put_nowait', side_effect=PutsBlocked())
+    mocker.patch.object(cog.youtube_music_search_client.local_worker._input_queue, 'put_nowait', side_effect=PutsBlocked())
     mock_player = MagicMock()
     mocker.patch.object(cog, 'get_player', return_value=mock_player)
 

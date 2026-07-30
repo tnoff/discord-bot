@@ -68,7 +68,7 @@ async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):
     # here too — cleanup discards it via a broker lifecycle push.
     request = fake_source_dict(fake_context)
     await cog.media_broker.register_request(request)
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, request)
+    await cog.youtube_music_search_client.submit(fake_context['guild'].id, request)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
@@ -124,7 +124,7 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
     # playlist_req is in SEARCHING/non-terminal state and download_file=False.
     # It must live in a queue so the cleanup preserve_predicate keeps it (and
     # records its bundle as preserved).
-    cog.youtube_music_search_queue.put_nowait(fake_context['guild'].id, playlist_req)
+    await cog.youtube_music_search_client.submit(fake_context['guild'].id, playlist_req)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 

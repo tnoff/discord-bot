@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
-from discord import VoiceChannel, TextChannel
+from discord import VoiceChannel
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -32,7 +32,7 @@ from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 from discord_bot.interfaces.download_protocols import DownloadClient
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
-from discord_bot.utils.failure_queue import FailureStatus, FailureQueue
+from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
@@ -51,10 +51,13 @@ from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
-from discord_bot.utils.distributed_queue import DistributedQueue
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
+from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+from discord_bot.clients.youtube_music_search_client import (
+    InMemoryYoutubeMusicSearchClient, YoutubeMusicSearchClient,
+)
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
@@ -214,10 +217,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.db_engine:
             self.history_playlist_queue = Queue()
 
-        # Queues for youtube music search; download queue is owned by download_client
-        # Search queue can be larger since search requests are lightweight
-        self.youtube_music_search_queue: DistributedQueue[tuple[MediaRequest, TextChannel]] = DistributedQueue(self.config.player.queue_max_size * 2)
-
         self.spotify_client = None
         if self.config.download.spotify_credentials:
             self.spotify_client = SpotifyClient(
@@ -228,8 +227,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.youtube_client = None
         if self.config.download.youtube_api_key:
             self.youtube_client = YoutubeClient(self.config.download.youtube_api_key)
-
-        self.youtube_music_client = YoutubeMusicClient()
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -329,11 +326,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     **download_worker_kwargs,
                 )
             self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
-        self.youtube_music_failure_queue = FailureQueue(
-            max_size=self.config.download.failure_tracking_max_size,
-            max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+        # YouTube-Music search runs through a worker + client (extracted from the
+        # cog); single-process wraps an in-memory AsyncioYoutubeMusicSearchWorker.
+        # Search requests are lightweight, so the queue is sized larger than the
+        # play queue.  A future HttpYoutubeMusicSearchClient will front a search pod.
+        search_worker = AsyncioYoutubeMusicSearchWorker(
+            self.logging_config,
+            YoutubeMusicClient(),
+            FailureQueue(
+                max_size=self.config.download.failure_tracking_max_size,
+                max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+            ),
+            self.config.download.youtube_wait_period_minimum,
+            self.config.download.youtube_wait_period_max_variance,
+            queue_max_size=self.config.player.queue_max_size * 2,
         )
-        self.youtube_music_wait_timestamp: float | None = None
+        self.youtube_music_search_client: YoutubeMusicSearchClient = InMemoryYoutubeMusicSearchClient(search_worker)
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -353,7 +361,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_task_loop_active_callback, 'Download result processing loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value, self.__download_result_queue_depth_callback, 'Pending download results awaiting processing')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
-        if self.youtube_music_client:
+        if self.youtube_music_search_client:
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
 
     # Metric callback functons
@@ -775,7 +783,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
         try:
-            media_request = self.youtube_music_search_queue.get_nowait()
+            media_request = self.youtube_music_search_client.get_input_nowait()
         except QueueEmpty:
             # Idle: no search queued — back off before the loop runner re-calls
             # rather than busy-spinning every ~10ms.
@@ -784,23 +792,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Default lifecycle_stage is already SEARCHING — register_request rendered
         # the bundle when the request entered the pipeline.
-        await self.youtube_music_backoff_time()
+        await self.youtube_music_search_client.backoff_wait(self.bot_shutdown_event)
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_youtube_music', kind=SpanKind.CLIENT,
                                            attributes=media_request_attributes(media_request),
                                            links=span_links_from_context(media_request.span_context)) as span:
             self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
             try:
-                youtube_music_result = await asyncio.get_running_loop().run_in_executor(None, partial(self.youtube_music_client.search, media_request.search_result.raw_search_string))
-                self.youtube_music_failure_queue.add_item(FailureStatus())
+                youtube_music_result = await self.youtube_music_search_client.resolve(media_request)
             except YoutubeMusicRetryException as e:
-                self.youtube_music_failure_queue.add_item(FailureStatus(success=False, exception_type=type(e).__name__, exception_message=str(e)))
-                self.logger.info(f'Youtube music search failure queue status: {self.youtube_music_failure_queue.get_status_summary()}')
-                self.update_youtube_music_timestamp(backoff_multiplier=2 ** self.youtube_music_failure_queue.size)
-                backoff_seconds = None
-                if self.youtube_music_wait_timestamp:
-                    backoff_seconds = int(self.youtube_music_wait_timestamp - datetime.now(timezone.utc).timestamp())
-                    backoff_seconds = max(0, backoff_seconds)
+                # resolve() already recorded the failure and armed the backoff window;
+                # the cog still owns the per-request retry_count / re-enqueue / lifecycle.
+                backoff_seconds = self.youtube_music_search_client.backoff_seconds_remaining
+                if backoff_seconds is not None:
                     self.logger.info(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
                 media_request.youtube_music_retry_information.retry_count += 1
                 if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
@@ -808,7 +812,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                     await self._push_state(media_request, LifecycleEvent.FAILED,
                                            failure_reason='Youtube music search rate limit exceeded after max retries')
                 else:
-                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+                    await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                     await self._push_state(media_request, LifecycleEvent.RETRY_SEARCH,
                                            error_detail=str(e), backoff_seconds=backoff_seconds,
                                            retry_count=media_request.youtube_music_retry_information.retry_count)
@@ -841,46 +845,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
                 await self._push_state(media_request, LifecycleEvent.DISCARDED)
         return True
-
-    def update_youtube_music_timestamp(self, backoff_multiplier: int = 1) -> bool:
-        '''
-        Update the youtube music search backoff timestamp
-
-        backoff_multiplier: Multiply backoff time by factor
-        '''
-        new_timestamp = int(datetime.now(timezone.utc).timestamp())
-        new_timestamp = new_timestamp + (self.config.download.youtube_wait_period_minimum * backoff_multiplier)
-        random.seed(time())
-        # bandit B311: backoff jitter, not security-sensitive
-        new_timestamp = new_timestamp + (random.randint(1000, self.config.download.youtube_wait_period_max_variance * 1000) / 1000)  # nosec B311
-        self.logger.info(f'Waiting on youtube music search backoff, waiting until {new_timestamp}')
-        self.youtube_music_wait_timestamp = new_timestamp
-        return True
-
-    async def youtube_music_backoff_time(self):
-        '''
-        Wait for next youtube music search time
-        '''
-        if self.youtube_music_wait_timestamp is None:
-            return True
-
-        now = datetime.now(timezone.utc).timestamp()
-        sleep_duration = max(0, self.youtube_music_wait_timestamp - now)
-
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Exiting bot wait loop')
-
-        if sleep_duration == 0:
-            return True
-
-        try:
-            await asyncio.wait_for(
-                self.bot_shutdown_event.wait(),
-                timeout=sleep_duration
-            )
-            raise ExitEarlyException('Exiting bot wait loop')
-        except asyncio.TimeoutError:
-            return True
 
     async def process_download_results(self):
         '''
@@ -1036,13 +1000,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in clear_result.dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
 
-            dropped = self.youtube_music_search_queue.clear_queue(guild.id, preserve_predicate=preserve_predicate)
+            dropped = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
             self.logger.debug(f'Cleanup found {len(dropped)} existing search queue items')
             for item in dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
 
             await self.download_client.block_guild(guild.id)
-            self.youtube_music_search_queue.block(guild.id)
+            await self.youtube_music_search_client.block_guild(guild.id)
 
             player = None
             # Clear play queue if that didnt happen
@@ -1206,7 +1170,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Unless a direct or youtube url, pass into the search queue
             if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
                 try:
-                    self.youtube_music_search_queue.put_nowait(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+                    await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
                 except PutsBlocked:
                     self.logger.info(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
                     await self.delete_bundle(ctx.guild.id, bundle_uuid)
