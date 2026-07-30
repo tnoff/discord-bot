@@ -127,7 +127,19 @@ def run(settings: dict, general_config: GeneralConfig):
         video_cache = _build_video_cache(download_cfg.get('cache', {}), db_engine, bucket_name)
 
         dispatch_http_url = general_settings.get('dispatch_http_url')
-        dispatcher = HttpDispatchClient(dispatch_http_url) if dispatch_http_url else None
+        if dispatch_http_url:
+            dispatcher = HttpDispatchClient(dispatch_http_url)
+        else:
+            # No dispatcher wired: the broker still tracks bundle state but every
+            # request_bundle render / failure summary is silently dropped, so the
+            # user sees no "queued / downloading / ready" messages. That failure is
+            # invisible without this warning (a mis-keyed general.dispatch_http_url
+            # lands here just like an intentional omission).
+            logger.warning(
+                'No general.dispatch_http_url configured — broker will track bundle '
+                'state but cannot push any bundle UI / failure messages to Discord.'
+            )
+            dispatcher = None
 
         broker = RedisBroker(
             registry,
