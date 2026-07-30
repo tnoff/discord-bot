@@ -33,6 +33,11 @@ def test_pydantic_validate_minimal_config():
     assert config.discord_token == 'abctoken'
     assert config.include.default is True  # Default value
 
+def test_pydantic_config_allows_missing_discord_token():
+    '''discord_token is optional — gateway-less processes (broker/downloader) omit it.'''
+    config = GeneralConfig(redis_url='redis://localhost:6379/0')
+    assert config.discord_token is None
+
 def test_pydantic_sql_statement_config():
     sql_input = {
         'discord_token': 'abctoken',

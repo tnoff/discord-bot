@@ -366,3 +366,16 @@ def parse_and_validate_config(config_file: str) -> tuple[dict, GeneralConfig]:
         print(f'Invalid config, general section does not match schema: {str(exc)}', file=sys.stderr)
         raise DiscordBotException('Invalid general config') from exc
     return settings, general_config
+
+
+def require_discord_token(general_config: GeneralConfig) -> str:
+    '''
+    Return the Discord token, raising for gateway processes that must have one.
+
+    discord_token is optional in GeneralConfig (broker/downloader never connect to
+    Discord); the gateway entrypoints (bot/dispatcher/full) call this so a missing
+    token fails with a clear message instead of a cryptic discord.py login error.
+    '''
+    if not general_config.discord_token:
+        raise DiscordBotException('discord_token is required to connect to Discord')
+    return general_config.discord_token

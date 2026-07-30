@@ -3,9 +3,24 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
+import pytest
 
-from discord_bot.cli._lib.common import setup_logging, setup_observability, setup_profiling
+from discord_bot.cli._lib.common import (
+    setup_logging, setup_observability, setup_profiling, require_discord_token,
+)
+from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils.common import GeneralConfig
+
+
+def test_require_discord_token_returns_token():
+    '''A gateway process gets its token back when one is configured.'''
+    assert require_discord_token(GeneralConfig(discord_token='abctoken')) == 'abctoken'
+
+
+def test_require_discord_token_raises_when_missing():
+    '''A gateway process with no token fails with a clear error, not a discord.py one.'''
+    with pytest.raises(DiscordBotException, match='discord_token is required'):
+        require_discord_token(GeneralConfig())
 
 
 def _drop_handlers(*names):

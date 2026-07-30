@@ -17,7 +17,7 @@ from discord_bot.utils.common import GeneralConfig
 from discord_bot.cli._lib.common import (
     build_bot, bot_lifecycle, load_cogs, run_loop,
     setup_observability, register_on_ready,
-    parse_and_validate_config,
+    parse_and_validate_config, require_discord_token,
 )
 from discord_bot.cli._lib.cog_registry import POSSIBLE_COGS
 from discord_bot.cli._lib.db import managed_db, instrument_sqlalchemy
@@ -47,7 +47,7 @@ async def main_loop(bot: Bot, cog_list: list, token: str,
 def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list,
             dispatcher: MessageDispatcher, health_server=None):
     '''Schedule main_loop on an existing event loop or start a new one.'''
-    run_loop(main_loop(bot, cog_list, general_config.discord_token, dispatcher,
+    run_loop(main_loop(bot, cog_list, require_discord_token(general_config), dispatcher,
                        health_server=health_server))
 
 

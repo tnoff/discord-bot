@@ -19,7 +19,7 @@ from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli._lib.common import (
     build_bot, bot_lifecycle, run_loop,
-    setup_observability, parse_and_validate_config,
+    setup_observability, parse_and_validate_config, require_discord_token,
 )
 
 
@@ -54,7 +54,7 @@ async def main_loop(bot: Bot, token: str, redis_manager: RedisManager, dispatche
 def run_bot(general_config: GeneralConfig, bot: Bot, redis_manager: RedisManager,
             dispatcher: MessageDispatcher, health_server=None, dispatch_http_server=None):
     '''Schedule main_loop on an existing event loop or start a new one.'''
-    run_loop(main_loop(bot, general_config.discord_token, redis_manager, dispatcher,
+    run_loop(main_loop(bot, require_discord_token(general_config), redis_manager, dispatcher,
                        health_server=health_server,
                        dispatch_http_server=dispatch_http_server))
 

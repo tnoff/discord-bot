@@ -45,7 +45,9 @@ def test_run_no_file():
 
 def test_run_config_but_no_data():
     '''
-    Test with empty config
+    An empty general config is now schema-valid (discord_token is optional so
+    gateway-less broker/downloader don't need it), but the bot CLI still refuses to
+    run without its required HA wiring / token.
     '''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
@@ -55,7 +57,8 @@ def test_run_config_but_no_data():
             dump(config_data, writer)
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
-        assert 'Invalid general config' in str(result.exception)
+        assert result.exit_code == 1
+        assert 'required' in str(result.exception)
 
 @pytest.mark.asyncio
 async def test_run_config_only_token(mocker):

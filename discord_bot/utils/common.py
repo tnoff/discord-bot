@@ -129,7 +129,10 @@ class RedisSentinelConfig(BaseModel):
 
 class GeneralConfig(BaseModel):
     '''General bot configuration'''
-    discord_token: str
+    # Optional in the shared schema: gateway-less processes (broker, downloader)
+    # never connect to Discord. The gateway entrypoints (bot/dispatcher/full)
+    # require it explicitly via require_discord_token().
+    discord_token: Optional[str] = None
     sql_connection_statement: Optional[str] = None
     storage: Optional[StorageConfig] = None
     monitoring: Optional[MonitoringConfig] = None
