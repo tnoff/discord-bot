@@ -425,46 +425,6 @@ trigger-bump-docker-apps-downloader:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: always
 
-"notify:push-failure":
-  extends: .discord-notify
-  stage: notify
-  needs:
-    - "push:tag"
-    - job: "push:image-bot"
-      optional: true
-    - job: "push:image-dispatcher"
-      optional: true
-    - job: "push:image-broker"
-      optional: true
-    - job: "push:image-downloader"
-      optional: true
-    - job: trigger-bump-docker-apps
-      optional: true
-    - job: trigger-bump-docker-apps-dispatcher
-      optional: true
-    - job: trigger-bump-docker-apps-broker
-      optional: true
-    - job: trigger-bump-docker-apps-downloader
-      optional: true
-  variables:
-    NOTIFY_TYPE: failure
-    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
-      when: on_failure
-
-"notify:renovate-failure":
-  extends: .discord-notify
-  stage: renovate
-  needs: [renovate]
-  variables:
-    NOTIFY_TYPE: failure
-    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
-    NOTIFY_MESSAGE: 'Renovate failed'
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: on_failure
-
 "notify:merged":
   extends: .discord-notify
   stage: notify
@@ -498,15 +458,3 @@ branch-cleanup:
     DRY_RUN: "false"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-
-"notify:cleanup-failure":
-  extends: .discord-notify
-  stage: renovate
-  needs: [branch-cleanup]
-  variables:
-    NOTIFY_TYPE: failure
-    DISCORD_WEBHOOK_URL: $DISCORD_BUILD_FAILURE_WEBHOOK
-    NOTIFY_MESSAGE: 'Branch cleanup failed'
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-      when: on_failure
