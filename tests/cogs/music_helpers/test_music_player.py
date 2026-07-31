@@ -777,3 +777,53 @@ async def test_player_loop_checkout_s3_key_downloads(fake_context): #pylint:disa
                 player.add_to_play_queue(media_download)
                 await player.player_loop()
                 mock_get.assert_called_once_with('my-bucket', 'track.mp3', mock_get.call_args[0][2])
+
+
+def _s3_checkout_get_file():
+    '''broker.checkout → s3_key CheckoutResult and a get_file that stages a file.'''
+    checkout = AsyncMock(return_value=CheckoutResult(s3_key='track.mp3', bucket_name='my-bucket'))
+
+    def _fake_get_file(_bucket, _key, dest):
+        Path(dest).write_bytes(b'audio')
+
+    return checkout, _fake_get_file
+
+
+@pytest.mark.asyncio
+async def test_player_loop_slow_staging_logs_warning(fake_context): #pylint:disable=redefined-outer-name
+    """Staging past PLAY_STAGING_SLOW_SECONDS escalates the timing line to WARNING and
+    splits broker-checkout vs S3-fetch so a prod stall is visible and attributable."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.broker.checkout, fake_get_file = _s3_checkout_get_file()
+            player.logger = Mock()
+            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+                       side_effect=fake_get_file), \
+                 patch('discord_bot.cogs.music_helpers.music_player.monotonic',
+                       side_effect=[0.0, 1.0, 1.0, 7.0]):
+                player.add_to_play_queue(media_download)
+                await player.player_loop()
+            staging = [c for c in player.logger.warning.call_args_list if 'Play staging' in c.args[0]]
+            assert len(staging) == 1
+            # checkout 1.0s + S3 fetch 6.0s reported as the two phases.
+            assert staging[0].args[4] == pytest.approx(1.0)
+            assert staging[0].args[5] == pytest.approx(6.0)
+
+
+@pytest.mark.asyncio
+async def test_player_loop_fast_staging_logs_debug_not_warning(fake_context): #pylint:disable=redefined-outer-name
+    """Sub-threshold staging logs the timing line at DEBUG, never WARNING."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.broker.checkout, fake_get_file = _s3_checkout_get_file()
+            player.logger = Mock()
+            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+                       side_effect=fake_get_file), \
+                 patch('discord_bot.cogs.music_helpers.music_player.monotonic',
+                       side_effect=[0.0, 0.1, 0.1, 0.3]):
+                player.add_to_play_queue(media_download)
+                await player.player_loop()
+            assert not [c for c in player.logger.warning.call_args_list if 'Play staging' in c.args[0]]
+            assert [c for c in player.logger.debug.call_args_list if 'Play staging' in c.args[0]]

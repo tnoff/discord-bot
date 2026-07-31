@@ -4,7 +4,7 @@ from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 from re import sub
-from time import time
+from time import time, monotonic
 from typing import List
 
 from async_timeout import timeout
@@ -26,6 +26,13 @@ from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.integrations.s3 import get_file
 from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming, span_links_from_context
+
+
+# Staging a track for playback (broker checkout + S3 fetch) happens between a
+# track leaving the play queue and audio starting, so slow staging is dead air.
+# Past this many seconds the per-track timing log is escalated from DEBUG to
+# WARNING so a stall is visible in prod without DEBUG logging enabled.
+PLAY_STAGING_SLOW_SECONDS = 5.0
 
 
 
@@ -131,24 +138,43 @@ class MusicPlayer:
                 'music.play_track', kind=SpanKind.INTERNAL, attributes=span_attributes,
                 links=span_links_from_context(media_download.media_request.span_context)):
             checkout_result: CheckoutResult | None = None
+            checkout_seconds = 0.0
             if self.broker:
+                checkout_started = monotonic()
                 checkout_result = await self.broker.checkout(
                     str(media_download.media_request.uuid), self.guild.id, self.file_dir
                 )
+                checkout_seconds = monotonic() - checkout_started
 
             # Default to the download's own path; override with whatever the broker
             # checked out. local_path means the file is already staged locally (the
             # single-process / non-HA path — behaviour-preserving). s3_key means an
             # HA broker pod holds it in S3 and the bot must fetch it before playback.
             file_path = media_download.file_path
+            s3_fetch_seconds = 0.0
             if checkout_result and checkout_result.local_path:
                 file_path = checkout_result.local_path
             elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
                 extension = ''.join(Path(checkout_result.s3_key).suffixes)
                 local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
                 self.file_dir.mkdir(exist_ok=True)
+                s3_fetch_started = monotonic()
                 await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
+                s3_fetch_seconds = monotonic() - s3_fetch_started
                 file_path = local_path
+            # Surface how long staging this track took: broker checkout + (in HA) the
+            # S3 fetch sit between the track leaving the play queue and audio starting,
+            # so a slow broker or S3 GET reads as dead air. DEBUG normally; escalated
+            # to WARNING past PLAY_STAGING_SLOW_SECONDS so a prod stall is visible
+            # without DEBUG logging, and splits the two phases to say which was slow.
+            staging_seconds = checkout_seconds + s3_fetch_seconds
+            staging_log = (self.logger.warning if staging_seconds >= PLAY_STAGING_SLOW_SECONDS
+                           else self.logger.debug)
+            staging_log(
+                'Play staging for "%s" in guild %s took %.2fs (broker checkout %.2fs, S3 fetch %.2fs)',
+                media_download.webpage_url, self.guild.id, staging_seconds,
+                checkout_seconds, s3_fetch_seconds,
+            )
             # A checkout miss (e.g. the broker has no entry yet) leaves file_path
             # pointing at the download's own path, which in S3 mode is the object key
             # ("cache/…"), not a local file. Skip the track rather than letting open()
