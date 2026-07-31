@@ -21,10 +21,11 @@ from typing import Any, List, Protocol
 from opentelemetry.trace import SpanKind
 
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.interfaces.result_queue import DownloadResultQueue
+from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.integrations.s3 import delete_file
 from discord_bot.utils.otel import async_otel_span_wrapper
 from discord_bot.workers.media_bundle import BundleRenderer, BundleState
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 # — kept separate to avoid dragging the broker engine's deps (sqlalchemy via
 # VideoCacheClient) into the dispatcher pod, which only needs the Redis
 # WorkQueue/BundleStore from workers/redis_queues.
-__all__ = ['DownloadResultQueue']
+__all__ = ['DownloadResultQueue', 'SearchResultQueue']
 
 
 @dataclass
@@ -81,6 +82,13 @@ class BrokerClient(Protocol):
         MediaDownload from the result they receive.'''
     async def next_result(self) -> DownloadResult | None:
         '''Pop the next bot-ready DownloadResult, or None if nothing is ready.
+        Non-blocking — callers poll on their own cadence.'''
+    async def register_search_result(self, resolution: SearchResolution) -> None:
+        '''Push a resolved search onto the bot-ready search-result queue served
+        by next_search_result.  Pure passthrough — the broker engine is not
+        involved (search resolves nothing on the broker).'''
+    async def next_search_result(self) -> SearchResolution | None:
+        '''Pop the next bot-ready SearchResolution, or None if nothing is ready.
         Non-blocking — callers poll on their own cadence.'''
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
         '''Mark a request CHECKED_OUT; returns a CheckoutResult with local_path or s3_key set.'''

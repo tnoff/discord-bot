@@ -4,9 +4,11 @@ import asyncio
 import pytest
 
 from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.workers.asyncio_queues import (
     AsyncioBundleStore,
     AsyncioDownloadResultQueue,
+    AsyncioSearchResultQueue,
     AsyncioWorkQueue,
 )
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -215,4 +217,53 @@ async def test_download_result_queue_raw_queue_is_underlying_queue():
     q = AsyncioDownloadResultQueue(raw)
     assert q.raw_queue is raw
     await q.put(_result())
+    assert raw.qsize() == 1
+
+
+# ---------------------------------------------------------------------------
+# AsyncioSearchResultQueue
+# ---------------------------------------------------------------------------
+
+
+def _resolution() -> SearchResolution:
+    mr = fake_source_dict(generate_fake_context())
+    return SearchResolution(media_request=mr, span_context={'trace': 'x'})
+
+
+@pytest.mark.asyncio
+async def test_search_result_queue_put_then_get():
+    '''put then get_nowait returns the queued resolution.'''
+    q = AsyncioSearchResultQueue()
+    r = _resolution()
+    await q.put(r)
+    popped = await q.get_nowait()
+    assert popped is r
+
+
+@pytest.mark.asyncio
+async def test_search_result_queue_get_empty_returns_none():
+    '''get_nowait on an empty queue returns None.'''
+    q = AsyncioSearchResultQueue()
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_search_result_queue_depth():
+    '''depth() reflects qsize and drops as items are popped.'''
+    q = AsyncioSearchResultQueue()
+    assert await q.depth() == 0
+    await q.put(_resolution())
+    await q.put(_resolution())
+    assert await q.depth() == 2
+    await q.get_nowait()
+    assert await q.depth() == 1
+
+
+@pytest.mark.asyncio
+async def test_search_result_queue_raw_queue_is_underlying_queue():
+    '''raw_queue exposes the wrapped asyncio.Queue for sync metric reads.'''
+    raw = asyncio.Queue()
+    q = AsyncioSearchResultQueue(raw)
+    assert q.raw_queue is raw
+    await q.put(_resolution())
     assert raw.qsize() == 1

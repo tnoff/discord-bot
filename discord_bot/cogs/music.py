@@ -39,6 +39,7 @@ from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerCl
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
@@ -205,6 +206,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._download_tasks = []
         self._result_task = None
+        self._search_result_task = None
         self._post_play_processing_task = None
         self._youtube_search_task = None
         self._init_task = None
@@ -360,6 +362,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_task_loop_active_callback, 'Download result processing loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value, self.__download_result_queue_depth_callback, 'Pending download results awaiting processing')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__search_result_task_loop_active_callback, 'Search result processing loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.SEARCH_RESULT_QUEUE_DEPTH.value, self.__search_result_queue_depth_callback, 'Pending resolved searches awaiting download submit')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
         if self.youtube_music_search_client:
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
@@ -422,6 +426,34 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return [
             Observation(depth, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
+            })
+        ]
+
+    def __search_result_task_loop_active_callback(self, _options):
+        '''
+        Loop active callback check
+        '''
+        value = 1 if (self._search_result_task and not self._search_result_task.done()) else 0
+        return [
+            Observation(value, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'process_search_results'
+            })
+        ]
+
+    def __search_result_queue_depth_callback(self, _options):
+        '''
+        Total resolved searches waiting to be submitted to the download pipeline.
+
+        Only meaningful when broker_client owns a local search-result queue
+        (single-process / embedded broker server); HA mode reports 0 because the
+        queue lives on the broker pod and this gauge needs a synchronous read.
+        '''
+        search_result_queue = getattr(self.broker_client, 'search_result_queue', None)
+        raw_queue = getattr(search_result_queue, 'raw_queue', None)
+        depth = raw_queue.qsize() if raw_queue is not None else 0
+        return [
+            Observation(depth, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'process_search_results'
             })
         ]
 
@@ -501,6 +533,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 for _ in range(self.config.download.max_concurrent_downloads)
             ]
         self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
+        self._search_result_task = self.bot.loop.create_task(return_loop_runner(self.process_search_results, self.bot, self.logger)())
         self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
         if self.config.broker_server:
             broker_server = BrokerHttpServer(
@@ -544,6 +577,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self.download_client.stop()
             if self._result_task:
                 self._result_task.cancel()
+            if self._search_result_task:
+                self._search_result_task.cancel()
             if self._post_play_processing_task:
                 self._post_play_processing_task.cancel()
             if self._youtube_search_task:
@@ -822,6 +857,38 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # This returns the raw id, make sure we add the proper prefix for caching bits
                 media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
 
+            # Hand the resolved request back through the broker's search-result
+            # queue; process_search_results runs the bot-side tail (cache-check
+            # then download submit). This is the seam a standalone search pod
+            # will use to return resolutions to the bot (Option A) — in-process
+            # today, so producer and consumer share the one InMemory queue.
+            await self.broker_client.register_search_result(
+                SearchResolution(media_request=media_request, span_context=capture_span_context()))
+        return True
+
+    async def process_search_results(self):
+        '''
+        Search-result consumer: routes resolved searches into the download
+        pipeline.  Resolution happens on the search loop (in-process today, a
+        standalone search pod under HA); this loop runs the bot-side tail —
+        cache-check then download submit — which can only run where the download
+        client and cache live.  Mirrors process_download_results.
+        '''
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Bot shutdown called, exiting early')
+
+        resolution = await self.broker_client.next_search_result()
+        if resolution is None:
+            # Idle — no resolved search ready right now.  Sleep before the loop
+            # runner re-calls so we don't busy-spin the broker (in HA a remote
+            # GET /search-results/next poll).
+            await sleep(_BROKER_POLL_INTERVAL_SECONDS)
+            return
+
+        media_request = resolution.media_request
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_search_results', kind=SpanKind.CONSUMER,
+                                           attributes=media_request_attributes(media_request),
+                                           links=span_links_from_context(media_request.span_context) + span_links_from_context(resolution.span_context)) as span:
             await self._push_state(media_request, LifecycleEvent.QUEUED)
 
             # Check if cache item exists already
@@ -832,7 +899,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # A second COMPLETED here is redundant and trails an extra render behind
                 # the remove — the source of the stranded "Media request queued for
                 # download" status message — so it is intentionally omitted.
-                return True
+                span.set_status(StatusCode.OK)
+                return
 
             try:
                 self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
@@ -840,11 +908,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except PutsBlocked:
                 self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
                 await self._push_state(media_request, LifecycleEvent.DISCARDED)
-                return False
+                return
             except QueueFull:
                 self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
                 await self._push_state(media_request, LifecycleEvent.DISCARDED)
-        return True
+            span.set_status(StatusCode.OK)
 
     async def process_download_results(self):
         '''

@@ -16,14 +16,16 @@ from discord_bot.interfaces.broker_protocols import (
     BrokerClient,
     CheckoutResult,
     DownloadResultQueue,
+    SearchResultQueue,
     MediaBrokerBase,
 )
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.utils.otel import async_otel_span_wrapper
-from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
+from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 # Re-exported so `from discord_bot.clients.broker_client import CheckoutResult`
 # / `BrokerClient` keep working.  Canonical home is interfaces/broker_protocols.
@@ -57,10 +59,15 @@ def _media_download_from_dict(data: dict, media_request: MediaRequest) -> MediaD
     return md
 
 
-class InMemoryBrokerClient:
+class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
     '''
     BrokerClient backed by a local MediaBroker instance.  Used when all
     components run in the same process.
+
+    Wide by design: it implements the full BrokerClient Protocol (~19 methods)
+    plus the result_queue / search_result_queue / local_broker accessors an
+    embedded BrokerHttpServer and the cog's depth gauges read — so it trips
+    too-many-public-methods, disabled here as on the Music cog.
 
     The internal result_queue holds DownloadResults reported by the local
     DownloadClient so next_result can hand them off to the cog's
@@ -69,16 +76,26 @@ class InMemoryBrokerClient:
     POSTing in land on the same queue the cog drains).
     '''
     def __init__(self, broker: MediaBrokerBase,
-                 result_queue: DownloadResultQueue | None = None):
+                 result_queue: DownloadResultQueue | None = None,
+                 search_result_queue: SearchResultQueue | None = None):
         self._broker = broker
         self._result_queue: DownloadResultQueue = (
             result_queue if result_queue is not None else AsyncioDownloadResultQueue()
+        )
+        self._search_result_queue: SearchResultQueue = (
+            search_result_queue if search_result_queue is not None else AsyncioSearchResultQueue()
         )
 
     @property
     def result_queue(self) -> DownloadResultQueue:
         '''Internal queue exposed so an embedded BrokerHttpServer can share it.'''
         return self._result_queue
+
+    @property
+    def search_result_queue(self) -> SearchResultQueue:
+        '''Internal search-result queue, exposed so an embedded BrokerHttpServer
+        can share it (and so the cog's queue-depth gauge can read it).'''
+        return self._search_result_queue
 
     @property
     def local_broker(self) -> MediaBrokerBase:
@@ -113,6 +130,15 @@ class InMemoryBrokerClient:
     async def next_result(self) -> DownloadResult | None:
         '''Pop the next ready DownloadResult; returns None if the queue is empty.'''
         return await self._result_queue.get_nowait()
+
+    async def register_search_result(self, resolution: SearchResolution) -> None:
+        '''Push a resolved search onto the local bot-ready queue for
+        next_search_result.  No broker-engine call — search is passthrough.'''
+        await self._search_result_queue.put(resolution)
+
+    async def next_search_result(self) -> SearchResolution | None:
+        '''Pop the next ready SearchResolution; None if the queue is empty.'''
+        return await self._search_result_queue.get_nowait()
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
         '''Delegate to broker.checkout, which already returns a CheckoutResult.'''
@@ -231,6 +257,31 @@ class HttpBrokerClient(HttpClientMixin):
             payload = await resp.json()
             async with async_otel_span_wrapper('broker.next_result', kind=SpanKind.CLIENT):
                 return DownloadResult.model_validate(payload)
+
+    async def register_search_result(self, resolution: SearchResolution) -> None:
+        '''POST /search-results — the broker pushes the resolution onto its
+        bot-ready search-result queue.  Consumers fetch via next_search_result.'''
+        async with async_otel_span_wrapper('broker.register_search_result', kind=SpanKind.CLIENT):
+            await self._http('POST', f'{self._base_url}/search-results',
+                             resolution.model_dump(mode='json'))
+
+    async def next_search_result(self) -> SearchResolution | None:
+        '''GET /search-results/next — returns the next ready SearchResolution, or
+        None when the broker has nothing in the queue (HTTP 204).
+
+        Like next_result, the empty (204) path mints NO span: this endpoint is
+        polled ~1/second even while idle, and a span per empty poll churns ~86k
+        allocations/day (glibc arena fragmentation → OOM). The span is only
+        opened once an actual resolution is being parsed.'''
+        session = self._get_session()
+        async with session.get(f'{self._base_url}/search-results/next',
+                               headers=self._trace_headers()) as resp:
+            if resp.status == 204:
+                return None
+            resp.raise_for_status()
+            payload = await resp.json()
+            async with async_otel_span_wrapper('broker.next_search_result', kind=SpanKind.CLIENT):
+                return SearchResolution.model_validate(payload)
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
         '''

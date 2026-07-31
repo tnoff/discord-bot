@@ -11,8 +11,9 @@ import redis.asyncio as aioredis
 
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.interfaces.result_queue import DownloadResultQueue
+from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.dispatch_queue import RedisDispatchQueue
 
 BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'
@@ -105,29 +106,49 @@ class RedisWorkQueue(WorkQueue):
 
 
 RESULT_QUEUE_KEY = 'discord_bot:broker:results'
+SEARCH_RESULT_QUEUE_KEY = 'discord_bot:broker:search_results'
 
 
-class RedisDownloadResultQueue(DownloadResultQueue):
-    '''DownloadResultQueue backed by a single Redis list.
+class _RedisResultQueue:
+    '''Shared single-Redis-list backing for the bot-ready result queues.
 
-    Push -> LPUSH the JSON-serialised DownloadResult.  Pop -> RPOP and
-    deserialise.  Multiple broker pods share the same key so any pod can
-    answer GET /results/next, and a pod restart doesn't lose pending work.
+    Push -> LPUSH the JSON-serialised model.  Pop -> RPOP and deserialise via
+    the pinned model class.  Multiple broker pods share the same key so any pod
+    can answer the matching GET, and a pod restart doesn't lose pending work.
+    The download and search queues differ only in their list key and model, so
+    that plumbing lives here once.
     '''
 
-    def __init__(self, manager: RedisManager, key: str = RESULT_QUEUE_KEY):
+    def __init__(self, manager: RedisManager, key: str, model):
         self._manager = manager
         self._key = key
+        self._model = model
 
-    async def put(self, result: DownloadResult) -> None:
-        await self._manager.client.lpush(self._key, result.model_dump_json())
+    async def put(self, item) -> None:
+        '''LPUSH the JSON-serialised item onto the shared list.'''
+        await self._manager.client.lpush(self._key, item.model_dump_json())
 
-    async def get_nowait(self) -> DownloadResult | None:
+    async def get_nowait(self):
+        '''RPOP and deserialise the oldest item, or None if the list is empty.'''
         raw = await self._manager.client.rpop(self._key)
         if raw is None:
             return None
-        return DownloadResult.model_validate_json(raw)
+        return self._model.model_validate_json(raw)
 
     async def depth(self) -> int:
-        '''LLEN the shared result list — the true bot-ready backlog across pods.'''
+        '''LLEN the shared list — the true bot-ready backlog across pods.'''
         return await self._manager.client.llen(self._key)
+
+
+class RedisDownloadResultQueue(_RedisResultQueue, DownloadResultQueue):
+    '''DownloadResultQueue backed by a single Redis list shared across broker pods.'''
+
+    def __init__(self, manager: RedisManager, key: str = RESULT_QUEUE_KEY):
+        super().__init__(manager, key, DownloadResult)
+
+
+class RedisSearchResultQueue(_RedisResultQueue, SearchResultQueue):
+    '''SearchResultQueue backed by a single Redis list shared across broker pods.'''
+
+    def __init__(self, manager: RedisManager, key: str = SEARCH_RESULT_QUEUE_KEY):
+        super().__init__(manager, key, SearchResolution)

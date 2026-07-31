@@ -4,11 +4,13 @@ import fakeredis.aioredis
 
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.types.download import DownloadResult, DownloadStatus
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.workers.redis_queues import (
     load_bundle,
     save_bundle,
     RedisBundleStore,
     RedisDownloadResultQueue,
+    RedisSearchResultQueue,
     RedisWorkQueue,
 )
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -216,3 +218,69 @@ async def test_redis_download_result_queue_shared_across_instances():
     popped = await pod_b.get_nowait()
     assert popped is not None
     assert str(popped.media_request.uuid) == str(r.media_request.uuid)
+
+
+# ---------------------------------------------------------------------------
+# RedisSearchResultQueue
+# ---------------------------------------------------------------------------
+
+
+def _search_resolution() -> SearchResolution:
+    mr = fake_source_dict(generate_fake_context())
+    return SearchResolution(media_request=mr, span_context={'trace': 'x'})
+
+
+@pytest.mark.asyncio
+async def test_redis_search_result_queue_round_trip():
+    '''put then get_nowait returns a structurally-identical SearchResolution.'''
+    q = RedisSearchResultQueue(_manager())
+    r = _search_resolution()
+    await q.put(r)
+    popped = await q.get_nowait()
+    assert popped is not None
+    assert str(popped.media_request.uuid) == str(r.media_request.uuid)
+    assert popped.span_context == {'trace': 'x'}
+
+
+@pytest.mark.asyncio
+async def test_redis_search_result_queue_empty_returns_none():
+    '''get_nowait returns None when the Redis list is empty.'''
+    q = RedisSearchResultQueue(_manager())
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_redis_search_result_queue_depth():
+    '''depth() returns the LLEN of the shared list and drops as items are popped.'''
+    q = RedisSearchResultQueue(_manager())
+    assert await q.depth() == 0
+    await q.put(_search_resolution())
+    await q.put(_search_resolution())
+    assert await q.depth() == 2
+    await q.get_nowait()
+    assert await q.depth() == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_search_result_queue_fifo_order():
+    '''Queue is FIFO — first put pops first.'''
+    q = RedisSearchResultQueue(_manager())
+    r1 = _search_resolution()
+    r2 = _search_resolution()
+    await q.put(r1)
+    await q.put(r2)
+    assert str((await q.get_nowait()).media_request.uuid) == str(r1.media_request.uuid)
+    assert str((await q.get_nowait()).media_request.uuid) == str(r2.media_request.uuid)
+    assert await q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_redis_search_result_queue_separate_key_from_downloads():
+    '''The search queue uses its own list key, so it never collides with the
+    download result queue on the same manager.'''
+    manager = _manager()
+    search_q = RedisSearchResultQueue(manager)
+    download_q = RedisDownloadResultQueue(manager)
+    await search_q.put(_search_resolution())
+    assert await search_q.depth() == 1
+    assert await download_q.depth() == 0

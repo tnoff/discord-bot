@@ -43,6 +43,7 @@ def _patch_run_deps(mocker, video_cache=None):
         'redis_manager': mocker.patch('discord_bot.cli.broker.RedisManager', return_value=MagicMock()),
         'registry': mocker.patch('discord_bot.cli.broker.RedisBrokerRegistry', return_value=MagicMock()),
         'result_queue': mocker.patch('discord_bot.cli.broker.RedisDownloadResultQueue', return_value=MagicMock()),
+        'search_result_queue': mocker.patch('discord_bot.cli.broker.RedisSearchResultQueue', return_value=MagicMock()),
         'metrics': mocker.patch('discord_bot.cli.broker.BrokerMetrics', return_value=MagicMock()),
         'video_cache': mocker.patch('discord_bot.cli.broker._build_video_cache', return_value=video_cache),
         'dispatch': mocker.patch('discord_bot.cli.broker.HttpDispatchClient', return_value=MagicMock()),
@@ -66,10 +67,13 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     assert kwargs['bucket_name'] == 'my-bucket'
     assert kwargs['download_max_retries'] == 5
     assert kwargs['search_max_retries'] == 4
-    # Server gets the Redis-backed result queue, no ha_mode.
+    # Server gets the Redis-backed result queues (download + search), no ha_mode.
     assert m['server'].call_args.kwargs['result_queue'] is m['result_queue'].return_value
-    # Metrics poller built from the result queue + registry and handed to run_broker.
-    m['metrics'].assert_called_once_with(m['result_queue'].return_value, m['registry'].return_value)
+    assert m['server'].call_args.kwargs['search_result_queue'] is m['search_result_queue'].return_value
+    # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
+    m['metrics'].assert_called_once_with(
+        m['result_queue'].return_value, m['registry'].return_value,
+        search_result_queue=m['search_result_queue'].return_value)
     assert m['run_broker'].call_args.args[3] is m['metrics'].return_value
 
 

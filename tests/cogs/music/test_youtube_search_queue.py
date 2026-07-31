@@ -154,6 +154,34 @@ async def test_search_youtube_music_bot_shutdown(mocker, fake_context):  #pylint
 
 
 @pytest.mark.asyncio()
+async def test_process_search_results_empty_idles(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """process_search_results sleeps (idles) when the broker has no resolution."""
+    mock_sleep = mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+
+    # Nothing on the broker search-result queue → idle backoff, no submit.
+    await cog.process_search_results()
+    mock_sleep.assert_awaited()
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
+
+
+@pytest.mark.asyncio()
+async def test_process_search_results_bot_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """process_search_results exits early once the bot is shutting down."""
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.bot_shutdown_event.set()
+
+    with pytest.raises(ExitEarlyException) as exc:
+        await cog.process_search_results()
+    assert 'Bot shutdown called' in str(exc.value)
+
+
+@pytest.mark.asyncio()
 async def test_search_youtube_music_successful_search_no_cache(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test successful YouTube Music search with no cache hit"""
     config = BASE_MUSIC_CONFIG
@@ -178,6 +206,10 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
 
     # Verify search string was updated with YouTube prefix
     assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
+
+    # search_youtube_music now hands the resolved request to the broker seam;
+    # process_search_results runs the cache-check + download submit tail.
+    await cog.process_search_results()
 
     # Verify request was added to download queue
     assert await cog.download_client.queue_size(fake_context['guild'].id) > 0
@@ -219,6 +251,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
             mock_add_source = mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
             await cog.search_youtube_music()
+            await cog.process_search_results()
 
             # Verify search string was updated with YouTube prefix
             assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
@@ -265,6 +298,7 @@ async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fa
             mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
             await cog.search_youtube_music()
+            await cog.process_search_results()
 
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.COMPLETED
     # The broker re-rendered on the COMPLETED push, so its bundle state already
@@ -292,6 +326,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
 
     await cog.search_youtube_music()
+    await cog.process_search_results()
 
     # Verify original search string unchanged
     assert media_request.search_result.raw_search_string == 'test search'
@@ -325,6 +360,8 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     mocker.patch.object(cog.download_client, 'submit', side_effect=QueueFull())
 
     await cog.search_youtube_music()
+    # The download submit (now in process_search_results) hits the full queue.
+    await cog.process_search_results()
 
     # Verify bundle status was updated to DISCARDED
     bundle_request = bundle.bundled_requests[0]
@@ -344,7 +381,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
 
     # Create a broker bundle and media request
     media_request = create_test_media_request(fake_context, 'test search')
-    _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
+    bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
 
     # Add to search queue
     cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
@@ -355,10 +392,13 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     # Mock download queue blocked
     mocker.patch.object(cog.download_client, 'submit', side_effect=PutsBlocked())
 
-    result = await cog.search_youtube_music()
+    await cog.search_youtube_music()
+    # The blocked download submit now surfaces in process_search_results.
+    await cog.process_search_results()
 
-    # Should return False when puts are blocked
-    assert result is False
+    # Blocked puts drop the request to DISCARDED.
+    bundle_request = bundle.bundled_requests[0]
+    assert bundle_request.media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
 
 
 @pytest.mark.asyncio()
@@ -389,6 +429,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
             mocker.patch.object(cog, '_Music__add_playlist_item', return_value=None)
 
             await cog.search_youtube_music()
+            await cog.process_search_results()
 
             # Verify playlist addition was called with the right request and result
             cog._Music__add_playlist_item.assert_called_once() #pylint:disable=protected-access
@@ -744,6 +785,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
 
     # Should handle missing bundle gracefully
     await cog.search_youtube_music()
+    await cog.process_search_results()
 
     # Verify search still happened and item went to download queue
     assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
@@ -830,6 +872,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     # Should handle message queue failure gracefully
     try:
         await cog.search_youtube_music()
+        await cog.process_search_results()
         # Should not crash despite message queue failure
         # Verify core functionality still works
         assert media_request.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
@@ -863,9 +906,11 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     # Mock cache miss
     mocker.patch.object(cog.media_broker, 'check_cache', new=AsyncMock(return_value=None))
 
-    # Process both items
+    # Process both items through the search loop and the broker seam
     await cog.search_youtube_music()
     await cog.search_youtube_music()
+    await cog.process_search_results()
+    await cog.process_search_results()
 
     # Verify both items were processed correctly
     assert media_request1.search_result.resolved_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'
@@ -1037,6 +1082,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
 
     # Second call succeeds — lifecycle should reset to SEARCHING then proceed to QUEUED
     await cog.search_youtube_music()
+    await cog.process_search_results()
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.QUEUED
 
 

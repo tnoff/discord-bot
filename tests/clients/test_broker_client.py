@@ -15,9 +15,11 @@ from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.clients import broker_client as broker_client_module
 from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, InMemoryBrokerClient
-from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
+from discord_bot.interfaces.result_queue import SearchResultQueue
+from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -84,6 +86,29 @@ class TestInMemoryBrokerClient:
         assert not result_queue.empty()
         queued = result_queue.get_nowait()
         assert queued.media_request is mr
+
+    async def test_register_search_result_enqueues(self):
+        broker = _make_broker()
+        mr = _make_request()
+        search_queue: asyncio.Queue = asyncio.Queue()
+        client = InMemoryBrokerClient(broker, search_result_queue=search_queue)
+        await client.register_search_result(SearchResolution(media_request=mr, span_context={'t': 1}))
+        assert not search_queue.empty()
+        assert search_queue.get_nowait().media_request is mr
+
+    async def test_next_search_result_round_trip(self):
+        broker = _make_broker()
+        mr = _make_request()
+        client = InMemoryBrokerClient(broker)  # default AsyncioSearchResultQueue
+        assert await client.next_search_result() is None
+        await client.register_search_result(SearchResolution(media_request=mr))
+        popped = await client.next_search_result()
+        assert popped.media_request is mr
+        assert await client.next_search_result() is None
+
+    async def test_search_result_queue_property(self):
+        client = InMemoryBrokerClient(_make_broker())
+        assert isinstance(client.search_result_queue, SearchResultQueue)
 
     async def test_checkout_returns_local_path(self):
         broker = _make_broker()
@@ -185,6 +210,24 @@ class TestHttpBrokerClient:
         assert not result_queue.empty()
         queued = result_queue.get_nowait()
         assert str(queued.media_request.uuid) == str(mr.uuid)
+
+    async def test_register_and_next_search_result(self):
+        '''Full HTTP round-trip: register_search_result POSTs, next_search_result
+        GETs it back, and an empty queue returns None (204).'''
+        broker = _make_broker()
+        mr = _make_request()
+        search_queue = AsyncioSearchResultQueue()
+        server = BrokerHttpServer(broker, search_result_queue=search_queue)
+        async with TestClient(TestServer(server.build_app())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            assert await hc.next_search_result() is None
+            await hc.register_search_result(
+                SearchResolution(media_request=mr, span_context={'t': 1}))
+            popped = await hc.next_search_result()
+        assert popped is not None
+        assert str(popped.media_request.uuid) == str(mr.uuid)
+        assert popped.span_context == {'t': 1}
+        assert await search_queue.get_nowait() is None
 
     async def test_checkout_unknown_returns_none(self):
         broker = _make_broker()

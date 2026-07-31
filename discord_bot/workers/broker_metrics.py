@@ -9,6 +9,7 @@ path — a failed refresh just keeps the last-known values until the next tick.
 
 Gauges (job="discord-broker"):
     music.download_result_queue_depth {background_job="broker"} — bot-ready backlog
+    music.search_result_queue_depth {background_job="broker"}   — bot-ready search backlog
     broker.entries {zone="available"|"checked_out"}            — registry entries
     broker.bundles                                             — active multi-request bundles
 '''
@@ -18,7 +19,7 @@ from collections import Counter
 
 from opentelemetry.metrics import Observation
 
-from discord_bot.interfaces.result_queue import DownloadResultQueue
+from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.utils.otel import (create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
@@ -33,15 +34,22 @@ _KNOWN_ZONES = ('in_flight', 'available', 'checked_out')
 class BrokerMetrics:
     '''Polls Redis-backed broker state into gauge-friendly cached values.'''
 
-    def __init__(self, result_queue: DownloadResultQueue, registry: RedisBrokerRegistry):
+    def __init__(self, result_queue: DownloadResultQueue, registry: RedisBrokerRegistry,
+                 search_result_queue: SearchResultQueue | None = None):
         self._result_queue = result_queue
+        self._search_result_queue = search_result_queue
         self._registry = registry
         self._queue_depth = 0
+        self._search_queue_depth = 0
         self._entries_by_zone: dict[str, int] = {}
         self._bundle_count = 0
         create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value,
                                 self.queue_depth_observations,
                                 'Pending download results on the broker bot-ready queue')
+        if self._search_result_queue is not None:
+            create_observable_gauge(METER_PROVIDER, MetricNaming.SEARCH_RESULT_QUEUE_DEPTH.value,
+                                    self.search_queue_depth_observations,
+                                    'Pending resolved searches on the broker bot-ready queue')
         create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_ENTRIES.value,
                                 self.entry_observations,
                                 'Broker registry entries by zone')
@@ -53,6 +61,12 @@ class BrokerMetrics:
     def queue_depth_observations(self, _options=None):
         '''Bot-ready result-queue depth (cached from the last refresh).'''
         return [Observation(self._queue_depth, attributes={
+            AttributeNaming.BACKGROUND_JOB.value: 'broker',
+        })]
+
+    def search_queue_depth_observations(self, _options=None):
+        '''Bot-ready search-result-queue depth (cached from the last refresh).'''
+        return [Observation(self._search_queue_depth, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'broker',
         })]
 
@@ -76,6 +90,8 @@ class BrokerMetrics:
         the previous values.
         '''
         self._queue_depth = await self._result_queue.depth()
+        if self._search_result_queue is not None:
+            self._search_queue_depth = await self._search_result_queue.depth()
         entries = await self._registry.all_entries()
         self._entries_by_zone = dict(Counter(e.get('zone', 'unknown') for e in entries))
         self._bundle_count = len(await self._registry.all_bundles())

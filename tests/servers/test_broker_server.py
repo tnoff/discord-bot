@@ -86,6 +86,43 @@ class TestNextResultCounter:
 
 
 @pytest.mark.asyncio
+class TestNextSearchResultCounter:
+    async def test_empty_increments_empty_outcome(self, mocker):
+        '''GET /search-results/next with nothing queued returns 204 and counts "empty".'''
+        counter = mocker.patch('discord_bot.servers.broker_server._SEARCH_RESULT_FETCH_COUNTER')
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=None)
+        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/search-results/next')
+            assert resp.status == 204
+        counter.add.assert_called_once_with(1, {'outcome': 'empty'})
+
+    async def test_hit_increments_hit_outcome(self, mocker):
+        '''GET /search-results/next with a resolution queued returns 200 and counts "hit".'''
+        counter = mocker.patch('discord_bot.servers.broker_server._SEARCH_RESULT_FETCH_COUNTER')
+        resolution = MagicMock()
+        resolution.model_dump.return_value = {'ok': True}
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=resolution)
+        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/search-results/next')
+            assert resp.status == 200
+        counter.add.assert_called_once_with(1, {'outcome': 'hit'})
+
+
+@pytest.mark.asyncio
+class TestRegisterSearchResult:
+    async def test_invalid_body_returns_422(self):
+        '''A body that isn't a valid SearchResolution is rejected with 422.'''
+        server = _make_server(_make_broker())
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post('/search-results', json={'not_a': 'resolution'})
+            assert resp.status == 422
+
+
+@pytest.mark.asyncio
 class TestServe:
     async def test_serve_starts_and_responds(self):
         '''serve() starts the aiohttp server and handles requests until cancelled.'''

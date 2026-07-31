@@ -225,7 +225,9 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
     await cog.search_youtube_music()
+    await cog.process_search_results()
     await cog.search_youtube_music()
+    await cog.process_search_results()
     item0 = await cog.download_client.local_worker.get_input_nowait()
     item1 = await cog.download_client.local_worker.get_input_nowait()
     # Compare key properties since SearchClient refactoring creates new MediaRequest objects
@@ -250,6 +252,7 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             # Mock current playing
@@ -273,6 +276,7 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             await cog.clear(cog, fake_context['context'])
@@ -313,6 +317,7 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             await cog.shuffle_(cog, fake_context['context'])
@@ -334,6 +339,7 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             await cog.remove_item(cog, fake_context['context'], 1)
@@ -355,6 +361,7 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             await cog.bump_item(cog, fake_context['context'], 1)
@@ -395,6 +402,7 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
             await cog.search_youtube_music()
+            await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             await cog.move_messages_here(cog, fake_context2)
@@ -593,6 +601,24 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
     # Verify bot shutdown flag is set
     assert cog.bot_shutdown_event.is_set()
 
+
+@pytest.mark.asyncio()
+async def test_cog_unload_cancels_search_result_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload cancels the process_search_results task when one is running."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog._cleanup_task = None  # pylint: disable=protected-access
+    cog._download_tasks = []  # pylint: disable=protected-access
+    cog._post_play_processing_task = None  # pylint: disable=protected-access
+    search_task = mocker.Mock()
+    cog._search_result_task = search_task  # pylint: disable=protected-access
+
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+
+    await cog.cog_unload()
+
+    search_task.cancel.assert_called_once()
+
 def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization fails when music is not enabled"""
     config = {
@@ -643,6 +669,18 @@ def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefine
 
     # Test download result queue depth callback (empty queue)
     result = cog._Music__download_result_queue_depth_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 0
+
+    # Test search_result_task callback with running task
+    cog._search_result_task = mock_task_running  # pylint: disable=protected-access
+    result = cog._Music__search_result_task_loop_active_callback(None)  # pylint: disable=protected-access
+    assert len(result) == 1
+    assert result[0].value == 1
+    assert result[0].attributes == {'background_job': 'process_search_results'}
+
+    # Test search result queue depth callback (empty queue)
+    result = cog._Music__search_result_queue_depth_callback(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 0
 
@@ -1487,8 +1525,9 @@ async def test_cog_load_starts_broker_server_when_configured(fake_context, mocke
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.BrokerHttpServer.serve', new_callable=AsyncMock)
     await cog.cog_load()
-    # cog_load schedules 4 background tasks normally; +1 for the broker server = 5 total
-    assert mock_loop.create_task.call_count == 5
+    # cog_load schedules 5 background tasks normally (cleanup + download + result +
+    # search_result + youtube_search); +1 for the broker server = 6 total
+    assert mock_loop.create_task.call_count == 6
 
 
 def test_max_concurrent_downloads_defaults_to_one(fake_context):  #pylint:disable=redefined-outer-name
@@ -1512,8 +1551,8 @@ async def test_cog_load_spawns_configured_download_loops(fake_context):  #pylint
     cog.dispatcher = Mock()
     await cog.cog_load()
     assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
-    # cleanup + 3 download loops + result + youtube_search = 6 scheduled tasks
-    assert mock_loop.create_task.call_count == 6
+    # cleanup + 3 download loops + result + search_result + youtube_search = 7 scheduled tasks
+    assert mock_loop.create_task.call_count == 7
 
 
 def test_music_init_with_download_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
@@ -1570,7 +1609,7 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.download_client.start.assert_awaited_once()
     assert cog._download_tasks == []  #pylint:disable=protected-access
     # cleanup + result + youtube_search only — no download loops, no broker server.
-    assert mock_loop.create_task.call_count == 3
+    assert mock_loop.create_task.call_count == 4
 
 
 @pytest.mark.asyncio

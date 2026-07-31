@@ -23,12 +23,14 @@ class MetricNaming(Enum):
     DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
     DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
     DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
+    SEARCH_RESULT_QUEUE_DEPTH = 'music.search_result_queue_depth'
     DOWNLOAD_QUEUE_DEPTH = 'download_queue_depth'
     DOWNLOAD_YOUTUBE_BACKOFF = 'download_youtube_backoff_seconds'
     DOWNLOAD_FAILURE_COUNT = 'download_failure_count'
     BROKER_ENTRIES = 'broker.entries'
     BROKER_BUNDLES = 'broker.bundles'
     BROKER_RESULT_FETCH = 'broker.result_fetch'
+    BROKER_SEARCH_RESULT_FETCH = 'broker.search_result_fetch'
     BROKER_READY_CHECK = 'broker.ready_check'
 
 class AttributeNaming(Enum):

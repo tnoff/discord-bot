@@ -10,14 +10,16 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
-from discord_bot.interfaces.broker_protocols import DownloadResultQueue, MediaBrokerBase
+from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
+                                                     MediaBrokerBase)
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
-from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue
+from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,12 @@ logger = logging.getLogger(__name__)
 _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
     name=MetricNaming.BROKER_RESULT_FETCH.value,
     description='GET /results/next outcomes (hit / empty)',
+    unit='1',
+)
+# Same hit/empty accounting for GET /search-results/next.
+_SEARCH_RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.BROKER_SEARCH_RESULT_FETCH.value,
+    description='GET /search-results/next outcomes (hit / empty)',
     unit='1',
 )
 
@@ -58,6 +66,8 @@ class BrokerHttpServer(AiohttpServerBase):
         POST   /downloads                 register_download_result (worker)
         POST   /downloads/register        register_download (MediaDownload)
         GET    /results/next              next_result (204 when empty)
+        POST   /search-results            register_search_result (search worker)
+        GET    /search-results/next       next_search_result (204 when empty)
         POST   /requests/{uuid}/checkout  checkout
         POST   /requests/{uuid}/release   release
         POST   /requests/{uuid}/remove    remove
@@ -79,7 +89,8 @@ class BrokerHttpServer(AiohttpServerBase):
 
     # bandit B104: '0.0.0.0' default is intentional — worker/bot pods reach the broker across the docker/k8s network; callers override host via constructor arg
     def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,  # nosec B104
-                 result_queue: DownloadResultQueue | None = None):
+                 result_queue: DownloadResultQueue | None = None,
+                 search_result_queue: SearchResultQueue | None = None):
         super().__init__()
         self._broker = broker
         self._host = host
@@ -90,6 +101,11 @@ class BrokerHttpServer(AiohttpServerBase):
         # RedisDownloadResultQueue so multiple broker pods share a bot-ready queue.
         self._result_queue: DownloadResultQueue = (
             result_queue if result_queue is not None else AsyncioDownloadResultQueue()
+        )
+        # Same story for the bot-ready search-result queue (Redis in HA so the
+        # search pod's POSTs and the bot's polls meet on a shared list).
+        self._search_result_queue: SearchResultQueue = (
+            search_result_queue if search_result_queue is not None else AsyncioSearchResultQueue()
         )
         # Heartbeat so the broker pod has a first-class liveness series like the
         # bot cogs and the dispatcher. The broker previously emitted no heartbeat
@@ -115,6 +131,8 @@ class BrokerHttpServer(AiohttpServerBase):
         app.router.add_post('/downloads', self._handle_register_download)
         app.router.add_post('/downloads/register', self._handle_register_download_direct)
         app.router.add_get('/results/next', self._handle_next_result)
+        app.router.add_post('/search-results', self._handle_register_search_result)
+        app.router.add_get('/search-results/next', self._handle_next_search_result)
         app.router.add_post('/requests/{uuid}/checkout', self._handle_checkout)
         app.router.add_post('/requests/{uuid}/release', self._handle_release)
         app.router.add_post('/requests/{uuid}/remove', self._handle_remove)
@@ -196,6 +214,28 @@ class BrokerHttpServer(AiohttpServerBase):
             return web.Response(status=204)
         _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
         return web.json_response(result.model_dump(mode='json'))
+
+    async def _handle_register_search_result(self, request: web.Request) -> web.Response:
+        '''POST /search-results — push a resolved search onto the bot-ready queue.'''
+        ctx, body = await self._read_body(request)
+        try:
+            resolution = SearchResolution.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.register_search_result', context=ctx, kind=SpanKind.SERVER):
+            await self._search_result_queue.put(resolution)
+        return web.json_response({'status': 'ok'}, status=202)
+
+    async def _handle_next_search_result(self, request: web.Request) -> web.Response:
+        '''GET /search-results/next — pop the next bot-ready SearchResolution, or 204.'''
+        ctx = extract(request.headers)
+        with otel_span_wrapper('broker.next_search_result', context=ctx, kind=SpanKind.SERVER):
+            resolution = await self._search_result_queue.get_nowait()
+        if resolution is None:
+            _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
+            return web.Response(status=204)
+        _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
+        return web.json_response(resolution.model_dump(mode='json'))
 
     async def _handle_checkout(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)

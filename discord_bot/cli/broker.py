@@ -36,7 +36,7 @@ from discord_bot.utils.common import GeneralConfig
 from discord_bot.workers.broker_metrics import BrokerMetrics
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker
-from discord_bot.workers.redis_queues import RedisDownloadResultQueue
+from discord_bot.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 
 from discord_bot.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 from discord_bot.cli._lib.db import instrument_sqlalchemy, managed_db
@@ -150,10 +150,12 @@ def run(settings: dict, general_config: GeneralConfig):
             search_max_retries=int(download_cfg.get('max_youtube_music_search_retries', 3)),
         )
 
-        # Redis-backed bot-ready queue so multiple broker pods share it and a pod
-        # restart doesn't lose in-flight DownloadResults.
+        # Redis-backed bot-ready queues so multiple broker pods share them and a
+        # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.
         result_queue = RedisDownloadResultQueue(redis_manager)
-        broker_metrics = BrokerMetrics(result_queue, registry)
+        search_result_queue = RedisSearchResultQueue(redis_manager)
+        broker_metrics = BrokerMetrics(result_queue, registry,
+                                       search_result_queue=search_result_queue)
 
         broker_cfg = general_settings.get('broker_server', {})
         broker_server = BrokerHttpServer(
@@ -161,6 +163,7 @@ def run(settings: dict, general_config: GeneralConfig):
             host=broker_cfg.get('host', '0.0.0.0'),  # nosec B104
             port=int(broker_cfg.get('port', 8081)),
             result_queue=result_queue,
+            search_result_queue=search_result_queue,
         )
 
         health_server = None

@@ -9,8 +9,7 @@ import asyncio
 import itertools
 
 from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.interfaces.result_queue import DownloadResultQueue
-from discord_bot.types.download import DownloadResult
+from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
 
 class AsyncioBundleStore(BundleStore):
@@ -98,12 +97,15 @@ class AsyncioWorkQueue(WorkQueue):
         return self._results.get(request_id)
 
 
-class AsyncioDownloadResultQueue(DownloadResultQueue):
-    '''In-memory DownloadResultQueue backed by asyncio.Queue.
+class _AsyncioResultQueue:
+    '''Shared asyncio.Queue backing for the bot-ready result queues.
 
-    Used in single-process deployments.  Exposes the underlying
-    asyncio.Queue via the ``raw_queue`` property so the cog's metric
-    callback can read ``qsize()`` synchronously.
+    The download and search result queues are both FIFO asyncio.Queues that
+    differ only in element type, so the put / get_nowait / depth / raw_queue
+    plumbing lives here once and the two concrete queues just pin the ABC and
+    element type.  Used in single-process deployments; ``raw_queue`` exposes the
+    underlying asyncio.Queue so the cog's metric callback can read ``qsize()``
+    synchronously.
     '''
 
     def __init__(self, queue: asyncio.Queue | None = None):
@@ -114,14 +116,25 @@ class AsyncioDownloadResultQueue(DownloadResultQueue):
         '''The wrapped asyncio.Queue — only meaningful in single-process.'''
         return self._queue
 
-    async def put(self, result: DownloadResult) -> None:
-        self._queue.put_nowait(result)
+    async def put(self, item) -> None:
+        '''Append an item to the back of the queue.'''
+        self._queue.put_nowait(item)
 
-    async def get_nowait(self) -> DownloadResult | None:
+    async def get_nowait(self):
+        '''Pop the oldest item, or None if the queue is empty.'''
         try:
             return self._queue.get_nowait()
         except asyncio.QueueEmpty:
             return None
 
     async def depth(self) -> int:
+        '''Return the number of items currently waiting in the queue.'''
         return self._queue.qsize()
+
+
+class AsyncioDownloadResultQueue(_AsyncioResultQueue, DownloadResultQueue):
+    '''In-memory DownloadResultQueue backed by asyncio.Queue (single-process).'''
+
+
+class AsyncioSearchResultQueue(_AsyncioResultQueue, SearchResultQueue):
+    '''In-memory SearchResultQueue backed by asyncio.Queue (single-process).'''

@@ -39,6 +39,34 @@ class TestObservations:
         assert obs.value == 0
 
 
+def _metrics_with_search(search_depth=0):
+    '''BrokerMetrics wired with a search-result queue (the HA broker path).'''
+    result_queue = MagicMock()
+    result_queue.depth = AsyncMock(return_value=0)
+    search_queue = MagicMock()
+    search_queue.depth = AsyncMock(return_value=search_depth)
+    registry = MagicMock()
+    registry.all_entries = AsyncMock(return_value=[])
+    registry.all_bundles = AsyncMock(return_value=[])
+    return BrokerMetrics(result_queue, registry, search_result_queue=search_queue)
+
+
+class TestSearchQueueDepth:
+    def test_search_queue_depth_defaults_to_zero(self):
+        bm = _metrics_with_search()
+        (obs,) = bm.search_queue_depth_observations(None)
+        assert obs.value == 0
+        assert obs.attributes == {'background_job': 'broker'}
+
+
+@pytest.mark.asyncio
+class TestSearchQueueDepthRefresh:
+    async def test_refresh_populates_search_queue_depth(self):
+        bm = _metrics_with_search(search_depth=7)
+        await bm.refresh()
+        assert bm.search_queue_depth_observations(None)[0].value == 7
+
+
 @pytest.mark.asyncio
 class TestRefresh:
     async def test_refresh_populates_all_gauges(self):
