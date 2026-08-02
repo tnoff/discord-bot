@@ -14,20 +14,18 @@ from pydantic import BaseModel, Field, model_validator
 
 from discord_bot.cogs.schema import StorageConfig
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
 
 OTEL_SPAN_PREFIX = 'utils'
 
 # Backoff after an unexpected loop-runner error (e.g. a broker HTTP 500 raised
 # when the broker's Redis blips) before re-running the loop body, so a persistent
 # failure does not hot-spin the loop while it waits for the dependency to recover.
+# Doubles up to _LOOP_ERROR_BACKOFF_MAX_SECONDS and resets on the next success:
+# the loop now retries forever, so a multi-minute peer outage must not spin at
+# 1 s for its whole duration.
 _LOOP_ERROR_BACKOFF_SECONDS = 1.0
-
-# Give up the loop after this many CONSECUTIVE unexpected errors (the counter
-# resets on any successful iteration). A transient blip self-heals well under
-# this budget; a persistently broken loop stops retrying and exits, dropping its
-# heartbeat gauge to 0 so the alert fires — instead of a live-but-useless task
-# that keeps heartbeat=1 and hides the failure by retrying forever.
-_LOOP_MAX_CONSECUTIVE_ERRORS = 5
+_LOOP_ERROR_BACKOFF_MAX_SECONDS = 30.0
 
 # Pydantic models for config validation
 # Default patterns for high volume spans that are filtered when in OK state
@@ -69,6 +67,18 @@ class MonitoringHealthServerConfig(BaseModel):
     # bandit B104: '0.0.0.0' default makes the health endpoint reachable from outside the container; users can override to '127.0.0.1' if running behind a sidecar proxy
     bind_address: str = '0.0.0.0'  # nosec B104
 
+class MonitoringLoopHealthConfig(BaseModel):
+    '''Background-loop health configuration.
+
+    ``stale_after_seconds`` is how long a loop may go without a successful
+    iteration before it is reported unhealthy — which drops its heartbeat gauge
+    to 0 *and* fails the health server's probe. Because the k8s livenessProbe
+    consumes that, this doubles as the "how long before we restart the pod"
+    knob: it must clear a rolling deploy skew, a broker roll and a Redis
+    sentinel failover, or a peer outage turns into a crashloop.
+    '''
+    stale_after_seconds: float = Field(default=DEFAULT_STALE_AFTER_SECONDS, gt=0)
+
 class MonitoringConfig(BaseModel):
     '''Monitoring configuration'''
     otlp: MonitoringOtlpConfig
@@ -76,6 +86,7 @@ class MonitoringConfig(BaseModel):
     process_metrics: Optional[MonitoringProcessMetricsConfig] = None
     gc_census: Optional[MonitoringGcCensusConfig] = None
     health_server: Optional[MonitoringHealthServerConfig] = None
+    loop_health: Optional[MonitoringLoopHealthConfig] = None
 
 class LoggingConfig(BaseModel):
     '''Logging configuration'''
@@ -190,7 +201,8 @@ def rm_tree(pth: Path) -> bool:
     pth.rmdir()
     return True
 
-def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException):
+def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
+                       health: Optional[LoopHealth] = None):
     '''
     Return a basic standard bot loop
 
@@ -200,45 +212,67 @@ def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continu
     checkfile: Writes 1 to file when loop active, writes 0 when its not
     continue_exceptions: Do not exit on these exceptions
     exit_exceptions : Exit on these exceptions
+    health : LoopHealth to report iteration outcomes to. This — not task
+             liveness — is what drives the loop's heartbeat gauge and the health
+             server's probe result.
     '''
     continue_exceptions = continue_exceptions or ()
     async def loop_runner(): #pylint:disable=duplicate-code
         await bot.wait_until_ready()
 
-        consecutive_errors = 0
+        backoff = _LOOP_ERROR_BACKOFF_SECONDS
         while not bot.is_closed():
             try:
                 await function()
-                consecutive_errors = 0
+                if health:
+                    health.record_success()
+                backoff = _LOOP_ERROR_BACKOFF_SECONDS
             except continue_exceptions as e:
                 logger.exception('Continue exception in loop runner: %s', type(e).__name__, exc_info=True)
+                if health:
+                    health.record_error()
                 continue
             except exit_exceptions:
                 # Set status code because we know these ones are fine
                 span = get_current_span()
                 if span.is_recording():
                     span.set_status(StatusCode.OK)
+                # A deliberate exit is not a wedge: mark stopped so a draining
+                # pod doesn't 503 its own liveness probe on the way out.
+                if health:
+                    health.mark_stopped()
                 return False
             except Exception as e:
                 # An unexpected/transient error (e.g. a broker HTTP 500 raised by
-                # next_result when the broker's Redis blips) must NOT permanently
-                # kill the loop task on the first hit and leave a health-green
-                # zombie: the process stays up, its heartbeat gauge reads 0, and
-                # k8s never restarts it. Log, back off, and retry so the loop
-                # self-heals once the dependency recovers. asyncio.CancelledError
-                # is a BaseException, so a real shutdown/drain still bypasses this
-                # handler and cancels the task cleanly.
-                consecutive_errors += 1
-                logger.exception('Exception in loop runner (%s/%s consecutive): %s',
-                                 consecutive_errors, _LOOP_MAX_CONSECUTIVE_ERRORS,
-                                 type(e).__name__, exc_info=True)
-                if consecutive_errors >= _LOOP_MAX_CONSECUTIVE_ERRORS:
-                    # Give up rather than retry forever: a live task keeps
-                    # heartbeat=1 and would hide a persistent failure. Exiting
-                    # drops it to 0 so the alert fires.
-                    logger.error('Loop runner giving up after %s consecutive errors',
-                                 _LOOP_MAX_CONSECUTIVE_ERRORS)
-                    return False
-                await sleep(_LOOP_ERROR_BACKOFF_SECONDS)
+                # next_result when the broker's Redis blips, or a 404 from a
+                # not-yet-upgraded peer mid-rolling-deploy) must NOT kill the loop
+                # task: retry forever with capped backoff so the loop self-heals
+                # the moment its dependency recovers.
+                #
+                # This deliberately reverses the old give-up-after-5-errors rule.
+                # That rule existed only because "healthy" meant "the task object
+                # is alive", so killing the task was the sole way to raise an
+                # alarm — which also killed any chance of recovery, and turned a
+                # ~20 s deploy skew into a dead consumer for the life of the pod
+                # (docs findings/2026-07-31 search-seam deploy skew). Health now
+                # comes from LoopHealth (successful iterations, not liveness), so
+                # a persistent failure still alerts and still fails the probe
+                # while the task stays alive and able to recover.
+                #
+                # asyncio.CancelledError is a BaseException, so a real
+                # shutdown/drain still bypasses this handler and cancels cleanly.
+                if health:
+                    health.record_error()
+                    logger.exception('Exception in loop runner (%s consecutive, %.0fs since last success): %s',
+                                     health.consecutive_errors, health.seconds_since_success,
+                                     type(e).__name__, exc_info=True)
+                else:
+                    logger.exception('Exception in loop runner: %s', type(e).__name__, exc_info=True)
+                await sleep(backoff)
+                backoff = min(backoff * 2, _LOOP_ERROR_BACKOFF_MAX_SECONDS)
                 continue
+        # Bot closed: an orderly shutdown, same as an exit exception.
+        if health:
+            health.mark_stopped()
+        return None
     return loop_runner

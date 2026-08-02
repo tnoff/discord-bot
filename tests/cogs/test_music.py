@@ -8,7 +8,11 @@ import fakeredis.aioredis
 import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.cogs.music import Music
+from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES,
+                                    LOOP_POST_PLAY_PROCESSING, LOOP_PROCESS_DOWNLOAD_RESULTS,
+                                    LOOP_PROCESS_SEARCH_RESULTS, LOOP_YOUTUBE_MUSIC_SEARCH)
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import loop_heartbeat_observations
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest
@@ -632,57 +636,36 @@ def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-
     with pytest.raises(CogMissingRequiredArg, match='Music not enabled'):
         Music(fake_context['bot'], config, fake_context['dispatcher'])
 
-def test_music_callback_methods(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test metric callback methods check task status correctly"""
+def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:disable=redefined-outer-name
+    """Heartbeats follow LoopHealth (successful iterations), not task liveness."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
 
-    # Create mock tasks with done() methods
-    mock_task_running = mocker.MagicMock()
-    mock_task_running.done.return_value = False  # Task is running
+    # Nothing has started yet: no series at all, rather than a 0 that would read
+    # as "the loop died" for a loop that simply isn't running in this process.
+    for job_name in (LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES, LOOP_PROCESS_DOWNLOAD_RESULTS,
+                     LOOP_PROCESS_SEARCH_RESULTS, LOOP_POST_PLAY_PROCESSING, LOOP_YOUTUBE_MUSIC_SEARCH):
+        assert not loop_heartbeat_observations(job_name)
 
-    mock_task_finished = mocker.MagicMock()
-    mock_task_finished.done.return_value = True  # Task is finished
+    health = LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS, stale_after_seconds=60)
+    observations = loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)
+    assert len(observations) == 1
+    assert observations[0].value == 1
+    assert observations[0].attributes == {'background_job': 'process_search_results'}
 
-    # Test playlist_history callback with running task
-    cog._post_play_processing_task = mock_task_running  # pylint: disable=protected-access
-    result = cog._Music__post_play_processing_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 1
+    # This is the incident's shape: the loop keeps erroring against an
+    # un-upgraded peer. It stays alive (so it can recover) and, once the window
+    # passes with no success, honestly reports unhealthy.
+    for _ in range(5):
+        health.record_error()
+    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 1
+    health._last_success -= 61  #pylint:disable=protected-access
+    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 0
+    health.record_success()
+    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 1
 
-    # Test download_file callback with finished task
-    cog._download_tasks = [mock_task_finished]  # pylint: disable=protected-access
-    result = cog._Music__download_file_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 0
-
-    # Test cleanup_player callback with no task (None)
-    cog._cleanup_task = None  # pylint: disable=protected-access
-    result = cog._Music__cleanup_player_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 0
-
-    # Test result_task callback with running task
-    cog._result_task = mock_task_running  # pylint: disable=protected-access
-    result = cog._Music__result_task_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 1
-
-    # Test download result queue depth callback (empty queue)
-    result = cog._Music__download_result_queue_depth_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 0
-
-    # Test search_result_task callback with running task
-    cog._search_result_task = mock_task_running  # pylint: disable=protected-access
-    result = cog._Music__search_result_task_loop_active_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 1
-    assert result[0].attributes == {'background_job': 'process_search_results'}
-
-    # Test search result queue depth callback (empty queue)
-    result = cog._Music__search_result_queue_depth_callback(None)  # pylint: disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 0
+    # Queue-depth gauges are unchanged by the health rework
+    assert cog._Music__download_result_queue_depth_callback(None)[0].value == 0  # pylint: disable=protected-access
+    assert cog._Music__search_result_queue_depth_callback(None)[0].value == 0  # pylint: disable=protected-access
 
 def test_music_init_with_cache_enabled(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with cache enabled — requires S3 storage"""
@@ -1580,16 +1563,24 @@ def test_download_heartbeat_gauge_registered_without_ha(fake_context, mocker):  
     assert 'Download files loop heartbeat' in descriptions
 
 
-def test_download_heartbeat_gauge_skipped_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """In HA the download loop lives in the downloader pod, so the bot skips the
-    download_files heartbeat gauge (it would sit at 0 and trip the stalled-loop alert)."""
-    gauge = mocker.patch('discord_bot.cogs.music.create_observable_gauge')
+@pytest.mark.asyncio
+async def test_download_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:disable=redefined-outer-name
+    """In HA the download loop lives in the downloader pod, so the bot registers
+    no download_files loop and emits no series for it — it would otherwise sit at
+    0 and trip the stalled-loop alert (and now also fail the pod's liveness probe)."""
     config = {
         'music': {'download_client': {'url': 'http://downloader-host:8083'}}
     } | BASE_MUSIC_CONFIG
-    Music(fake_context['bot'], config, fake_context['dispatcher'])
-    descriptions = [call.args[3] for call in gauge.call_args_list if len(call.args) > 3]
-    assert 'Download files loop heartbeat' not in descriptions
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.download_client = Mock()
+    cog.download_client.start = AsyncMock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    assert not loop_heartbeat_observations(LOOP_DOWNLOAD_FILES)
+    assert LOOP_HEALTH.get(LOOP_DOWNLOAD_FILES) is None
 
 
 @pytest.mark.asyncio
@@ -1657,17 +1648,21 @@ async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylin
     cog.delete_bundle.assert_awaited_once_with(4242, 'drop-bundle')
 
 
-def test_download_file_callback_reports_active_loop(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """download_files heartbeat is 1 while at least one download loop is running."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    running = mocker.MagicMock()
-    running.done.return_value = False
-    finished = mocker.MagicMock()
-    finished.done.return_value = True
-    cog._download_tasks = [finished, running]  #pylint:disable=protected-access
-    result = cog._Music__download_file_loop_active_callback(None)  #pylint:disable=protected-access
-    assert len(result) == 1
-    assert result[0].value == 1
+@pytest.mark.asyncio
+async def test_download_slots_share_one_health(fake_context):  #pylint:disable=redefined-outer-name
+    """Every download slot reports to one LoopHealth: any slot progressing keeps
+    the download loop healthy, matching the any()-of-tasks heartbeat it replaces."""
+    config = {'music': {'download': {'max_concurrent_downloads': 3}}} | BASE_MUSIC_CONFIG
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
+    observations = loop_heartbeat_observations(LOOP_DOWNLOAD_FILES)
+    assert len(observations) == 1  # one series for the whole pool, not one per slot
+    assert observations[0].value == 1
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids
+from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import loop_heartbeat_observations
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.types.fetched_message import FetchedMessage
 
@@ -359,24 +361,34 @@ async def test_list_channels_with_valid_output(fake_engine, fake_context):  #pyl
     assert result is True
 
 # ---------------------------------------------------------------------------
-# __loop_active_callback (lines 123-124)
+# Producer-loop heartbeat (LoopHealth-driven)
 # ---------------------------------------------------------------------------
 
-def test_loop_active_callback_not_running(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''Heartbeat returns 0 when _task is None'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
-    observations = cog._Markov__loop_active_callback(None)  #pylint:disable=protected-access
-    assert observations[0].value == 0
+def test_loop_heartbeat_emits_nothing_before_registration():
+    '''No series at all until the loop actually starts in this process'''
+    assert not loop_heartbeat_observations(LOOP_MARKOV_CHECK)
 
 
-def test_loop_active_callback_running(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''Heartbeat returns 1 when _task is set and not done'''
+def test_loop_heartbeat_reports_health_not_liveness():
+    '''Heartbeat follows successful iterations, not whether the task object exists'''
+    health = LOOP_HEALTH.register(LOOP_MARKOV_CHECK, stale_after_seconds=60)
+    assert loop_heartbeat_observations(LOOP_MARKOV_CHECK)[0].value == 1
+    # Errors alone don't flip it — only going the whole window without a success
+    health.record_error()
+    assert loop_heartbeat_observations(LOOP_MARKOV_CHECK)[0].value == 1
+    health._last_success -= 61  #pylint:disable=protected-access
+    assert loop_heartbeat_observations(LOOP_MARKOV_CHECK)[0].value == 0
+    # ...and it recovers on its own once the loop starts working again
+    health.record_success()
+    assert loop_heartbeat_observations(LOOP_MARKOV_CHECK)[0].value == 1
+
+
+def test_producer_loop_window_sized_from_its_sleep_interval(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A 300s-cadence producer must not be judged by the fast-loop default'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
-    mock_task = mocker.Mock()
-    mock_task.done.return_value = False
-    cog._task = mock_task  #pylint:disable=protected-access
-    observations = cog._Markov__loop_active_callback(None)  #pylint:disable=protected-access
-    assert observations[0].value == 1
+    cog.loop_sleep_interval = 600.0
+    health = LOOP_HEALTH.register_for_interval(LOOP_MARKOV_CHECK, cog.loop_sleep_interval)
+    assert health.stale_after_seconds == 1800.0  # 3 missed runs, not the 300s default
 
 
 # ---------------------------------------------------------------------------
@@ -663,21 +675,26 @@ async def test_process_history_result_channel_not_in_db(fake_engine, fake_contex
 # Result-consumer heartbeat + queue-depth gauges, and the loop guard
 # ---------------------------------------------------------------------------
 
-def test_result_loop_active_callback_not_running(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''Result-loop heartbeat returns 0 when _result_task is None'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
-    observations = cog._Markov__result_loop_active_callback(None)  #pylint:disable=protected-access
-    assert observations[0].value == 0
+def test_result_loop_heartbeat_emits_nothing_before_registration():
+    '''Result-loop heartbeat emits no series until the consumer starts'''
+    assert not loop_heartbeat_observations(LOOP_MARKOV_RESULT)
 
 
-def test_result_loop_active_callback_running(fake_engine, fake_context, mocker):  #pylint:disable=redefined-outer-name
-    '''Result-loop heartbeat returns 1 when _result_task is set and not done'''
+@pytest.mark.asyncio(loop_scope="session")
+async def test_result_loop_heartbeat_follows_consumption(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Consuming a result marks the loop healthy; a stale consumer reads 0'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
-    mock_task = mocker.Mock()
-    mock_task.done.return_value = False
-    cog._result_task = mock_task  #pylint:disable=protected-access
-    observations = cog._Markov__result_loop_active_callback(None)  #pylint:disable=protected-access
-    assert observations[0].value == 1
+    cog.register_result_queue()
+    await cog._result_queue.put(GuildEmojisResult(guild_id=1, emojis=[], error=None))  #pylint:disable=protected-access
+    task = asyncio.get_event_loop().create_task(cog._markov_result_loop())  #pylint:disable=protected-access
+    try:
+        await asyncio.sleep(0.05)
+        assert loop_heartbeat_observations(LOOP_MARKOV_RESULT)[0].value == 1
+        health = LOOP_HEALTH.get(LOOP_MARKOV_RESULT)
+        health._last_success -= health.stale_after_seconds + 1  #pylint:disable=protected-access
+        assert loop_heartbeat_observations(LOOP_MARKOV_RESULT)[0].value == 0
+    finally:
+        task.cancel()
 
 
 def test_result_queue_depth_callback_no_queue(fake_engine, fake_context):  #pylint:disable=redefined-outer-name

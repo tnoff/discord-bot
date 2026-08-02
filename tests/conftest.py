@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from discord_bot.database import BASE
+from discord_bot.utils.loop_health import LOOP_HEALTH
 
 _TEST_DB_NAME = 'discord_bot_test'
 
@@ -113,3 +114,18 @@ def pg_test_db_url(postgresql_proc):  # pylint: disable=redefined-outer-name
 def redis_client():
     '''Return a FakeRedis instance with decode_responses=True.'''
     return fakeredis.aioredis.FakeRedis(decode_responses=True, protocol=2)
+
+
+@pytest.fixture(autouse=True)
+def reset_loop_health():
+    '''Clear the process-global loop-health registry between tests.
+
+    LOOP_HEALTH is per-process state, which is exactly right in production (one
+    registry per pod) but leaks across tests in a single pytest process: a loop
+    registered by one test would otherwise still be there for the next one,
+    adding a `loops` key to health payloads and failing probes for loops that
+    test never started.
+    '''
+    LOOP_HEALTH.reset()
+    yield
+    LOOP_HEALTH.reset()

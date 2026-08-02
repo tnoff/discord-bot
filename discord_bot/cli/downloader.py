@@ -38,6 +38,7 @@ from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
 from discord_bot.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
@@ -47,6 +48,9 @@ from discord_bot.cli._lib.common import (
 )
 
 logger = logging.getLogger(__name__)
+
+# LoopHealth registry key for the pod's single download consumer driver
+LOOP_DOWNLOADER_WORKER = 'downloader_worker'
 
 
 @click.command()
@@ -69,19 +73,28 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
 
     The broad ``except Exception`` is load-bearing.  An unguarded loop that dies
     on an unexpected error (e.g. a redis/broker blip) wedges the downloader
-    forever while the health server keeps reporting green — the exact
-    health-green-zombie class of bug that bit the dispatcher and the bot's result
-    loop.  ``broad-except`` is disabled globally in .pylintrc, so no inline
+    forever.  ``broad-except`` is disabled globally in .pylintrc, so no inline
     disable is needed.
+
+    The other half of that story — "while the health server keeps reporting
+    green" — is what LoopHealth fixes: retrying forever is right, but it used to
+    mean a permanently wedged worker still probed healthy.  Now the driver
+    reports each iteration, so a worker that stops making progress fails this
+    pod's own health check.
     '''
+    health = LOOP_HEALTH.register(LOOP_DOWNLOADER_WORKER)
     while not stop_event.is_set():
         try:
             await worker.run(stop_event)
+            health.record_success()
         except ExitEarlyException:
             break
         except Exception:
+            health.record_error()
             driver_logger.exception('Downloader :: worker loop error, backing off')
             await asyncio.sleep(1)
+    # Loop left on purpose (shutdown or ExitEarly), not wedged.
+    health.mark_stopped()
 
 
 async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
