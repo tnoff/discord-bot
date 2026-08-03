@@ -32,6 +32,7 @@ from pydantic import ValidationError as PydanticValidationError
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.utils.common import get_logger, GeneralConfig
+from discord_bot.utils.loop_health import LOOP_HEALTH
 # HealthServer is intentionally NOT imported here — it transitively pulls in
 # sqlalchemy, which the dispatcher image (base extras only) does not install.
 # cli.bot and cli.full import it via discord_bot.cli.health instead.
@@ -302,11 +303,23 @@ def shutdown_event_signals() -> Iterator[asyncio.Event]:
     yield stop_event
 
 
+def setup_loop_health(general_config: GeneralConfig) -> None:
+    '''Apply the configured staleness window to this process's loop-health registry.
+
+    Every entrypoint calls this before starting loops, so the heartbeat gauge and
+    the health server's probe agree on how long a loop may go without a
+    successful iteration. Left at the default when unconfigured.
+    '''
+    if general_config.monitoring and general_config.monitoring.loop_health:
+        LOOP_HEALTH.configure(general_config.monitoring.loop_health.stale_after_seconds)
+
+
 def setup_observability(general_config: GeneralConfig) -> logging.Logger:
     '''Configure OTLP, logging, and profiling. Returns the main logger.'''
     logger_provider = setup_otlp(general_config)
     logger = setup_logging(general_config, logger_provider=logger_provider)
     setup_profiling(general_config, logger)
+    setup_loop_health(general_config)
     return logger
 
 

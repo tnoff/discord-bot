@@ -139,7 +139,7 @@ Each dispatch type emits an OpenTelemetry span:
 
 | Metric | Description |
 |--------|-------------|
-| `heartbeat{background_job="message_dispatcher_workers"}` | Count of active per-guild worker tasks |
+| `heartbeat{background_job="message_dispatcher"}` | `1` while the worker pool is completing dequeue cycles ([loop health](monitoring/loop_health.md)) |
 | `message_dispatcher_queue_depth{background_job="message_dispatcher_queue"}` | Total pending work items across all guild queues |
 
 ### Logging

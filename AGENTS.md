@@ -180,6 +180,9 @@ discord_bot/
     common.py                   # async_retry_discord_message_command, get_logger,
                                 # return_loop_runner, create_observable_gauge,
                                 # GeneralConfig and all other config models
+    loop_health.py              # LoopHealth/LOOP_HEALTH — per-loop health (successful
+                                # iterations, not task liveness) behind both the
+                                # heartbeat gauge and the health-server probes
     distributed_queue.py        # DistributedQueue — per-guild priority + FIFO round-robin
     failure_queue.py            # FailureQueue — operation failure-rate tracking
     memory_profiler.py          # MemoryProfiler — tracemalloc-based memory tracking

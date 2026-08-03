@@ -241,7 +241,7 @@ Redis operations (BZPOPMIN, SET, GET, DEL, etc.) are traced automatically by
 | Metric | Description |
 |--------|-------------|
 | `message_dispatcher_queue_depth` | Pending items across all guild queues (dispatcher pod) |
-| `heartbeat{background_job="message_dispatcher_workers"}` | Active per-guild worker tasks |
+| `heartbeat{background_job="message_dispatcher"}` | `1` while the worker pool is completing dequeue cycles ([loop health](monitoring/loop_health.md)) |
 
 ---
 

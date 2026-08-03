@@ -94,24 +94,47 @@ These metrics indicate that background loops are active and running.
 
 **Type**: Observable Gauge
 **Unit**: dimensionless (1)
-**Description**: Heartbeat for various background loops
-**Labels**: Varies by loop (typically `job_name` or similar)
+**Description**: Health of a background loop
+**Labels**: `background_job`
 
-The bot exports heartbeat metrics for these loops:
+`1` while the loop is completing iterations, `0` once it has gone its staleness
+window (default 300 s) without a successful one. This is **loop health, not task
+liveness** — a loop that keeps erroring stays alive so it can recover, and says
+so through this gauge instead of by dying. See
+[Background Loop Health](loop_health.md) for the model and its configuration.
 
-| `background_job` label | Description |
-|------------------------|-------------|
-| `message_dispatcher` | `1` while the dispatcher worker pool is running (emitted by the discord-dispatcher pod in HA mode, or the bot itself in single-process mode) |
-| `markov_check` | Markov chain message processing loop |
-| `delete_message_check` | Automated message deletion loop |
-| `cleanup_players` | Inactive music player cleanup loop (Music) |
-| `download_files` | Audio file downloading loop (Music) |
-| `process_download_results` | Download result routing loop (Music) |
-| `post_play_processing` | Post-play history/playlist tracking loop (Music) |
-| `search_youtube_music` | YouTube Music search processing loop (Music) |
+The same bit backs the [health server's](health_server.md) `/health` and `/ready`
+probes, so this metric and the pod's readiness can never disagree.
 
-**Usage**: A value of `0` means the loop task has exited unexpectedly. Alert on
-`heartbeat{background_job="..."} == 0`.
+| `background_job` label | Emitted by | Description |
+|------------------------|------------|-------------|
+| `message_dispatcher` | dispatcher pod (HA) or bot (single-process) | Dispatcher worker pool |
+| `markov_check` | bot | Markov producer loop (submits Discord fetch requests) |
+| `markov_result` | bot | Markov dispatch-result consumer |
+| `delete_message_check` | bot | Message-deletion producer loop |
+| `delete_message_result` | bot | Message-deletion result consumer |
+| `cleanup_players` | bot | Inactive music player cleanup (Music) |
+| `download_files` | bot (single-process only) | Audio download loop (Music) — not emitted in HA, where downloads run in the downloader pod |
+| `process_download_results` | bot | Download result routing (Music) |
+| `process_search_results` | bot | Resolved-search consumer, submits downloads (Music) |
+| `youtube_music_search` | bot | YouTube Music search loop (Music) |
+| `post_play_processing` | bot | Post-play history/playlist tracking (Music) — only with a configured database |
+| `downloader_worker` | downloader pod | Download consumer driver |
+| `broker` | broker pod, or bot with an embedded broker | Broker HTTP server accepting requests* |
+| `downloader` | downloader pod | Downloader HTTP server accepting requests* |
+
+\* The two HTTP-server heartbeats report "the socket is serving", not loop
+health — they are not backed by `LoopHealth` and do not gate the probes.
+
+**Usage**: alert on `heartbeat{background_job="..."} == 0`, with a `for:` window.
+No rule changes were needed when the underlying signal moved from liveness to
+health — the metric name, label, and `1`/`0` meaning are unchanged.
+
+**A loop that does not run in a given process emits no series at all**, rather
+than a permanent `0`. Absence of a series means "not running here" (e.g.
+`download_files` on an HA bot pod); a `0` always means "running here, and
+wedged". Write alerts against the series that exist rather than asserting a
+label set.
 
 ## Configuration-Dependent Metrics
 

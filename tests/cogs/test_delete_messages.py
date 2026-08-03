@@ -5,7 +5,10 @@ from unittest.mock import MagicMock
 from freezegun import freeze_time
 import pytest
 
-from discord_bot.cogs.delete_messages import DeleteMessages, DELETE_AFTER_DEFAULT
+from discord_bot.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
+                                               LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import loop_heartbeat_observations
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.types.fetched_message import FetchedMessage
@@ -181,22 +184,19 @@ def test_get_channel_config_returns_empty_for_unknown(fake_context):  #pylint:di
     assert result.get('delete_after', DELETE_AFTER_DEFAULT) == DELETE_AFTER_DEFAULT
 
 
-def test_loop_active_callback_task_none(fake_context):  #pylint:disable=redefined-outer-name
-    '''__loop_active_callback returns 0 when _task is None'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
-    # _task is None by default after __init__
-    result = getattr(cog, '_DeleteMessages__loop_active_callback')(None)
-    assert result[0].value == 0
+def test_loop_heartbeat_emits_nothing_before_registration():
+    '''No heartbeat series until the loop actually starts in this process'''
+    assert not loop_heartbeat_observations(LOOP_DELETE_MESSAGE_CHECK)
 
 
-def test_loop_active_callback_task_running(fake_context):  #pylint:disable=redefined-outer-name
-    '''__loop_active_callback returns 1 when _task exists and is not done'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
-    fake_task = MagicMock()
-    fake_task.done.return_value = False
-    setattr(cog, '_task', fake_task)
-    result = getattr(cog, '_DeleteMessages__loop_active_callback')(None)
-    assert result[0].value == 1
+def test_loop_heartbeat_reports_health_not_liveness():
+    '''Heartbeat follows successful iterations, and recovers when they resume'''
+    health = LOOP_HEALTH.register(LOOP_DELETE_MESSAGE_CHECK, stale_after_seconds=60)
+    assert loop_heartbeat_observations(LOOP_DELETE_MESSAGE_CHECK)[0].value == 1
+    health._last_success -= 61  #pylint:disable=protected-access
+    assert loop_heartbeat_observations(LOOP_DELETE_MESSAGE_CHECK)[0].value == 0
+    health.record_success()
+    assert loop_heartbeat_observations(LOOP_DELETE_MESSAGE_CHECK)[0].value == 1
 
 
 @pytest.mark.asyncio
@@ -299,21 +299,29 @@ async def test_delete_result_loop_deletes_old_message(fake_context):  #pylint:di
 # Result-consumer heartbeat + queue-depth gauges, and the loop guard
 # ---------------------------------------------------------------------------
 
-def test_result_loop_active_callback_task_none(fake_context):  #pylint:disable=redefined-outer-name
-    '''__result_loop_active_callback returns 0 when _result_task is None'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
-    result = getattr(cog, '_DeleteMessages__result_loop_active_callback')(None)
-    assert result[0].value == 0
+def test_result_loop_heartbeat_emits_nothing_before_registration():
+    '''Result-loop heartbeat emits no series until the consumer starts'''
+    assert not loop_heartbeat_observations(LOOP_DELETE_MESSAGE_RESULT)
 
 
-def test_result_loop_active_callback_task_running(fake_context):  #pylint:disable=redefined-outer-name
-    '''__result_loop_active_callback returns 1 when _result_task is set and not done'''
+@pytest.mark.asyncio
+async def test_result_loop_registers_and_reports_health(fake_context):  #pylint:disable=redefined-outer-name
+    '''Starting the consumer registers its health; a stale consumer reads 0.
+
+    The idle re-arm that keeps a *quiet* consumer healthy is covered directly by
+    tests/utils/test_loop_health.py::test_health_aware_queue_get_rearms_while_idle.
+    '''
     cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
-    fake_task = MagicMock()
-    fake_task.done.return_value = False
-    setattr(cog, '_result_task', fake_task)
-    result = getattr(cog, '_DeleteMessages__result_loop_active_callback')(None)
-    assert result[0].value == 1
+    cog.register_result_queue()
+    task = asyncio.get_event_loop().create_task(cog._delete_result_loop())  #pylint:disable=protected-access
+    try:
+        await asyncio.sleep(0.05)
+        assert loop_heartbeat_observations(LOOP_DELETE_MESSAGE_RESULT)[0].value == 1
+        health = LOOP_HEALTH.get(LOOP_DELETE_MESSAGE_RESULT)
+        health._last_success -= health.stale_after_seconds + 1  #pylint:disable=protected-access
+        assert loop_heartbeat_observations(LOOP_DELETE_MESSAGE_RESULT)[0].value == 0
+    finally:
+        task.cancel()
 
 
 def test_result_queue_depth_callback_no_queue(fake_context):  #pylint:disable=redefined-outer-name

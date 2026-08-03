@@ -1,5 +1,6 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
+from functools import partial
 
 from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
@@ -12,7 +13,8 @@ from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
+from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for deleting messages after X days
@@ -20,6 +22,10 @@ DELETE_AFTER_DEFAULT = 7
 
 # Default for how to wait between each loop
 LOOP_SLEEP_INTERVAL_DEFAULT = 300
+
+# Background-loop names: LoopHealth registry keys and heartbeat background_job values
+LOOP_DELETE_MESSAGE_CHECK = 'delete_message_check'
+LOOP_DELETE_MESSAGE_RESULT = 'delete_message_result'
 
 # Pydantic config models
 class DiscordChannelConfig(BaseModel):
@@ -50,31 +56,13 @@ class DeleteMessages(CogHelper):
         self._task = None
         self._result_task = None
 
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Delete message loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_loop_active_callback, 'Delete message result loop heartbeat')
+        # Heartbeats read LoopHealth (successful iterations), the same bit the
+        # health server's probe uses — see utils/loop_health.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                partial(loop_heartbeat_observations, LOOP_DELETE_MESSAGE_CHECK), 'Delete message loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                partial(loop_heartbeat_observations, LOOP_DELETE_MESSAGE_RESULT), 'Delete message result loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Delete message dispatch result queue depth')
-
-    def __loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._task and not self._task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'delete_message_check'
-            })
-        ]
-
-    def __result_loop_active_callback(self, _options):
-        '''
-        Heartbeat for the result-consumer loop (0 when dead or never started).
-        '''
-        value = 1 if (self._result_task and not self._result_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'delete_message_result'
-            })
-        ]
 
     def __result_queue_depth_callback(self, _options):
         '''
@@ -90,11 +78,18 @@ class DeleteMessages(CogHelper):
     async def cog_load(self):
         '''Start producer and consumer tasks.'''
         self.register_result_queue()
-        self._task = self.bot.loop.create_task(return_loop_runner(self._delete_request_loop, self.bot, self.logger, continue_exceptions=DiscordServerError)())
+        # The producer sleeps loop_sleep_interval (default 300 s) per iteration,
+        # so its staleness window is sized from that cadence — see markov.
+        self._task = self.bot.loop.create_task(
+            return_loop_runner(self._delete_request_loop, self.bot, self.logger, continue_exceptions=DiscordServerError,
+                               health=LOOP_HEALTH.register_for_interval(LOOP_DELETE_MESSAGE_CHECK, self.loop_sleep_interval))()
+        )
         self._result_task = self.bot.loop.create_task(self._delete_result_loop())
 
     async def cog_unload(self):
         '''Cancel all running tasks.'''
+        # Cancellation is a deliberate stop, not a wedge — see Music.cog_unload.
+        LOOP_HEALTH.mark_stopped(LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
         if self._task:
             self._task.cancel()
         if self._result_task:
@@ -140,12 +135,15 @@ class DeleteMessages(CogHelper):
 
     async def _delete_result_loop(self) -> None:
         '''Consumer loop: read channel history results and delete old messages.'''
+        health = LOOP_HEALTH.register(LOOP_DELETE_MESSAGE_RESULT)
         while True:
-            result = await self._result_queue.get()
+            result = await health_aware_queue_get(self._result_queue, health)
             try:
                 if isinstance(result, ChannelHistoryResult):
                     await self._process_delete_result(result)
+                health.record_success()
             except Exception:  # pylint: disable=broad-except
+                health.record_error()
                 # A single bad result must NOT kill the consumer: the producer keeps
                 # filling the queue, so a dead consumer leaks memory unboundedly
                 # (docs findings/2026-07-19 OOM root cause). Log and drain the next.

@@ -15,8 +15,12 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 **Startup** (`cog_load()`):
 - All loops are created as asyncio tasks using `bot.loop.create_task()`
 - Each loop is wrapped with `return_loop_runner()` which provides:
-  - Automatic restart on exceptions (unless shutdown)
-  - Heartbeat monitoring via checkpoint files
+  - Retry-forever on unexpected exceptions, with backoff doubling 1 s → 30 s and
+    resetting on the next success. The loop never exits on error, so it recovers
+    on its own once a failing dependency comes back
+  - Health reporting via `LoopHealth`, which drives both the loop's heartbeat
+    gauge and the process's health-server probe — see
+    [Background Loop Health](../monitoring/loop_health.md)
   - Graceful shutdown handling
   - OpenTelemetry integration
 
@@ -277,20 +281,26 @@ Tasks cancelled
 
 ## Heartbeat Monitoring
 
-Each loop reports a heartbeat via an OpenTelemetry observable gauge every iteration:
+Each loop reports its health through an OpenTelemetry observable gauge
+(`MetricNaming.HEARTBEAT`, tagged by `AttributeNaming.BACKGROUND_JOB`):
 
-**Heartbeat gauges** (all use `MetricNaming.HEARTBEAT`, tagged by `AttributeNaming.BACKGROUND_JOB`):
-- `cleanup_player` - Cleanup players loop
-- `download_file` - Download files loop
-- `youtube_search` - YouTube Music search loop
-- `post_play_processing` - Post-play processing loop (database + cache cleanup)
+| `background_job` | Loop |
+|---|---|
+| `cleanup_players` | Inactive player cleanup |
+| `download_files` | Audio downloads (single-process only — under HA this runs in the downloader pod and the bot emits no such series) |
+| `process_download_results` | Download result routing |
+| `process_search_results` | Resolved-search consumer |
+| `youtube_music_search` | YouTube Music search |
+| `post_play_processing` | Post-play history/playlist tracking (only with a configured database) |
 
-**Purpose**:
-- Monitor loop health via OpenTelemetry metrics
-- Detect stuck loops (no heartbeat updates)
-- Alert on loop failures
+**Value**: `1` while the loop is completing iterations, `0` once it has gone its
+staleness window without a successful one. This is loop *health*, not task
+liveness — the task stays alive through failures so it can recover, and reports
+`0` in the meantime. An idle loop polling an empty queue is healthy.
 
-**Format**: Timestamp integer written to file
+The same value backs the health server's probe, so a wedged loop both fires the
+alert and fails the pod's liveness check. See
+[Background Loop Health](../monitoring/loop_health.md).
 
 ---
 

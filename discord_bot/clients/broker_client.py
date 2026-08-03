@@ -7,6 +7,7 @@ BrokerHttpServer for HA deployments.  Both satisfy the BrokerClient Protocol
 (interfaces/broker_protocols) so the cog depends only on the Protocol and lets
 config decide which is constructed.
 '''
+import logging
 from pathlib import Path
 
 import aiohttp
@@ -30,6 +31,13 @@ from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, Async
 # Re-exported so `from discord_bot.clients.broker_client import CheckoutResult`
 # / `BrokerClient` keep working.  Canonical home is interfaces/broker_protocols.
 __all__ = ['BrokerClient', 'CheckoutResult', 'HttpBrokerClient', 'InMemoryBrokerClient']
+
+logger = logging.getLogger(__name__)
+
+# A broker that 404s a queue route is running a build from before that route
+# existed — the two pods roll independently, so this is an expected (and
+# self-resolving) window during a deploy, not a client error.
+_PEER_ROUTE_MISSING_STATUS = 404
 
 
 def _media_download_to_dict(media_download: MediaDownload) -> dict:
@@ -240,9 +248,22 @@ class HttpBrokerClient(HttpClientMixin):
             await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
         return None
 
+    def _log_missing_route(self, status: int, route: str) -> None:
+        '''Log a peer-not-upgraded 404 once per occurrence, at WARNING.
+
+        Mirrors the download client's status poller, which already logs an
+        unreachable peer at WARNING and retries rather than raising.
+        '''
+        if status == _PEER_ROUTE_MISSING_STATUS:
+            logger.warning('Broker has no %s route yet (peer not upgraded); treating as empty', route)
+
     async def next_result(self) -> DownloadResult | None:
         '''GET /results/next — returns the next ready DownloadResult, or None
         when the broker has nothing in the bot-ready queue (HTTP 204).
+
+        A 404 is treated as empty for the same reason as next_search_result: the
+        broker and this pod roll independently, so a route the peer doesn't have
+        yet is a deploy skew, not a fatal error.
 
         The empty (204) path intentionally mints NO span: this endpoint is polled
         ~1/second even while idle, and a span per empty poll churns ~86k
@@ -251,7 +272,8 @@ class HttpBrokerClient(HttpClientMixin):
         session = self._get_session()
         async with session.get(f'{self._base_url}/results/next',
                                headers=self._trace_headers()) as resp:
-            if resp.status == 204:
+            if resp.status in (204, _PEER_ROUTE_MISSING_STATUS):
+                self._log_missing_route(resp.status, '/results/next')
                 return None
             resp.raise_for_status()
             payload = await resp.json()
@@ -260,14 +282,30 @@ class HttpBrokerClient(HttpClientMixin):
 
     async def register_search_result(self, resolution: SearchResolution) -> None:
         '''POST /search-results — the broker pushes the resolution onto its
-        bot-ready search-result queue.  Consumers fetch via next_search_result.'''
+        bot-ready search-result queue.  Consumers fetch via next_search_result.
+
+        A 404 means the broker peer predates this route (mid-rolling-deploy) and
+        is treated as a no-op, not an error — see next_search_result.'''
         async with async_otel_span_wrapper('broker.register_search_result', kind=SpanKind.CLIENT):
-            await self._http('POST', f'{self._base_url}/search-results',
-                             resolution.model_dump(mode='json'))
+            try:
+                await self._http('POST', f'{self._base_url}/search-results',
+                                 resolution.model_dump(mode='json'))
+            except aiohttp.ClientResponseError as error:
+                if error.status != _PEER_ROUTE_MISSING_STATUS:
+                    raise
+                logger.warning('Broker has no /search-results route (peer not upgraded yet); '
+                               'dropping resolution for %s', resolution.media_request.uuid)
 
     async def next_search_result(self) -> SearchResolution | None:
         '''GET /search-results/next — returns the next ready SearchResolution, or
         None when the broker has nothing in the queue (HTTP 204).
+
+        A **404 is treated as "empty"**, not as an error.  The two pods roll
+        independently, so during a deploy the Service can still route this GET to
+        a broker that predates the route — and the old behaviour (blanket
+        raise_for_status) turned that ~20 s skew into five loop errors and a dead
+        search-result consumer (docs findings/2026-07-31).  Returning None lets
+        the loop idle until the upgraded broker is the only endpoint left.
 
         Like next_result, the empty (204) path mints NO span: this endpoint is
         polled ~1/second even while idle, and a span per empty poll churns ~86k
@@ -276,7 +314,8 @@ class HttpBrokerClient(HttpClientMixin):
         session = self._get_session()
         async with session.get(f'{self._base_url}/search-results/next',
                                headers=self._trace_headers()) as resp:
-            if resp.status == 204:
+            if resp.status in (204, _PEER_ROUTE_MISSING_STATUS):
+                self._log_missing_route(resp.status, '/search-results/next')
                 return None
             resp.raise_for_status()
             payload = await resp.json()

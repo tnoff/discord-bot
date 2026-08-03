@@ -61,7 +61,8 @@ from discord_bot.clients.youtube_music_search_client import (
 )
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
-from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, span_links_from_context
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
@@ -188,6 +189,16 @@ _BROKER_POLL_INTERVAL_SECONDS = 1.0
 # their queue is empty. Sleeping ONLY on the empty path (not every iteration)
 # keeps busy work back-to-back while cutting idle allocation churn (OOM fix).
 _IDLE_POLL_BACKOFF_SECONDS = 0.25
+
+# Background-loop names. Used as both the LoopHealth registry key and the
+# heartbeat gauge's background_job attribute, so the metric series and the health
+# server's `loops` payload name the same loop the same way.
+LOOP_CLEANUP_PLAYERS = 'cleanup_players'
+LOOP_DOWNLOAD_FILES = 'download_files'
+LOOP_PROCESS_DOWNLOAD_RESULTS = 'process_download_results'
+LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
+LOOP_POST_PLAY_PROCESSING = 'post_play_processing'
+LOOP_YOUTUBE_MUSIC_SEARCH = 'youtube_music_search'
 
 #
 class Music(CogHelper): #pylint:disable=too-many-public-methods
@@ -353,65 +364,26 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Cache stats
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
             create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
-        # Timestamps for heartbeat gauges
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__cleanup_player_loop_active_callback, 'Cleanup player loop heartbeat')
-        # In HA the download loop runs in the downloader pod (its own liveness +
-        # DownloadMetrics), not here — a bot-side download_files heartbeat would
-        # sit permanently at 0 and trip the stalled-loop alert, so skip it.
-        if not self.config.download_client:
-            create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__download_file_loop_active_callback, 'Download files loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_task_loop_active_callback, 'Download result processing loop heartbeat')
+        # Heartbeat gauges. Every one is driven by LoopHealth (successful
+        # iterations), not by task liveness — see utils/loop_health. A loop only
+        # emits a series once it registers in cog_load, so the ones that don't
+        # run in this deployment mode (e.g. the bot-side download loop under HA,
+        # where the loop lives in the downloader pod) report nothing at all
+        # rather than a permanent 0 that would trip the stalled-loop alert.
+        for job_name, description in (
+                (LOOP_CLEANUP_PLAYERS, 'Cleanup player loop heartbeat'),
+                (LOOP_DOWNLOAD_FILES, 'Download files loop heartbeat'),
+                (LOOP_PROCESS_DOWNLOAD_RESULTS, 'Download result processing loop heartbeat'),
+                (LOOP_PROCESS_SEARCH_RESULTS, 'Search result processing loop heartbeat'),
+                (LOOP_POST_PLAY_PROCESSING, 'Playlist update loop heartbeat'),
+                (LOOP_YOUTUBE_MUSIC_SEARCH, 'Youtube music search loop heartbeat'),
+        ):
+            create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                    partial(loop_heartbeat_observations, job_name), description)
         create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value, self.__download_result_queue_depth_callback, 'Pending download results awaiting processing')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__search_result_task_loop_active_callback, 'Search result processing loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.SEARCH_RESULT_QUEUE_DEPTH.value, self.__search_result_queue_depth_callback, 'Pending resolved searches awaiting download submit')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__post_play_processing_loop_active_callback, 'Playlist update loop heartbeat')
-        if self.youtube_music_search_client:
-            create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__youtube_search_loop_active_callback, 'Youtube music search loop heartbeat')
 
     # Metric callback functons
-    def __youtube_search_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._youtube_search_task and not self._youtube_search_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'youtube_music_search'
-            })
-        ]
-
-    def __post_play_processing_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._post_play_processing_task and not self._post_play_processing_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'post_play_processing'
-            })
-        ]
-    def __download_file_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if any(not task.done() for task in self._download_tasks) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'download_files'
-            })
-        ]
-
-    def __result_task_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._result_task and not self._result_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
-            })
-        ]
-
     def __download_result_queue_depth_callback(self, _options):
         '''
         Total pending download results waiting to be routed to players.
@@ -429,17 +401,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             })
         ]
 
-    def __search_result_task_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._search_result_task and not self._search_result_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'process_search_results'
-            })
-        ]
-
     def __search_result_queue_depth_callback(self, _options):
         '''
         Total resolved searches waiting to be submitted to the download pipeline.
@@ -454,17 +415,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return [
             Observation(depth, attributes={
                 AttributeNaming.BACKGROUND_JOB.value: 'process_search_results'
-            })
-        ]
-
-    def __cleanup_player_loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._cleanup_task and not self._cleanup_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'cleanup_players'
             })
         ]
 
@@ -519,22 +469,41 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        self._cleanup_task = self.bot.loop.create_task(return_loop_runner(self.cleanup_players, self.bot, self.logger)())
+        self._cleanup_task = self.bot.loop.create_task(
+            return_loop_runner(self.cleanup_players, self.bot, self.logger,
+                               health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()
+        )
         if self.config.download_client:
             # HA: the consumer loop runs in the downloader pod. Start only the
-            # client's status poller (no bot-side download loops).
+            # client's status poller (no bot-side download loops). Nothing
+            # registers LOOP_DOWNLOAD_FILES here, so this pod emits no
+            # download_files heartbeat and its health never depends on one.
             await self.download_client.start(self.bot, self.bot_shutdown_event)
             self._download_tasks = []
         else:
             # One download loop per configured slot. Defaults to 1 so downloads stay
             # serial per egress IP (yt-dlp/YouTube rate-limits per source IP).
+            # All slots share one LoopHealth: any slot making progress means the
+            # download loop as a whole is alive, matching the old any()-of-tasks
+            # heartbeat.
+            download_health = LOOP_HEALTH.register(LOOP_DOWNLOAD_FILES)
             self._download_tasks = [
-                self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger)())
+                self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger,
+                                                             health=download_health)())
                 for _ in range(self.config.download.max_concurrent_downloads)
             ]
-        self._result_task = self.bot.loop.create_task(return_loop_runner(self.process_download_results, self.bot, self.logger)())
-        self._search_result_task = self.bot.loop.create_task(return_loop_runner(self.process_search_results, self.bot, self.logger)())
-        self._youtube_search_task = self.bot.loop.create_task(return_loop_runner(self.search_youtube_music, self.bot, self.logger)())
+        self._result_task = self.bot.loop.create_task(
+            return_loop_runner(self.process_download_results, self.bot, self.logger,
+                               health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS))()
+        )
+        self._search_result_task = self.bot.loop.create_task(
+            return_loop_runner(self.process_search_results, self.bot, self.logger,
+                               health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS))()
+        )
+        self._youtube_search_task = self.bot.loop.create_task(
+            return_loop_runner(self.search_youtube_music, self.bot, self.logger,
+                               health=LOOP_HEALTH.register(LOOP_YOUTUBE_MUSIC_SEARCH))()
+        )
         if self.config.broker_server:
             broker_server = BrokerHttpServer(
                 self.media_broker,
@@ -546,8 +515,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self._start_tasks()
 
     def _start_tasks(self):
+        # Only reached when a db_engine is configured — without one this loop
+        # never starts, never registers, and emits no heartbeat series.
         self._post_play_processing_task = self.bot.loop.create_task(
-            return_loop_runner(self.post_play_processing, self.bot, self.logger)()
+            return_loop_runner(self.post_play_processing, self.bot, self.logger,
+                               health=LOOP_HEALTH.register(LOOP_POST_PLAY_PROCESSING))()
         )
 
     async def cog_unload(self):
@@ -565,6 +537,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 await self.cleanup(guild, reason=CleanupReason.BOT_SHUTDOWN)
 
             self.logger.info('Cog unload: Cancelling main tasks')
+            # Cancelling a task never runs the loop runner's exit path, so mark
+            # these stopped here: a cancelled loop is a deliberate shutdown, not
+            # a wedge, and must not fail the liveness probe while the pod drains.
+            LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES, LOOP_PROCESS_DOWNLOAD_RESULTS,
+                                     LOOP_PROCESS_SEARCH_RESULTS, LOOP_POST_PLAY_PROCESSING, LOOP_YOUTUBE_MUSIC_SEARCH)
             if self._init_task:
                 self._init_task.cancel()
             if self._cleanup_task:

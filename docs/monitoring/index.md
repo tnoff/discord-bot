@@ -15,7 +15,8 @@ The Discord bot includes comprehensive monitoring capabilities using OpenTelemet
 - **[Trace Linking](trace_linking.md)** - How span links connect the music request lifecycle across async task boundaries
 - **[Memory Profiling](memory_profiling.md)** - Guide to using the built-in memory profiler
 - **[Process Metrics](process_metrics.md)** - Guide to using the built-in process profiler
-- **[Health Server](health_server.md)** - HTTP liveness endpoint for Docker/Kubernetes probes
+- **[Health Server](health_server.md)** - HTTP liveness/readiness endpoints for Docker/Kubernetes probes
+- **[Background Loop Health](loop_health.md)** - How loop health is measured, and how it drives both the heartbeat gauge and the probes
 
 ## Observability Components
 
@@ -25,7 +26,7 @@ The bot exports OpenTelemetry metrics to track runtime state and performance:
 
 - **Music Cog Metrics** - Active players per guild, multirequest bundles, cache usage
 - **Memory Metrics** - Object counts and memory usage by Python class type
-- **Heartbeat Metrics** - Background loop health indicators
+- **Heartbeat Metrics** - Background loop health indicators (see [Background Loop Health](loop_health.md))
 - **System Metrics** - Filesystem usage, database connections
 
 **Implementation**: Metrics are implemented using OpenTelemetry's `create_observable_gauge()` with callback functions. The MeterProvider is initialized when OTLP is enabled and metrics are exported to the configured OTLP endpoint.

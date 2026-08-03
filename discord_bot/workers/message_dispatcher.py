@@ -12,7 +12,6 @@ from discord.errors import NotFound
 from discord.ext.commands import Bot
 
 from opentelemetry import trace
-from opentelemetry.metrics import Observation
 
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -20,8 +19,10 @@ from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.dispatch_request import DeleteRequest, SendRequest
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.utils.otel import (async_otel_span_wrapper, AttributeNaming, create_observable_gauge,
-                                     DispatchNaming, METER_PROVIDER, MetricNaming, span_links_from_context)
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import (async_otel_span_wrapper, create_observable_gauge,
+                                     DispatchNaming, loop_heartbeat_observations, METER_PROVIDER, MetricNaming,
+                                     span_links_from_context)
 
 
 _DRAIN_TIMEOUT_SECONDS = 30
@@ -29,6 +30,9 @@ _DRAIN_TIMEOUT_SECONDS = 30
 # Backoff after a transient worker-loop error (e.g. a Redis/Valkey blip) before
 # retrying, so a persistent failure does not hot-spin the loop.
 _WORKER_ERROR_BACKOFF_SECONDS = 1.0
+
+# LoopHealth registry key / heartbeat background_job value for the worker pool
+LOOP_MESSAGE_DISPATCHER = 'message_dispatcher'
 
 # Tombstone of recently-removed bundle keys. Under lock serialization a stale
 # mutable: work item can trail a remove: for the same key (confirmed in Tempo: a
@@ -275,6 +279,8 @@ class MessageDispatcher(DispatchClientBase):
 
         self._shutdown: asyncio.Event = asyncio.Event()
         self._worker_tasks: list[asyncio.Task] = []
+        # Set in start(); shared by every worker in the pool.
+        self._worker_health = None
 
         # key -> monotonic expiry time (loop.time()); see _TOMBSTONE_KEY_PREFIX.
         self._tombstones: dict[str, float] = {}
@@ -284,8 +290,10 @@ class MessageDispatcher(DispatchClientBase):
         # the discord-dispatcher pod in HA mode, or the bot itself in
         # single-process (cli.full) mode. The bot pod (cli.bot) builds no
         # MessageDispatcher, so it never emits this series.
+        # Driven by LoopHealth (a worker completing dequeue cycles), not by task
+        # liveness — the same bit this process's health server probes.
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
-                                self._worker_heartbeat_callback,
+                                partial(loop_heartbeat_observations, LOOP_MESSAGE_DISPATCHER),
                                 'Message dispatcher worker pool heartbeat')
 
     # ------------------------------------------------------------------
@@ -294,21 +302,18 @@ class MessageDispatcher(DispatchClientBase):
 
     async def start(self):
         '''Start worker tasks.'''
+        # One shared LoopHealth for the pool: any worker making progress means
+        # the pool is alive, matching the any()-of-tasks heartbeat it replaces.
+        self._worker_health = LOOP_HEALTH.register(LOOP_MESSAGE_DISPATCHER)
         for _ in range(self._num_workers):
             self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
-
-    def _worker_heartbeat_callback(self, _options):
-        '''Heartbeat: 1 while at least one worker task is running, else 0.'''
-        value = 1 if self._worker_tasks and any(not t.done() for t in self._worker_tasks) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'message_dispatcher',
-            })
-        ]
 
     async def stop(self):
         '''Gracefully drain in-flight work and shut down.'''
         self.logger.info('MessageDispatcher :: stop called, draining...')
+        # A deliberate drain is not a wedge — see Music.cog_unload.
+        if self._worker_health:
+            self._worker_health.mark_stopped()
         self._shutdown.set()
         if self._worker_tasks:
             try:
@@ -490,10 +495,21 @@ class MessageDispatcher(DispatchClientBase):
             try:
                 result = await self._work_queue.dequeue(timeout=1.0)
                 if result is None:
+                    # An idle dequeue is a successful iteration: the queue
+                    # answered. Recorded here so a quiet dispatcher doesn't
+                    # drift into 'stalled' and fail its own liveness probe.
+                    if self._worker_health:
+                        self._worker_health.record_success()
                     continue
                 member, payload = result
                 await self._dispatch_item(member, payload)
+                # Recorded after the dispatch, not after the dequeue: a worker
+                # that reads the queue fine but fails every item is not healthy.
+                if self._worker_health:
+                    self._worker_health.record_success()
             except Exception as exc:
+                if self._worker_health:
+                    self._worker_health.record_error()
                 self.logger.error(
                     'MessageDispatcher :: worker loop error, backing off %ss and continuing: %s',
                     _WORKER_ERROR_BACKOFF_SECONDS, exc, exc_info=True,

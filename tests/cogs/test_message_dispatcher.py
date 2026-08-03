@@ -9,7 +9,10 @@ from discord.errors import NotFound
 
 from discord_bot.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,
+    LOOP_MESSAGE_DISPATCHER,
 )
+from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import loop_heartbeat_observations
 from discord_bot.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.fetched_message import FetchedMessage
@@ -106,22 +109,37 @@ async def test_stop_drains_and_clears_tasks():
 
 
 @pytest.mark.asyncio
-async def test_worker_heartbeat_callback_tracks_worker_lifecycle():
-    '''Heartbeat reports 0 before start, 1 while workers run, 0 after stop.'''
+async def test_worker_heartbeat_tracks_worker_lifecycle():
+    '''No series before start; 1 while workers run; still 1 after a deliberate drain.'''
     dispatcher = make_dispatcher(settings={'general': {'dispatch_worker_count': 2}})
 
-    before = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
-    assert len(before) == 1
-    assert before[0].value == 0
-    assert before[0].attributes['background_job'] == 'message_dispatcher'
+    # Nothing registered yet, so this process emits no dispatcher heartbeat at
+    # all — rather than a 0 that would read as "the pool died".
+    assert not loop_heartbeat_observations(LOOP_MESSAGE_DISPATCHER)
 
     await dispatcher.start()
-    running = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
+    running = loop_heartbeat_observations(LOOP_MESSAGE_DISPATCHER)
+    assert len(running) == 1
     assert running[0].value == 1
+    assert running[0].attributes['background_job'] == 'message_dispatcher'
 
+    # stop() is a deliberate drain, not a wedge: health stays green so the pod
+    # doesn't fail its own liveness probe (and get killed) while draining.
     await dispatcher.stop()
-    after = dispatcher._worker_heartbeat_callback(None)  # pylint: disable=protected-access
-    assert after[0].value == 0
+    assert loop_heartbeat_observations(LOOP_MESSAGE_DISPATCHER)[0].value == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_heartbeat_drops_when_workers_stop_progressing():
+    '''A pool that stops completing dequeue cycles reports 0 even though its tasks live.'''
+    dispatcher = make_dispatcher(settings={'general': {'dispatch_worker_count': 1}})
+    await dispatcher.start()
+    try:
+        health = LOOP_HEALTH.get(LOOP_MESSAGE_DISPATCHER)
+        health._last_success -= health.stale_after_seconds + 1  # pylint: disable=protected-access
+        assert loop_heartbeat_observations(LOOP_MESSAGE_DISPATCHER)[0].value == 0
+    finally:
+        await dispatcher.stop()
 
 
 @pytest.mark.asyncio
@@ -1385,6 +1403,45 @@ async def test_worker_loop_survives_transient_error_and_keeps_looping(mocker):
     assert dispatched == [('send:uuid', {'content': 'after-error'})]
     # And it ended by exiting cleanly on shutdown, not by dying with the error.
     assert dispatcher._shutdown.is_set()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_worker_loop_records_errors_and_successes_on_loop_health(mocker):
+    '''Worker outcomes land on LoopHealth: errors count up, a good dispatch resets.
+
+    This is what lets a persistently broken pool report unhealthy without the
+    task having to die to say so.
+    '''
+    dispatcher = make_dispatcher()
+    mocker.patch(
+        'discord_bot.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
+    )
+    health = LOOP_HEALTH.register(LOOP_MESSAGE_DISPATCHER)
+    dispatcher._worker_health = health  # pylint: disable=protected-access
+    seen = []
+
+    calls = {'n': 0}
+
+    async def fake_dequeue(timeout=1.0):  # pylint: disable=unused-argument
+        calls['n'] += 1
+        if calls['n'] == 1:
+            raise redis.exceptions.ConnectionError('valkey master restart')
+        if calls['n'] == 2:
+            seen.append(health.consecutive_errors)  # observed after the failure
+            return ('send:uuid', {'content': 'after-error'})
+        dispatcher._shutdown.set()  # pylint: disable=protected-access
+        return None
+
+    async def fake_dispatch(member, payload):  # pylint: disable=unused-argument
+        return None
+
+    dispatcher._work_queue.dequeue = fake_dequeue  # pylint: disable=protected-access
+    dispatcher._dispatch_item = fake_dispatch  # pylint: disable=protected-access
+    await asyncio.wait_for(dispatcher._worker_loop(), timeout=5.0)  # pylint: disable=protected-access
+
+    assert seen == [1]  # the dequeue error was recorded
+    assert health.consecutive_errors == 0  # and cleared by the successful dispatch
+    assert health.is_healthy
 
 
 @pytest.mark.asyncio

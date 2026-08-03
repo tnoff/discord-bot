@@ -13,6 +13,20 @@ from discord_bot.clients.redis_client import RedisManager
 from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.servers.health_server import HealthServer
 from discord_bot.servers.health_server_base import HealthServerBase, close_writer
+from discord_bot.utils.loop_health import LOOP_HEALTH
+
+
+class _FakeClock:
+    '''Manually advanced monotonic clock so staleness is tested without sleeping.'''
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        '''Move the clock forward.'''
+        self.now += seconds
 
 
 def _make_bot(is_ready=True, is_closed=False):
@@ -500,3 +514,107 @@ class TestHealthServerReadiness:
         '''_dispatch_probe returns False when the URL has no host:port.'''
         hs = HealthServer(_make_bot(), dispatch_http_url='not-a-url')
         assert await hs._dispatch_probe() is False  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestHealthServerLoopHealth:
+    """Background-loop health is folded into every health server's probe result.
+
+    This is the coupling the 2026-07-31 finding asked for: the heartbeat gauge
+    and the k8s probe read the same bit, so "the alert fired" and "the pod is
+    unhealthy" can never disagree.
+    """
+
+    async def test_stalled_loop_fails_liveness_and_is_named_in_the_payload(self):
+        clock = _FakeClock()
+        LOOP_HEALTH.register('process_search_results', stale_after_seconds=60, time_func=clock)
+        clock.advance(61)
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18110)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18110)
+        try:
+            response = await _raw_request(18110, path='/health')
+            assert '503' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['loops'] == {'process_search_results': 'stalled'}
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_healthy_loop_reports_ok_in_the_payload(self):
+        LOOP_HEALTH.register('process_search_results', stale_after_seconds=60)
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18111)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18111)
+        try:
+            response = await _raw_request(18111, path='/health')
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['loops'] == {'process_search_results': 'ok'}
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_stopped_loop_does_not_fail_a_draining_pod(self):
+        # cog_unload marks loops stopped; the pod must keep passing liveness
+        # while it drains rather than being killed mid-shutdown.
+        clock = _FakeClock()
+        health = LOOP_HEALTH.register('process_search_results', stale_after_seconds=60, time_func=clock)
+        health.mark_stopped()
+        clock.advance(600)
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18112)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18112)
+        try:
+            response = await _raw_request(18112, path='/health')
+            assert '200 OK' in response
+            body = json.loads(response.split('\r\n\r\n', 1)[1])
+            assert body['loops'] == {'process_search_results': 'stopped'}
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_readiness_also_reflects_loop_health(self):
+        clock = _FakeClock()
+        LOOP_HEALTH.register('process_search_results', stale_after_seconds=60, time_func=clock)
+        clock.advance(61)
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18113)
+        task = asyncio.create_task(hs.serve())
+        await _wait_for_port(18113)
+        try:
+            response = await _raw_request(18113, path='/ready')
+            assert '503' in response
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
+def test_apply_loop_health_omits_the_key_when_no_loops_are_registered():
+    # Processes without background loops are unaffected — no empty 'loops' dict.
+    ok, extra = HealthServerBase._apply_loop_health(True, {'db': 'ok'})  #pylint:disable=protected-access
+    assert ok is True
+    assert extra == {'db': 'ok'}
+
+
+def test_apply_loop_health_cannot_rescue_an_already_failing_check():
+    # Loop health only ever adds a reason to fail, never masks one.
+    LOOP_HEALTH.register('process_search_results', stale_after_seconds=60)
+    ok, extra = HealthServerBase._apply_loop_health(False, {})  #pylint:disable=protected-access
+    assert ok is False
+    assert extra == {'loops': {'process_search_results': 'ok'}}

@@ -1,5 +1,6 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from random import choice
 from re import match, sub, MULTILINE
 from typing import Optional, List
@@ -20,8 +21,9 @@ from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.utils.common import return_loop_runner
+from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge
+from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for how many days to keep messages around
@@ -32,6 +34,10 @@ LOOP_SLEEP_INTERVAL_DEFAULT = 300
 
 # Limit for how many messages we grab on each history check
 MESSAGE_CHECK_LIMIT = 16
+
+# Background-loop names: LoopHealth registry keys and heartbeat background_job values
+LOOP_MARKOV_CHECK = 'markov_check'
+LOOP_MARKOV_RESULT = 'markov_result'
 
 # Pydantic config model
 class MarkovConfig(BaseModel):
@@ -131,31 +137,13 @@ class Markov(CogHelper):
         self._result_task = None
         self._emoji_cache: dict[int, list] = {}
         self._init_task = None
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__loop_active_callback, 'Markov check loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value, self.__result_loop_active_callback, 'Markov result loop heartbeat')
+        # Heartbeats read LoopHealth (successful iterations), the same bit the
+        # health server's probe uses — see utils/loop_health.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                partial(loop_heartbeat_observations, LOOP_MARKOV_CHECK), 'Markov check loop heartbeat')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                partial(loop_heartbeat_observations, LOOP_MARKOV_RESULT), 'Markov result loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Markov dispatch result queue depth')
-
-    def __loop_active_callback(self, _options):
-        '''
-        Loop active callback check
-        '''
-        value = 1 if (self._task and not self._task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'markov_check'
-            })
-        ]
-
-    def __result_loop_active_callback(self, _options):
-        '''
-        Heartbeat for the result-consumer loop (0 when dead or never started).
-        '''
-        value = 1 if (self._result_task and not self._result_task.done()) else 0
-        return [
-            Observation(value, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'markov_result'
-            })
-        ]
 
     def __result_queue_depth_callback(self, _options):
         '''
@@ -176,14 +164,20 @@ class Markov(CogHelper):
         '''Start the producer and consumer tasks.'''
         self.register_result_queue()
         self._emoji_cache = {}
+        # The producer sleeps loop_sleep_interval (default 300 s) per iteration,
+        # so its staleness window is sized from that cadence rather than the
+        # process default — otherwise it would read as stalled between runs.
         self._task = self.bot.loop.create_task(
             return_loop_runner(self._markov_request_loop, self.bot, self.logger,
-                               continue_exceptions=(DiscordServerError, TimeoutError))()
+                               continue_exceptions=(DiscordServerError, TimeoutError),
+                               health=LOOP_HEALTH.register_for_interval(LOOP_MARKOV_CHECK, self.loop_sleep_interval))()
         )
         self._result_task = self.bot.loop.create_task(self._markov_result_loop())
 
     async def cog_unload(self):
         '''Cancel all running tasks.'''
+        # Cancellation is a deliberate stop, not a wedge — see Music.cog_unload.
+        LOOP_HEALTH.mark_stopped(LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT)
         if self._init_task:
             self._init_task.cancel()
         if self._task:
@@ -287,17 +281,24 @@ class Markov(CogHelper):
         '''
         Consumer loop: process results from the dispatcher result queue.
         '''
+        health = LOOP_HEALTH.register(LOOP_MARKOV_RESULT)
         while True:
-            result = await self._result_queue.get()
+            result = await health_aware_queue_get(self._result_queue, health)
             try:
                 if isinstance(result, GuildEmojisResult):
+                    # A result carrying an error is still a handled iteration —
+                    # the fetch failed upstream, the consumer did its job. An
+                    # early `continue` here would skip record_success and let a
+                    # run of upstream errors read as a wedged consumer.
                     if result.error:
                         self.logger.error(f'Markov :: Failed to fetch emojis for guild {result.guild_id}: {result.error}')
-                        continue
-                    self._emoji_cache[result.guild_id] = result.emojis
+                    else:
+                        self._emoji_cache[result.guild_id] = result.emojis
                 elif isinstance(result, ChannelHistoryResult):
                     await self._process_history_result(result)
+                health.record_success()
             except Exception:  # pylint: disable=broad-except
+                health.record_error()
                 # A single bad result must NOT kill the consumer: the producer keeps
                 # filling the queue, so a dead consumer leaks memory unboundedly
                 # (docs findings/2026-07-19 OOM root cause). Log and drain the next.

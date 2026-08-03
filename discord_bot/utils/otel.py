@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager, contextmanager
 from discord.ext.commands import Context
 from opentelemetry import trace
 from opentelemetry.trace.status import StatusCode
-from opentelemetry.metrics import get_meter_provider
+from opentelemetry.metrics import get_meter_provider, Observation
+
+from discord_bot.utils.loop_health import heartbeat_observation_value
 
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
@@ -221,3 +223,27 @@ def create_observable_gauge(meter_provider, name: str, function, description: st
         unit=unit,
         description=description,
     )
+
+
+def loop_heartbeat_observations(job_name: str, _options=None):
+    '''
+    Heartbeat gauge callback for a background loop, driven by LoopHealth.
+
+    1 while the loop is completing iterations, 0 once it has gone its staleness
+    window without one — the same bit the health server's probe reads, so the
+    alert and the probe can never disagree. Emits nothing at all when the loop
+    isn't registered in this process, so a loop that legitimately doesn't run
+    here (e.g. the bot-side download loop under HA) leaves no permanently-0
+    series to trip the stalled-loop alert.
+
+    Bind with functools.partial(loop_heartbeat_observations, 'job_name') when
+    registering the gauge.
+    '''
+    value = heartbeat_observation_value(job_name)
+    if value is None:
+        return []
+    return [
+        Observation(value, attributes={
+            AttributeNaming.BACKGROUND_JOB.value: job_name,
+        })
+    ]
