@@ -191,6 +191,12 @@ _BROKER_POLL_INTERVAL_SECONDS = 1.0
 # their queue is empty. Sleeping ONLY on the empty path (not every iteration)
 # keeps busy work back-to-back while cutting idle allocation churn (OOM fix).
 _IDLE_POLL_BACKOFF_SECONDS = 0.25
+# Longest the search loop sleeps out a 429 backoff window in a single iteration.
+# A search backoff runs wait_period_minimum * 2**failures (30 s doubling), which
+# outgrows the loop-health staleness window (300 s default) after four failures,
+# so the wait is taken in slices — each returning iteration re-arms health, and a
+# genuinely wedged loop still goes stale on schedule.
+_SEARCH_BACKOFF_SLICE_SECONDS = 30.0
 
 # Background-loop names. Used as both the LoopHealth registry key and the
 # heartbeat gauge's background_job attribute, so the metric series and the health
@@ -811,6 +817,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
+        # Wait out any active 429 backoff BEFORE popping, one slice per iteration.
+        # Popping first would hold a request in this pod's memory for the whole
+        # window — and the Redis-backed queue DELetes on pop, so a restart during
+        # the wait loses it outright. Slicing keeps each iteration short enough to
+        # re-arm loop health: the window is wait_period_minimum * 2**failures, so
+        # it passes the 300 s staleness default at four failures, and a loop that
+        # never returns inside its window fails the livenessProbe — restarting the
+        # pod over a rate limit that a restart cannot fix (and, under Redis, is
+        # shared with every other search pod anyway).
+        await self.youtube_music_search_client.backoff_wait(
+            self.bot_shutdown_event, max_wait_seconds=_SEARCH_BACKOFF_SLICE_SECONDS)
+        if self.youtube_music_search_client.backoff_seconds_remaining:
+            # Window still open after this slice. Return so the loop runner records
+            # a completed iteration, then wait the next slice.
+            return True
+
         try:
             media_request = await self.youtube_music_search_client.get_input_nowait()
         except QueueEmpty:
@@ -821,7 +843,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         # Default lifecycle_stage is already SEARCHING — register_request rendered
         # the bundle when the request entered the pipeline.
-        await self.youtube_music_search_client.backoff_wait(self.bot_shutdown_event)
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_youtube_music', kind=SpanKind.CLIENT,
                                            attributes=media_request_attributes(media_request),

@@ -252,14 +252,16 @@ class RedisYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
             f'{count} failures in queue' if count else _DEFAULT_FAILURE_SUMMARY
         )
 
-    async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
+    async def backoff_wait(self, shutdown_event: asyncio.Event,
+                           max_wait_seconds: float | None = None) -> None:
         '''Refresh the shared backoff window from Redis, then wait it out.
 
         A pod that did not itself hit the 429 still backs off: the window lives in
         Redis, not this pod's memory, so refresh the cache before delegating to the
-        base sleep loop.'''
+        base sleep loop.  Re-reading per slice is also what lets a pod pick up a
+        window another pod extended (or cleared) mid-wait.'''
         await self._refresh_wait_timestamp()
-        await super().backoff_wait(shutdown_event)
+        await super().backoff_wait(shutdown_event, max_wait_seconds=max_wait_seconds)
 
     @property
     def failure_summary(self) -> str:

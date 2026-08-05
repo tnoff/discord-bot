@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.cogs.music import Music
+from discord_bot.cogs.music import Music, _SEARCH_BACKOFF_SLICE_SECONDS
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
@@ -1080,6 +1080,10 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
     await cog.search_youtube_music()
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
 
+    # The 429 armed the backoff window, and the loop no longer pops while one is
+    # open — clear it so the retry attempt actually runs.
+    cog.youtube_music_search_client.local_worker._wait_timestamp = None
+
     # Second call succeeds — lifecycle should reset to SEARCHING then proceed to QUEUED
     await cog.search_youtube_music()
     await cog.process_search_results()
@@ -1245,3 +1249,56 @@ async def test_generate_media_requests_collection_creates_multitrack_bundle(mock
     bundles = await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
     assert len(bundles) == 1
     assert cog.media_broker.get_bundle_state(bundles[0]).has_search_banner is True
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_waits_in_slices_before_popping(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """An open backoff window ends the iteration WITHOUT popping a request.
+
+    Popping first would hold the request in pod memory for the whole window (and
+    the Redis-backed worker DELetes on pop, so a restart would lose it), while a
+    single uninterrupted sleep past the loop-health staleness window would read
+    as a wedge and get the pod restarted over a rate limit.
+    """
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
+
+    media_request = create_test_media_request(fake_context, 'test search')
+    _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
+
+    # Window well past one slice; stub the sleep itself so the test doesn't wait.
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
+    backoff_mock = mocker.patch.object(cog.youtube_music_search_client.local_worker,
+                                       'backoff_wait', new=AsyncMock())
+
+    assert await cog.search_youtube_music() is True
+
+    # Waited one slice, then returned: nothing popped, nothing resolved.
+    backoff_mock.assert_awaited_once_with(cog.bot_shutdown_event,
+                                          max_wait_seconds=_SEARCH_BACKOFF_SLICE_SECONDS)
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 1
+    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.SEARCHING
+
+
+@pytest.mark.asyncio()
+async def test_search_youtube_music_pops_once_backoff_window_clears(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """With the window elapsed the same iteration pops and resolves as usual."""
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
+
+    media_request = create_test_media_request(fake_context, 'test search')
+    _bundle, media_request = await make_broker_bundle(cog, fake_context, request=media_request)
+    cog.youtube_music_search_client.local_worker._input_queue.put_nowait(fake_context['guild'].id, media_request)
+
+    # An elapsed window reads as 0 seconds remaining, not None.
+    cog.youtube_music_search_client.local_worker._wait_timestamp = datetime.now(timezone.utc).timestamp() - 5
+
+    assert await cog.search_youtube_music() is True
+
+    assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 0
+    assert media_request.search_result.youtube_music_search_string == f'{YOUTUBE_VIDEO_PREFIX}test-video-id'

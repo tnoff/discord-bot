@@ -56,9 +56,10 @@ class InMemoryYoutubeMusicSearchClient:
         '''Resolve a request to a videoId (or None); re-raises on a 429.'''
         return await self._worker.resolve(media_request)
 
-    async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
-        '''Sleep out any active search backoff window.'''
-        await self._worker.backoff_wait(shutdown_event)
+    async def backoff_wait(self, shutdown_event: asyncio.Event,
+                           max_wait_seconds: float | None = None) -> None:
+        '''Sleep out any active search backoff window, at most max_wait_seconds.'''
+        await self._worker.backoff_wait(shutdown_event, max_wait_seconds=max_wait_seconds)
 
     def set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''Arm the search backoff window.'''

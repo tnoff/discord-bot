@@ -103,6 +103,21 @@ result consumers) use `health_aware_queue_get`, which wakes every window/3 to
 re-arm health while the queue stays empty. Without it, a quiet evening would read
 as a wedge. A consumer stuck *processing* an item still goes stale as it should.
 
+### Deliberate long waits
+
+A loop that sleeps out a rate-limit window (the search loop's 429 backoff,
+`youtube_wait_period_minimum * 2**failures`) takes that wait in **slices**,
+returning between them, rather than in one uninterrupted sleep. An iteration
+that never returns inside the staleness window reads as a wedge — dropping the
+heartbeat and failing the livenessProbe, which restarts the pod over a rate
+limit a restart cannot fix (and which, under Redis, is shared across pods
+anyway). Same reasoning as `health_aware_queue_get`: waiting on purpose is
+healthy, being stuck is not.
+
+Take the wait *before* claiming work, too. The search loop backs off before
+popping, so no request sits in pod memory across the window — the Redis-backed
+queues DELete on pop, so a restart mid-wait would lose it.
+
 ## Adding a loop
 
 ```python

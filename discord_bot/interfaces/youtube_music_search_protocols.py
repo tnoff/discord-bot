@@ -133,10 +133,21 @@ class YoutubeMusicSearchWorkerBase(ABC):
         self._wait_timestamp = datetime.now(timezone.utc).timestamp() + window + jitter
         self.logger.info(f'Waiting on youtube music search backoff, waiting until {self._wait_timestamp}')
 
-    async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
+    async def backoff_wait(self, shutdown_event: asyncio.Event,
+                           max_wait_seconds: float | None = None) -> None:
         '''
         Sleep until the backoff window elapses, returning early if it is already
         clear.  Raises ExitEarlyException if the shutdown event fires.
+
+        max_wait_seconds : Cap on this call's sleep.  The caller is expected to
+            re-call until backoff_seconds_remaining clears, which is what lets
+            the search loop wait out a long 429 window in slices instead of one
+            uninterrupted sleep.  That matters because loop health is time-based
+            (utils/loop_health): a window of wait_period_minimum * 2**failures
+            passes the 300 s staleness default at four failures, and an
+            iteration that never returns inside the window reads as a wedge —
+            dropping the heartbeat to 0 and failing the livenessProbe, which
+            restarts the pod over a rate limit a restart cannot fix.
         '''
         if self._wait_timestamp is None:
             return
@@ -145,6 +156,8 @@ class YoutubeMusicSearchWorkerBase(ABC):
             raise ExitEarlyException('Exiting bot wait loop')
         if sleep_duration == 0:
             return
+        if max_wait_seconds is not None:
+            sleep_duration = min(sleep_duration, max_wait_seconds)
         try:
             await asyncio.wait_for(shutdown_event.wait(), timeout=sleep_duration)
         except asyncio.TimeoutError:
@@ -213,8 +226,9 @@ class YoutubeMusicSearchClient(Protocol):
     async def resolve(self, media_request: MediaRequest) -> str | None:
         '''Resolve a request to a videoId (or None); re-raises on 429.'''
 
-    async def backoff_wait(self, shutdown_event: asyncio.Event) -> None:
-        '''Sleep out any active backoff window.'''
+    async def backoff_wait(self, shutdown_event: asyncio.Event,
+                           max_wait_seconds: float | None = None) -> None:
+        '''Sleep out any active backoff window, at most max_wait_seconds.'''
 
     def set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''Arm the backoff window.'''

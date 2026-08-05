@@ -104,6 +104,20 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 **Queue Type**: `DistributedQueue` (10x larger than download queue due to lightweight operations)
 
+**Rate-limit backoff**: A 429 arms a backoff window of `youtube_wait_period_minimum
+* 2**failures`. The loop waits that window out **before** popping, and only for
+`_SEARCH_BACKOFF_SLICE_SECONDS` per iteration:
+
+- Waiting before the pop means no request is held in pod memory across the
+  window — under the Redis-backed worker the pop DELetes the request, so a
+  restart mid-wait would lose it outright.
+- Slicing keeps each iteration short enough to re-arm
+  [loop health](../monitoring/loop_health.md); the full window outgrows the
+  staleness default after four failures, and a loop that never returns inside
+  its window fails the livenessProbe — restarting the pod over a rate limit that
+  a restart cannot fix (and which, under Redis, is shared with every other
+  search pod anyway).
+
 **Shutdown Behavior**: Exits immediately when shutdown flag is set
 
 **Why Separate Loop?**:

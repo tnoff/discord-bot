@@ -114,3 +114,15 @@ async def test_backoff_wait_returns_immediately_without_timestamp():
     '''backoff_wait is a no-op when no backoff window is armed.'''
     client = _client()
     assert await client.backoff_wait(asyncio.Event()) is None
+
+
+@pytest.mark.asyncio
+async def test_backoff_wait_forwards_max_wait_seconds():
+    '''The client passes the caller's slice cap through to the worker.'''
+    client = _client()
+    client.set_wait_timestamp()  # 30 s + jitter, far past the slice below
+
+    await asyncio.wait_for(client.backoff_wait(asyncio.Event(), max_wait_seconds=0.01), timeout=5)
+
+    # Slice elapsed but the window is untouched — still counting down.
+    assert client.backoff_seconds_remaining > 0

@@ -289,3 +289,22 @@ async def test_status_snapshot_defaults_when_idle():
     assert snapshot['failure_count'] == 0
     assert snapshot['failure_summary'] == '0 failures in queue'
     assert snapshot['backoff_seconds_remaining'] is None
+
+
+@pytest.mark.asyncio
+async def test_backoff_wait_sliced_returns_early_with_window_still_open():
+    '''max_wait_seconds truncates the sleep so the caller's loop iteration returns.
+
+    A long shared window must not be slept through in one go: the search loop
+    re-arms its LoopHealth only when an iteration returns, and a window of
+    wait_period_minimum * 2**failures outgrows the staleness default quickly.
+    '''
+    w = _worker()
+    await w._extend_wait_until(backoff_multiplier=64)  # window far past any slice
+    remaining_before = w.backoff_seconds_remaining
+    assert remaining_before > 60
+
+    await asyncio.wait_for(w.backoff_wait(asyncio.Event(), max_wait_seconds=0.01), timeout=5)
+
+    # Returned early, and the window is still open — the caller waits another slice.
+    assert w.backoff_seconds_remaining > 0
