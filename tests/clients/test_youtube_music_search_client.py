@@ -66,7 +66,7 @@ async def test_submit_get_and_queue_size_passthrough():
     assert await client.queue_size(request.guild_id) == 0
     await client.submit(request.guild_id, request)
     assert await client.queue_size(request.guild_id) == 1
-    assert client.get_input_nowait() is request
+    assert await client.get_input_nowait() is request
     assert await client.queue_size(request.guild_id) == 0
 
 

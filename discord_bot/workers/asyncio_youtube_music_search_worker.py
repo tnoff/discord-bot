@@ -37,7 +37,7 @@ class AsyncioYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
         '''Append a request to the guild's input queue.'''
         self._input_queue.put_nowait(guild_id, media_request, priority=priority)
 
-    def get_input_nowait(self) -> MediaRequest:
+    async def get_input_nowait(self) -> MediaRequest:
         '''Pop the next pending request, raising asyncio.QueueEmpty if none.'''
         return self._input_queue.get_nowait()
 

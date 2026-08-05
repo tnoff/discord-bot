@@ -48,9 +48,9 @@ class InMemoryYoutubeMusicSearchClient:
         '''Enqueue a search request for resolution on the search loop.'''
         await self._worker.submit(guild_id, media_request, priority=priority)
 
-    def get_input_nowait(self) -> MediaRequest:
+    async def get_input_nowait(self) -> MediaRequest:
         '''Pop the next pending search request, raising asyncio.QueueEmpty if none.'''
-        return self._worker.get_input_nowait()
+        return await self._worker.get_input_nowait()
 
     async def resolve(self, media_request: MediaRequest) -> str | None:
         '''Resolve a request to a videoId (or None); re-raises on a 429.'''

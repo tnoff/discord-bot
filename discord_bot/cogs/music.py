@@ -56,9 +56,11 @@ from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
 from discord_bot.clients.youtube_music_search_client import (
     InMemoryYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
+from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
@@ -340,10 +342,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 )
             self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
         # YouTube-Music search runs through a worker + client (extracted from the
-        # cog); single-process wraps an in-memory AsyncioYoutubeMusicSearchWorker.
-        # Search requests are lightweight, so the queue is sized larger than the
-        # play queue.  A future HttpYoutubeMusicSearchClient will front a search pod.
-        search_worker = AsyncioYoutubeMusicSearchWorker(
+        # cog).  Search requests are lightweight, so the queue is sized larger than
+        # the play queue.  A future HttpYoutubeMusicSearchClient will front a search
+        # pod; for now the in-memory worker (or, in HA, a RedisYoutubeMusicSearchWorker
+        # run in-process) is wrapped by InMemoryYoutubeMusicSearchClient.
+        search_worker_args = (
             self.logging_config,
             YoutubeMusicClient(),
             FailureQueue(
@@ -352,8 +355,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             ),
             self.config.download.youtube_wait_period_minimum,
             self.config.download.youtube_wait_period_max_variance,
-            queue_max_size=self.config.player.queue_max_size * 2,
         )
+        search_worker: YoutubeMusicSearchWorkerBase
+        if self.config.download.redis_backed and self.redis_manager:
+            # Redis-backed search queue + shared cross-pod 429 backoff window,
+            # shareable across search pods (runs in-process here, mirroring the
+            # RedisDownloadWorker MR 2b step; the search_server/HttpYoutubeMusicSearchClient
+            # split is later).
+            search_worker = RedisYoutubeMusicSearchWorker(
+                *search_worker_args,
+                redis_manager=self.redis_manager,
+            )
+        else:
+            search_worker = AsyncioYoutubeMusicSearchWorker(
+                *search_worker_args,
+                queue_max_size=self.config.player.queue_max_size * 2,
+            )
         self.youtube_music_search_client: YoutubeMusicSearchClient = InMemoryYoutubeMusicSearchClient(search_worker)
 
         # Callback functions
@@ -795,7 +812,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
         try:
-            media_request = self.youtube_music_search_client.get_input_nowait()
+            media_request = await self.youtube_music_search_client.get_input_nowait()
         except QueueEmpty:
             # Idle: no search queued — back off before the loop runner re-calls
             # rather than busy-spinning every ~10ms.

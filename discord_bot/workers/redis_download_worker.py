@@ -44,6 +44,9 @@ from discord_bot.interfaces.download_protocols import (
 from discord_bot.types.download import DownloadErrorType, DownloadResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.workers.redis_guild_queue import (
+    build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
+)
 
 REQUEST_KEY_PREFIX = 'discord_bot:download:request:'
 GUILD_QUEUE_PREFIX = 'discord_bot:download:guild:'
@@ -77,14 +80,11 @@ def youtube_failures_key(egress_key: str) -> str:
 
 
 # Per-pool pop lock.  The round-robin pop (pick oldest guild -> ZPOPMIN -> rotate)
-# and the YouTube check-wait-then-claim are multi-step read-modify-writes; a
-# short-lived token-tagged SET NX lock serialises them across pods, mirroring
-# RedisBrokerRegistry.  (fakeredis on the pinned test stack has no Lua, so this
-# is the atomicity primitive rather than an EVAL script.)
+# and the YouTube check-wait-then-claim are multi-step read-modify-writes; the
+# shared redis_pop_lock (a token-tagged SET NX lock, mirroring RedisBrokerRegistry)
+# serialises them across pods.  (fakeredis on the pinned test stack has no Lua, so
+# this is the atomicity primitive rather than an EVAL script.)
 POP_LOCK_KEY_PREFIX = 'discord_bot:download:poplock:'
-POP_LOCK_TTL_SECONDS = 10
-POP_LOCK_POLL_INTERVAL_SECONDS = 0.05
-POP_LOCK_WAIT_SECONDS = 5.0
 
 
 class RedisDownloadWorker(DownloadWorkerBase):
@@ -166,32 +166,14 @@ class RedisDownloadWorker(DownloadWorkerBase):
     @asynccontextmanager
     async def _pop_lock(self, *, direct: bool):
         '''
-        Hold a short-lived SET NX lock over one pool's pop critical section.
+        Hold the shared SET NX pop-lock over one pool's critical section.
 
-        Token-tagged so a slow holder whose TTL expired can't delete a successor's
-        lock; falls through (token=None) after POP_LOCK_WAIT_SECONDS rather than
-        deadlocking — mirrors RedisBrokerRegistry.bundle_lock.
+        Per-pool key so the DIRECT and per-egress YouTube pops don't serialise
+        against each other; the token-tagging + fall-through live in redis_pop_lock.
         '''
         pool = 'direct' if direct else f'youtube:{self._youtube_egress_key}'
-        lock_key = f'{POP_LOCK_KEY_PREFIX}{pool}'
-        token = uuid_module.uuid4().hex
-        client = self._manager.client
-        deadline = asyncio.get_running_loop().time() + POP_LOCK_WAIT_SECONDS
-        while True:
-            acquired = await client.set(lock_key, token, nx=True, ex=POP_LOCK_TTL_SECONDS)
-            if acquired:
-                break
-            if asyncio.get_running_loop().time() >= deadline:
-                token = None
-                break
-            await asyncio.sleep(POP_LOCK_POLL_INTERVAL_SECONDS)
-        try:
+        async with redis_pop_lock(self._manager.client, f'{POP_LOCK_KEY_PREFIX}{pool}'):
             yield
-        finally:
-            if token is not None:
-                current = await client.get(lock_key)
-                if current == token:
-                    await client.delete(lock_key)
 
     async def _round_robin_pop(self, *, direct: bool) -> tuple[int, str, str | None] | None:
         '''
@@ -301,19 +283,8 @@ class RedisDownloadWorker(DownloadWorkerBase):
         dropped: List[MediaRequest] = []
         for direct in (False, True):
             queue_key = self._guild_queue_key(guild_id, direct=direct)
-            uuids = await client.zrange(queue_key, 0, -1)
-            for request_uuid in uuids:
-                raw = await client.get(self._request_key(request_uuid))
-                if raw is None:
-                    # Payload already TTL'd — drop the dangling queue entry.
-                    await client.zrem(queue_key, request_uuid)
-                    continue
-                media_request = parse_media_request(json.loads(raw))
-                if preserve_predicate is not None and preserve_predicate(media_request):
-                    continue
-                await client.zrem(queue_key, request_uuid)
-                await client.delete(self._request_key(request_uuid))
-                dropped.append(media_request)
+            dropped.extend(
+                await drain_guild_zset(client, queue_key, self._request_key, preserve_predicate))
             # Drop the guild from the round-robin tracker if its queue is now empty.
             if await client.zcard(queue_key) == 0:
                 await client.zrem(self._guilds_zset_key(direct=direct), str(guild_id))
@@ -492,11 +463,6 @@ class RedisDownloadWorker(DownloadWorkerBase):
         queue_sizes: dict[str, int] = {}
         for direct in (False, True):
             guild_ids = await client.zrange(self._guilds_zset_key(direct=direct), 0, -1)
-            for guild_id in guild_ids:
-                queue_sizes[str(guild_id)] = await self.queue_size(int(guild_id))
-        return {
-            'failure_summary': self._failure_summary_cache,
-            'failure_count': self._failure_count_cache,
-            'backoff_seconds_remaining': backoff or None,
-            'queue_sizes': queue_sizes,
-        }
+            queue_sizes.update(await collect_queue_sizes(guild_ids, self.queue_size))
+        return build_status_snapshot(
+            self._failure_summary_cache, self._failure_count_cache, backoff, queue_sizes)

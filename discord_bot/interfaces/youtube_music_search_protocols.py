@@ -84,24 +84,45 @@ class YoutubeMusicSearchWorkerBase(ABC):
         Resolve a search request to a YouTube videoId (or None if nothing
         matched).
 
-        Records a passing FailureStatus on success.  On a 429
-        YoutubeMusicRetryException it records a failing FailureStatus, arms the
-        backoff window scaled by the current failure count, and RE-RAISES — the
-        cog loop owns the retry_count / re-enqueue / lifecycle decisions.
+        Records a passing outcome on success.  On a 429
+        YoutubeMusicRetryException it records a failing outcome (which arms the
+        backoff window scaled by the current failure count) and RE-RAISES — the
+        cog loop owns the retry_count / re-enqueue / lifecycle decisions.  The
+        failure/success bookkeeping is factored into _record_search_success /
+        _record_search_failure hooks so a Redis-backed subclass can share both
+        the failure count and the backoff window across pods.
         '''
         loop = asyncio.get_running_loop()
         try:
             video_id = await loop.run_in_executor(
                 None, partial(self._client.search, media_request.search_result.raw_search_string))
         except YoutubeMusicRetryException as error:
-            self._failure_queue.add_item(FailureStatus(success=False,
-                                                       exception_type=type(error).__name__,
-                                                       exception_message=str(error)))
-            self.logger.info(f'Youtube music search failure queue status: {self._failure_queue.get_status_summary()}')
-            self.set_wait_timestamp(backoff_multiplier=2 ** self._failure_queue.size)
+            await self._record_search_failure(error)
             raise
-        self._failure_queue.add_item(FailureStatus())
+        await self._record_search_success()
         return video_id
+
+    async def _record_search_success(self) -> None:
+        '''
+        Record a passing search on the failure queue (drains one prior failure).
+
+        Overridden by the Redis worker to pop the shared cross-pod failure ZSET.
+        '''
+        self._failure_queue.add_item(FailureStatus())
+
+    async def _record_search_failure(self, error: YoutubeMusicRetryException) -> None:
+        '''
+        Record a 429 on the failure queue and arm the backoff window scaled by the
+        resulting failure count.
+
+        Overridden by the Redis worker to share the failure count and the backoff
+        window across pods.
+        '''
+        self._failure_queue.add_item(FailureStatus(success=False,
+                                                   exception_type=type(error).__name__,
+                                                   exception_message=str(error)))
+        self.logger.info(f'Youtube music search failure queue status: {self._failure_queue.get_status_summary()}')
+        self.set_wait_timestamp(backoff_multiplier=2 ** self._failure_queue.size)
 
     def set_wait_timestamp(self, backoff_multiplier: int = 1) -> None:
         '''Arm the search backoff window: wait_period_minimum * multiplier + jitter.'''
@@ -153,8 +174,12 @@ class YoutubeMusicSearchWorkerBase(ABC):
         '''Append a request to the per-guild input queue.'''
 
     @abstractmethod
-    def get_input_nowait(self) -> MediaRequest:
-        '''Pop the next pending request, raising asyncio.QueueEmpty if none.'''
+    async def get_input_nowait(self) -> MediaRequest:
+        '''Pop the next pending request, raising asyncio.QueueEmpty if none.
+
+        Async (unlike a plain in-memory get_nowait) so a Redis-backed subclass can
+        do its pop I/O inline, mirroring DownloadWorkerBase.get_input_nowait.
+        '''
 
     @abstractmethod
     async def block_guild(self, guild_id: int) -> bool:
@@ -182,7 +207,7 @@ class YoutubeMusicSearchClient(Protocol):
                      priority: int | None = None) -> None:
         '''Enqueue a search request.'''
 
-    def get_input_nowait(self) -> MediaRequest:
+    async def get_input_nowait(self) -> MediaRequest:
         '''Pop the next pending request, raising asyncio.QueueEmpty if none.'''
 
     async def resolve(self, media_request: MediaRequest) -> str | None:

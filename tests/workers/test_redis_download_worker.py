@@ -516,7 +516,7 @@ async def test_pop_lock_falls_through_on_contention(monkeypatch):
     # Lock always contested -> the acquire loop should time out and fall through
     # (token=None) rather than deadlock, and skip the release.
     monkeypatch.setattr(
-        'discord_bot.workers.redis_download_worker.POP_LOCK_WAIT_SECONDS', 0.0)
+        'discord_bot.workers.redis_guild_queue.POP_LOCK_WAIT_SECONDS', 0.0)
     w._manager.client.set = AsyncMock(return_value=None)
     async with w._pop_lock(direct=True):
         pass  # no exception == fell through cleanly
