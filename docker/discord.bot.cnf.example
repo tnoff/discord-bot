@@ -21,6 +21,13 @@ general:
     delete_messages: true
     music: true
 music:
+  # HA download path: enqueue to the standalone downloader + read results from the
+  # broker instead of downloading in-process. download_client.url points at the
+  # downloader's HTTP server, reached via gluetun (the downloader shares its netns).
+  broker_client:
+    url: http://broker:8081
+  download_client:
+    url: http://gluetun:8083
   download:
     spotify_credentials:
       client_id: !ENV ${SPOTIFY_CLIENT_ID}

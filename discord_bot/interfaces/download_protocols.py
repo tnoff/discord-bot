@@ -27,6 +27,7 @@ from functools import partial
 import hashlib
 from pathlib import Path
 import random
+import shutil
 from time import time
 from typing import Callable, List, Protocol
 
@@ -44,7 +45,13 @@ from discord_bot.types.download import (
 )
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
-from discord_bot.utils.integrations.egress_probe import cached_exit_attributes, cached_exit_hostname
+from discord_bot.utils.integrations.egress_probe import (
+    cached_exit_attributes, cached_exit_hostname, UNKNOWN_EXIT,
+)
+from discord_bot.utils.integrations.egress_pool import (
+    EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
+    ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
+)
 from discord_bot.utils.otel import (
     AttributeNaming, capture_span_context,
     otel_span_wrapper, span_links_from_context,
@@ -250,6 +257,8 @@ class DownloadWorkerBase(ABC):
         normalize_audio: bool = False,
         broker: BrokerClient | None = None,
         max_retries: int = 3,
+        egress_mode: str = EGRESS_MODE_HTTP_PROXY,
+        egress_exits: List[str] | None = None,
     ):
         '''
         Init download engine
@@ -274,15 +283,31 @@ class DownloadWorkerBase(ABC):
             'logger': get_logger('ytdlp', logging_config),
             'default_search': 'auto',
             'source_address': YTDLP_SOURCE_ADDRESS,
-            'outtmpl': str(download_dir / f'{YTDLP_OUTPUT_TEMPLATE}'),
+            # Relative output template + a home path, so a concurrent (pool-mode)
+            # download can redirect just its home to a per-request scratch dir
+            # (set on the leased client in _create_source) without rebuilding the
+            # client. The filename stays per-video, so the S3 cache key is unchanged.
+            'outtmpl': YTDLP_OUTPUT_TEMPLATE,
+            'paths': {'home': str(download_dir)},
         }
         if extra_ytdlp_options:
             for key, value in extra_ytdlp_options.items():
                 ytdlopts[key] = value
         if max_video_length or banned_video_list:
             ytdlopts['match_filter'] = match_generator(max_video_length, banned_video_list)
-        self.ytdl = YoutubeDL(ytdlopts)
+        # Egress strategy: one object, never None. http-proxy routes every download
+        # through a single fixed-proxy client; any other mode leases a distinct exit
+        # per download (build_exit_resolver fails loud on an unknown mode). The
+        # download path asks self._egress for a client + exit and never branches.
+        if egress_mode == EGRESS_MODE_HTTP_PROXY:
+            self._egress: Egress = HttpProxyEgress(YoutubeDL(ytdlopts))
+        else:
+            self._egress = PoolEgress(
+                ExitPool(egress_exits or []),
+                ExitClients(ytdlopts, build_exit_resolver(egress_mode)),
+            )
         self._broker = broker
+        self._download_dir = download_dir
         self._max_retries = max_retries
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
@@ -300,15 +325,40 @@ class DownloadWorkerBase(ABC):
         '''Attach an ExitProbe whose cached exit the download path attributes to.'''
         self._exit_probe = exit_probe
 
-    def _log_exit_failure(self, error_type: DownloadErrorType) -> None:
+    async def _reserve_youtube_exit(self, _exit_name: str) -> bool:
+        '''
+        Atomically reserve an exit for a YouTube download; return True once the exit
+        is claimed for this download, False if it is unavailable (backed off or
+        claimed by another task/pod).
+
+        Base: the in-process worker keeps no shared per-exit state, so every exit is
+        always reservable. The Redis worker overrides this to SET-NX the exit's
+        per-exit YouTube window, which gives cross-task + cross-pod exclusion and
+        doubles as the per-exit spacing/backoff gate.
+        '''
+        return True
+
+    async def _reserve_direct_exit(self, _exit_name: str) -> bool:
+        '''Reserve an exit for a DIRECT download.  DIRECT items aren't YouTube-rate-
+        limited, so an exit is always reservable — the pool's in-pod leased set is
+        enough and no cross-pod window is claimed.  Mirrors _reserve_youtube_exit's
+        signature so the pool can take either.'''
+        return True
+
+    def _log_exit_failure(self, error_type: DownloadErrorType, exit_name: str | None = None) -> None:
         '''
         Log the egress exit a YouTube failure left from, so failures can be grouped
         by exit in Loki without paying the metric cardinality of a per-exit label.
         Shared by the in-process base failure branch and the Redis worker's
         YouTube-failure path so both attribute failures to the exit that was live.
+
+        exit_name is the leased pool exit (pool mode) — it names the exit directly,
+        since the probe isn't wired when the pool owns exit selection. When None
+        (fixed http-proxy mode) we fall back to the probe-discovered exit.
         '''
+        exit_hostname = exit_name if exit_name is not None else cached_exit_hostname(self._exit_probe)
         self.logger.warning('Download failure (%s) attributed to egress exit %s',
-                             error_type.value, cached_exit_hostname(self._exit_probe))
+                             error_type.value, exit_hostname)
 
     @property
     def wait_timestamp(self) -> float | None:
@@ -330,10 +380,14 @@ class DownloadWorkerBase(ABC):
         new_timestamp = new_timestamp + (random.randint(1000, self._wait_period_max_variance * 1000) / 1000)  # nosec B311
         self._wait_timestamp = new_timestamp
 
-    async def update_tracking(self, result: DownloadResult) -> int | None:
+    async def update_tracking(self, result: DownloadResult, exit_name: str | None = None) -> int | None:
         '''
         Update failure queue and backoff timestamp based on a DownloadResult.
         Returns backoff_seconds_remaining so callers need not re-query.
+
+        exit_name is the exit this download leased (pool mode); it names the exit
+        in failure attribution and, in the Redis worker, keys the per-exit backoff
+        window.  None on the fixed http-proxy path.
 
         Async so a Redis-backed subclass can persist shared backoff/failure state
         inline; the in-process base body itself does no awaiting.
@@ -350,7 +404,7 @@ class DownloadWorkerBase(ABC):
             return self.backoff_seconds_remaining
 
         if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED, DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED}:
-            self._log_exit_failure(error_type)
+            self._log_exit_failure(error_type, exit_name)
             if self.failure_queue is not None:
                 self.failure_queue.add_item(FailureStatus(
                     success=False,
@@ -491,11 +545,19 @@ class DownloadWorkerBase(ABC):
                 return
 
         request_uuid = str(media_request.uuid)
-        if self._broker is not None:
-            await self._broker.update_request_status(
-                request_uuid, LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
-            )
+        # IN_PROGRESS is pushed inside create_source once an exit is actually leased,
+        # not here — else a request that finds every exit busy (NO_EXIT_AVAILABLE)
+        # would be stamped IN_PROGRESS while it's really still queued, and under
+        # sustained pool contention hundreds of waiting requests would show as
+        # "in progress" and churn bundle renders.
         result = await self.create_source(media_request, self._max_retries)
+
+        if result.status.error_type == DownloadErrorType.NO_EXIT_AVAILABLE:
+            # Pure contention — every exit was busy, the item was never attempted and
+            # never left QUEUED. Re-queue it unchanged (no retry_count bump, no RETRY
+            # UI); create_source already yielded so this isn't a tight loop.
+            await self._enqueue_request(media_request.guild_id, media_request)
+            return
 
         if not result.status.success and result.status.error_type in {
             DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED
@@ -538,23 +600,27 @@ class DownloadWorkerBase(ABC):
             span_context=span_context,
         )
 
-    def __prepare_data_source(self, media_request: MediaRequest, max_retries: int):
+    def __prepare_data_source(self, media_request: MediaRequest, max_retries: int, egress: DownloadEgress):
         '''
         Prepare source from youtube url
 
         media_request: Media Request from inputs
         max_retries: Max retries before throwing hands up
+        egress: the DownloadEgress this download uses (client + exit)
         '''
         span_attributes = media_request_attributes(media_request)
-        # Stamp the live egress exit onto the span so a download failure can be
-        # traced back to the exit it left from. Runs in BOTH workers.
-        exit_hostname, exit_ip = cached_exit_attributes(self._exit_probe)
+        # Stamp the exit this download left from: the leased exit in a pool mode, or
+        # the probe-discovered exit for the fixed http proxy.
+        if egress.exit_name is not None:
+            exit_hostname, exit_ip = egress.exit_name, UNKNOWN_EXIT
+        else:
+            exit_hostname, exit_ip = cached_exit_attributes(self._exit_probe)
         span_attributes[AttributeNaming.EGRESS_HOSTNAME.value] = exit_hostname
         span_attributes[AttributeNaming.EGRESS_IP.value] = exit_ip
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes, links=span_links_from_context(media_request.span_context)) as span:
             span_context = capture_span_context()
             try:
-                data = self.ytdl.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
+                data = egress.client.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
@@ -645,35 +711,93 @@ class DownloadWorkerBase(ABC):
 
     async def create_source(self, media_request: MediaRequest, max_retries: int) -> DownloadResult:
         '''
-        Download data from youtube search. Automatically calls update_tracking on the result.
-        PCM conversion runs after update_tracking so the backoff timer reflects download time only.
+        Acquire an egress (a client + exit) for this download, run it, and release
+        the egress afterwards.  Returns a RETRYABLE result if no exit is available.
+        '''
+        # DIRECT items aren't YouTube-rate-limited, so they reserve an exit
+        # unconditionally; only YouTube items claim the per-exit window (cross-pod
+        # exclusion + spacing/backoff) at reserve time.
+        reserve = (
+            self._reserve_direct_exit
+            if media_request.search_result.search_type == SearchType.DIRECT
+            else self._reserve_youtube_exit
+        )
+        egress: DownloadEgress | None = await self._egress.acquire(reserve)
+        if egress is None:
+            # Pool mode with every exit in-flight or backed off (HttpProxyEgress never
+            # returns None). Returning RETRYABLE requeues the item, but the driver loop
+            # re-pops immediately — so yield briefly here rather than tight-spinning
+            # pop -> reserve-fail -> requeue until an exit frees.
+            await sleep(_IDLE_POLL_BACKOFF_SECONDS)
+            return self._make_error_result(
+                DownloadErrorType.NO_EXIT_AVAILABLE, media_request, None, 'No egress exit available')
+        if egress.exit_name is not None:
+            # Pool mode: name the exit this download leaves from (the span carries
+            # it too, but this is greppable without a tracing backend).
+            self.logger.info('Download egress via exit %s', egress.exit_name)
+        # Mark IN_PROGRESS only now — an exit is leased and the download is about to
+        # run, so a contended (NO_EXIT_AVAILABLE) request never reaches this and stays
+        # QUEUED in the bundle.
+        if self._broker is not None:
+            await self._broker.update_request_status(
+                str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
+            )
+        try:
+            return await self._create_source(media_request, max_retries, egress)
+        finally:
+            self._egress.release(egress)
+
+    async def _create_source(self, media_request: MediaRequest, max_retries: int, egress: DownloadEgress) -> DownloadResult:
+        '''
+        Download through an acquired egress + post-process. Calls update_tracking on
+        the result; PCM conversion runs after it so the backoff timer reflects
+        download time only.
         '''
         loop = asyncio.get_running_loop()
-        to_run = partial(self.__prepare_data_source, media_request=media_request, max_retries=max_retries)
-        result = await loop.run_in_executor(None, to_run)
-        await self.update_tracking(result)
-        if result.status.success and result.file_name is not None:
-            try:
-                pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
-                post_process_timestamp = datetime.now(timezone.utc)
-                self.logger.info(
-                    'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',
-                    pcm_path, result.download_timestamp, post_process_timestamp,
-                )
-                result = result.model_copy(update={
-                    'file_name': pcm_path,
-                    'post_process_timestamp': post_process_timestamp,
-                })
-            except AudioProcessingError as error:
-                self.logger.warning('Audio processing failed for %s', result.file_name)
-                result = result.model_copy(update={
-                    'status': DownloadStatus(
-                        success=False,
-                        error_type=DownloadErrorType.RETRYABLE,
-                        user_message='Audio processing failed for download',
-                        error_detail=str(error),
-                    ),
-                })
-            # Finally upload result to s3 and update the filepath
-            result.file_name = await loop.run_in_executor(None, self.__upload_s3, result.file_name)
-        return result
+        # Isolate concurrent (pool-mode) downloads: two downloads of the SAME video
+        # otherwise share the per-video scratch path (%(id)s) and clobber each
+        # other — one unlinks the file mid-convert. Redirect this download's home to
+        # a per-request subdir; the filename stays per-video so the S3 cache key is
+        # unchanged. Safe to mutate the leased client's paths — an exit is held by
+        # one download at a time.
+        scratch_home = None
+        if self._egress.is_pool:
+            scratch_home = self._download_dir / str(media_request.uuid)
+            scratch_home.mkdir(parents=True, exist_ok=True)
+            egress.client.params['paths'] = {'home': str(scratch_home)}
+        try:
+            to_run = partial(self.__prepare_data_source, media_request=media_request,
+                             max_retries=max_retries, egress=egress)
+            result = await loop.run_in_executor(None, to_run)
+            await self.update_tracking(result, egress.exit_name)
+            if result.status.success and result.file_name is not None:
+                try:
+                    pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
+                    post_process_timestamp = datetime.now(timezone.utc)
+                    self.logger.info(
+                        'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',
+                        pcm_path, result.download_timestamp, post_process_timestamp,
+                    )
+                    result = result.model_copy(update={
+                        'file_name': pcm_path,
+                        'post_process_timestamp': post_process_timestamp,
+                    })
+                except AudioProcessingError as error:
+                    self.logger.warning('Audio processing failed for %s', result.file_name)
+                    result = result.model_copy(update={
+                        'status': DownloadStatus(
+                            success=False,
+                            error_type=DownloadErrorType.RETRYABLE,
+                            user_message='Audio processing failed for download',
+                            error_detail=str(error),
+                        ),
+                    })
+                # Finally upload result to s3 and update the filepath
+                result.file_name = await loop.run_in_executor(None, self.__upload_s3, result.file_name)
+            return result
+        finally:
+            # In S3 mode the media was uploaded and its local copy unlinked, so the
+            # per-request subdir holds only leftover scratch — remove it. (Non-S3 dev
+            # mode keeps the file in download_dir and never opens a subdir.)
+            if scratch_home is not None and self.bucket_name:
+                await loop.run_in_executor(None, partial(shutil.rmtree, scratch_home, ignore_errors=True))

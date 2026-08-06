@@ -47,6 +47,19 @@ def _worker(manager=None, *, egress='default', wait_min=10, variance=2):
     return worker
 
 
+def _pool_worker(manager=None, *, exits=('us-lax-wg-001', 'us-nyc-wg-301'), wait_min=10):
+    '''A worker in pool (socks5) egress mode fanning out across the given exits.'''
+    worker = RedisDownloadWorker(
+        None, Path('/tmp'),
+        redis_manager=manager or _manager(),
+        wait_period_minimum=wait_min, wait_period_max_variance=2, max_retries=2,
+        egress_mode='mullvad-socks5', egress_exits=list(exits),
+    )
+    worker._startup_wait_until = 0.0
+    worker._wait_timestamp = None
+    return worker
+
+
 def _mk(*, guild_id=7, direct=False) -> MediaRequest:
     return MediaRequest(
         guild_id=guild_id, channel_id=2, requester_name='tester', requester_id=9,
@@ -95,12 +108,32 @@ def test_default_egress_key_preserves_legacy_schema():
 
 def test_build_score_priority_then_timestamp():
     w = _worker()
-    w._now_seconds = lambda: 5.0
-    low = w._build_score(5)
-    high = w._build_score(10)
-    default = w._build_score(None)  # bucket 100
+    low = w._build_score(5, 5.0)
+    high = w._build_score(10, 5.0)
+    default = w._build_score(None, 5.0)  # bucket 100
     assert low < high < default
     assert low == 5.0 * 1_000_000_000 + 5.0
+    # Within a priority bucket, the earlier queued_at sorts first.
+    assert w._build_score(5, 1.0) < w._build_score(5, 9.0)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_stamps_queue_order_once_and_preserves_on_requeue():
+    '''queue_order is stamped on first enqueue and reused on re-enqueue, so a
+    re-queued (retry / pool-contention bounce) request keeps its ZSET score and
+    thus its queue position instead of jumping to the back.'''
+    w = _worker()
+    now = [100.0]
+    w._now_seconds = lambda: now[0]
+    mr = _mk()
+    key = w._guild_queue_key(7, direct=False)
+    await w._enqueue_request(7, mr)
+    assert mr.queue_order == 100.0
+    score1 = await w._manager.client.zscore(key, str(mr.uuid))
+    now[0] = 500.0  # time advances before the bounce
+    await w._enqueue_request(7, mr)
+    assert mr.queue_order == 100.0  # not re-stamped
+    assert await w._manager.client.zscore(key, str(mr.uuid)) == score1  # position held
 
 
 def test_startup_floor_armed_by_default():
@@ -405,6 +438,122 @@ async def test_extend_wait_until_max_extends_only():
     await w._manager.client.set(w._youtube_wait_until_key, '5000.0')
     await w._extend_wait_until()
     assert float(await w._manager.client.get(w._youtube_wait_until_key)) == 5000.0
+
+
+# --------------------------------------------------------------------------- #
+# Per-exit YouTube window (pool mode)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_reserve_youtube_exit_claims_free_window():
+    '''Reserving a free exit SET-NX-seeds its per-exit window and returns True.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    assert await w._reserve_youtube_exit('us-lax-wg-001') is True
+    stamp = float(await w._manager.client.get(youtube_wait_until_key('us-lax-wg-001')))
+    assert stamp >= 1000.0 + w._wait_period_minimum
+
+
+@pytest.mark.asyncio
+async def test_reserve_youtube_exit_fails_when_already_claimed():
+    '''An exit whose window is already claimed can't be reserved; a sibling can —
+    the claim is per-exit, not pod-wide.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    await w._manager.client.set(youtube_wait_until_key('us-lax-wg-001'), '1030.0')
+    assert await w._reserve_youtube_exit('us-lax-wg-001') is False
+    assert await w._reserve_youtube_exit('us-nyc-wg-301') is True
+
+
+@pytest.mark.asyncio
+async def test_reserve_youtube_exit_sets_expiring_ttl():
+    '''The reserved window carries a TTL so the exit frees when spacing elapses —
+    key-existence, not a value read, is the SET NX gate.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    await w._reserve_youtube_exit('us-lax-wg-001')
+    ttl = await w._manager.client.ttl(youtube_wait_until_key('us-lax-wg-001'))
+    assert 0 < ttl <= w._wait_period_minimum + 1
+
+
+@pytest.mark.asyncio
+async def test_pool_mode_pop_does_not_claim_global_window():
+    '''Pool mode pops a YouTube item without touching the pod-global :default window
+    — that's what lets concurrent drivers pop in parallel instead of serialising.'''
+    w = _pool_worker(exits=('a', 'b'))
+    w._now_seconds = lambda: 1000.0
+    await w._enqueue_request(7, _mk())
+    popped = await w._atomic_pop_youtube()
+    assert popped is not None and popped[0] != 'wait' and len(popped) == 3
+    assert await w._manager.client.get(w._youtube_wait_until_key) is None
+
+
+@pytest.mark.asyncio
+async def test_soonest_exit_free_zero_when_any_exit_free():
+    '''With any exit free the pod can pop now, so the backoff gate is 0.'''
+    w = _pool_worker(exits=('a', 'b'))
+    w._now_seconds = lambda: 1000.0
+    await w._manager.client.set(youtube_wait_until_key('a'), '1030.0')  # a busy, b free
+    assert await w._soonest_exit_free_seconds() == 0
+    assert await w._effective_backoff_remaining() == 0
+
+
+@pytest.mark.asyncio
+async def test_soonest_exit_free_is_min_when_all_busy():
+    '''When every exit is busy, the gate is the soonest one to free.'''
+    w = _pool_worker(exits=('a', 'b'))
+    w._now_seconds = lambda: 1000.0
+    await w._manager.client.set(youtube_wait_until_key('a'), '1050.0')
+    await w._manager.client.set(youtube_wait_until_key('b'), '1020.0')
+    assert await w._soonest_exit_free_seconds() == 20  # b frees first
+    assert await w._effective_backoff_remaining() == 20
+
+
+@pytest.mark.asyncio
+async def test_update_youtube_tracking_failure_keys_by_exit():
+    '''A failed pool download extends the leased exit's window + failure ZSET,
+    leaving the default bucket and other exits untouched.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    result = _result(_mk(), success=False, error_type=DownloadErrorType.RETRYABLE)
+    await w._update_youtube_tracking(result, 'us-lax-wg-001')
+    client = w._manager.client
+    assert float(await client.get(youtube_wait_until_key('us-lax-wg-001'))) > 1000.0
+    assert await client.zcard(youtube_failures_key('us-lax-wg-001')) == 1
+    # Default bucket + a sibling exit are untouched.
+    assert await client.get(w._youtube_wait_until_key) is None
+    assert await client.zcard(youtube_failures_key('us-nyc-wg-301')) == 0
+
+
+@pytest.mark.asyncio
+async def test_update_youtube_tracking_success_spaces_leased_exit():
+    '''A successful pool download spaces its exit by seeding that exit's window, so
+    the exit can't immediately be reserved again.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    await w._update_youtube_tracking(_result(_mk(), success=True, extractor='youtube'),
+                                     'us-sea-wg-001')
+    assert await w._reserve_youtube_exit('us-sea-wg-001') is False
+
+
+@pytest.mark.asyncio
+async def test_update_youtube_tracking_exitless_uses_default_bucket():
+    '''Fixed http-proxy mode (exit_name=None) keeps the legacy default bucket.'''
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    result = _result(_mk(), success=False, error_type=DownloadErrorType.RETRYABLE)
+    await w._update_youtube_tracking(result, None)
+    assert float(await w._manager.client.get(w._youtube_wait_until_key)) > 1000.0
+
+
+@pytest.mark.asyncio
+async def test_failures_key_selects_per_exit_bucket():
+    '''_failures_key routes YouTube to the per-exit bucket when given an exit.'''
+    w = _worker()
+    assert w._failures_key(direct=False, exit_name='us-lax-wg-001') == \
+        youtube_failures_key('us-lax-wg-001')
+    assert w._failures_key(direct=False) == w._youtube_failures_key
+    assert w._failures_key(direct=True, exit_name='us-lax-wg-001') == FAILURES_DIRECT_KEY
 
 
 @pytest.mark.asyncio

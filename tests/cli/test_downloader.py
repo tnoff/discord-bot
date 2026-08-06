@@ -7,6 +7,7 @@ import pytest
 from discord_bot.cli import downloader as downloader_cli
 from discord_bot.cli._lib import common as cli_common
 from discord_bot.exceptions import DiscordBotException, ExitEarlyException
+from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
 
 def _settings(*, broker_url='http://broker:8081',
@@ -94,7 +95,7 @@ def test_run_wires_collaborators(mocker):
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
     mocks['run_downloader'].assert_called_once_with(
-        worker, server, None, redis_manager, download_metrics, exit_probe)
+        worker, server, None, redis_manager, download_metrics, exit_probe, driver_count=1)
 
 
 def test_run_builds_exit_probe_from_config(mocker):
@@ -107,6 +108,77 @@ def test_run_builds_exit_probe_from_config(mocker):
     mocks['build_exit_probe'].assert_called_once_with('mullvad', 'http://discord-vpn:8888')
     worker = mocks['RedisDownloadWorker'].return_value
     worker.set_exit_probe.assert_called_once_with(mocks['build_exit_probe'].return_value)
+
+
+def test_run_skips_probe_in_pool_mode(mocker):
+    '''In pool mode each download leases + names its own exit, so no am.i.mullvad
+    probe is built or wired and run_downloader receives exit_probe=None.'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_mode': 'mullvad-socks5', 'egress_exits': ['us-lax-wg-001']})
+    downloader_cli.run(settings, _GeneralConfig())
+    mocks['build_exit_probe'].assert_not_called()
+    mocks['RedisDownloadWorker'].return_value.set_exit_probe.assert_not_called()
+    assert mocks['run_downloader'].call_args[0][5] is None  # exit_probe positional
+
+
+def test_run_builds_probe_in_fixed_http_proxy_mode(mocker):
+    '''Fixed http-proxy mode still probes the shared exit and wires it to the worker.'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_mode': 'http-proxy',
+        'egress_probe': 'mullvad',
+        'extra_ytdlp_options': {'proxy': 'http://discord-vpn:8888'}})
+    downloader_cli.run(settings, _GeneralConfig())
+    mocks['build_exit_probe'].assert_called_once_with('mullvad', 'http://discord-vpn:8888')
+    exit_probe = mocks['build_exit_probe'].return_value
+    mocks['RedisDownloadWorker'].return_value.set_exit_probe.assert_called_once_with(exit_probe)
+    assert mocks['run_downloader'].call_args[0][5] is exit_probe
+
+
+def test_run_pool_mode_fans_out_to_worker_count(mocker):
+    '''Pool mode drives worker_count concurrent loops (each leases a distinct exit).'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_mode': 'mullvad-socks5', 'egress_exits': ['a', 'b', 'c'], 'worker_count': 2})
+    downloader_cli.run(settings, _GeneralConfig())
+    assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 2
+
+
+def test_run_pool_driver_count_capped_at_exit_count(mocker):
+    '''More workers than exits is capped so no driver is permanently starved.'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_mode': 'mullvad-socks5', 'egress_exits': ['a', 'b'], 'worker_count': 5})
+    downloader_cli.run(settings, _GeneralConfig())
+    assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 2
+
+
+def test_run_http_proxy_mode_is_single_driver(mocker):
+    '''Fixed-proxy mode stays single-driver — one egress IP is one rate-limit bucket.'''
+    mocks = _patch_collaborators(mocker)
+    downloader_cli.run(_settings(), _GeneralConfig())
+    assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 1
+
+
+def test_run_defaults_egress_mode_to_http_proxy(mocker):
+    '''With no egress config, the worker is built in http-proxy mode with no exits.'''
+    mocks = _patch_collaborators(mocker)
+    downloader_cli.run(_settings(), _GeneralConfig())
+    _, kwargs = mocks['RedisDownloadWorker'].call_args
+    assert kwargs['egress_mode'] == 'http-proxy'
+    assert kwargs['egress_exits'] is None
+
+
+def test_run_forwards_pool_egress_config(mocker):
+    '''music.download.egress_mode/egress_exits reach the worker verbatim.'''
+    mocks = _patch_collaborators(mocker)
+    settings = _settings(extra_download={
+        'egress_mode': 'mullvad-socks5', 'egress_exits': ['us-lax-wg-001', 'us-nyc-wg-301']})
+    downloader_cli.run(settings, _GeneralConfig())
+    _, kwargs = mocks['RedisDownloadWorker'].call_args
+    assert kwargs['egress_mode'] == 'mullvad-socks5'
+    assert kwargs['egress_exits'] == ['us-lax-wg-001', 'us-nyc-wg-301']
 
 
 def test_run_respects_configured_server_host_and_port(mocker):
@@ -181,10 +253,15 @@ async def test_drive_worker_guards_broad_exception(mocker):
     mocker.patch.object(downloader_cli.asyncio, 'sleep', new=mocker.AsyncMock())
     log = mocker.Mock(spec=logging.Logger)
 
+    health = LoopHealth('test_pool')
+
     # Must not raise despite the RuntimeError on the first iteration.
-    await downloader_cli._drive_worker(worker, stop_event, log)  # pylint: disable=protected-access
+    await downloader_cli._drive_worker(worker, stop_event, log, health)  # pylint: disable=protected-access
     assert len(calls) == 2
     log.exception.assert_called_once()
+    # The failed iteration was recorded, the following one re-armed the window.
+    assert health.consecutive_errors == 0
+    assert health.status == LoopStatus.OK
 
 
 @pytest.mark.asyncio
@@ -198,7 +275,8 @@ async def test_drive_worker_exits_on_exit_early(mocker):
     worker = mocker.Mock()
     worker.run = _run
     log = mocker.Mock(spec=logging.Logger)
-    await downloader_cli._drive_worker(worker, stop_event, log)  # pylint: disable=protected-access
+    health = LoopHealth('test_pool')
+    await downloader_cli._drive_worker(worker, stop_event, log, health)  # pylint: disable=protected-access
     log.exception.assert_not_called()
 
 
@@ -209,8 +287,33 @@ async def test_drive_worker_skips_when_already_stopped(mocker):
     stop_event.set()
     worker = mocker.Mock()
     worker.run = mocker.AsyncMock()
-    await downloader_cli._drive_worker(worker, stop_event, mocker.Mock())  # pylint: disable=protected-access
+    health = LoopHealth('test_pool')
+    await downloader_cli._drive_worker(worker, stop_event, mocker.Mock(), health)  # pylint: disable=protected-access
     worker.run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_drive_worker_leaves_pool_health_running_for_siblings(mocker):
+    '''
+    One driver returning must NOT mark the shared pool health stopped.
+
+    The drivers share a single LoopHealth; if each marked it stopped on exit, the
+    first driver to finish would report the whole pool stopped while its siblings
+    were still downloading, and a wedged pool would then be excluded from the
+    health calculation instead of failing the probe.
+    '''
+    stop_event = asyncio.Event()
+
+    async def _run(_evt):
+        raise ExitEarlyException('shutdown')
+
+    worker = mocker.Mock()
+    worker.run = _run
+    health = LoopHealth('test_pool')
+
+    await downloader_cli._drive_worker(worker, stop_event, mocker.Mock(), health)  # pylint: disable=protected-access
+
+    assert health.status != LoopStatus.STOPPED
 
 
 @pytest.mark.asyncio
@@ -269,6 +372,113 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker):
+    '''
+    driver_count drivers share ONE LoopHealth entry, registered by main_loop.
+
+    Per-driver entries would make the registry's all()-of-loops health test fail
+    this pod's liveness probe whenever a single driver sat in a slow download —
+    routine in pool mode, where a driver can block on a flagged exit.
+    '''
+    redis_manager = mocker.Mock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    server = mocker.Mock()
+    server.serve = mocker.AsyncMock()
+    server.drain_and_stop = mocker.AsyncMock()
+
+    worker = mocker.Mock()
+
+    async def _run(evt):
+        await evt.wait()
+
+    worker.run = _run
+    metrics = mocker.Mock()
+    metrics.run = mocker.AsyncMock()
+
+    handles = []
+    real_drive = downloader_cli._drive_worker  # pylint: disable=protected-access
+
+    async def _spy_drive(drv_worker, evt, log, health):
+        handles.append(health)
+        await real_drive(drv_worker, evt, log, health)
+
+    mocker.patch.object(downloader_cli, '_drive_worker', new=_spy_drive)
+
+    captured = {}
+    mocker.patch.object(cli_common.signal, 'signal', new=captured.__setitem__)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
+                                 driver_count=3),
+        _fire_sigterm(),
+    )
+
+    # Three drivers, one shared handle, one registry entry.
+    assert len(handles) == 3
+    assert all(h is handles[0] for h in handles)
+    assert list(LOOP_HEALTH.snapshot()) == [downloader_cli.LOOP_DOWNLOADER_WORKER]
+
+
+@pytest.mark.asyncio
+async def test_main_loop_owns_marking_the_pool_stopped(mocker):
+    '''
+    main_loop marks the pool stopped on shutdown — the drivers never do.
+
+    Asserted on the call rather than the resulting status: a driver finishing its
+    final iteration after the drain calls record_success(), which re-arms the
+    entry to 'ok'. That is harmless (both 'ok' and 'stopped' pass the probe;
+    mark_stopped only guards against a false 'stalled'), but it makes the end
+    state racy, whereas "who calls it" is exactly the regression under test.
+    '''
+    redis_manager = mocker.Mock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    server = mocker.Mock()
+    server.serve = mocker.AsyncMock()
+    server.drain_and_stop = mocker.AsyncMock()
+
+    worker = mocker.Mock()
+
+    async def _run(evt):
+        await evt.wait()
+
+    worker.run = _run
+    metrics = mocker.Mock()
+    metrics.run = mocker.AsyncMock()
+
+    captured = {}
+    mocker.patch.object(cli_common.signal, 'signal', new=captured.__setitem__)
+
+    # Spy on the registry-level call so we can attribute it to main_loop, and on
+    # the per-loop call so we can prove no driver makes it.
+    registry_stops = []
+    mocker.patch.object(LOOP_HEALTH, 'mark_stopped',
+                        new=lambda *names: registry_stops.extend(names))
+    per_loop_stop = mocker.patch.object(LoopHealth, 'mark_stopped')
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
+                                 driver_count=2),
+        _fire_sigterm(),
+    )
+
+    assert registry_stops == [downloader_cli.LOOP_DOWNLOADER_WORKER]
+    # Two drivers exited; neither marked the shared entry stopped.
+    per_loop_stop.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_main_loop_without_health_server(mocker):
     '''main_loop tolerates a None health_server and a None exit_probe (still drains).'''
     redis_manager = mocker.Mock()
@@ -318,7 +528,7 @@ def test_run_downloader_delegates_to_run_loop(mocker):
         object(), object(), object(), object(), object(), object())
     downloader_cli.run_downloader(worker, server, health, redis_manager, metrics, exit_probe)
     main_loop.assert_called_once_with(worker, server, health, redis_manager, metrics,
-                                      exit_probe)
+                                      exit_probe, driver_count=1)
     run_loop.assert_called_once_with(sentinel)
 
 

@@ -1,9 +1,12 @@
+# Tests assert on worker internals (e.g. _exit_pool) — same pattern as
+# tests/workers/test_redis_download_worker.py.
+# pylint: disable=protected-access
 import asyncio
 from asyncio import QueueEmpty
 from datetime import datetime, timezone, timedelta
 import hashlib
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -16,8 +19,10 @@ from discord_bot.clients.download_client import (
 )
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.interfaces import download_protocols
+from discord_bot.utils.integrations.egress_pool import (
+    DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
 from discord_bot.utils.audio import AudioProcessingError
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
@@ -82,8 +87,152 @@ def make_download_client(mock_ytdl=None, **kwargs):
     '''Create an AsyncioDownloadWorker with an optional mock ytdl injected post-init.'''
     client = AsyncioDownloadWorker(None, Path('/tmp'), **kwargs)
     if mock_ytdl is not None:
-        client.ytdl = mock_ytdl
+        client._egress = HttpProxyEgress(mock_ytdl)
     return client
+
+
+def test_worker_http_proxy_mode_builds_single_client():
+    '''Default (http-proxy) egress is a single-client strategy.'''
+    x = make_download_client()
+    assert isinstance(x._egress, HttpProxyEgress)
+
+
+def test_worker_pool_mode_builds_pool_strategy():
+    '''A pool egress mode (mullvad-socks5) is a PoolEgress strategy, no single client.'''
+    x = make_download_client(egress_mode='mullvad-socks5',
+                             egress_exits=['us-lax-wg-001', 'us-nyc-wg-301'])
+    assert isinstance(x._egress, PoolEgress)
+
+
+def test_worker_applies_extra_ytdlp_options_and_filter():
+    '''extra_ytdlp_options + a video-length/ban filter are folded into the client opts.'''
+    x = make_download_client(extra_ytdlp_options={'proxy': 'http://p:8888'},
+                             max_video_length=600, banned_video_list=['bad'])
+    assert isinstance(x._egress, HttpProxyEgress)
+
+
+def test_worker_pool_mode_requires_exits():
+    '''A pool mode with an empty exit list fails loudly at construction.'''
+    with pytest.raises(ValueError):
+        make_download_client(egress_mode='mullvad-socks5', egress_exits=[])
+
+
+def test_worker_unknown_egress_mode_raises():
+    '''An unknown egress_mode fails loudly at construction.'''
+    with pytest.raises(DiscordBotException):
+        make_download_client(egress_mode='nordvpn-socks5', egress_exits=['us-lax-wg-001'])
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reserve_youtube_exit_stub_always_reserves():
+    '''The in-process base keeps no shared per-exit state, so every exit is always
+    reservable; the Redis worker overrides this to SET-NX the per-exit window.'''
+    x = make_download_client()
+    assert await x._reserve_youtube_exit('us-lax-wg-001') is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_pool_mode_isolates_scratch_and_cleans_up(mocker):
+    '''Pool mode redirects each download into a per-request scratch subdir (named by
+    the request uuid) so concurrent same-video downloads don't share a file, and
+    removes the subdir afterward. The filename stays per-video (cache key unchanged).'''
+    seen = {}
+
+    class _PoolClient:
+        def __init__(self):
+            self.params = {'paths': {'home': ''}}
+
+        def extract_info(self, _search, download=True):  # pylint: disable=unused-argument
+            home = Path(self.params['paths']['home'])
+            seen['home'] = home
+            home.mkdir(parents=True, exist_ok=True)
+            media_file = home / 'youtube.vid123.webm'
+            media_file.write_bytes(b'x')
+            return {'entries': [{'webpage_url': 'u', 'title': 't', 'uploader': 'up',
+                                 'duration': 1, 'extractor': 'youtube', 'id': 'vid123',
+                                 'requested_downloads': [{'filepath': str(media_file)}]}]}
+
+    with TemporaryDirectory() as tmp:
+        download_dir = Path(tmp)
+        x = AsyncioDownloadWorker(None, download_dir, egress_mode='mullvad-socks5',
+                                  egress_exits=['us-lax-wg-001'], bucket_name='bucket')
+        x._egress = PoolEgress(ExitPool(['us-lax-wg-001']),
+                               ExitClients({}, MullvadSocks5Resolver(),
+                                           client_factory=lambda _opts: _PoolClient()))
+        mocker.patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+                     side_effect=lambda path, *_a: path)
+        mocker.patch.object(x, '_DownloadWorkerBase__upload_s3',
+                            side_effect=lambda path: Path('cache/youtube.vid123.pcm'))
+        result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert result.status.success
+    assert seen['home'].name == str(result.media_request.uuid)  # per-request subdir
+    assert seen['home'].parent == download_dir                  # under download_dir
+    assert not seen['home'].exists()                            # cleaned up
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_no_exit_available_is_no_exit_error(mocker):
+    '''When every exit is busy, create_source returns NO_EXIT_AVAILABLE (a silent
+    requeue signal, distinct from a real RETRYABLE download failure).'''
+    x = make_download_client()
+    mocker.patch.object(x._egress, 'acquire', AsyncMock(return_value=None))
+    mocker.patch.object(download_protocols, 'sleep', AsyncMock())
+    result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert result.status.success is False
+    assert result.status.error_type == DownloadErrorType.NO_EXIT_AVAILABLE
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_youtube_item_reserves_via_per_exit_claim(mocker):
+    '''A YouTube item leases with the per-exit reserve so rate-limited/flaky exits
+    (whose window is claimed) are skipped.'''
+    x = make_download_client()
+    acquire = mocker.patch.object(x._egress, 'acquire', AsyncMock(return_value=None))
+    await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert acquire.call_args[0][0].__name__ == '_reserve_youtube_exit'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_reserve_direct_exit_always_claims():
+    '''The DIRECT reserve predicate always claims an exit (no YouTube window).'''
+    x = make_download_client()
+    assert await x._reserve_direct_exit('us-lax-wg-001') is True
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_direct_item_bypasses_per_exit_backoff(mocker):
+    '''A DIRECT item isn't YouTube-rate-limited, so it leases with the direct reserve
+    (always claims) rather than the per-exit YouTube reserve.'''
+    x = make_download_client()
+    acquire = mocker.patch.object(x._egress, 'acquire', AsyncMock(return_value=None))
+    await x.create_source(fake_source_dict(generate_fake_context(), is_direct_search=True), 3)
+    assert acquire.call_args[0][0].__name__ == '_reserve_direct_exit'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_log_exit_failure_prefers_leased_exit_over_probe():
+    '''In pool mode the leased exit_name names the failing exit directly (the probe
+    isn't wired), instead of falling back to the probe's 'unknown'.'''
+    x = make_download_client()
+    with patch.object(x, 'logger') as logger:
+        x._log_exit_failure(DownloadErrorType.RETRYABLE, 'us-lax-wg-001')
+    warn_args = logger.warning.call_args[0]
+    assert 'us-lax-wg-001' in warn_args
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_update_tracking_threads_exit_name_into_failure_log(mocker):
+    '''update_tracking forwards the leased exit_name to the failure attribution log.'''
+    x = make_download_client()
+    log = mocker.patch.object(x, '_log_exit_failure')
+    failed = DownloadResult(
+        status=DlStatus(success=False, error_type=DownloadErrorType.RETRYABLE, error_detail='boom'),
+        media_request=fake_source_dict(generate_fake_context()),
+        ytdlp_data=None, file_name=None,
+    )
+    await x.update_tracking(failed, 'us-nyc-wg-301')
+    log.assert_called_once_with(DownloadErrorType.RETRYABLE, 'us-nyc-wg-301')
+
 
 class MockYoutubeMusic():
     '''Mock YouTube Music client.'''
@@ -1149,6 +1298,29 @@ async def test_run_retryable_requeues_and_increments_retry_count():
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_run_no_exit_available_requeues_without_retry(mocker):
+    '''run() re-queues a NO_EXIT_AVAILABLE (pure contention) item without touching
+    retry_count or emitting a RETRY — the item was never actually attempted.'''
+    fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
+    client = make_download_client(broker=mock_broker)
+    mocker.patch.object(client._egress, 'acquire', AsyncMock(return_value=None))
+    mocker.patch.object(download_protocols, 'sleep', AsyncMock())
+    mr = fake_source_dict(fake_context)
+    await client.submit(mr.guild_id, mr)
+    shutdown = asyncio.Event()
+    await client.run(shutdown)
+    assert mr.download_retry_information.retry_count == 0
+    assert await client.queue_size(mr.guild_id) == 1
+    mock_broker.register_download_result.assert_not_awaited()
+    events = [c.args[1].event for c in mock_broker.update_request_status.call_args_list]
+    assert LifecycleEvent.RETRY not in events
+    # Never leased an exit → never marked IN_PROGRESS; the request stays QUEUED so the
+    # bundle doesn't fill with phantom "in progress" rows under pool contention.
+    assert LifecycleEvent.IN_PROGRESS not in events
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_run_terminal_error_reports_result_to_broker():
     '''run() reports terminal failures to the broker for music.py to handle'''
     fake_context = generate_fake_context()
@@ -1529,6 +1701,24 @@ async def test_create_source_stamps_egress_on_span(mocker):
     attributes = create_calls[0].kwargs['attributes']
     assert attributes['egress.hostname'] == 'us-lax-wg-101'
     assert attributes['egress.ip'] == '1.2.3.4'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_stamps_leased_exit_in_pool_mode(mocker):
+    '''In a pool mode the span is stamped with the leased exit, not the probe.'''
+    mock = yield_dlp_error('Video unavailable')
+    x = make_download_client(mock)
+    # Emulate a pool egress: same mock client, but carrying a leased exit name.
+    leased = DownloadEgress(mock, 'us-lax-wg-001')
+    mocker.patch.object(x._egress, 'acquire', AsyncMock(return_value=leased))
+    spy = mocker.patch.object(download_protocols, 'otel_span_wrapper',
+                              wraps=download_protocols.otel_span_wrapper)
+    await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    create_calls = [c for c in spy.call_args_list
+                    if c.args and c.args[0].endswith('.create_source')]
+    attributes = create_calls[0].kwargs['attributes']
+    assert attributes['egress.hostname'] == 'us-lax-wg-001'
+    assert attributes['egress.ip'] == 'unknown'
 
 
 @pytest.mark.asyncio(loop_scope="session")

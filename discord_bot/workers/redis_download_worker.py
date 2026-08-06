@@ -64,7 +64,6 @@ FAILURES_DIRECT_KEY = 'discord_bot:download:failures:direct'
 DEFAULT_YOUTUBE_EGRESS_KEY = 'default'
 
 REQUEST_TTL_SECONDS = 86400  # 24h fallback so abandoned items eventually expire
-WAIT_TTL_SECONDS_MULTIPLIER = 4  # youtube_wait_until expires after wait_period * 4
 FAILURE_TTL_SECONDS = 600  # 10 min — matches FailureQueue.max_age_seconds default
 BACKOFF_POLL_SECONDS = 0.1  # granularity of backoff_wait's shutdown/direct-interrupt polling
 
@@ -142,18 +141,32 @@ class RedisDownloadWorker(DownloadWorkerBase):
     def _guilds_zset_key(*, direct: bool) -> str:
         return GUILDS_DIRECT_KEY if direct else GUILDS_YOUTUBE_KEY
 
-    def _failures_key(self, *, direct: bool) -> str:
-        '''Per-egress failure-ZSET key for YouTube; single global key for direct.'''
-        return FAILURES_DIRECT_KEY if direct else self._youtube_failures_key
+    def _youtube_wait_key_for(self, exit_name: str | None) -> str:
+        '''Per-exit YouTube wait-until key (pool mode); the pod default bucket when
+        exit_name is None (fixed http-proxy mode).'''
+        return youtube_wait_until_key(exit_name) if exit_name else self._youtube_wait_until_key
+
+    def _youtube_failures_key_for(self, exit_name: str | None) -> str:
+        '''Per-exit YouTube failure-ZSET key (pool mode); the pod default bucket when
+        exit_name is None (fixed http-proxy mode).'''
+        return youtube_failures_key(exit_name) if exit_name else self._youtube_failures_key
+
+    def _failures_key(self, *, direct: bool, exit_name: str | None = None) -> str:
+        '''Per-exit failure-ZSET key for YouTube; single global key for direct.'''
+        return FAILURES_DIRECT_KEY if direct else self._youtube_failures_key_for(exit_name)
 
     @staticmethod
     def _is_direct(media_request: MediaRequest) -> bool:
         return media_request.search_result.search_type == SearchType.DIRECT
 
-    def _build_score(self, priority: int | None) -> float:
-        '''Compose a sortable score: priority bucket + submitted_ts (lower wins).'''
+    def _build_score(self, priority: int | None, queued_at: float) -> float:
+        '''Compose a sortable score: priority bucket + submission ts (lower wins).
+
+        queued_at is the request's stable queue_order (set once at first enqueue),
+        not now(), so a re-enqueued request keeps its original queue position rather
+        than being pushed to the back on every retry / contention bounce.'''
         prio = priority if priority is not None else 100
-        return float(prio) * 1_000_000_000 + self._now_seconds()
+        return float(prio) * 1_000_000_000 + queued_at
 
     @staticmethod
     def _now_seconds() -> float:
@@ -210,11 +223,17 @@ class RedisDownloadWorker(DownloadWorkerBase):
 
     async def _atomic_pop_youtube(self) -> tuple:
         '''
-        Under the YouTube-pool lock: bail with ('wait', ts) if the egress bucket is
-        still backing off, else round-robin pop one request and max-extend the
-        per-egress wait window so a concurrent pod on this egress backs off.
+        Under the YouTube-pool lock, round-robin pop one request.
+
+        Pool mode: the pop is not gated on a pod-global window — YouTube rate
+        limiting is enforced per exit when the download reserves one, so pops don't
+        serialise pod-wide and concurrent drivers can each pop + reserve a distinct
+        exit.  Fixed http-proxy mode keeps the single shared window: bail with
+        ('wait', ts) while it backs off, else pop and re-claim it.
         '''
         async with self._pop_lock(direct=False):
+            if self._egress.is_pool:
+                return await self._round_robin_pop(direct=False)
             now = self._now_seconds()
             raw_until = await self._manager.client.get(self._youtube_wait_until_key)
             wait_until = float(raw_until) if raw_until else 0.0
@@ -227,7 +246,8 @@ class RedisDownloadWorker(DownloadWorkerBase):
             return result
 
     async def _claim_youtube_window(self, now: float) -> None:
-        '''Max-extend youtube_wait_until by one wait_period to claim the egress.'''
+        '''Max-extend youtube_wait_until by one wait_period to claim the egress
+        (fixed http-proxy mode; pool mode claims per-exit windows at reserve time).'''
         new_wait = now + self._wait_period_minimum
         client = self._manager.client
         current_raw = await client.get(self._youtube_wait_until_key)
@@ -235,7 +255,7 @@ class RedisDownloadWorker(DownloadWorkerBase):
         if new_wait > current:
             await client.set(
                 self._youtube_wait_until_key, str(new_wait),
-                ex=self._wait_period_minimum * WAIT_TTL_SECONDS_MULTIPLIER,
+                ex=max(1, int(self._wait_period_minimum) + 1),
             )
 
     @staticmethod
@@ -259,11 +279,15 @@ class RedisDownloadWorker(DownloadWorkerBase):
         '''Persist the request and ZADD it onto the guild's pool + round-robin tracker.'''
         request_uuid = str(media_request.uuid)
         direct = self._is_direct(media_request)
+        # Stamp the FIFO ordering key once, on first enqueue; a re-enqueued request
+        # already carries it, so it keeps its original queue position.
+        if media_request.queue_order is None:
+            media_request.queue_order = self._now_seconds()
         client = self._manager.client
         await client.set(self._request_key(request_uuid),
                          media_request.model_dump_json(), ex=REQUEST_TTL_SECONDS)
         await client.zadd(self._guild_queue_key(guild_id, direct=direct),
-                          {request_uuid: self._build_score(priority)})
+                          {request_uuid: self._build_score(priority, media_request.queue_order)})
         # ZADD NX so an already-listed guild keeps its round-robin position.
         await client.zadd(self._guilds_zset_key(direct=direct),
                           {str(guild_id): self._now_seconds()}, nx=True)
@@ -354,7 +378,14 @@ class RedisDownloadWorker(DownloadWorkerBase):
     # ------------------------------------------------------------------
 
     async def _effective_backoff_remaining(self) -> int:
-        '''Seconds remaining on the shared YouTube window (or the startup floor).'''
+        '''Seconds until the pod can next pop a YouTube item.
+
+        Pool mode: the soonest any exit's per-exit window frees — 0 while any exit
+        is free (so run() pops immediately), only positive when every exit is
+        busy/backed off.  Fixed http-proxy mode: the single shared window, floored
+        at the pod startup wait.'''
+        if self._egress.is_pool:
+            return await self._soonest_exit_free_seconds()
         raw = await self._manager.client.get(self._youtube_wait_until_key)
         redis_until = float(raw) if raw else 0.0
         effective = max(redis_until, self._startup_wait_until)
@@ -363,54 +394,93 @@ class RedisDownloadWorker(DownloadWorkerBase):
             return 0
         return max(0, int(effective - self._now_seconds()))
 
-    async def _record_success(self, *, direct: bool) -> None:
-        '''Pop one failure (oldest) on success, mirroring FailureQueue.add_item.'''
-        await self._manager.client.zpopmin(self._failures_key(direct=direct))
+    async def _soonest_exit_free_seconds(self) -> int:
+        '''Min remaining seconds across every exit's per-exit YouTube window; 0 as
+        soon as any exit is free.  Feeds run()'s backoff gate in pool mode so the
+        pod waits only when the whole pool is busy, then wakes when the first
+        exit frees.'''
+        now = self._now_seconds()
+        soonest: float | None = None
+        for exit_name in self._egress.exit_names:
+            raw = await self._manager.client.get(youtube_wait_until_key(exit_name))
+            remaining = (float(raw) if raw else 0.0) - now
+            if remaining <= 0:
+                self._wait_timestamp = None
+                return 0
+            soonest = remaining if soonest is None else min(soonest, remaining)
+        self._wait_timestamp = (now + soonest) if soonest else None
+        return int(soonest) if soonest else 0
 
-    async def _record_failure(self, *, direct: bool) -> int:
+    async def _reserve_youtube_exit(self, exit_name: str) -> bool:
+        '''
+        Atomically reserve an exit's per-exit YouTube window via SET NX: the first
+        task/pod to claim a free window wins the exit; concurrent leases (in-pod or
+        cross-pod) see the key present and rotate to another exit.  Seeds the window
+        at now+wait_period for spacing (max-extended from completion, or backed off
+        exponentially on failure, by _update_youtube_tracking).  The key's TTL tracks
+        the window duration so key-existence == exit-busy.  Overrides the base stub.
+        '''
+        new_wait = self._now_seconds() + self._wait_period_minimum
+        reserved = await self._manager.client.set(
+            youtube_wait_until_key(exit_name), str(new_wait),
+            nx=True, ex=max(1, int(self._wait_period_minimum) + 1),
+        )
+        return bool(reserved)
+
+    async def _record_success(self, *, direct: bool, exit_name: str | None = None) -> None:
+        '''Pop one failure (oldest) on success, mirroring FailureQueue.add_item.'''
+        await self._manager.client.zpopmin(self._failures_key(direct=direct, exit_name=exit_name))
+
+    async def _record_failure(self, *, direct: bool, exit_name: str | None = None) -> int:
         '''Add a failure at now, trim expired ones, return the resulting count.'''
         client = self._manager.client
-        key = self._failures_key(direct=direct)
+        key = self._failures_key(direct=direct, exit_name=exit_name)
         cutoff = self._now_seconds() - FAILURE_TTL_SECONDS
         await client.zremrangebyscore(key, 0, cutoff)
         await client.zadd(key, {uuid_module.uuid4().hex: self._now_seconds()})
         return await client.zcard(key)
 
-    async def _extend_wait_until(self, multiplier: int = 1) -> None:
-        '''Max-extend the shared YouTube backoff window with jitter.'''
-        new_ts = self._now_seconds() + self._wait_period_minimum * multiplier
+    async def _extend_wait_until(self, multiplier: int = 1, exit_name: str | None = None) -> None:
+        '''Max-extend a YouTube backoff window with jitter.  Keyed by the leased
+        exit in pool mode (exit_name), else the pod default bucket.  The key's TTL
+        tracks the window duration so key-existence == window-active, which the
+        per-exit SET NX reserve relies on to tell a busy exit from a free one.'''
+        now = self._now_seconds()
+        new_ts = now + self._wait_period_minimum * multiplier
         random.seed(time())
         # bandit B311: backoff jitter, not security-sensitive
         new_ts += random.randint(1000, self._wait_period_max_variance * 1000) / 1000  # nosec B311
         client = self._manager.client
-        current_raw = await client.get(self._youtube_wait_until_key)
+        wait_key = self._youtube_wait_key_for(exit_name)
+        current_raw = await client.get(wait_key)
         current = float(current_raw) if current_raw else 0.0
         if new_ts <= current:
             return
-        await client.set(
-            self._youtube_wait_until_key, str(new_ts),
-            ex=self._wait_period_minimum * WAIT_TTL_SECONDS_MULTIPLIER,
-        )
+        await client.set(wait_key, str(new_ts), ex=max(1, int(new_ts - now) + 1))
 
-    async def _update_youtube_tracking(self, result: DownloadResult) -> None:
-        '''Advance the shared YouTube failure ZSET + backoff window from a result.'''
+    async def _update_youtube_tracking(self, result: DownloadResult, exit_name: str | None = None) -> None:
+        '''Advance the per-exit YouTube failure ZSET + backoff window from a result.
+
+        exit_name selects the per-exit bucket (pool mode); None falls back to the
+        shared ':default' bucket (fixed http-proxy mode), keeping the pre-pool
+        single-window behaviour intact.'''
         error_type = result.status.error_type
         if result.status.success:
-            await self._record_success(direct=False)
+            await self._record_success(direct=False, exit_name=exit_name)
             extractor = (result.ytdlp_data or {}).get('extractor')
             if extractor is None or extractor == 'youtube':
-                await self._extend_wait_until()
+                await self._extend_wait_until(exit_name=exit_name)
             return
         if error_type in {DownloadErrorType.RETRY_LIMIT_EXCEEDED,
                           DownloadErrorType.RETRYABLE,
                           DownloadErrorType.BOT_FLAGGED}:
             # Prod path: RedisDownloadWorker.update_tracking overrides the base and
             # never calls super, so the by-exit failure log must fire here too.
-            self._log_exit_failure(error_type)
-            count = await self._record_failure(direct=False)
-            await self._extend_wait_until(multiplier=2 ** count)
+            self._log_exit_failure(error_type, exit_name)
+            count = await self._record_failure(direct=False, exit_name=exit_name)
+            await self._extend_wait_until(multiplier=2 ** count, exit_name=exit_name)
             return
-        await self._extend_wait_until()
+        await self._extend_wait_until(exit_name=exit_name)
 
     async def _update_direct_tracking(self, result: DownloadResult) -> None:
         '''Track DIRECT successes/failures separately; never touches backoff.'''
@@ -432,17 +502,21 @@ class RedisDownloadWorker(DownloadWorkerBase):
         '''Cached human-readable summary of the shared failure queue.'''
         return self._failure_summary_cache
 
-    async def update_tracking(self, result: DownloadResult) -> int | None:
+    async def update_tracking(self, result: DownloadResult, exit_name: str | None = None) -> int | None:
         '''
         Persist shared backoff/failure state to Redis, then refresh the per-pod
         caches the sync properties read.  Cross-pod correctness is enforced by the
         SET NX pop-lock + per-egress claim; this cache only feeds logging + the next
         run() decision.
+
+        exit_name is the exit this download leased (pool mode); it attributes the
+        failure log to the real exit and keys the per-exit backoff window.  None on
+        the fixed http-proxy path, where the shared ':default' bucket is used.
         '''
         if self._is_direct(result.media_request):
             await self._update_direct_tracking(result)
         else:
-            await self._update_youtube_tracking(result)
+            await self._update_youtube_tracking(result, exit_name)
         await self._refresh_failure_summary()
         await self._effective_backoff_remaining()
         return self.backoff_seconds_remaining

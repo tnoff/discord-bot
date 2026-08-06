@@ -1,0 +1,22 @@
+# Broker config — for docker/docker-compose.multiprocess.yml (broker service).
+# Entrypoint: discord-broker. Persists download results + serves them to the bot;
+# no Discord gateway (placeholder token only, for config validation).
+general:
+  discord_token: placeholder-not-used
+  redis_url: redis://redis:6379/0
+  sql_connection_statement: postgresql://discord:discord@postgres:5432/discord
+  broker_server:
+    host: 0.0.0.0
+    port: 8081
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+music:
+  storage:
+    backend: s3
+  # No storage.bucket_name -> no S3 cache checkout, which is fine for validating
+  # SOCKS5 egress (the download leaves through the exit regardless). Add MinIO +
+  # a bucket here, on the downloader, and on the bot for real end-to-end playback.

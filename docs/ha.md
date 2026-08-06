@@ -247,20 +247,44 @@ Redis operations (BZPOPMIN, SET, GET, DEL, etc.) are traced automatically by
 
 ## Docker Compose
 
-`docker/docker-compose.multiprocess.yml` starts three services:
+`docker/docker-compose.multiprocess.yml` starts the full split, including the
+standalone downloader running the `mullvad-socks5` egress mode (see
+[Egress Modes](./music.md#egress-modes)):
 
 | Service | Image | Purpose |
 |---------|-------|---------|
 | `redis` | `redis:7-alpine` | Shared state; persisted via named volume |
+| `postgres` | `postgres:16-alpine` | Video-cache DB for the broker |
 | `dispatcher` | `Dockerfile.dispatcher` | HTTP server + Redis workers; holds Discord gateway |
-| `bot` | `Dockerfile` | Cog logic; forwards dispatch calls to `dispatcher:8082` |
+| `broker` | `Dockerfile.broker` | Persists download results, serves them to the bot |
+| `gluetun` | `qmcgaw/gluetun` | One Mullvad WireGuard tunnel; the downloader shares its netns |
+| `downloader` | `Dockerfile.downloader` | Standalone download worker, in-tunnel, per-download SOCKS5 exits |
+| `bot` | `Dockerfile` | Cog logic; enqueues to the downloader + reads results from the broker |
 
 ```bash
-docker compose -f docker/docker-compose.multiprocess.yml up -d
+cp docker/.env.example docker/.env      # Discord/music creds + a Mullvad WG key
+docker compose -f docker/docker-compose.multiprocess.yml up -d --build
 ```
 
-Config files go in `volumes/cnf/`:
-- `discord.dispatcher.cnf` → mounted at `/opt/discord/cnf/discord.cnf` in the dispatcher container
-- `discord.bot.cnf` → mounted at `/opt/discord/cnf/discord.cnf` in the bot container
+Config files go in `volumes/cnf/` (copy the `docker/*.cnf.example` files):
+`discord.dispatcher.cnf`, `discord.broker.cnf`, `discord.downloader.cnf`, and
+`discord.bot.cnf` (each mounted at `/opt/discord/cnf/discord.cnf` in its container).
+
+### Testing SOCKS5 egress
+
+The `downloader` runs `network_mode: service:gluetun`, so it egresses each download
+through a different Mullvad exit's SOCKS5 over the one tunnel. gluetun keeps the
+compose network off the tunnel (`FIREWALL_OUTBOUND_SUBNETS` + `DOT: off` /
+`DNS_ADDRESS: 127.0.0.11`) so redis/broker stay reachable. Play a track, then watch
+which exit each download left from:
+
+```bash
+docker compose -f docker/docker-compose.multiprocess.yml logs -f downloader | grep "egress via exit"
+```
+
+> **Note:** the downloader has no S3 bucket configured, so finished files stay local
+> and won't play back (the bot can't read the downloader's disk). That's enough to
+> validate egress; for real end-to-end playback add a MinIO service and a bucket to
+> the downloader/broker/bot configs.
 
 See [Docker documentation](./docker.md) for volume permissions and health check setup.

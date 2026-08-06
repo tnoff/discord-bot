@@ -1,7 +1,7 @@
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.types.search import SearchResult
@@ -17,6 +17,16 @@ class RetryInformation(BaseModel):
     retry_count: int = 0
     retry_backoff_seconds: int = 0
     retry_reason_sent: bool = False
+
+    @field_validator('retry_backoff_seconds', mode='before')
+    @classmethod
+    def _none_backoff_is_zero(cls, value):
+        '''Coerce a None backoff to 0 ("no backoff") on validation. A request
+        persisted with retry_backoff_seconds=None — e.g. written before the
+        mark_retry_* setters normalised it, when pool mode reports no backoff while
+        an exit is free — would otherwise fail BundleState re-validation and wedge
+        the broker on every load of that bundle. Coercing here lets it self-heal.'''
+        return 0 if value is None else value
 
 
 class MediaRequest(BaseModel):
@@ -46,6 +56,12 @@ class MediaRequest(BaseModel):
     uuid: str = Field(default_factory=lambda: f'request.{uuid4()}')
     # Track bundle uuid later on
     bundle_uuid: str | None = None
+
+    # Stable FIFO ordering key for the download queue, stamped once when the request
+    # is first enqueued and preserved across re-enqueues (retry / pool-contention
+    # requeue) so a bounced request keeps its submission position instead of jumping
+    # to the back of the queue. None until first enqueued.
+    queue_order: float | None = None
 
     # Serialised span context captured at submit() time for trace link propagation.
     # Dict keys: trace_id (int), span_id (int), trace_flags (int).
@@ -156,7 +172,10 @@ class MediaRequestStateMachine:
         '''
         info = self._request.download_retry_information
         info.retry_reason = reason
-        info.retry_backoff_seconds = backoff_seconds
+        # retry_backoff_seconds is a plain int (0 == no backoff); a None here (e.g.
+        # pool mode reports no backoff while an exit is free) would violate the model
+        # on the next BundleState re-validation in the broker, so normalise it.
+        info.retry_backoff_seconds = backoff_seconds or 0
         if retry_count is not None:
             info.retry_count = retry_count
         info.retry_reason_sent = False
@@ -170,7 +189,9 @@ class MediaRequestStateMachine:
         '''
         info = self._request.youtube_music_retry_information
         info.retry_reason = reason
-        info.retry_backoff_seconds = backoff_seconds
+        # See mark_retry_download: keep this a plain int so a None backoff doesn't
+        # break BundleState re-validation.
+        info.retry_backoff_seconds = backoff_seconds or 0
         if retry_count is not None:
             info.retry_count = retry_count
         info.retry_reason_sent = False

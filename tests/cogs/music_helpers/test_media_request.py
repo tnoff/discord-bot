@@ -1,6 +1,6 @@
 import pytest
 
-from discord_bot.types.media_request import MediaRequestStateMachine, chunk_list
+from discord_bot.types.media_request import MediaRequestStateMachine, RetryInformation, chunk_list
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 
 from tests.helpers import fake_source_dict
@@ -144,11 +144,28 @@ def test_state_machine_mark_retry_download(fake_context):  #pylint:disable=redef
     assert req.download_retry_information.retry_backoff_seconds == 30
 
 def test_state_machine_mark_retry_download_no_backoff(fake_context):  #pylint:disable=redefined-outer-name
-    """mark_retry_download accepts None for backoff_seconds"""
+    """mark_retry_download coerces a None backoff to 0, keeping retry_backoff_seconds
+    a valid int — a None would break BundleState re-validation in the broker (pool
+    mode reports no backoff while an exit is free)."""
     req = fake_source_dict(fake_context)
     req.state_machine.mark_retry_download('error', None)
     assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
-    assert req.download_retry_information.retry_backoff_seconds is None
+    assert req.download_retry_information.retry_backoff_seconds == 0
+
+def test_state_machine_mark_retry_search_no_backoff(fake_context):  #pylint:disable=redefined-outer-name
+    """mark_retry_search likewise coerces a None backoff to 0."""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_search('error', None)
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_SEARCH
+    assert req.youtube_music_retry_information.retry_backoff_seconds == 0
+
+def test_retry_information_coerces_none_backoff_on_validate():
+    """A persisted retry_backoff_seconds=None is coerced to 0 on model_validate, so a
+    bundle written with a None (before the setters normalised it) self-heals on load
+    instead of wedging the broker's BundleState validation."""
+    assert RetryInformation.model_validate({'retry_backoff_seconds': None}).retry_backoff_seconds == 0
+    # A real int is untouched.
+    assert RetryInformation.model_validate({'retry_backoff_seconds': 30}).retry_backoff_seconds == 30
 
 def test_state_machine_mark_retry_search(fake_context):  #pylint:disable=redefined-outer-name
     """mark_retry_search sets stage and retry info atomically"""

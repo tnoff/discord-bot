@@ -305,6 +305,82 @@ When enabled, the live exit is attached to observability — deliberately **not*
 
 Aggregate failure alerting stays on the existing `download_failure_count` metric; the per-exit breakdown is a trace/log drill-down. The probe runs in the standalone [HA downloader](ha.md) process, which owns the proxy. An unknown `egress_probe` value fails at startup rather than silently disabling attribution. Add a new provider by subclassing `ExitProbe` in `discord_bot/utils/integrations/egress_probe.py` and registering it in `EXIT_PROBE_TYPES`.
 
+### Egress Modes
+
+> ℹ️ **`mullvad-socks5` is complete, behind a flag, and gated on a deployment step.** `egress_mode` defaults to `http-proxy` (the model everything above describes) — no behavior change until a config opts in. The pool mode is fully implemented and validated: per-download exit selection, per-exit backoff + attribution, N-task concurrency, and per-request scratch isolation. Enabling it in **prod** additionally requires the downloader pod to run gluetun as an in-pod sidecar, so it sits inside the tunnel to reach the SOCKS5 exits — until that cutover lands, keep `http-proxy` in prod. Tracked in the exit-server attribution project.
+
+`music.download.egress_mode` selects how a download leaves the network:
+
+| Value | Behavior |
+| --- | --- |
+| `http-proxy` (default) | Every download goes through one fixed HTTP proxy — a **single shared** VPN exit IP. One flagged exit fails everything until it's manually rotated. |
+| `mullvad-socks5` | Each download leaves through a **different** Mullvad exit, chosen per-download via that server's SOCKS5 proxy. A flagged exit only affects the downloads on it and is dropped from rotation in-app. |
+
+`music.download.egress_exits` is the list of Mullvad WireGuard server names a pool mode rotates through (unused by `http-proxy`). An empty list, or an unknown `egress_mode`, fails loudly at startup.
+
+```yaml
+music:
+  download:
+    egress_mode: mullvad-socks5
+    egress_exits:
+      - us-lax-wg-001
+      - us-nyc-wg-301
+      - us-sea-wg-001
+```
+
+#### `http-proxy` — one shared exit (today)
+
+All yt-dlp traffic goes through a single gluetun HTTP proxy, so every download shares one exit IP. When YouTube flags that IP, *all* downloads fail until the exit is rotated.
+
+```mermaid
+flowchart LR
+    dl["downloader<br/>(yt-dlp)"] -->|"HTTP proxy :8888"| gluetun["gluetun<br/>1 WireGuard tunnel"]
+    gluetun --> exit(["single exit IP"])
+    exit --> yt["googlevideo / YouTube"]
+```
+
+#### `mullvad-socks5` — a different exit per download
+
+Every Mullvad WireGuard server also runs a **SOCKS5 proxy reachable through the tunnel**. So with a **single WireGuard key** the downloader holds one tunnel to an *entry* server, and routes each download through a *different* **exit** server's SOCKS5 (`socks5h://<server>-wg-socks5-<n>.relays.mullvad.net:1080`). The key scales with downloader **pods, not exits** — one pod reaches the whole pool.
+
+```mermaid
+flowchart LR
+    subgraph pod["downloader pod · 1 WireGuard key"]
+        d1["download 1"]
+        d2["download 2"]
+        d3["download 3"]
+        gluetun["gluetun<br/>tunnel to ENTRY server"]
+        d1 -.->|socks5h to exit A| gluetun
+        d2 -.->|socks5h to exit B| gluetun
+        d3 -.->|socks5h to exit C| gluetun
+    end
+    gluetun ==>|one encrypted tunnel| entry["Mullvad ENTRY server"]
+    entry --> exA(["exit A"]) --> yt["googlevideo"]
+    entry --> exB(["exit B"]) --> yt
+    entry --> exC(["exit C"]) --> yt
+```
+
+The **entry** server (the tunnel endpoint, from `egress_exits` / gluetun's `SERVER_HOSTNAMES`) is separate from the **exit** each download picks. One tunnel carries every download; the exit — and therefore the IP YouTube sees — is chosen per download.
+
+Per download, the worker leases a free, healthy exit, builds (or reuses) a yt-dlp client pinned to that exit's SOCKS5, downloads, and returns the exit to the pool:
+
+```mermaid
+sequenceDiagram
+    participant W as download task
+    participant Pool as ExitPool
+    participant Clients as ExitClients
+    participant MV as Mullvad (via tunnel)
+    W->>Pool: lease() — a free, non-backed-off exit
+    Pool-->>W: us-nyc-wg-301
+    W->>Clients: for_exit("us-nyc-wg-301")
+    Clients-->>W: yt-dlp client<br/>proxy = socks5h://us-nyc-wg-socks5-301…:1080
+    W->>MV: extract_info() through that exit's SOCKS5
+    MV-->>W: media (egress IP = us-nyc-wg-301)
+    W->>Pool: release("us-nyc-wg-301")
+```
+
+Providers are pluggable: `egress_mode` names a resolver in `EXIT_PROXY_RESOLVERS` (`discord_bot/utils/integrations/egress_pool.py`) that maps an exit name to its proxy URL. `mullvad-socks5` is the first; add another VPN/proxy by subclassing `ExitProxyResolver`.
+
 ### YTDLP Wait Time
 
 Add a minimum wait time being youtube extractor downloads with yt-dlp, along with a "variance" of random time to add in between. The variance is to make the traffic look more natural.
@@ -328,14 +404,18 @@ music:
 
 ### Download Concurrency
 
-`max_concurrent_downloads` controls how many downloads the bot processes at once. It defaults to `1`, keeping downloads serial.
+How many downloads run at once depends on the deployment:
 
-Leave this at `1` unless you know the downloads egress over distinct source IPs. yt-dlp/YouTube rate-limits per source IP, so running multiple concurrent downloads behind a single egress IP (for example a shared VPN) gets the bot throttled or flagged quickly.
+- **In-process (single-process bot):** `music.download.max_concurrent_downloads` (default `1`) sets how many download loops the bot runs itself.
+- **HA (standalone downloader pod):** `music.download.worker_count` (default `1`) sets how many concurrent download drivers the downloader pod runs. In `mullvad-socks5` pool mode it's capped at the number of `egress_exits`, so no driver is permanently starved of an exit.
+
+Either way, only raise it above `1` when downloads egress over **distinct source IPs**. yt-dlp/YouTube rate-limits per source IP, so running multiple concurrent downloads behind a single egress IP (a shared VPN — i.e. `http-proxy` mode) gets throttled or flagged quickly. `mullvad-socks5` mode is exactly the case that makes concurrency safe: each concurrent download leases a **different exit IP** and each exit self-paces via its own per-exit backoff window.
 
 ```
 music:
   download:
-    max_concurrent_downloads: 1  # Default: 1
+    max_concurrent_downloads: 1  # in-process bot; Default: 1
+    worker_count: 1              # standalone downloader pod; Default: 1
 ```
 
 ### Download Retry Logic

@@ -38,8 +38,9 @@ from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.utils.common import GeneralConfig
-from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth
 from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
+from discord_bot.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
 from discord_bot.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 
@@ -49,7 +50,13 @@ from discord_bot.cli._lib.common import (
 
 logger = logging.getLogger(__name__)
 
-# LoopHealth registry key for the pod's single download consumer driver
+# LoopHealth registry key for the pod's download consumer driver pool.  One key
+# for the whole pool, not one per driver: the drivers are interchangeable
+# consumers of the same Redis queue, so "any driver making progress" is the
+# health bit that matters (same rationale as the message dispatcher's worker
+# pool).  Per-driver keys would fail this pod's liveness probe whenever a single
+# driver sat in a slow download — and in pool mode a driver blocked on a flagged
+# exit is routine, so that would turn ordinary exit flakiness into a restart loop.
 LOOP_DOWNLOADER_WORKER = 'downloader_worker'
 
 
@@ -62,14 +69,21 @@ def main(config_file):
 
 
 async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
-                        driver_logger: logging.Logger) -> None:
+                        driver_logger: logging.Logger, health: LoopHealth) -> None:
     '''
     Drive the worker's consumer loop until shutdown.
 
     ``worker.run(stop_event)`` consumes at most one queued item per call and
-    returns; the while loop re-drives it.  A single driver per pod is deliberate:
-    one egress IP means concurrent yt-dlp calls just collide in the same
-    rate-limit bucket (see module docstring).
+    returns; the while loop re-drives it.  In fixed-proxy mode one driver runs,
+    because one egress IP means concurrent yt-dlp calls just collide in the same
+    rate-limit bucket; pool (socks5) mode runs several, each on a distinct exit
+    (see module docstring).
+
+    ``health`` is the pool's shared LoopHealth, registered once by the caller and
+    passed in — every driver reports into it, so the pod probes healthy while any
+    driver is still making progress.  Marking it stopped is the caller's job too:
+    a driver returning is not the pool shutting down when its siblings are still
+    running.
 
     The broad ``except Exception`` is load-bearing.  An unguarded loop that dies
     on an unexpected error (e.g. a redis/broker blip) wedges the downloader
@@ -78,11 +92,10 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
 
     The other half of that story — "while the health server keeps reporting
     green" — is what LoopHealth fixes: retrying forever is right, but it used to
-    mean a permanently wedged worker still probed healthy.  Now the driver
-    reports each iteration, so a worker that stops making progress fails this
-    pod's own health check.
+    mean a permanently wedged worker still probed healthy.  Now the drivers
+    report each iteration, so a pool that stops making progress altogether fails
+    this pod's own health check.
     '''
-    health = LOOP_HEALTH.register(LOOP_DOWNLOADER_WORKER)
     while not stop_event.is_set():
         try:
             await worker.run(stop_event)
@@ -93,13 +106,12 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
             health.record_error()
             driver_logger.exception('Downloader :: worker loop error, backing off')
             await asyncio.sleep(1)
-    # Loop left on purpose (shutdown or ExitEarly), not wedged.
-    health.mark_stopped()
 
 
 async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                     health_server, redis_manager: RedisManager,
-                    download_metrics: DownloadMetrics, exit_probe: ExitProbe | None):
+                    download_metrics: DownloadMetrics, exit_probe: ExitProbe | None,
+                    driver_count: int = 1):
     '''Run the downloader until SIGTERM/SIGINT, then drain the HTTP server and Redis.'''
     await redis_manager.start()
     with shutdown_event_signals() as stop_event:
@@ -107,8 +119,19 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
             if health_server:
                 asyncio.create_task(health_server.serve())
             asyncio.create_task(download_http_server.serve())
-            # Single in-pod consumer loop drains the shared Redis queue.
-            asyncio.create_task(_drive_worker(worker, stop_event, logger))
+            # In-pod consumer loops draining the shared Redis queue.  Pool (socks5)
+            # mode fans out across driver_count concurrent drivers, each popping and
+            # reserving a distinct exit so downloads run in parallel; fixed-proxy
+            # mode runs a single driver (one egress IP means concurrent yt-dlp calls
+            # would just collide in the same rate-limit bucket).
+            # One shared LoopHealth for the pool, registered here rather than inside
+            # the driver: registering per-driver would re-arm the same entry N times
+            # at startup, and letting each driver mark it stopped on exit would have
+            # the first one to finish report the whole pool stopped while the rest
+            # are still working.
+            worker_health = LOOP_HEALTH.register(LOOP_DOWNLOADER_WORKER)
+            for _ in range(driver_count):
+                asyncio.create_task(_drive_worker(worker, stop_event, logger, worker_health))
             # Metrics poller exits on its own when stop_event is set.
             asyncio.create_task(download_metrics.run(stop_event))
             # Egress exit probe (optional): refreshes the cached exit through the
@@ -118,6 +141,10 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
             logger.info('Main :: Downloader running')
             await stop_event.wait()
         finally:
+            # A deliberate drain is not a wedge: mark the pool stopped once, here,
+            # so a draining pod doesn't fail its own liveness probe while the
+            # drivers wind down (the drivers never mark it themselves).
+            LOOP_HEALTH.mark_stopped(LOOP_DOWNLOADER_WORKER)
             logger.info('Main :: Draining download server...')
             await download_http_server.drain_and_stop()
             await redis_manager.close()
@@ -126,10 +153,11 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
 
 def run_downloader(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                    health_server, redis_manager: RedisManager,
-                   download_metrics: DownloadMetrics, exit_probe: ExitProbe | None):
+                   download_metrics: DownloadMetrics, exit_probe: ExitProbe | None,
+                   driver_count: int = 1):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(worker, download_http_server, health_server, redis_manager,
-                       download_metrics, exit_probe))
+                       download_metrics, exit_probe, driver_count=driver_count))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -158,6 +186,8 @@ def run(settings: dict, general_config: GeneralConfig):
         download_dir = Path(TemporaryDirectory().name)  # pylint:disable=consider-using-with
     download_dir.mkdir(exist_ok=True, parents=True)
 
+    egress_mode = download_cfg.get('egress_mode', EGRESS_MODE_HTTP_PROXY)
+
     # Reuse the already-validated LoggingConfig off general_config — the same
     # object the cog passes as self.logging_config; get_logger tolerates None.
     worker = RedisDownloadWorker(
@@ -174,6 +204,8 @@ def run(settings: dict, general_config: GeneralConfig):
         normalize_audio=bool(download_cfg.get('normalize_audio', False)),
         broker=broker_client,
         max_retries=int(download_cfg.get('max_download_retries', 3)),
+        egress_mode=egress_mode,
+        egress_exits=download_cfg.get('egress_exits'),
     )
 
     server_cfg = settings.get('general', {}).get('downloader_server', {})
@@ -195,18 +227,32 @@ def run(settings: dict, general_config: GeneralConfig):
 
     download_metrics = DownloadMetrics(worker)
 
-    # Probe the live egress exit through the SAME proxy yt-dlp downloads use, and
-    # give the worker a handle so create_source spans + failure logs can read the
-    # cached exit hostname. Selected by music.download.egress_probe (e.g. 'mullvad');
-    # absent -> no probe and attribution reads 'unknown'. Proxy may be absent too,
-    # in which case the probe just queries the exit directly.
-    extra_ytdlp_options = download_cfg.get('extra_ytdlp_options') or {}
-    exit_probe = build_exit_probe(download_cfg.get('egress_probe'),
-                                  extra_ytdlp_options.get('proxy'))
-    worker.set_exit_probe(exit_probe)
+    # Exit attribution:
+    #  * pool mode (mullvad-socks5, ...): each download leases a distinct exit, so
+    #    the lease names the exit directly — a single-exit probe would be wrong.
+    #    No probe is wired; the worker reads the leased exit_name.
+    #  * fixed http-proxy mode: every download shares one exit, so probe it through
+    #    the SAME proxy yt-dlp uses and cache the hostname for spans + failure logs.
+    #    Selected by music.download.egress_probe (e.g. 'mullvad'); absent -> no probe
+    #    and attribution reads 'unknown'. Proxy may be absent too, in which case the
+    #    probe queries the exit directly.
+    exit_probe = None
+    if egress_mode == EGRESS_MODE_HTTP_PROXY:
+        extra_ytdlp_options = download_cfg.get('extra_ytdlp_options') or {}
+        exit_probe = build_exit_probe(download_cfg.get('egress_probe'),
+                                      extra_ytdlp_options.get('proxy'))
+        worker.set_exit_probe(exit_probe)
+
+    # Concurrency: pool mode fans out to worker_count drivers (each leases a distinct
+    # exit), capped at the number of exits so no driver is permanently starved. The
+    # fixed http-proxy mode stays single-driver — one egress IP shares one rate limit.
+    driver_count = 1
+    if egress_mode != EGRESS_MODE_HTTP_PROXY:
+        worker_count = max(1, int(download_cfg.get('worker_count', 1)))
+        driver_count = min(worker_count, len(download_cfg.get('egress_exits') or [worker_count]))
 
     run_downloader(worker, download_http_server, health_server, redis_manager,
-                   download_metrics, exit_probe)
+                   download_metrics, exit_probe, driver_count=driver_count)
 
 
 if __name__ == '__main__':  # pragma: no cover

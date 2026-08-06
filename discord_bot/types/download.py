@@ -46,6 +46,9 @@ class DownloadErrorType(str, Enum):
     RETRYABLE = 'retryable'
     BOT_FLAGGED = 'bot_flagged'
     RETRY_LIMIT_EXCEEDED = 'retry_limit_exceeded'
+    # Transient contention: every pool exit was in-flight/backed off, so the item
+    # was never attempted. Re-queued as-is without consuming a retry or a RETRY UI.
+    NO_EXIT_AVAILABLE = 'no_exit_available'
     PRIVATE_VIDEO = 'private_video'
     TERMS_VIOLATION = 'terms_violation'
     UNAVAILABLE = 'unavailable'

@@ -1,3 +1,22 @@
+# Fixed subnet so gluetun can exempt the compose network from the tunnel (see the
+# downloader/gluetun FIREWALL_OUTBOUND_SUBNETS below).
+
+# S3 credentials for the HA path (downloader upload + broker/bot checkout). From docker/.env.
+x-aws-env: &aws-env
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+  AWS_REGION: ${AWS_REGION}
+  AWS_ENDPOINT_URL_S3: ${AWS_ENDPOINT_URL_S3:-}
+  AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-WHEN_REQUIRED}
+  AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-WHEN_REQUIRED}
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
 services:
   redis:
     image: redis:7-alpine
@@ -38,6 +57,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.broker
+    environment: *aws-env
     volumes:
       - ../volumes/cnf/discord.broker.cnf:/opt/discord/cnf/discord.cnf:ro
       - ../volumes/broker-logs:/var/log/discord
@@ -48,11 +68,54 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Mullvad WireGuard tunnel. The downloader shares this netns so the per-server
+  # SOCKS5 exits are reachable. Set the Mullvad key + entry server in docker/.env.
+  gluetun:
+    image: docker.io/qmcgaw/gluetun:v3.41.1
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: mullvad
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${MULLVAD_WG_PRIVATE_KEY}
+      WIREGUARD_ADDRESSES: ${MULLVAD_WG_ADDRESSES}
+      SERVER_HOSTNAMES: ${MULLVAD_ENTRY_HOSTNAMES}   # tunnel entry(ies); exits are per-download
+      # Keep cluster/compose + DNS traffic off the tunnel; only SOCKS5/YouTube ride it.
+      FIREWALL_OUTBOUND_SUBNETS: 172.28.0.0/16
+      FIREWALL_INPUT_PORTS: 8080,8083                # bot reaches the downloader via gluetun
+      # Don't let gluetun's DoT hijack compose DNS — use Docker's embedded resolver
+      # so redis/broker names resolve AND relays.mullvad.net still resolves upstream.
+      DOT: "off"
+      DNS_ADDRESS: 127.0.0.11
+    restart: unless-stopped
+
+  # Standalone downloader running in mullvad-socks5 egress mode, in-tunnel.
+  downloader:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.downloader
+    network_mode: "service:gluetun"                  # share the VPN netns
+    environment: *aws-env
+    volumes:
+      - ../volumes/cnf/discord.downloader.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/downloader-logs:/var/log/discord
+    depends_on:
+      gluetun:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      broker:
+        condition: service_started
+    restart: unless-stopped
+
   bot:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     environment:
+      <<: *aws-env
       DISCORD_BOT_CMD: discord-bot-min
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
@@ -63,7 +126,8 @@ services:
       - ../volumes/db:/opt/discord/db
       - ../volumes/bot-logs:/var/log/discord
     ports:
-      - "8080:8080"
+      # host 8080 commonly collides; publish the bot health port elsewhere by default.
+      - "${BOT_HEALTH_PORT:-18080}:8080"
     depends_on:
       redis:
         condition: service_started
@@ -71,4 +135,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      downloader:
+        condition: service_started
     restart: unless-stopped

@@ -1,0 +1,41 @@
+# Standalone downloader config — for docker/docker-compose.multiprocess.yml
+# (downloader service). Entrypoint: discord-downloader. No Discord gateway; the
+# token is a placeholder only so config validation passes.
+#
+# Runs in mullvad-socks5 egress mode: each download leaves through a different
+# Mullvad exit via that server's SOCKS5, over the one gluetun tunnel this
+# container shares (network_mode: service:gluetun).
+general:
+  discord_token: placeholder-not-used
+  redis_url: redis://redis:6379/0
+  downloader_server:
+    host: 0.0.0.0
+    port: 8083
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+music:
+  # Post download results back to the broker over HTTP.
+  broker_client:
+    url: http://broker:8081
+  download:
+    download_dir_path: /opt/discord/downloads
+
+    # --- Phase 2 egress: a different exit per download via SOCKS5 ---
+    egress_mode: mullvad-socks5
+    # Mullvad WG server names the pool rotates through. Each becomes
+    # socks5h://<name>-wg-socks5-<n>.relays.mullvad.net:1080. NO
+    # extra_ytdlp_options.proxy here — the exit's SOCKS5 *is* the proxy.
+    egress_exits:
+      - us-lax-wg-001
+      - us-nyc-wg-301
+      - us-sea-wg-001
+
+    youtube_wait_period_minimum: 30
+    youtube_wait_period_max_variance: 10
+    # No storage.bucket_name -> finished files stay local. That's enough to watch
+    # downloads egress through the SOCKS5 exits (grep the logs for "Download egress
+    # via exit ..."); add MinIO + a bucket here + on the broker/bot for real playback.
