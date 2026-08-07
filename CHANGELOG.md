@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.65] - 2026-08-07
+
+### Changed
+
+- Markov: recover from a deleted `last_message_id` again. The dispatcher flattens exceptions to a string when it ships a fetch result back to a cog, so the `isinstance(error, NotFound)` check guarding the clear-and-restart never matched and the channel re-requested a dead message every loop forever. Errors now cross the boundary with their status/code intact (`error_detail`), and the recovery matches on status — the channel clears its relations and rebuilds from the retention cutoff. `fetch_history`/`fetch_emojis` also carry `span_context` end to end, so result-consumer logs are traced and name the server as well as the channel.
+
 ## [2.5.64] - 2026-08-07
 
 ### Changed
