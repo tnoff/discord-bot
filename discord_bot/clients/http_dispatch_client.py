@@ -136,14 +136,14 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         request_id = await self._submit_fetch('/dispatch/fetch_history', params)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
-            raise DispatchRemoteError(payload['error'])
+            raise DispatchRemoteError.from_payload(payload)
         return payload
 
     async def _do_fetch_emojis(self, params: dict) -> dict:
         request_id = await self._submit_fetch('/dispatch/fetch_emojis', params)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
-            raise DispatchRemoteError(payload['error'])
+            raise DispatchRemoteError.from_payload(payload)
         return payload
 
     # ------------------------------------------------------------------

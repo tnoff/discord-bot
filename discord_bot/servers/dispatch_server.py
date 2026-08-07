@@ -152,13 +152,17 @@ class DispatchHttpServer(AiohttpServerBase):
             after = body.get('after')
             after_message_id = int(body['after_message_id']) if body.get('after_message_id') is not None else None
             oldest_first = bool(body.get('oldest_first', True))
+            span_context = body.get('span_context')
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         params = {'guild_id': guild_id, 'channel_id': channel_id, 'limit': limit,
                   'after': after, 'after_message_id': after_message_id, 'oldest_first': oldest_first}
+        # span_context is deliberately excluded from the request_id hash: it differs
+        # per trace, so folding it in would make every identical fetch a distinct
+        # request and defeat result reuse.
         request_id = dispatch_request_id(params)
         with otel_span_wrapper('dispatch.fetch_history', context=ctx, kind=SpanKind.SERVER):
-            await self._dispatcher.enqueue_fetch_history(request_id, **params)
+            await self._dispatcher.enqueue_fetch_history(request_id, **params, span_context=span_context)
         return web.json_response({'request_id': request_id}, status=202)
 
     async def _handle_fetch_emojis(self, request: web.Request) -> web.Response:
@@ -167,12 +171,14 @@ class DispatchHttpServer(AiohttpServerBase):
             body = await request.json()
             guild_id = int(body['guild_id'])
             max_retries = int(body.get('max_retries', 3))
+            span_context = body.get('span_context')
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         params = {'guild_id': guild_id, 'max_retries': max_retries}
+        # Excluded from the hash for the same reason as fetch_history above.
         request_id = dispatch_request_id(params)
         with otel_span_wrapper('dispatch.fetch_emojis', context=ctx, kind=SpanKind.SERVER):
-            await self._dispatcher.enqueue_fetch_emojis(request_id, **params)
+            await self._dispatcher.enqueue_fetch_emojis(request_id, **params, span_context=span_context)
         return web.json_response({'request_id': request_id}, status=202)
 
     async def _handle_get_result(self, request: web.Request) -> web.Response:

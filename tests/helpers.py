@@ -25,7 +25,8 @@ from discord_bot.types.dispatch_request import (
     SendRequest,
     DeleteRequest,
 )
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
@@ -404,6 +405,18 @@ class FakeVoiceClient():
         """Mock disconnect method for VoiceClient"""
         return True
 
+def _as_remote_error(exc: Exception) -> DispatchRemoteError:
+    '''
+    Flatten *exc* the way the real dispatcher transports it back to a cog.
+
+    Both the HTTP and in-process dispatchers serialize the exception to JSON and
+    rebuild it as a DispatchRemoteError, so a cog never receives the original
+    discord exception object. The fake must do the same or tests exercise a code
+    path production cannot reach.
+    '''
+    return DispatchRemoteError.from_payload({'error': str(exc), 'error_detail': encode_error(exc)})
+
+
 class FakeMessageDispatcher():
     '''Synchronous fake dispatcher for tests — processes requests inline.'''
     def __init__(self, bot: Any) -> None:
@@ -445,8 +458,9 @@ class FakeMessageDispatcher():
                     channel_id=request.channel_id,
                     messages=[],
                     after_message_id=request.after_message_id,
-                    error=exc,
+                    error=_as_remote_error(exc),
                 )
+            result.span_context = request.span_context
             q = self._cog_result_queues.get(request.cog_name)
             if q:
                 await q.put(result)
@@ -456,7 +470,9 @@ class FakeMessageDispatcher():
                 emojis = await guild.fetch_emojis()
                 emoji_result: Any = GuildEmojisResult(guild_id=request.guild_id, emojis=emojis)
             except Exception as exc:  # pylint: disable=broad-except
-                emoji_result = GuildEmojisResult(guild_id=request.guild_id, emojis=[], error=exc)
+                emoji_result = GuildEmojisResult(guild_id=request.guild_id, emojis=[],
+                                                 error=_as_remote_error(exc))
+            emoji_result.span_context = request.span_context
             q = self._cog_result_queues.get(request.cog_name)
             if q:
                 await q.put(emoji_result)

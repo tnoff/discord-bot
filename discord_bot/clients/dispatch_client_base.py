@@ -29,7 +29,38 @@ RESULT_QUEUE_MAX_SIZE = 1000
 
 
 class DispatchRemoteError(Exception):
-    '''Raised when the dispatcher returned an error payload.'''
+    '''
+    Raised when the dispatcher returned an error payload.
+
+    Mirrors the status/code of the remote exception so callers can branch on the
+    failure mode.  The transport flattens the original exception to JSON, so an
+    isinstance() check against discord's exception types can never match on this
+    side of the boundary — match on .status/.code instead.
+    '''
+
+    def __init__(self, message: str, status: int | None = None,
+                 code: int | None = None, error_type: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.error_type = error_type
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> 'DispatchRemoteError':
+        '''
+        Rebuild from a dispatcher error payload.
+
+        Tolerates a payload with no 'error_detail' so a bot talking to an
+        not-yet-rolled dispatcher still gets the message, just without the
+        status/code (degrading to the old string-only behaviour).
+        '''
+        detail = payload.get('error_detail') or {}
+        return cls(
+            payload['error'],
+            status=detail.get('status'),
+            code=detail.get('code'),
+            error_type=detail.get('type'),
+        )
 
 
 def _history_params(request: FetchChannelHistoryRequest) -> dict:
@@ -40,11 +71,13 @@ def _history_params(request: FetchChannelHistoryRequest) -> dict:
         'after': request.after.isoformat() if request.after else None,
         'after_message_id': request.after_message_id,
         'oldest_first': request.oldest_first,
+        'span_context': request.span_context,
     }
 
 
 def _emojis_params(request: FetchGuildEmojisRequest) -> dict:
-    return {'guild_id': request.guild_id, 'max_retries': request.max_retries}
+    return {'guild_id': request.guild_id, 'max_retries': request.max_retries,
+            'span_context': request.span_context}
 
 
 class DispatchClientBase:
@@ -122,6 +155,10 @@ class DispatchClientBase:
                     after_message_id=request.after_message_id,
                     error=exc,
                 )
+            # Carry the requesting span forward so the consumer loop — a separate
+            # task that dequeues long after every span here has closed — can link
+            # its own span back to the request instead of logging untraced.
+            result.span_context = request.span_context
             self._deliver(q, result, request.cog_name)
 
     async def _submit_emojis_request(self, request: FetchGuildEmojisRequest) -> None:
@@ -137,4 +174,5 @@ class DispatchClientBase:
             except DispatchRemoteError as exc:
                 span.record_exception(exc)
                 result = GuildEmojisResult(guild_id=request.guild_id, emojis=[], error=exc)
+            result.span_context = request.span_context
             self._deliver(q, result, request.cog_name)

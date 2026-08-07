@@ -14,7 +14,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
-from discord_bot.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
+from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for deleting messages after X days
@@ -116,10 +116,25 @@ class DeleteMessages(CogHelper):
                     await self.dispatch_channel_history(guild_id, channel_id)
 
     async def _process_delete_result(self, result: ChannelHistoryResult) -> None:
-        '''Process a single channel history result, deleting old messages.'''
+        '''
+        Process a single channel history result, deleting old messages.
+
+        Opens its own span linked back to the requesting one: this runs in the
+        result-consumer task, by which point the span that dispatched the fetch
+        has long closed and these logs would otherwise carry no trace.
+        '''
+        async with async_otel_span_wrapper('delete_messages.history_result', kind=SpanKind.CONSUMER,
+                                           attributes={DiscordContextNaming.CHANNEL.value: result.channel_id,
+                                                       DiscordContextNaming.GUILD.value: result.guild_id},
+                                           links=span_links_from_context(result.span_context)):
+            return await self._apply_delete_result(result)
+
+    async def _apply_delete_result(self, result: ChannelHistoryResult) -> None:
+        '''Body of _process_delete_result, run inside the consumer span.'''
         if result.error:
             self.logger.error(
-                f'DeleteMessages :: Failed to fetch history for channel {result.channel_id}: {result.error}'
+                f'DeleteMessages :: Failed to fetch history for channel {result.channel_id} '
+                f'in server {result.guild_id}: {result.error}'
             )
             return
         channel_config = self._get_channel_config(result.channel_id)

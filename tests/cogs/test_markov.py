@@ -1,15 +1,17 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from freezegun import freeze_time
 import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT
+from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.otel import loop_heartbeat_observations
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.types.dispatch_request import FetchChannelHistoryRequest
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
 from discord_bot.types.fetched_message import FetchedMessage
 
 from discord_bot.database import MarkovChannel, MarkovRelation
@@ -731,3 +733,140 @@ async def test_markov_result_loop_survives_processing_error(fake_engine, fake_co
         pass
     assert still_alive
     assert cog.logger.exception.called
+
+
+# ---------------------------------------------------------------------------
+# _process_history_result: transport-flattened 404 recovery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_process_history_result_remote_not_found_clears_relations(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    A 404 arriving as a DispatchRemoteError still triggers the clear-and-restart.
+
+    This is the shape production actually delivers: the dispatcher serializes the
+    discord.NotFound to JSON, so the cog receives a DispatchRemoteError. The old
+    isinstance(error, NotFound) check never matched it, leaving the channel pinned
+    to a deleted message and re-404ing every loop forever.
+    '''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[],
+        after_message_id=803752065180106782,
+        error=DispatchRemoteError.from_payload({
+            'error': '404 Not Found (error code: 10008): Unknown Message',
+            'error_detail': {'status': 404, 'code': UNKNOWN_MESSAGE_CODE, 'type': 'NotFound'},
+        }),
+    )
+    await cog._process_history_result(result)  #pylint:disable=protected-access
+
+    async with async_mock_session(fake_engine) as session:
+        mc = (await session.execute(
+            select(MarkovChannel).where(MarkovChannel.channel_id == fake_context['channel'].id)
+        )).scalars().first()
+        assert mc is not None
+        assert mc.last_message_id is None
+
+
+@pytest.mark.asyncio
+async def test_process_history_result_remote_server_error_is_not_recovered(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A non-404 remote failure leaves last_message_id intact rather than wiping the channel'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    async with async_mock_session(fake_engine) as session:
+        mc = (await session.execute(
+            select(MarkovChannel).where(MarkovChannel.channel_id == fake_context['channel'].id)
+        )).scalars().first()
+        mc.last_message_id = 4321
+        await session.commit()
+
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[],
+        after_message_id=4321,
+        error=DispatchRemoteError.from_payload({
+            'error': '500 Internal Server Error',
+            'error_detail': {'status': 500, 'code': 0, 'type': 'DiscordServerError'},
+        }),
+    )
+    await cog._process_history_result(result)  #pylint:disable=protected-access
+
+    async with async_mock_session(fake_engine) as session:
+        mc = (await session.execute(
+            select(MarkovChannel).where(MarkovChannel.channel_id == fake_context['channel'].id)
+        )).scalars().first()
+        assert mc.last_message_id == 4321
+
+
+@pytest.mark.asyncio
+async def test_not_found_recovery_refetches_from_retention_cutoff(mocker, fake_engine, freezer, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    After a 404 reset the channel restarts from the retention cutoff.
+
+    Not from the beginning of the channel and not from the dead message id — the
+    reset clears last_message_id, so the producer falls into its after=cutoff
+    branch and rebuilds as far back as retention allows.
+    '''
+    freezer.move_to('2024-12-01 12:00:00')
+    fake_message = FakeMessage(content='this is a basic test', channel=fake_context['channel'],
+                               created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
+    fake_context['channel'].messages = [fake_message]
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog.register_result_queue()
+    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _run_markov_request_and_result(cog, mocker)
+
+    # The tracked message disappears -> 404 -> clear and reset.
+    fake_context['channel'].messages = []
+    freezer.move_to('2024-12-02 12:00:00')
+    await _run_markov_request_and_result(cog, mocker)
+
+    spy = mocker.spy(cog.dispatcher, 'submit_request')
+    freezer.move_to('2024-12-03 12:00:00')
+    await _run_markov_request_and_result(cog, mocker)
+
+    history_requests = [call.args[0] for call in spy.call_args_list
+                        if isinstance(call.args[0], FetchChannelHistoryRequest)]
+    assert history_requests
+    assert all(req.after_message_id is None for req in history_requests)
+    expected_cutoff = datetime(2024, 12, 3, 12, 0, 0, tzinfo=timezone.utc) - timedelta(
+        days=MARKOV_HISTORY_RETENTION_DAYS_DEFAULT)
+    assert history_requests[0].after == expected_cutoff
+
+
+@pytest.mark.asyncio
+async def test_history_result_span_links_back_to_request(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A result carrying a span_context is processed (linked) rather than rejected'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[],
+        span_context={'trace_id': 1234, 'span_id': 5678, 'trace_flags': 1},
+    )
+    # Should not raise — the link is reconstructed from the captured context.
+    await cog._process_history_result(result)  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_process_emojis_result_error_leaves_cache_untouched(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''An emoji fetch error is logged without poisoning the cache'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    result = GuildEmojisResult(guild_id=99, emojis=[], error=DispatchRemoteError('nope', status=500),
+                               span_context={'trace_id': 1234, 'span_id': 5678, 'trace_flags': 1})
+    await cog._process_emojis_result(result)  #pylint:disable=protected-access
+    assert 99 not in cog._emoji_cache  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_process_emojis_result_success_caches_emojis(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A successful emoji fetch populates the cache'''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog._process_emojis_result(GuildEmojisResult(guild_id=99, emojis=['a']))  #pylint:disable=protected-access
+    assert cog._emoji_cache[99] == ['a']  #pylint:disable=protected-access

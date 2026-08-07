@@ -8,7 +8,7 @@ from typing import Optional, List
 from dappertable import DapperTable, Columns, Column, PaginationLength
 from discord import ChannelType
 from discord.ext.commands import Bot, Context, group
-from discord.errors import NotFound, DiscordServerError
+from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
@@ -19,11 +19,11 @@ from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
+from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for how many days to keep messages around
@@ -286,14 +286,7 @@ class Markov(CogHelper):
             result = await health_aware_queue_get(self._result_queue, health)
             try:
                 if isinstance(result, GuildEmojisResult):
-                    # A result carrying an error is still a handled iteration —
-                    # the fetch failed upstream, the consumer did its job. An
-                    # early `continue` here would skip record_success and let a
-                    # run of upstream errors read as a wedged consumer.
-                    if result.error:
-                        self.logger.error(f'Markov :: Failed to fetch emojis for guild {result.guild_id}: {result.error}')
-                    else:
-                        self._emoji_cache[result.guild_id] = result.emojis
+                    await self._process_emojis_result(result)
                 elif isinstance(result, ChannelHistoryResult):
                     await self._process_history_result(result)
                 health.record_success()
@@ -304,29 +297,69 @@ class Markov(CogHelper):
                 # (docs findings/2026-07-19 OOM root cause). Log and drain the next.
                 self.logger.exception('Markov :: error processing dispatch result')
 
+    async def _process_emojis_result(self, result: GuildEmojisResult):
+        '''
+        Process a guild emoji result, caching the emoji list on success.
+
+        A result carrying an error is still a handled iteration — the fetch failed
+        upstream, the consumer did its job. An early return before the caller's
+        record_success() would let a run of upstream errors read as a wedged
+        consumer, so this never raises on result.error.
+        '''
+        async with async_otel_span_wrapper('markov.emojis_result', kind=SpanKind.CONSUMER,
+                                           attributes={DiscordContextNaming.GUILD.value: result.guild_id},
+                                           links=span_links_from_context(result.span_context)):
+            if result.error:
+                self.logger.error(f'Markov :: Failed to fetch emojis for server {result.guild_id}: {result.error}')
+                return
+            self._emoji_cache[result.guild_id] = result.emojis
+
     async def _process_history_result(self, result: ChannelHistoryResult):
         '''
         Process a channel history result: filter messages and save to the Markov chain.
+
+        Runs in the result-consumer task, long after every span that produced the
+        request has closed, so it opens its own span linked back to the requesting
+        one. Without that link these logs carry no trace at all.
         '''
         guild_id = result.guild_id
         channel_id = result.channel_id
 
+        async with async_otel_span_wrapper('markov.history_result', kind=SpanKind.CONSUMER,
+                                           attributes={DiscordContextNaming.CHANNEL.value: channel_id,
+                                                       DiscordContextNaming.GUILD.value: guild_id},
+                                           links=span_links_from_context(result.span_context)):
+            return await self._apply_history_result(result, guild_id, channel_id)
+
+    async def _apply_history_result(self, result: ChannelHistoryResult,
+                                            guild_id: int, channel_id: int):
+        '''Body of _process_history_result, run inside the consumer span.'''
         if result.error:
-            if isinstance(result.error, NotFound) and result.after_message_id:
+            # Matched on status rather than isinstance(result.error, NotFound):
+            # results arriving through the dispatcher carry a DispatchRemoteError
+            # rebuilt from JSON, so an isinstance check never matches in the split
+            # deployment and the channel stays pinned to a dead message forever.
+            if is_not_found_error(result.error) and result.after_message_id:
                 self.logger.info(f'Unable to find message {result.after_message_id}'
-                                 f' in channel {channel_id}')
+                                 f' in channel {channel_id} in server {guild_id}, '
+                                 'clearing relations and restarting from retention cutoff')
                 async with self.with_db_session() as db_session:
                     markov_channel = await async_retry_database_commands(
                         db_session,
                         lambda: get_markov_channel_by_ids(db_session, guild_id, channel_id)
                     )
                     if markov_channel:
+                        # Clearing last_message_id makes the next check loop
+                        # re-request with after=retention_cutoff, so the channel
+                        # rebuilds as far back as retention allows rather than
+                        # re-fetching a message that no longer exists.
                         await self.delete_channel_relations(db_session, markov_channel.id)
                         markov_channel.last_message_id = None
                         await self.retry_commit(db_session)
             else:
                 self.logger.error(
-                    f'Markov :: Failed to fetch history for channel {channel_id}: {result.error}'
+                    f'Markov :: Failed to fetch history for channel {channel_id} '
+                    f'in server {guild_id}: {result.error}'
                 )
             return
 

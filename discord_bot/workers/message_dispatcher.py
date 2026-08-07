@@ -18,6 +18,7 @@ from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.dispatch_request import DeleteRequest, SendRequest
+from discord_bot.types.dispatch_result import encode_error
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.otel import (async_otel_span_wrapper, create_observable_gauge,
@@ -352,6 +353,7 @@ class MessageDispatcher(DispatchClientBase):
             after=params.get('after'),
             after_message_id=int(params['after_message_id']) if params.get('after_message_id') is not None else None,
             oldest_first=bool(params.get('oldest_first', True)),
+            span_context=params.get('span_context'),
         )
         await event.wait()
         self._result_events.pop(request_id, None)
@@ -359,7 +361,7 @@ class MessageDispatcher(DispatchClientBase):
         if result is None:
             raise DispatchRemoteError(f'no result stored for request_id={request_id}')
         if 'error' in result:
-            raise DispatchRemoteError(result['error'])
+            raise DispatchRemoteError.from_payload(result)
         return result
 
     async def _do_fetch_emojis(self, params: dict) -> dict:
@@ -371,6 +373,7 @@ class MessageDispatcher(DispatchClientBase):
             request_id,
             guild_id=int(params['guild_id']),
             max_retries=int(params.get('max_retries', 3)),
+            span_context=params.get('span_context'),
         )
         await event.wait()
         self._result_events.pop(request_id, None)
@@ -378,7 +381,7 @@ class MessageDispatcher(DispatchClientBase):
         if result is None:
             raise DispatchRemoteError(f'no result stored for request_id={request_id}')
         if 'error' in result:
-            raise DispatchRemoteError(result['error'])
+            raise DispatchRemoteError.from_payload(result)
         return result
 
     # ------------------------------------------------------------------
@@ -452,20 +455,22 @@ class MessageDispatcher(DispatchClientBase):
 
     async def enqueue_fetch_history(self, request_id: str, guild_id: int, channel_id: int,
                                     limit: int, after: str | None, after_message_id: int | None,
-                                    oldest_first: bool) -> None:
+                                    oldest_first: bool, span_context: dict | None = None) -> None:
         '''Enqueue a channel history fetch; result stored via work_queue under request_id.'''
         await self._work_queue.enqueue(
             f'{_MEMBER_FETCH_HISTORY}{request_id}',
             {'guild_id': guild_id, 'channel_id': channel_id, 'limit': limit,
-             'after': after, 'after_message_id': after_message_id, 'oldest_first': oldest_first},
+             'after': after, 'after_message_id': after_message_id, 'oldest_first': oldest_first,
+             'span_context': span_context},
             DispatchPriority.LOW,
         )
 
-    async def enqueue_fetch_emojis(self, request_id: str, guild_id: int, max_retries: int) -> None:
+    async def enqueue_fetch_emojis(self, request_id: str, guild_id: int, max_retries: int,
+                                   span_context: dict | None = None) -> None:
         '''Enqueue a guild emoji fetch; result stored via work_queue under request_id.'''
         await self._work_queue.enqueue(
             f'{_MEMBER_FETCH_EMOJIS}{request_id}',
-            {'guild_id': guild_id, 'max_retries': max_retries},
+            {'guild_id': guild_id, 'max_retries': max_retries, 'span_context': span_context},
             DispatchPriority.LOW,
         )
 
@@ -719,13 +724,17 @@ class MessageDispatcher(DispatchClientBase):
         '''Execute channel history fetch, store result, signal any in-process waiter.'''
         async with async_otel_span_wrapper('message_dispatcher.fetch_history',
                                            attributes={'discord.guild': payload['guild_id'],
-                                                       'discord.channel': payload['channel_id']}):
+                                                       'discord.channel': payload['channel_id']},
+                                           links=span_links_from_context(payload.get('span_context'))):
             try:
                 result = await self._dispatch_history_and_collect(payload)
             except Exception as exc:  # pylint: disable=broad-except
                 # Intentional broad catch: result must always be written so callers do not hang.
-                self.logger.error('MessageDispatcher :: fetch history failed: %s', exc, exc_info=True)
-                result = {'error': str(exc)}
+                self.logger.error('MessageDispatcher :: fetch history failed for channel %s in server %s: %s',
+                                  payload['channel_id'], payload['guild_id'], exc, exc_info=True)
+                # 'error' stays a plain string for wire compatibility; error_detail
+                # is what lets the caller tell a recoverable 404 from a real failure.
+                result = {'error': str(exc), 'error_detail': encode_error(exc)}
             await self._work_queue.store_result(request_id, result)
             event = self._result_events.pop(request_id, None)
             if event:
@@ -734,13 +743,15 @@ class MessageDispatcher(DispatchClientBase):
     async def _process_fetch_emojis(self, request_id: str, payload: dict):
         '''Execute guild emoji fetch, store result, signal any in-process waiter.'''
         async with async_otel_span_wrapper('message_dispatcher.fetch_emojis',
-                                           attributes={'discord.guild': payload['guild_id']}):
+                                           attributes={'discord.guild': payload['guild_id']},
+                                           links=span_links_from_context(payload.get('span_context'))):
             try:
                 result = await self._dispatch_emojis_and_collect(payload)
             except Exception as exc:  # pylint: disable=broad-except
                 # Intentional broad catch: same reasoning as _process_fetch_history.
-                self.logger.error('MessageDispatcher :: fetch emojis failed: %s', exc, exc_info=True)
-                result = {'error': str(exc)}
+                self.logger.error('MessageDispatcher :: fetch emojis failed for server %s: %s',
+                                  payload['guild_id'], exc, exc_info=True)
+                result = {'error': str(exc), 'error_detail': encode_error(exc)}
             await self._work_queue.store_result(request_id, result)
             event = self._result_events.pop(request_id, None)
             if event:
