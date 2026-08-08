@@ -105,8 +105,9 @@ async def test_block_and_clear_guild_passthrough():
     request = _request()
     await client.submit(request.guild_id, request)
     assert await client.block_guild(request.guild_id) is True
-    dropped = await client.clear_guild_queue(request.guild_id)
-    assert dropped == [request]
+    result = await client.clear_guild_queue(request.guild_id)
+    assert result.dropped == [request]
+    assert result.preserved_bundle_uuids == set()
 
 
 @pytest.mark.asyncio

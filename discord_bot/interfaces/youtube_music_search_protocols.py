@@ -11,9 +11,9 @@ Two roles, mirroring interfaces/download_protocols.py:
   (a future RedisYoutubeMusicSearchWorker for HA).
 
   YoutubeMusicSearchClient (Protocol) — the cog-facing handle.
-  InMemoryYoutubeMusicSearchClient wraps a worker in single-process mode; a
-  future HttpYoutubeMusicSearchClient will forward the same surface to a search
-  pod.
+  InMemoryYoutubeMusicSearchClient wraps a worker in single-process mode;
+  HttpYoutubeMusicSearchClient forwards the submit/clear/block/status half to a
+  standalone search pod (the pop-and-resolve half belongs to the pod itself).
 
 The cog runs the search loop against the Protocol and lets config decide which
 implementation backs it.  Unlike the DownloadClient Protocol (which hides
@@ -30,6 +30,7 @@ from time import time
 from typing import Callable, Protocol, runtime_checkable
 
 from discord_bot.exceptions import ExitEarlyException
+from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.common import LoggingConfig, get_logger
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
@@ -238,8 +239,13 @@ class YoutubeMusicSearchClient(Protocol):
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> list[MediaRequest]:
-        '''Clear the input queue for a guild.'''
+                                ) -> ClearGuildResult:
+        '''Clear the input queue for a guild.
+
+        Returns a ClearGuildResult carrying the dropped requests plus the
+        bundle_uuids of any items the predicate preserved (so the cog can skip
+        deleting those bundles, including in HA where the predicate runs on the
+        search pod, not the bot).'''
 
     async def queue_size(self, guild_id: int) -> int:
         '''Pending request count for a guild.'''

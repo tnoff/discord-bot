@@ -21,7 +21,6 @@ impl is constructed — mirroring the BrokerClient seam.
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import QueueEmpty, sleep
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
@@ -39,6 +38,7 @@ from yt_dlp.utils import DownloadError
 from discord_bot.interfaces.broker_protocols import BrokerClient
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
@@ -168,25 +168,6 @@ def match_generator(max_video_length: int, banned_videos_list: List[str]):
                     raise VideoBanned('Video Banned', user_message='Video is banned by bot maintainer')
 
     return filter_function
-
-
-@dataclass(frozen=True)
-class ClearGuildResult:
-    '''Result of DownloadClient.clear_guild_queue.
-
-    dropped
-        Requests removed from the guild's input queue; the cog pushes a
-        DISCARDED lifecycle state for each.
-    preserved_bundle_uuids
-        bundle_uuids of items the preserve predicate KEPT (metadata-only
-        playlist-add requests still in flight).  The cog skips deleting those
-        bundles.  Both clients populate this — the in-process client from the
-        predicate it runs, the HTTP client from the downloader's response — so
-        bundle preservation works in HA, where the predicate can't run on the
-        bot side.
-    '''
-    dropped: list[MediaRequest]
-    preserved_bundle_uuids: set[str] = field(default_factory=set)
 
 
 class DownloadClient(Protocol):

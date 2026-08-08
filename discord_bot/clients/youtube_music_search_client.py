@@ -5,12 +5,15 @@ InMemoryYoutubeMusicSearchClient is a thin wrapper around a
 YoutubeMusicSearchWorkerBase engine (AsyncioYoutubeMusicSearchWorker in
 single-process) — it forwards the cog-facing YoutubeMusicSearchClient Protocol
 surface to the worker, mirroring how InMemoryDownloadClient wraps a
-DownloadWorkerBase.  A future HttpYoutubeMusicSearchClient will forward the same
-surface to a remote search pod for HA.
+DownloadWorkerBase.  HttpYoutubeMusicSearchClient forwards the submit/clear/block
+half of that surface to a standalone search pod for HA, over the shared
+HttpQueueWorkerClient base.
 '''
 import asyncio
-from typing import Callable
+from typing import ClassVar
 
+from discord_bot.clients.http_queue_worker_client import HttpQueueWorkerClient
+from discord_bot.clients.in_memory_queue_worker_client import InMemoryQueueWorkerClient
 from discord_bot.interfaces.youtube_music_search_protocols import (
     YoutubeMusicSearchClient, YoutubeMusicSearchWorkerBase,
 )
@@ -20,33 +23,27 @@ __all__ = [
     'YoutubeMusicSearchClient',
     'YoutubeMusicSearchWorkerBase',
     'InMemoryYoutubeMusicSearchClient',
+    'HttpYoutubeMusicSearchClient',
 ]
 
 
-class InMemoryYoutubeMusicSearchClient:
+class InMemoryYoutubeMusicSearchClient(InMemoryQueueWorkerClient):
     '''
     Single-process YoutubeMusicSearchClient: a thin wrapper around a
     YoutubeMusicSearchWorkerBase.
 
-    Forwards the cog-facing Protocol surface (submit / get_input_nowait / resolve
-    / backoff_wait / block_guild / clear_guild_queue / queue_size + the
-    failure_summary / backoff_seconds_remaining reads) straight to the worker,
-    which owns the ytmusicapi call and input queue.  local_worker exposes the
-    wrapped engine for single-process callers that need it (there is no
-    equivalent on a future HttpYoutubeMusicSearchClient).
+    The shared forwarding surface (submit / block_guild / clear_guild_queue /
+    queue_size / failure_summary / backoff_seconds_remaining) comes
+    from InMemoryQueueWorkerClient; the worker owns the ytmusicapi call and input
+    queue.  What is specific to search is the pop/resolve half below — the loop
+    that consumes it runs in the cog in single-process mode, and in the search pod
+    under HA (which is why HttpYoutubeMusicSearchClient has no counterpart).
     '''
-    def __init__(self, worker: YoutubeMusicSearchWorkerBase):
-        self._worker = worker
 
     @property
     def local_worker(self) -> YoutubeMusicSearchWorkerBase:
         '''The wrapped engine — only meaningful in single-process mode.'''
         return self._worker
-
-    async def submit(self, guild_id: int, media_request: MediaRequest,
-                     priority: int | None = None) -> None:
-        '''Enqueue a search request for resolution on the search loop.'''
-        await self._worker.submit(guild_id, media_request, priority=priority)
 
     async def get_input_nowait(self) -> MediaRequest:
         '''Pop the next pending search request, raising asyncio.QueueEmpty if none.'''
@@ -65,26 +62,30 @@ class InMemoryYoutubeMusicSearchClient:
         '''Arm the search backoff window.'''
         self._worker.set_wait_timestamp(backoff_multiplier=backoff_multiplier)
 
-    async def block_guild(self, guild_id: int) -> bool:
-        '''Block new search submissions for a guild (used during cleanup).'''
-        return await self._worker.block_guild(guild_id)
 
-    async def clear_guild_queue(self, guild_id: int,
-                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> list[MediaRequest]:
-        '''Clear the search queue for a guild, returning the dropped requests.'''
-        return await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve_predicate)
+class HttpYoutubeMusicSearchClient(HttpQueueWorkerClient):
+    '''
+    YoutubeMusicSearchClient that forwards the cog-facing surface to a remote
+    search pod.
 
-    async def queue_size(self, guild_id: int) -> int:
-        '''Pending search-request count for a guild.'''
-        return await self._worker.queue_size(guild_id)
+    Producer calls (submit / block_guild / clear_guild_queue) POST to the pod's
+    YoutubeMusicSearchHttpServer; the cached read surface (failure_summary /
+    backoff_seconds_remaining / queue_size) is refreshed by the shared background
+    poller from GET /search/ytmusic/status.  Everything comes from HttpQueueWorkerClient —
+    only the route and span prefixes differ from the downloader's client.
 
-    @property
-    def failure_summary(self) -> str:
-        '''Human-readable summary of the search failure queue.'''
-        return self._worker.failure_summary
+    **Deliberately narrower than the Protocol**: no resolve / get_input_nowait /
+    backoff_wait / set_wait_timestamp.  Those four exist for the single-process
+    shape, where the cog's own search_youtube_music loop pops a request, resolves
+    it, and hands the resolution to the broker.  Under HA that loop belongs to the
+    search pod — it owns the ytmusicapi client, the queue it pops from, and the
+    shared 429 window — and the bot receives resolutions back through the broker's
+    search-result queue (the MR 2 seam), not through this client.  The cog stops
+    registering LOOP_YOUTUBE_MUSIC_SEARCH when a search URL is configured, exactly
+    as it already skips LOOP_DOWNLOAD_FILES under a configured download_client
+    (that wiring is MR 6).  Calling one of the four here is a programming error,
+    not a runtime fallback, so they are absent rather than raising stubs.
+    '''
 
-    @property
-    def backoff_seconds_remaining(self) -> int | None:
-        '''Seconds remaining in the current search backoff window, or None.'''
-        return self._worker.backoff_seconds_remaining
+    ROUTE_PREFIX: ClassVar[str] = '/search/ytmusic'
+    SPAN_PREFIX: ClassVar[str] = 'youtube_music_search'

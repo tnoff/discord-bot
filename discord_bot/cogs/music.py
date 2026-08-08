@@ -1083,9 +1083,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             for item in clear_result.dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
 
-            dropped = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-            self.logger.debug(f'Cleanup found {len(dropped)} existing search queue items')
-            for item in dropped:
+            search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
+            # Playlist-adds queue for search before they queue for download, so the
+            # search side preserves bundles too — and in HA its predicate also runs
+            # on the search pod, out of reach of the closure above.
+            preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
+            self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')
+            for item in search_clear_result.dropped:
                 await self._push_state(item, LifecycleEvent.DISCARDED)
 
             await self.download_client.block_guild(guild.id)

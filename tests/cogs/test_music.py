@@ -1637,7 +1637,8 @@ async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylin
         return_value=ClearGuildResult(dropped=[], preserved_bundle_uuids={'keep-bundle'}))
     cog.download_client.block_guild = AsyncMock()
     cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.clear_guild_queue = AsyncMock(return_value=[])
+    cog.youtube_music_search_client.clear_guild_queue = AsyncMock(
+        return_value=ClearGuildResult(dropped=[]))
     cog.youtube_music_search_client.block_guild = AsyncMock()
     cog.broker_client = Mock()
     cog.broker_client.list_bundles_for_guild = AsyncMock(return_value=['keep-bundle', 'drop-bundle'])
