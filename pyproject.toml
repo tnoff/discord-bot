@@ -46,7 +46,7 @@ bot = [
     "yt-dlp==2026.7.4",
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
-    "ytmusicapi==1.12.1",
+    "ytmusicapi==1.12.2",
     "asyncpg==0.31.0",
 ]
 test = [
