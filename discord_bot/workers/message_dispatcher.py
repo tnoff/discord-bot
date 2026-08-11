@@ -28,6 +28,11 @@ from discord_bot.utils.otel import (async_otel_span_wrapper, create_observable_g
 
 _DRAIN_TIMEOUT_SECONDS = 30
 
+# Budget for flushing already-accepted fire-and-forget enqueues at shutdown.
+# A single Redis push, so this is generous; kept well under the worker drain so
+# the two together still fit inside the pod's termination grace period.
+_ENQUEUE_DRAIN_TIMEOUT_SECONDS = 5
+
 # Backoff after a transient worker-loop error (e.g. a Redis/Valkey blip) before
 # retrying, so a persistent failure does not hot-spin the loop.
 _WORKER_ERROR_BACKOFF_SECONDS = 1.0
@@ -280,6 +285,13 @@ class MessageDispatcher(DispatchClientBase):
 
         self._shutdown: asyncio.Event = asyncio.Event()
         self._worker_tasks: list[asyncio.Task] = []
+        # The fire-and-forget entry points (send/delete/mutable) are sync methods
+        # that schedule their enqueue as a detached task, so HTTP callers get a
+        # 202 without awaiting Redis. Hold a strong reference until each finishes:
+        # the event loop only weakly references a running task, so an untracked
+        # one can be garbage-collected mid-flight, and stop() would have nothing
+        # to wait on — dropping work the caller already believes succeeded.
+        self._enqueue_tasks: set[asyncio.Task] = set()
         # Set in start(); shared by every worker in the pool.
         self._worker_health = None
 
@@ -309,12 +321,37 @@ class MessageDispatcher(DispatchClientBase):
         for _ in range(self._num_workers):
             self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
 
+    def _spawn_enqueue(self, coro) -> None:
+        '''Schedule a fire-and-forget enqueue, tracked so stop() can flush it.'''
+        task = asyncio.create_task(coro)
+        self._enqueue_tasks.add(task)
+        task.add_done_callback(self._enqueue_tasks.discard)
+
+    async def _flush_enqueue_tasks(self) -> None:
+        '''Wait for accepted fire-and-forget enqueues to reach the work queue.'''
+        pending = [task for task in self._enqueue_tasks if not task.done()]
+        if not pending:
+            return
+        self.logger.info('MessageDispatcher :: flushing %d pending enqueue(s)', len(pending))
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True),
+                timeout=_ENQUEUE_DRAIN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning('MessageDispatcher :: enqueue flush timeout, %d enqueue(s) lost',
+                                sum(1 for task in pending if not task.done()))
+
     async def stop(self):
         '''Gracefully drain in-flight work and shut down.'''
         self.logger.info('MessageDispatcher :: stop called, draining...')
         # A deliberate drain is not a wedge — see Music.cog_unload.
         if self._worker_health:
             self._worker_health.mark_stopped()
+        # Flush accepted-but-unqueued work FIRST. These sit behind a 202 the
+        # caller has already seen, and Redis is still open at this point, so
+        # landing them keeps the work recoverable by this pool or the next pod.
+        await self._flush_enqueue_tasks()
         self._shutdown.set()
         if self._worker_tasks:
             try:
@@ -405,7 +442,7 @@ class MessageDispatcher(DispatchClientBase):
         request_uuid = uuid.uuid4()
         trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, str(request_uuid))
         self.logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, request_uuid)
-        asyncio.create_task(self._work_queue.enqueue_unique(
+        self._spawn_enqueue(self._work_queue.enqueue_unique(
             f'{_MEMBER_MUTABLE}{key}',
             {'key': key, 'guild_id': guild_id, 'content': content,
              'channel_id': channel_id, 'sticky': sticky, 'delete_after': delete_after},
@@ -416,7 +453,7 @@ class MessageDispatcher(DispatchClientBase):
     def remove_mutable(self, key: str):
         '''Enqueue a mutable bundle removal at HIGH priority.'''
         self.logger.debug('remove_mutable: key=%s', key)
-        asyncio.create_task(self._work_queue.enqueue_unique(
+        self._spawn_enqueue(self._work_queue.enqueue_unique(
             f'{_MEMBER_REMOVE}{key}',
             {'key': key},
             DispatchPriority.HIGH,
@@ -426,7 +463,7 @@ class MessageDispatcher(DispatchClientBase):
                      delete_after: int | None = None, allow_404: bool = False,
                      span_context: dict | None = None):
         '''Enqueue a text message send at NORMAL priority.'''
-        asyncio.create_task(self._work_queue.enqueue(
+        self._spawn_enqueue(self._work_queue.enqueue(
             f'{_MEMBER_SEND}{uuid.uuid4()}',
             {'guild_id': guild_id, 'channel_id': channel_id, 'content': content,
              'delete_after': delete_after, 'allow_404': allow_404, 'span_context': span_context},
@@ -436,7 +473,7 @@ class MessageDispatcher(DispatchClientBase):
     def delete_message(self, guild_id: int, channel_id: int, message_id: int,
                        span_context: dict | None = None):
         '''Enqueue a message deletion at NORMAL priority.'''
-        asyncio.create_task(self._work_queue.enqueue(
+        self._spawn_enqueue(self._work_queue.enqueue(
             f'{_MEMBER_DELETE}{uuid.uuid4()}',
             {'guild_id': guild_id, 'channel_id': channel_id,
              'message_id': message_id, 'span_context': span_context},
@@ -476,7 +513,7 @@ class MessageDispatcher(DispatchClientBase):
 
     def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int):
         '''Enqueue a mutable bundle channel move at HIGH priority.'''
-        asyncio.create_task(self._work_queue.enqueue_unique(
+        self._spawn_enqueue(self._work_queue.enqueue_unique(
             f'{_MEMBER_UPDATE_CHANNEL}{key}',
             {'key': key, 'guild_id': guild_id, 'new_channel_id': new_channel_id},
             DispatchPriority.HIGH,

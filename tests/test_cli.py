@@ -657,6 +657,54 @@ async def test_dispatcher_main_loop_with_dispatch_http_server():
     mock_dispatch_server.serve.assert_called_once()
 
 
+@pytest.mark.asyncio(loop_scope="session")
+async def test_dispatcher_main_loop_drains_http_server_before_closing_redis():
+    '''
+    On shutdown the dispatch server stops accepting BEFORE the Redis handle closes.
+
+    The reverse order left port 8082 listening through dispatcher.stop() and
+    redis_manager.close(), so a POST landing in that window got a 202 for work
+    that was never queued — send_message() fires its enqueue into a detached
+    task, so the failure never reached the caller.
+    '''
+    order = []
+
+    mock_dispatch_server = MagicMock()
+    mock_dispatch_server.serve = AsyncMock()
+    mock_dispatch_server.drain_and_stop = AsyncMock(side_effect=lambda: order.append('drain'))
+
+    class _FakeBotInterrupt:
+        def __init__(self):
+            self.bot_closed = False
+        def is_closed(self):
+            return self.bot_closed
+        async def login(self, _token):
+            raise KeyboardInterrupt()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *_args):
+            pass
+        async def close(self):
+            self.bot_closed = True
+
+    class _OrderedDispatcher:
+        async def start(self):
+            pass
+        async def stop(self):
+            order.append('dispatcher_stop')
+
+    mock_manager = MagicMock()
+    mock_manager.start = AsyncMock()
+    mock_manager.close = AsyncMock(side_effect=lambda: order.append('redis_close'))
+
+    await dispatcher_main_loop(
+        _FakeBotInterrupt(), 'token', mock_manager, _OrderedDispatcher(),
+        dispatch_http_server=mock_dispatch_server,
+    )
+
+    assert order == ['drain', 'dispatcher_stop', 'redis_close']
+
+
 def test_dispatcher_run_bot_schedules_main_loop(mocker):
     '''dispatcher.run_bot schedules main_loop on the event loop via run_loop().'''
     mock_run_loop = mocker.patch('discord_bot.cli.dispatcher.run_loop')

@@ -39,6 +39,16 @@ async def main_loop(bot: Bot, token: str, redis_manager: RedisManager, dispatche
     await dispatcher.start()
 
     async def _on_shutdown():
+        # Drain the HTTP server FIRST so no dispatch POST is accepted after the
+        # work queue's Redis handle closes under it. Without this the server kept
+        # listening on 8082 through dispatcher.stop() and redis_manager.close(),
+        # and a request landing in that window got a 202 for work that was never
+        # queued — send_message() fires its enqueue into a detached task, so the
+        # failure never reached the caller. Mirrors cli/broker.py and
+        # cli/downloader.py, which both drain before closing Redis.
+        if dispatch_http_server:
+            logger.info('Main :: Draining dispatch server...')
+            await dispatch_http_server.drain_and_stop()
         await dispatcher.stop()
         await redis_manager.close()
 

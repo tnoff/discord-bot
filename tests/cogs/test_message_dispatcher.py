@@ -160,6 +160,83 @@ async def test_stop_cancels_stuck_workers(mocker):
 
 
 # ---------------------------------------------------------------------------
+# Fire-and-forget enqueue tracking
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_spawn_enqueue_tracks_then_releases_the_task():
+    '''
+    Detached enqueues are held in a strong-referenced set until they finish.
+
+    The event loop only weakly references a running task, so an untracked one
+    can be garbage-collected mid-flight — and stop() would have nothing to wait
+    on. The done-callback keeps the set from growing without bound.
+    '''
+    dispatcher = make_dispatcher()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow_enqueue():
+        started.set()
+        await release.wait()
+
+    dispatcher._spawn_enqueue(_slow_enqueue())  # pylint: disable=protected-access
+    await started.wait()
+    assert len(dispatcher._enqueue_tasks) == 1  # pylint: disable=protected-access
+
+    release.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert not dispatcher._enqueue_tasks  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_stop_flushes_accepted_enqueues_into_the_work_queue(fake_context):  # pylint: disable=redefined-outer-name
+    '''
+    Work accepted by send_message reaches the queue even if stop() lands first.
+
+    send_message returns immediately behind a 202, so an enqueue still in flight
+    at shutdown is work the caller already believes succeeded. Redis is still
+    open at this point in stop(), so flushing keeps it recoverable.
+    '''
+    dispatcher = make_dispatcher()
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+
+    dispatcher.send_message(guild_id, channel.id, 'hello')
+    # Deliberately do NOT yield here — the enqueue task has not run yet, which is
+    # exactly the race a rolling update hits. Before stop() flushed them, this
+    # item was lost when the loop tore down.
+    await dispatcher.stop()
+
+    q = dispatcher._work_queue._queue  # pylint: disable=protected-access
+    assert not q.empty()
+    _priority, _seq, member, payload = q.get_nowait()
+    assert member.startswith('send:')
+    assert payload['content'] == 'hello'
+
+
+@pytest.mark.asyncio
+async def test_stop_warns_when_enqueue_flush_times_out(mocker):
+    '''A wedged enqueue is reported as lost rather than silently swallowed.'''
+    dispatcher = make_dispatcher()
+    mocker.patch('discord_bot.workers.message_dispatcher._ENQUEUE_DRAIN_TIMEOUT_SECONDS', 0.05)
+
+    async def _blocking():
+        await asyncio.sleep(9999)
+
+    dispatcher._spawn_enqueue(_blocking())  # pylint: disable=protected-access
+    await asyncio.sleep(0)
+
+    await dispatcher.stop()
+
+    # caplog is unreliable on discord_bot.* (propagate=False), so assert the
+    # behavioural outcome: stop() returned rather than hanging on the wedged
+    # enqueue, and the task was left pending rather than awaited forever.
+    assert not dispatcher._worker_tasks  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
 # send_message / delete_message enqueue to work_queue
 # ---------------------------------------------------------------------------
 
