@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.67] - 2026-08-11
+
+### Changed
+
+- Fix: the dispatcher pod no longer drops accepted work when it shuts down. `cli/dispatcher.py` never called `drain_and_stop()` on its `DispatchHttpServer` — the broker (`cli/broker.py`) and downloader (`cli/downloader.py`) both do — so on SIGTERM the server kept listening on `:8082` right through `dispatcher.stop()` and `redis_manager.close()`, and its `serve()` task only ended when the event loop tore down under it. Two things fell out of that: in-flight requests died with the process instead of finishing, and a POST landing after the Redis handle closed got a `202` for work that was never queued, because the fire-and-forget entry points (`send_message`, `delete_message`, `update_mutable`, `remove_mutable`, `update_mutable_channel`) schedule their enqueue as a detached task whose failure never reaches the caller. `_on_shutdown` now drains the HTTP server first, so the pod stops accepting before the work queue goes away. Those detached enqueues are also tracked in a strong-referenced set and flushed at the top of `MessageDispatcher.stop()` while Redis is still open — previously the event loop held only a weak reference to each running task, so one could be garbage-collected mid-flight and `stop()` had nothing to wait on; work the caller already believed had succeeded was simply lost. A wedged enqueue is now reported as lost after `_ENQUEUE_DRAIN_TIMEOUT_SECONDS` rather than silently swallowed. Pairs with docker-apps!981, which raises the pods' termination grace periods above their own drain budgets — every one of the three was being SIGKILLed partway through the drain on each rolling update.
+
 ## [2.5.66] - 2026-08-08
 
 ### Changed
