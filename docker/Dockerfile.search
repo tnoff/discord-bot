@@ -1,0 +1,70 @@
+FROM python:3.14-slim-bookworm
+
+# Standalone search pod — the search TIER, not a ytmusic-only image.  Runs the
+# redis-backed search queue consumer + YoutubeMusicSearchHttpServer; no gateway
+# connection, no media handling.
+#
+# Installs the slim `[search]` extra rather than `[bot]`: the search providers
+# are thin HTTP clients (ytmusicapi today, spotipy + google-api-python-client
+# when media_search folds in), so this image has no yt-dlp/ffmpeg/deno, no boto3
+# and no sqlalchemy — the same discipline that keeps sqlalchemy off the
+# dispatcher.  That also means no apt build packages and no git: the only VCS dep
+# (dappertable) lives in `[bot]`.
+
+# Setup venv
+ENV APPDIR="/opt/packages/discord-bot"
+ENV WORKDIR="/opt/discord"
+ENV VENVDIR="/opt/discord-venv"
+ENV LOGFILE="/var/log/discord"
+
+# Setup installs and create directory structure
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/cnf"
+
+# Create non-root user and group
+# Using UID/GID 1000 which matches the bot/broker images for shared volume perms.
+# Home directory is /opt/discord (the working directory)
+RUN groupadd -g 1000 discord && \
+    useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
+
+COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY pyproject.toml VERSION "${APPDIR}/"
+
+# INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
+# (default off) — see docker/entrypoint.sh + the :heaptrack CI jobs.
+ARG INSTALL_HEAPTRACK=false
+RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends heaptrack && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+RUN pip install --no-cache-dir "${APPDIR}[search]" && \
+    chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
+    rm -rf "${APPDIR}" /root/.cache
+
+# Route through the shared entrypoint so HEAPTRACK_ENABLE=true launches the
+# process under heaptrack (parity with the other images; the INSTALL_HEAPTRACK
+# arg above bakes the binary in). DISCORD_BOT_CMD selects the search console
+# script.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV DISCORD_BOT_CMD=discord-search
+
+EXPOSE 8080 8084
+
+WORKDIR "/opt/discord"
+
+# Switch to non-root user for runtime
+USER discord
+
+# Make sure cache dir exists
+RUN mkdir -p /opt/discord/.cache
+
+# Probe the search HTTP server (port 8084) — the API the bot pods call. The
+# /health endpoint on port 8080 only reflects redis reachability and starts
+# listening before the search server does.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD python3 -c "import socket; socket.create_connection(('localhost', 8084), timeout=5).close()"
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/opt/discord/cnf/discord.cnf"]

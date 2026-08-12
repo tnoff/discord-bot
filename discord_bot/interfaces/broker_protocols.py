@@ -21,6 +21,7 @@ from typing import Any, List, Protocol
 from opentelemetry.trace import SpanKind
 
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
@@ -37,22 +38,11 @@ logger = logging.getLogger(__name__)
 # — kept separate to avoid dragging the broker engine's deps (sqlalchemy via
 # VideoCacheClient) into the dispatcher pod, which only needs the Redis
 # WorkQueue/BundleStore from workers/redis_queues.
-__all__ = ['DownloadResultQueue', 'SearchResultQueue']
-
-
-@dataclass
-class CheckoutResult:
-    '''
-    Result of a broker checkout operation.
-
-    Exactly one of local_path or s3_key will be set. local_path means the file
-    is already staged on local disk and ready to play. s3_key means the file
-    lives in S3; bucket_name is set alongside it so the caller can download
-    without needing separate S3 configuration.
-    '''
-    local_path: Path | None = None
-    s3_key: str | None = None
-    bucket_name: str | None = None
+# CheckoutResult is re-exported for the same reason, and moved for a stronger one:
+# it is a plain dataclass that HttpBrokerClient needs, and leaving it here forced
+# the HTTP client to import this module — and with it VideoCacheClient's
+# sqlalchemy and s3's boto3, neither of which the slim search image installs.
+__all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult']
 
 
 class BrokerClient(Protocol):

@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.cogs.music import Music, _SEARCH_BACKOFF_SLICE_SECONDS
+from discord_bot.cogs.music import Music
+from discord_bot.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
@@ -1278,7 +1279,7 @@ async def test_search_youtube_music_waits_in_slices_before_popping(mocker, fake_
 
     # Waited one slice, then returned: nothing popped, nothing resolved.
     backoff_mock.assert_awaited_once_with(cog.bot_shutdown_event,
-                                          max_wait_seconds=_SEARCH_BACKOFF_SLICE_SECONDS)
+                                          max_wait_seconds=SEARCH_BACKOFF_SLICE_SECONDS)
     assert cog.youtube_music_search_client.local_worker._input_queue.size(fake_context['guild'].id) == 1
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.SEARCHING
 

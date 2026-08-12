@@ -162,6 +162,20 @@ bump-version:
     OUTPUT_TARBALL: image-downloader.tar
   rules: !reference [.image-build-rules, rules]
 
+# MR-gate build-check for the search image. Needs no OCIR creds — it just builds
+# the tarball — so it verifies Dockerfile.search (the slim [search] extra: no
+# yt-dlp/ffmpeg/deno, no boto3, no sqlalchemy) on every MR that touches the image
+# context. The default-branch publish is push:image-search below.
+"pr-check:build-search":
+  extends: .buildkit-build-check
+  stage: pr-check
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.search
+    OUTPUT_NAME: discord-search:ci
+    OUTPUT_TARBALL: image-search.tar
+  rules: !reference [.image-build-rules, rules]
+
 "pr-check:scan-bot":
   extends: .trufflehog-image
   stage: pr-check
@@ -192,6 +206,14 @@ bump-version:
   needs: ["pr-check:build-downloader"]
   variables:
     TRUFFLEHOG_IMAGE_TARBALL: image-downloader.tar
+  rules: !reference [.image-build-rules, rules]
+
+"pr-check:scan-search":
+  extends: .trufflehog-image
+  stage: pr-check
+  needs: ["pr-check:build-search"]
+  variables:
+    TRUFFLEHOG_IMAGE_TARBALL: image-search.tar
   rules: !reference [.image-build-rules, rules]
 
 "test:tox-generate":
@@ -360,6 +382,31 @@ trigger-bump-docker-apps:
     DOCKERFILE_NAME: Dockerfile.downloader
   before_script:
     - export OCI_REPO_NAME_64="$OCI_DOWNLOADER_REPO_NAME_64"
+    - !reference [.buildkit-docker-push, before_script]
+  rules:
+    - !reference [.not-on-changelog-fold, rules]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+      when: on_success
+
+# Publishes discord_search:<sha> on the default branch. Same masked-var footgun
+# as dispatcher/broker/downloader: shell-export OCI_REPO_NAME_64 from
+# $OCI_SEARCH_REPO_NAME_64 in before_script rather than the YAML-level override
+# (GitLab doesn't reliably substitute between two masked vars, so the image would
+# otherwise fall back to the bot repo and race the bot's tag).
+#
+# ORDERING: this job needs the OCIR repo + push perms + OCI_SEARCH_REPO_NAME_64
+# from terraform (mirrors terraform!184/!185 for the downloader). Merging this MR
+# before that lands turns main's push stage red. No trigger-bump yet either —
+# docker-apps has no discord-search pin until the Phase A Deployment; the bump
+# producer lands with it, consumer-first (the !842-before-!178 lesson).
+"push:image-search":
+  extends: .buildkit-docker-push
+  stage: push
+  variables:
+    DOCKERFILE_DIR: docker
+    DOCKERFILE_NAME: Dockerfile.search
+  before_script:
+    - export OCI_REPO_NAME_64="$OCI_SEARCH_REPO_NAME_64"
     - !reference [.buildkit-docker-push, before_script]
   rules:
     - !reference [.not-on-changelog-fold, rules]

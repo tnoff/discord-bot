@@ -39,7 +39,6 @@ from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerCl
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
-from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
@@ -54,9 +53,10 @@ from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
-from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient, YoutubeMusicRetryException
+from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
+from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 from discord_bot.clients.youtube_music_search_client import (
     InMemoryYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
@@ -65,7 +65,6 @@ from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
-from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # GLOBALS
@@ -191,12 +190,6 @@ _BROKER_POLL_INTERVAL_SECONDS = 1.0
 # their queue is empty. Sleeping ONLY on the empty path (not every iteration)
 # keeps busy work back-to-back while cutting idle allocation churn (OOM fix).
 _IDLE_POLL_BACKOFF_SECONDS = 0.25
-# Longest the search loop sleeps out a 429 backoff window in a single iteration.
-# A search backoff runs wait_period_minimum * 2**failures (30 s doubling), which
-# outgrows the loop-health staleness window (300 s default) after four failures,
-# so the wait is taken in slices — each returning iteration re-arms health, and a
-# genuinely wedged loop still goes stale on schedule.
-_SEARCH_BACKOFF_SLICE_SECONDS = 30.0
 
 # Background-loop names. Used as both the LoopHealth registry key and the
 # heartbeat gauge's background_job attribute, so the metric series and the health
@@ -378,6 +371,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 queue_max_size=self.config.player.queue_max_size * 2,
             )
         self.youtube_music_search_client: YoutubeMusicSearchClient = InMemoryYoutubeMusicSearchClient(search_worker)
+        # The search loop body is shared with the standalone search pod
+        # (cli/search.py) — see workers/youtube_music_search_driver.  Built here
+        # only for the single-process shape: under HA (MR 6) the cog gets an
+        # HttpYoutubeMusicSearchClient, which deliberately lacks the pop/resolve
+        # surface this driver needs, and stops registering the loop at all.
+        self.youtube_music_search_driver = YoutubeMusicSearchDriver(
+            self.youtube_music_search_client,
+            self.broker_client,
+            self.logger,
+            max_retries=self.config.download.max_youtube_music_search_retries,
+            queue_priority=self.server_queue_priority,
+        )
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -814,72 +819,17 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
     async def search_youtube_music(self):
         '''
         Runner for youtube music searches
+
+        The iteration body lives on YoutubeMusicSearchDriver, shared with the
+        standalone search pod's entrypoint (cli/search.py): same pop → resolve →
+        retry/lifecycle → hand-back-to-broker sequence, only the collaborators
+        differ.  This loop is the single-process driver of it; under HA the pod
+        drives the same code and the cog stops registering the loop entirely
+        (MR 6).
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
-        # Wait out any active 429 backoff BEFORE popping, one slice per iteration.
-        # Popping first would hold a request in this pod's memory for the whole
-        # window — and the Redis-backed queue DELetes on pop, so a restart during
-        # the wait loses it outright. Slicing keeps each iteration short enough to
-        # re-arm loop health: the window is wait_period_minimum * 2**failures, so
-        # it passes the 300 s staleness default at four failures, and a loop that
-        # never returns inside its window fails the livenessProbe — restarting the
-        # pod over a rate limit that a restart cannot fix (and, under Redis, is
-        # shared with every other search pod anyway).
-        await self.youtube_music_search_client.backoff_wait(
-            self.bot_shutdown_event, max_wait_seconds=_SEARCH_BACKOFF_SLICE_SECONDS)
-        if self.youtube_music_search_client.backoff_seconds_remaining:
-            # Window still open after this slice. Return so the loop runner records
-            # a completed iteration, then wait the next slice.
-            return True
-
-        try:
-            media_request = await self.youtube_music_search_client.get_input_nowait()
-        except QueueEmpty:
-            # Idle: no search queued — back off before the loop runner re-calls
-            # rather than busy-spinning every ~10ms.
-            await sleep(_IDLE_POLL_BACKOFF_SECONDS)
-            return True
-
-        # Default lifecycle_stage is already SEARCHING — register_request rendered
-        # the bundle when the request entered the pipeline.
-
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.search_youtube_music', kind=SpanKind.CLIENT,
-                                           attributes=media_request_attributes(media_request),
-                                           links=span_links_from_context(media_request.span_context)) as span:
-            self.logger.debug(f'Running youtube music search for input "{media_request.search_result.raw_search_string}"')
-            try:
-                youtube_music_result = await self.youtube_music_search_client.resolve(media_request)
-            except YoutubeMusicRetryException as e:
-                # resolve() already recorded the failure and armed the backoff window;
-                # the cog still owns the per-request retry_count / re-enqueue / lifecycle.
-                backoff_seconds = self.youtube_music_search_client.backoff_seconds_remaining
-                if backoff_seconds is not None:
-                    self.logger.info(f'Youtube music search rate limited, waiting {backoff_seconds} seconds')
-                media_request.youtube_music_retry_information.retry_count += 1
-                if media_request.youtube_music_retry_information.retry_count >= self.config.download.max_youtube_music_search_retries:
-                    self.logger.warning(f'Youtube music search retry limit exceeded for "{media_request.search_result.raw_search_string}"')
-                    await self._push_state(media_request, LifecycleEvent.FAILED,
-                                           failure_reason='Youtube music search rate limit exceeded after max retries')
-                else:
-                    await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-                    await self._push_state(media_request, LifecycleEvent.RETRY_SEARCH,
-                                           error_detail=str(e), backoff_seconds=backoff_seconds,
-                                           retry_count=media_request.youtube_music_retry_information.retry_count)
-                span.set_status(StatusCode.ERROR)
-                return False
-            if youtube_music_result:
-                # This returns the raw id, make sure we add the proper prefix for caching bits
-                media_request.search_result.add_youtube_music_result(f'{YOUTUBE_VIDEO_PREFIX}{youtube_music_result}')
-
-            # Hand the resolved request back through the broker's search-result
-            # queue; process_search_results runs the bot-side tail (cache-check
-            # then download submit). This is the seam a standalone search pod
-            # will use to return resolutions to the bot (Option A) — in-process
-            # today, so producer and consumer share the one InMemory queue.
-            await self.broker_client.register_search_result(
-                SearchResolution(media_request=media_request, span_context=capture_span_context()))
-        return True
+        return await self.youtube_music_search_driver.run_once(self.bot_shutdown_event)
 
     async def process_search_results(self):
         '''

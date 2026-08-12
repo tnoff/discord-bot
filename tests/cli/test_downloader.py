@@ -6,6 +6,9 @@ import pytest
 
 from discord_bot.cli import downloader as downloader_cli
 from discord_bot.cli._lib import common as cli_common
+# RedisManager + the health server are constructed by the shared worker-pod
+# scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.
+from discord_bot.cli._lib import worker_pod
 from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
@@ -43,11 +46,11 @@ def _patch_collaborators(mocker):
     '''Patch every constructor/helper run() touches; return the mocks.'''
     return {
         'setup_observability': mocker.patch.object(downloader_cli, 'setup_observability'),
-        'RedisManager': mocker.patch.object(downloader_cli, 'RedisManager'),
+        'RedisManager': mocker.patch.object(worker_pod, 'RedisManager'),
         'HttpBrokerClient': mocker.patch.object(downloader_cli, 'HttpBrokerClient'),
         'RedisDownloadWorker': mocker.patch.object(downloader_cli, 'RedisDownloadWorker'),
         'DownloadHttpServer': mocker.patch.object(downloader_cli, 'DownloadHttpServer'),
-        'RedisPingHealthServer': mocker.patch.object(downloader_cli, 'RedisPingHealthServer'),
+        'RedisPingHealthServer': mocker.patch.object(worker_pod, 'RedisPingHealthServer'),
         'DownloadMetrics': mocker.patch.object(downloader_cli, 'DownloadMetrics'),
         'build_exit_probe': mocker.patch.object(downloader_cli, 'build_exit_probe'),
         'run_downloader': mocker.patch.object(downloader_cli, 'run_downloader'),

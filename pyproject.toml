@@ -49,6 +49,17 @@ bot = [
     "ytmusicapi==1.12.2",
     "asyncpg==0.31.0",
 ]
+# Slim extra for the standalone search pod (cli/search.py, Dockerfile.search):
+# the search tier is thin HTTP clients only — no yt-dlp/ffmpeg/deno, no boto3, no
+# sqlalchemy — so the image installs this instead of [bot].  ytmusicapi is listed
+# in BOTH extras on purpose: the bot pod still runs the search loop in-process
+# until the MR 6 cutover, so it cannot drop the dependency yet. Removing it from
+# [bot] is a one-line change then (the same discipline that keeps sqlalchemy off
+# the dispatcher).  media_search's spotipy + google-api-python-client join this
+# extra when those providers fold into the pod.
+search = [
+    "ytmusicapi==1.12.2",
+]
 test = [
     "bandit==1.9.4",
     "fakeredis==2.37.0",
@@ -74,6 +85,7 @@ discord-bot-min = "discord_bot.cli.bot:main"
 discord-dispatcher = "discord_bot.cli.dispatcher:main"
 discord-broker = "discord_bot.cli.broker:main"
 discord-downloader = "discord_bot.cli.downloader:main"
+discord-search = "discord_bot.cli.search:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

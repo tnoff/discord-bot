@@ -34,18 +34,18 @@ import click
 
 from discord_bot.clients.broker_client import HttpBrokerClient
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.download_server import DownloadHttpServer
-from discord_bot.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.utils.common import GeneralConfig
-from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth
+from discord_bot.utils.loop_health import LoopHealth
 from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
 from discord_bot.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
 from discord_bot.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 
-from discord_bot.cli._lib.common import (
-    parse_and_validate_config, run_loop, setup_observability, shutdown_event_signals,
+from discord_bot.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
+from discord_bot.cli._lib.worker_pod import (
+    build_redis_health_server, drive_loop, require_broker_url, require_redis_manager,
+    worker_pod_main_loop,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,81 +74,52 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
     Drive the worker's consumer loop until shutdown.
 
     ``worker.run(stop_event)`` consumes at most one queued item per call and
-    returns; the while loop re-drives it.  In fixed-proxy mode one driver runs,
-    because one egress IP means concurrent yt-dlp calls just collide in the same
-    rate-limit bucket; pool (socks5) mode runs several, each on a distinct exit
-    (see module docstring).
+    returns; the shared loop in cli/_lib/worker_pod.drive_loop re-drives it.  In
+    fixed-proxy mode one driver runs, because one egress IP means concurrent
+    yt-dlp calls just collide in the same rate-limit bucket; pool (socks5) mode
+    runs several, each on a distinct exit (see module docstring).
 
     ``health`` is the pool's shared LoopHealth, registered once by the caller and
     passed in — every driver reports into it, so the pod probes healthy while any
     driver is still making progress.  Marking it stopped is the caller's job too:
     a driver returning is not the pool shutting down when its siblings are still
     running.
-
-    The broad ``except Exception`` is load-bearing.  An unguarded loop that dies
-    on an unexpected error (e.g. a redis/broker blip) wedges the downloader
-    forever.  ``broad-except`` is disabled globally in .pylintrc, so no inline
-    disable is needed.
-
-    The other half of that story — "while the health server keeps reporting
-    green" — is what LoopHealth fixes: retrying forever is right, but it used to
-    mean a permanently wedged worker still probed healthy.  Now the drivers
-    report each iteration, so a pool that stops making progress altogether fails
-    this pod's own health check.
     '''
-    while not stop_event.is_set():
-        try:
-            await worker.run(stop_event)
-            health.record_success()
-        except ExitEarlyException:
-            break
-        except Exception:
-            health.record_error()
-            driver_logger.exception('Downloader :: worker loop error, backing off')
-            await asyncio.sleep(1)
+    await drive_loop(worker.run, stop_event, driver_logger, health,
+                     'Downloader :: worker loop error, backing off')
 
 
 async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                     health_server, redis_manager: RedisManager,
                     download_metrics: DownloadMetrics, exit_probe: ExitProbe | None,
                     driver_count: int = 1):
-    '''Run the downloader until SIGTERM/SIGINT, then drain the HTTP server and Redis.'''
-    await redis_manager.start()
-    with shutdown_event_signals() as stop_event:
-        try:
-            if health_server:
-                asyncio.create_task(health_server.serve())
-            asyncio.create_task(download_http_server.serve())
-            # In-pod consumer loops draining the shared Redis queue.  Pool (socks5)
-            # mode fans out across driver_count concurrent drivers, each popping and
-            # reserving a distinct exit so downloads run in parallel; fixed-proxy
-            # mode runs a single driver (one egress IP means concurrent yt-dlp calls
-            # would just collide in the same rate-limit bucket).
-            # One shared LoopHealth for the pool, registered here rather than inside
-            # the driver: registering per-driver would re-arm the same entry N times
-            # at startup, and letting each driver mark it stopped on exit would have
-            # the first one to finish report the whole pool stopped while the rest
-            # are still working.
-            worker_health = LOOP_HEALTH.register(LOOP_DOWNLOADER_WORKER)
-            for _ in range(driver_count):
-                asyncio.create_task(_drive_worker(worker, stop_event, logger, worker_health))
-            # Metrics poller exits on its own when stop_event is set.
-            asyncio.create_task(download_metrics.run(stop_event))
-            # Egress exit probe (optional): refreshes the cached exit through the
-            # proxy; failures never propagate into the download path.
-            if exit_probe is not None:
-                asyncio.create_task(exit_probe.run(stop_event))
-            logger.info('Main :: Downloader running')
-            await stop_event.wait()
-        finally:
-            # A deliberate drain is not a wedge: mark the pool stopped once, here,
-            # so a draining pod doesn't fail its own liveness probe while the
-            # drivers wind down (the drivers never mark it themselves).
-            LOOP_HEALTH.mark_stopped(LOOP_DOWNLOADER_WORKER)
-            logger.info('Main :: Draining download server...')
-            await download_http_server.drain_and_stop()
-            await redis_manager.close()
-            logger.info('Main :: Shutdown complete')
+    '''
+    Run the downloader until SIGTERM/SIGINT, then drain the HTTP server and Redis.
+
+    The drivers share ONE LoopHealth entry, registered by the shared pod loop
+    rather than per driver: the drivers are interchangeable consumers of the same
+    Redis queue, so "any driver making progress" is the health bit that matters,
+    and per-driver entries would fail the probe whenever a single driver sat in a
+    slow download (routine in pool mode, where a driver can block on a flagged
+    exit).
+    '''
+    def _tasks(stop_event, worker_health):
+        # In-pod consumer loops draining the shared Redis queue.  Pool (socks5)
+        # mode fans out across driver_count concurrent drivers, each popping and
+        # reserving a distinct exit so downloads run in parallel; fixed-proxy
+        # mode runs a single driver.
+        tasks = [_drive_worker(worker, stop_event, logger, worker_health)
+                 for _ in range(driver_count)]
+        # Metrics poller exits on its own when stop_event is set.
+        tasks.append(download_metrics.run(stop_event))
+        # Egress exit probe (optional): refreshes the cached exit through the
+        # proxy; failures never propagate into the download path.
+        if exit_probe is not None:
+            tasks.append(exit_probe.run(stop_event))
+        return tasks
+
+    await worker_pod_main_loop(download_http_server, health_server, redis_manager,
+                               LOOP_DOWNLOADER_WORKER, 'Downloader', _tasks)
 
 
 def run_downloader(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
@@ -164,16 +135,10 @@ def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the standalone downloader process.'''
     setup_observability(general_config)
 
-    if not (general_config.redis_url or general_config.redis_sentinel):
-        raise DiscordBotException('Redis required for downloader HA mode')
-    redis_manager = RedisManager.from_general_config(general_config)
+    redis_manager = require_redis_manager(general_config, 'downloader')
+    broker_url = require_broker_url(settings, 'downloader')
 
     music_settings = settings.get('music', {})
-    broker_client_cfg = music_settings.get('broker_client') or {}
-    broker_url = broker_client_cfg.get('url')
-    if not broker_url:
-        raise DiscordBotException('music.broker_client.url required for downloader HA mode')
-
     download_cfg = music_settings.get('download', {})
     storage_cfg = download_cfg.get('storage') or {}
     bucket_name = storage_cfg.get('bucket_name')
@@ -216,14 +181,7 @@ def run(settings: dict, general_config: GeneralConfig):
         port=int(server_cfg.get('port', 8083)),
     )
 
-    health_server = None
-    if (general_config.monitoring and general_config.monitoring.health_server
-            and general_config.monitoring.health_server.enabled):
-        health_server = RedisPingHealthServer(
-            redis_manager,
-            port=general_config.monitoring.health_server.port,
-            bind_address=general_config.monitoring.health_server.bind_address,
-        )
+    health_server = build_redis_health_server(general_config, redis_manager)
 
     download_metrics = DownloadMetrics(worker)
 

@@ -16,7 +16,12 @@ from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.types.search_resolution import SearchResolution
-from discord_bot.clients import broker_client as broker_client_module
+# The span-churn assertions patch the span wrapper where HttpBrokerClient uses
+# it, which is its own module now (clients/http_broker_client.py) — the split
+# that keeps the search pod's import chain free of sqlalchemy/boto3.  The class
+# itself is still re-exported from clients/broker_client.py, so the import below
+# and every other test here are unchanged.
+from discord_bot.clients import http_broker_client as http_broker_client_module
 from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.interfaces.result_queue import SearchResultQueue
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
@@ -423,8 +428,8 @@ class TestHttpBrokerClientCacheAndQueue:
                     # Spy only around next_result (register_download_result opens
                     # its own span). wraps= keeps the real span behaviour intact.
                     span_spy = mocker.patch.object(
-                        broker_client_module, 'async_otel_span_wrapper',
-                        wraps=broker_client_module.async_otel_span_wrapper,
+                        http_broker_client_module, 'async_otel_span_wrapper',
+                        wraps=http_broker_client_module.async_otel_span_wrapper,
                     )
                     popped = await hc.next_result()
         assert popped is not None
@@ -439,8 +444,8 @@ class TestHttpBrokerClientCacheAndQueue:
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             span_spy = mocker.patch.object(
-                broker_client_module, 'async_otel_span_wrapper',
-                wraps=broker_client_module.async_otel_span_wrapper,
+                http_broker_client_module, 'async_otel_span_wrapper',
+                wraps=http_broker_client_module.async_otel_span_wrapper,
             )
             assert await hc.next_result() is None
         span_spy.assert_not_called()
