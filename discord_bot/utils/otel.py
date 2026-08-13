@@ -156,6 +156,26 @@ def command_wrapper(function):
             return await function(*args, **kwargs)
     return _wrapper
 
+def _set_ok_unless_already_set(span) -> None:
+    '''
+    Stamp OK on a span only when its body left the status UNSET.
+
+    Callers that handle an error and *return* rather than raise — the
+    "return an error result" pattern used all over the download, retry and
+    dispatch paths — set StatusCode.ERROR themselves and then exit the
+    context manager normally.  OTel treats OK as final and lets it override
+    ERROR, so an unconditional set_status(OK) on the normal-exit path silently
+    turns every handled failure green in Tempo.  Only fill in OK when nobody
+    else has spoken.
+
+    A non-recording span (sampled out, or no SDK configured) exposes no
+    ``status``; set_status is a no-op there, so stamp it and move on.
+    '''
+    status = getattr(span, 'status', None)
+    if status is None or status.status_code is StatusCode.UNSET:
+        span.set_status(StatusCode.OK)
+
+
 @contextmanager
 def otel_span_wrapper(span_name: str, ctx: Context = None,
                       kind: trace.SpanKind = trace.SpanKind.INTERNAL,
@@ -178,7 +198,7 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
             span.set_attributes(attributes)
         try:
             yield span
-            span.set_status(StatusCode.OK)
+            _set_ok_unless_already_set(span)
         except Exception as e:
             span.set_status(StatusCode.ERROR)
             span.record_exception(e)
@@ -209,7 +229,7 @@ async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
             span.set_attributes(attributes)
         try:
             yield span
-            span.set_status(StatusCode.OK)
+            _set_ok_unless_already_set(span)
         except Exception as e:
             span.set_status(StatusCode.ERROR)
             span.record_exception(e)

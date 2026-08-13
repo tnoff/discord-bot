@@ -3,6 +3,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from discord.ext.commands import Context
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace.status import StatusCode
 
 from discord_bot.utils.otel import (
     async_otel_span_wrapper, capture_span_context, command_wrapper,
@@ -79,6 +83,67 @@ async def test_async_otel_span_wrapper_records_exception_on_error():
     with pytest.raises(ValueError):
         async with async_otel_span_wrapper('test.error_span'):
             raise ValueError('test error')
+
+
+def _recording_tracer():
+    '''
+    Return a tracer backed by a real SDK provider, plus its in-memory exporter.
+
+    The suite runs with no global tracer provider, so spans are non-recording
+    and drop their status entirely.  Span *status* assertions need a real
+    provider, and this builds a throwaway one rather than touching global
+    state (set_tracer_provider is one-shot per process).
+    '''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider.get_tracer('test'), exporter
+
+
+def test_otel_span_wrapper_keeps_status_set_by_the_body():
+    '''A body that sets ERROR and returns normally keeps ERROR, not OK'''
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        with otel_span_wrapper('test.handled_failure') as span:
+            span.set_status(StatusCode.ERROR)
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    assert finished[0].status.status_code is StatusCode.ERROR
+
+
+def test_otel_span_wrapper_sets_ok_when_body_leaves_status_unset():
+    '''A body that sets no status still ends OK'''
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        with otel_span_wrapper('test.clean_success'):
+            pass
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    assert finished[0].status.status_code is StatusCode.OK
+
+
+@pytest.mark.asyncio
+async def test_async_otel_span_wrapper_keeps_status_set_by_the_body():
+    '''An async body that sets ERROR and returns normally keeps ERROR, not OK'''
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        async with async_otel_span_wrapper('test.async_handled_failure') as span:
+            span.set_status(StatusCode.ERROR)
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    assert finished[0].status.status_code is StatusCode.ERROR
+
+
+@pytest.mark.asyncio
+async def test_async_otel_span_wrapper_sets_ok_when_body_leaves_status_unset():
+    '''An async body that sets no status still ends OK'''
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        async with async_otel_span_wrapper('test.async_clean_success'):
+            pass
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    assert finished[0].status.status_code is StatusCode.OK
 
 
 def test_capture_span_context_no_active_span():
