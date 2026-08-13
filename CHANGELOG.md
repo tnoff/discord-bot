@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.73] - 2026-08-13
+
+### Changed
+
+- Downloader: stop paying full price to discover an empty queue. Since the pool-mode cutover the pod runs one driver per `worker_count` and each driver re-polls on the idle interval, so with four drivers at 250ms the pod issued ~128 redis commands a second while completely idle — and those polls were ~98% of its trace span volume, a flat span rate set by the poll interval rather than by anything happening (measured against prod: `ZRANGE`/`GET`/`SET`/`DEL` at ~30/sec each, versus ~0.003/sec for the spans that describe an actual download). Three changes. `_atomic_pop_direct` / `_atomic_pop_youtube` now check the round-robin ZSET lock-free (`_pool_is_empty`) before entering `_pop_lock`, so an idle poll costs one `ZCARD` per pool instead of a `SET NX` + `GET` + `DEL` lock cycle plus a `ZRANGE` — the pods stopped taking, and contending on, a distributed lock 32 times a second to learn there was nothing to do. The check only skips work `_round_robin_pop` would also have skipped (same ZSET, and a non-empty count still takes the lock and re-checks under it), and an empty pool now returns `None` rather than `('wait', ts)` in fixed http-proxy mode, which `_merged_get_nowait` already collapses to the same `QueueEmpty`. The idle peek itself moved behind `_peek_next_request`, which wraps `_merged_get_nowait` in OpenTelemetry's `suppress_instrumentation` so an empty poll emits no client spans at all; the suppression is scoped to the peek, so every span describing real work — `create_source`, `submit`, the audio/upload spans and the redis writes on the result path — is untouched, and the backoff branch's `_dequeue_direct` peeks stay instrumented since they only run while a backoff is active. Finally `_IDLE_POLL_BACKOFF_SECONDS` goes 0.25s to 1.0s, which also paces `create_source`'s `NO_EXIT_AVAILABLE` yield; together that takes idle redis traffic from ~128 to ~8 commands a second and idle spans to zero, at the cost of up to a second of pickup latency on a path where the download itself then takes seconds.
+
 ## [2.5.72] - 2026-08-12
 
 ### Changed
