@@ -227,6 +227,31 @@ async def test_update_request_status_retry():
     assert entry is not None
 
 
+@pytest.mark.parametrize('event,attribute', [
+    (LifecycleEvent.RETRY, 'download_retry_information'),
+    (LifecycleEvent.RETRY_SEARCH, 'youtube_music_retry_information'),
+])
+@pytest.mark.asyncio
+async def test_update_request_status_stores_reported_retry_budget(event, attribute):
+    '''RETRY / RETRY_SEARCH persist the worker's budget next to its count.
+
+    The broker renders "attempt N/M" and knows M only from its own config file;
+    dropping the reported budget here is what let a downloader at 5 render
+    against a broker defaulted to 3 in prod on 2026-08-13.
+    '''
+    broker = _make_broker()
+    req = _make_request()
+    await broker.register_request(req)
+    update = LifecycleStatusUpdate(event=event, error_detail='rate-limited',
+                                   backoff_seconds=5, retry_count=4, max_retries=5)
+    await broker.update_request_status(str(req.uuid), update)
+    entry = await broker.get_entry(str(req.uuid))
+    assert entry is not None
+    info = getattr(entry.request, attribute)
+    assert info.retry_count == 4
+    assert info.retry_max == 5
+
+
 @pytest.mark.asyncio
 async def test_update_request_status_discarded_deletes_entry():
     '''A DISCARDED status update drops the registry entry (no in_flight leak).'''

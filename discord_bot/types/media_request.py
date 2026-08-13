@@ -15,6 +15,10 @@ class RetryInformation(BaseModel):
     '''
     retry_reason: str | None = None
     retry_count: int = 0
+    # Retry budget reported by the worker that owns retry_count, so the
+    # "attempt N/M" summary renders both halves from one source. None until a
+    # worker reports one — renderers fall back to their own configured max.
+    retry_max: int | None = None
     retry_backoff_seconds: int = 0
     retry_reason_sent: bool = False
 
@@ -162,13 +166,15 @@ class MediaRequestStateMachine:
         self._transition(MediaRequestLifecycleStage.BACKOFF)
 
     def mark_retry_download(self, reason: str, backoff_seconds: int | None = None,
-                            retry_count: int | None = None):
+                            retry_count: int | None = None,
+                            max_retries: int | None = None):
         '''Transition to RETRY_DOWNLOAD and record retry details.
 
         retry_count is the worker's authoritative attempt number; when provided
         it is stored so the "attempt N/M" summary renders the real count instead
-        of this copy's stale zero. retry_reason_sent is reset so a later retry
-        re-renders the message with the bumped count.
+        of this copy's stale zero. max_retries is that worker's budget, stored
+        the same way so the M is owned by whoever owns the N. retry_reason_sent
+        is reset so a later retry re-renders the message with the bumped count.
         '''
         info = self._request.download_retry_information
         info.retry_reason = reason
@@ -178,14 +184,18 @@ class MediaRequestStateMachine:
         info.retry_backoff_seconds = backoff_seconds or 0
         if retry_count is not None:
             info.retry_count = retry_count
+        if max_retries is not None:
+            info.retry_max = max_retries
         info.retry_reason_sent = False
         self._transition(MediaRequestLifecycleStage.RETRY_DOWNLOAD)
 
     def mark_retry_search(self, reason: str, backoff_seconds: int | None = None,
-                          retry_count: int | None = None):
+                          retry_count: int | None = None,
+                          max_retries: int | None = None):
         '''Transition to RETRY_SEARCH and record retry details.
 
-        See mark_retry_download for retry_count / retry_reason_sent semantics.
+        See mark_retry_download for retry_count / max_retries /
+        retry_reason_sent semantics.
         '''
         info = self._request.youtube_music_retry_information
         info.retry_reason = reason
@@ -194,6 +204,8 @@ class MediaRequestStateMachine:
         info.retry_backoff_seconds = backoff_seconds or 0
         if retry_count is not None:
             info.retry_count = retry_count
+        if max_retries is not None:
+            info.retry_max = max_retries
         info.retry_reason_sent = False
         self._transition(MediaRequestLifecycleStage.RETRY_SEARCH)
 

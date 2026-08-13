@@ -125,7 +125,8 @@ class YoutubeMusicSearchDriver:
         await self._push_lifecycle(
             media_request, LifecycleEvent.RETRY_SEARCH, error_detail=str(error),
             backoff_seconds=backoff_seconds,
-            retry_count=media_request.youtube_music_retry_information.retry_count)
+            retry_count=media_request.youtube_music_retry_information.retry_count,
+            max_retries=self.max_retries)
 
     async def run_once(self, shutdown_event: asyncio.Event) -> bool:
         '''

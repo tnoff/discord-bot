@@ -1281,7 +1281,8 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     '''run() requeues retryable errors and increments retry_count'''
     fake_context = generate_fake_context()
     mock_broker = AsyncMock()
-    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker)
+    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker,
+                                  max_retries=5)
     mr = fake_source_dict(fake_context)
     assert mr.download_retry_information.retry_count == 0
     await client.submit(mr.guild_id, mr)
@@ -1293,8 +1294,15 @@ async def test_run_retryable_requeues_and_increments_retry_count():
     assert mr.download_retry_information.retry_count == 1
     # Input queue has the request again
     assert await client.queue_size(mr.guild_id) == 1
-    broker_events = [call.args[1].event for call in mock_broker.update_request_status.call_args_list]
-    assert LifecycleEvent.RETRY in broker_events
+    updates = [call.args[1] for call in mock_broker.update_request_status.call_args_list]
+    assert LifecycleEvent.RETRY in [update.event for update in updates]
+    # The RETRY carries THIS worker's budget, not just the count. The broker
+    # renders "attempt N/M" from its own config file, which is a different file
+    # from ours — without the budget on the payload a worker at 5 renders
+    # against a broker still defaulted to 3 ("attempt 4/3").
+    retry_update = next(u for u in updates if u.event == LifecycleEvent.RETRY)
+    assert retry_update.retry_count == 1
+    assert retry_update.max_retries == 5
 
 
 @pytest.mark.asyncio(loop_scope="session")

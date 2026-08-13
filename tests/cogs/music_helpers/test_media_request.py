@@ -182,20 +182,26 @@ def test_state_machine_mark_retry_stores_count_and_resets_sent(fake_context):  #
     req.download_retry_information.retry_reason_sent = True
     req.youtube_music_retry_information.retry_reason_sent = True
 
-    req.state_machine.mark_retry_download('boom', 30, retry_count=2)
+    req.state_machine.mark_retry_download('boom', 30, retry_count=2, max_retries=5)
     assert req.download_retry_information.retry_count == 2
+    assert req.download_retry_information.retry_max == 5
     assert req.download_retry_information.retry_reason_sent is False
 
-    req.state_machine.mark_retry_search('throttled', 60, retry_count=1)
+    req.state_machine.mark_retry_search('throttled', 60, retry_count=1, max_retries=4)
     assert req.youtube_music_retry_information.retry_count == 1
+    assert req.youtube_music_retry_information.retry_max == 4
     assert req.youtube_music_retry_information.retry_reason_sent is False
 
 def test_state_machine_mark_retry_download_omitted_count_preserved(fake_context):  #pylint:disable=redefined-outer-name
-    """Omitting retry_count leaves the existing count untouched (default None)."""
+    """Omitting retry_count/max_retries leaves the existing values untouched
+    (both default None), so an update from a caller that reports neither can't
+    reset a budget an earlier worker already established."""
     req = fake_source_dict(fake_context)
     req.download_retry_information.retry_count = 5
+    req.download_retry_information.retry_max = 8
     req.state_machine.mark_retry_download('error')
     assert req.download_retry_information.retry_count == 5
+    assert req.download_retry_information.retry_max == 8
 
 def test_state_machine_mark_retry_does_not_cross_contaminate(fake_context):  #pylint:disable=redefined-outer-name
     """mark_retry_download and mark_retry_search write to separate RetryInformation objects"""

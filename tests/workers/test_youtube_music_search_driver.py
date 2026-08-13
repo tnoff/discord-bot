@@ -187,6 +187,10 @@ async def test_run_once_retries_a_rate_limited_request(mocker):
     assert update.event == LifecycleEvent.RETRY_SEARCH
     assert update.backoff_seconds == 60
     assert update.retry_count == 1
+    # The budget rides along with the count: the broker renders "attempt N/M"
+    # from its own config file, so a driver that sends only N leaves the M to
+    # whatever that other file happens to say.
+    assert update.max_retries == 3
 
 
 @pytest.mark.asyncio

@@ -471,6 +471,12 @@ class BundleRenderer:
         ``get_retry_cleanups``. The message reports the real attempt number
         (``attempt N/M``); it deliberately makes no promise about *when* the
         retry runs, since the request simply goes back on the queue.
+
+        The M prefers the budget the retrying worker reported alongside the
+        count (``retry_max``); download_max_retries / search_max_retries are the
+        fallback for a request last touched by a worker that sent no budget.
+        They are this process's own config, which is a *different file* from the
+        worker's — trusting them first renders a live N against a stale M.
         '''
         retry_stages = {
             MediaRequestLifecycleStage.RETRY_DOWNLOAD,
@@ -488,7 +494,7 @@ class BundleRenderer:
         messages: List[Tuple[str, str]] = []
         for req in retries:
             info = req.media_request.active_retry_information
-            max_r = (
+            max_r = info.retry_max or (
                 download_max_retries
                 if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
                 else search_max_retries

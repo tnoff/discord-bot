@@ -430,6 +430,14 @@ music:
     max_download_retries: 3  # Default: 3
 ```
 
+In an HA split deployment this key belongs to the **downloader** pod's config —
+that process owns the retry budget and enforces it. The broker reads the same
+key from its own config only as a fallback for rendering the `attempt N/M`
+retry message; every RETRY the downloader reports now carries its own budget, so
+the message tracks the enforcing pod even when the two config files disagree.
+The equivalent for searches, `max_youtube_music_search_retries`, belongs to the
+search pod on the same terms.
+
 **Retryable Errors**:
 - Network timeouts (`Read timed out.`)
 - TLS protocol errors (`tlsv1 alert protocol version`)

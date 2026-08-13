@@ -580,6 +580,7 @@ class DownloadWorkerBase(ABC):
                     error_detail=result.status.error_detail,
                     backoff_seconds=self.backoff_seconds_remaining,
                     retry_count=media_request.download_retry_information.retry_count,
+                    max_retries=self._max_retries,
                 ))
             await self._enqueue_request(media_request.guild_id, media_request)
             return

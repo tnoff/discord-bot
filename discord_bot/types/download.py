@@ -39,6 +39,13 @@ class LifecycleStatusUpdate(BaseModel):
     # sees that bump, so it is carried here and stored on the request for the
     # "attempt N/M" retry summary to render.
     retry_count: int | None = None
+    # Authoritative retry budget (the M in "attempt N/M"), from the same worker
+    # that owns retry_count. The broker reads its own max_download_retries /
+    # max_youtube_music_search_retries out of its own config file, so whenever
+    # the two configs disagree the summary renders a real N against a stale M
+    # ("attempt 4/3" in prod on 2026-08-13, downloader at 5 vs broker default 3).
+    # Carrying it with the count keeps one owner for both halves of the ratio.
+    max_retries: int | None = None
 
 
 class DownloadErrorType(str, Enum):

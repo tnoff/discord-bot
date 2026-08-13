@@ -241,6 +241,47 @@ def test_get_retry_summary_includes_attempt_count(fake_context):  # pylint: disa
     assert renderer.get_retry_summary(3, 3) is None
 
 
+def test_get_retry_summary_prefers_worker_reported_max(fake_context):  # pylint: disable=redefined-outer-name
+    '''The M in "attempt N/M" comes from the worker that owns the N.
+
+    Regression for prod 2026-08-13: the downloader's config raised
+    max_download_retries to 5 while the broker's own config file still defaulted
+    to 3, so a live count rendered against a stale budget as "attempt 4/3".
+    '''
+    renderer = BundleRenderer.new(
+        fake_context['guild'].id, fake_context['channel'].id,
+    )
+    mr = fake_source_dict(fake_context)
+    mr.state_machine.mark_queued()
+    renderer.add_media_request(mr)
+    renderer.all_requests_added()
+
+    mr.state_machine.mark_retry_download('http 500', retry_count=4, max_retries=5)
+    # The renderer's own config still says 3 — the worker's 5 must win.
+    messages = renderer.get_retry_summary(download_max_retries=3, search_max_retries=3)
+    assert messages is not None
+    assert any('attempt 4/5' in content for _uuid, content in messages)
+    assert all('attempt 4/3' not in content for _uuid, content in messages)
+
+
+def test_get_retry_summary_search_prefers_worker_reported_max(fake_context):  # pylint: disable=redefined-outer-name
+    '''The search half reads its budget from the search retry block, not the
+    download one — the two phases carry independent counters and budgets.'''
+    renderer = BundleRenderer.new(
+        fake_context['guild'].id, fake_context['channel'].id,
+    )
+    mr = fake_source_dict(fake_context)
+    mr.state_machine.mark_queued()
+    renderer.add_media_request(mr)
+    renderer.all_requests_added()
+
+    mr.download_retry_information.retry_max = 5
+    mr.state_machine.mark_retry_search('429 rate limit', retry_count=3, max_retries=4)
+    messages = renderer.get_retry_summary(download_max_retries=3, search_max_retries=3)
+    assert messages is not None
+    assert any('attempt 3/4' in content for _uuid, content in messages)
+
+
 def test_get_retry_cleanups_fires_once_on_terminal(fake_context):  # pylint: disable=redefined-outer-name
     '''A request with a live retry note is cleaned up once it reaches a terminal
     stage; still-retrying requests are left alone and cleanup is not repeated.'''

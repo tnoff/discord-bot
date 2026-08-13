@@ -51,6 +51,24 @@ async def test_update_request_status_drives_each_event(fake_context, event, expe
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('event,attribute', [
+    (LifecycleEvent.RETRY, 'download_retry_information'),
+    (LifecycleEvent.RETRY_SEARCH, 'youtube_music_retry_information'),
+])
+async def test_update_request_status_stores_reported_retry_budget(fake_context, event, attribute):  # pylint: disable=redefined-outer-name
+    '''RETRY / RETRY_SEARCH persist the worker's budget next to its count, so the
+    renderer never has to fall back to its own (possibly stale) configured max.'''
+    broker = AsyncioBroker()
+    media_request = await _register(broker, fake_context)
+    await broker.update_request_status(str(media_request.uuid), LifecycleStatusUpdate(
+        event=event, error_detail='boom', backoff_seconds=5, retry_count=4, max_retries=5,
+    ))
+    info = getattr(media_request, attribute)
+    assert info.retry_count == 4
+    assert info.retry_max == 5
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('event,kwargs', [
     (LifecycleEvent.DISCARDED, {}),
     (LifecycleEvent.FAILED, {'failure_reason': 'dead'}),
