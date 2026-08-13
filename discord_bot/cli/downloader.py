@@ -92,7 +92,7 @@ async def _drive_worker(worker: RedisDownloadWorker, stop_event: asyncio.Event,
 async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                     health_server, redis_manager: RedisManager,
                     download_metrics: DownloadMetrics, exit_probe: ExitProbe | None,
-                    driver_count: int = 1):
+                    driver_count: int = 1, broker_client=None):
     '''
     Run the downloader until SIGTERM/SIGINT, then drain the HTTP server and Redis.
 
@@ -119,16 +119,18 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
         return tasks
 
     await worker_pod_main_loop(download_http_server, health_server, redis_manager,
-                               LOOP_DOWNLOADER_WORKER, 'Downloader', _tasks)
+                               LOOP_DOWNLOADER_WORKER, 'Downloader', _tasks,
+                               broker_client=broker_client)
 
 
 def run_downloader(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,
                    health_server, redis_manager: RedisManager,
                    download_metrics: DownloadMetrics, exit_probe: ExitProbe | None,
-                   driver_count: int = 1):
+                   driver_count: int = 1, broker_client=None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(worker, download_http_server, health_server, redis_manager,
-                       download_metrics, exit_probe, driver_count=driver_count))
+                       download_metrics, exit_probe, driver_count=driver_count,
+                       broker_client=broker_client))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -210,7 +212,8 @@ def run(settings: dict, general_config: GeneralConfig):
         driver_count = min(worker_count, len(download_cfg.get('egress_exits') or [worker_count]))
 
     run_downloader(worker, download_http_server, health_server, redis_manager,
-                   download_metrics, exit_probe, driver_count=driver_count)
+                   download_metrics, exit_probe, driver_count=driver_count,
+                   broker_client=broker_client)
 
 
 if __name__ == '__main__':  # pragma: no cover

@@ -130,7 +130,8 @@ def _publish_loop_heartbeat(loop_name: str, pod_label: str) -> None:
 async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisManager,
                                loop_name: str, pod_label: str,
                                task_factory: Callable[[asyncio.Event, LoopHealth],
-                                                      Iterable[Awaitable]]):
+                                                      Iterable[Awaitable]],
+                               broker_client=None):
     '''
     Run a worker pod until SIGTERM/SIGINT, then drain the HTTP server and Redis.
 
@@ -142,6 +143,13 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
 
     Registering the entry also publishes its ``heartbeat`` gauge (see below), so
     every worker pod's consumer loop is observable the same way a cog loop is.
+
+    ``broker_client`` is the pod's outbound HttpBrokerClient, closed on the way
+    out.  Both pods hold one for the whole process lifetime and neither used to
+    close it, so aiohttp logged ``Unclosed client session`` at ERROR on every
+    single pod roll.  Harmless in itself — the process is exiting — but it is
+    recurring ERROR-level noise in the exact window an operator reads logs during
+    a rollout, which is how a real shutdown error gets missed.
     '''
     await redis_manager.start()
     with shutdown_event_signals() as stop_event:
@@ -162,5 +170,10 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
             LOOP_HEALTH.mark_stopped(loop_name)
             logger.info('Main :: Draining %s server...', pod_label)
             await http_server.drain_and_stop()
+            # Outbound first, then redis: the drivers have stopped, so the broker
+            # session has no in-flight work, and closing it before redis keeps the
+            # teardown order the mirror of startup.
+            if broker_client is not None:
+                await broker_client.close()
             await redis_manager.close()
             logger.info('Main :: Shutdown complete')

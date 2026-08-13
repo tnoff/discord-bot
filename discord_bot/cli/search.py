@@ -103,7 +103,7 @@ async def _drive_search(driver: YoutubeMusicSearchDriver, stop_event: asyncio.Ev
 async def main_loop(driver: YoutubeMusicSearchDriver,
                     search_http_server: YoutubeMusicSearchHttpServer,
                     health_server, redis_manager: RedisManager,
-                    search_metrics: SearchMetrics):
+                    search_metrics: SearchMetrics, broker_client=None):
     '''
     Run the search pod until SIGTERM/SIGINT, then drain the HTTP server and Redis.
 
@@ -121,15 +121,17 @@ async def main_loop(driver: YoutubeMusicSearchDriver,
         ]
 
     await worker_pod_main_loop(search_http_server, health_server, redis_manager,
-                               LOOP_SEARCH_WORKER, 'Search', _tasks)
+                               LOOP_SEARCH_WORKER, 'Search', _tasks,
+                               broker_client=broker_client)
 
 
 def run_search(driver: YoutubeMusicSearchDriver,
                search_http_server: YoutubeMusicSearchHttpServer,
-               health_server, redis_manager: RedisManager, search_metrics: SearchMetrics):
+               health_server, redis_manager: RedisManager, search_metrics: SearchMetrics,
+               broker_client=None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(driver, search_http_server, health_server, redis_manager,
-                       search_metrics))
+                       search_metrics, broker_client=broker_client))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -186,7 +188,8 @@ def run(settings: dict, general_config: GeneralConfig):
 
     search_metrics = SearchMetrics(worker)
 
-    run_search(driver, search_http_server, health_server, redis_manager, search_metrics)
+    run_search(driver, search_http_server, health_server, redis_manager, search_metrics,
+               broker_client=broker_client)
 
 
 if __name__ == '__main__':  # pragma: no cover

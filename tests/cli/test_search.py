@@ -97,8 +97,10 @@ def test_run_wires_collaborators(mocker):
     mocks['SearchMetrics'].assert_called_once_with(worker)
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
+    # broker_client is forwarded so the drain path can close its session.
     mocks['run_search'].assert_called_once_with(
-        driver, server, None, redis_manager, mocks['SearchMetrics'].return_value)
+        driver, server, None, redis_manager, mocks['SearchMetrics'].return_value,
+        broker_client=broker_client)
 
 
 def test_run_forwards_backoff_and_retry_config(mocker):
@@ -384,6 +386,58 @@ async def test_pod_loop_heartbeat_reports_the_registered_loop(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_loop_closes_the_broker_session_on_drain(mocker):
+    '''
+    The pod's outbound broker session is closed on the way out.
+
+    Without this aiohttp logs `Unclosed client session` at ERROR on every pod
+    roll — observed in prod on the search-cutover rollout. The process is exiting
+    so nothing leaks for long, but it is recurring ERROR noise in exactly the
+    window an operator reads logs during a deploy.
+    '''
+    driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
+    broker_client = mocker.Mock()
+    broker_client.close = mocker.AsyncMock()
+    captured = _capture_signals(mocker)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        search_cli.main_loop(driver, server, None, redis_manager, metrics,
+                             broker_client=broker_client),
+        _fire_sigterm(),
+    )
+
+    broker_client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_main_loop_drains_without_a_broker_client(mocker):
+    '''
+    The broker client is optional, so a pod built without one still drains
+    cleanly rather than tripping over None in the shutdown path.
+    '''
+    driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
+    captured = _capture_signals(mocker)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        search_cli.main_loop(driver, server, None, redis_manager, metrics),
+        _fire_sigterm(),
+    )
+
+    server.drain_and_stop.assert_awaited_once()
+    redis_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_main_loop_marks_the_loop_stopped_on_drain(mocker):
     '''
     A deliberate drain marks the loop stopped, so a draining pod doesn't fail its
@@ -417,7 +471,8 @@ def test_run_search_delegates_to_run_loop(mocker):
     driver, server, health, redis_manager, metrics = (
         object(), object(), object(), object(), object())
     search_cli.run_search(driver, server, health, redis_manager, metrics)
-    main_loop.assert_called_once_with(driver, server, health, redis_manager, metrics)
+    main_loop.assert_called_once_with(driver, server, health, redis_manager, metrics,
+                                      broker_client=None)
     run_loop.assert_called_once_with(sentinel)
 
 

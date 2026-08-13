@@ -97,8 +97,10 @@ def test_run_wires_collaborators(mocker):
 
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
+    # broker_client is forwarded so the drain path can close its session.
     mocks['run_downloader'].assert_called_once_with(
-        worker, server, None, redis_manager, download_metrics, exit_probe, driver_count=1)
+        worker, server, None, redis_manager, download_metrics, exit_probe, driver_count=1,
+        broker_client=broker_client)
 
 
 def test_run_builds_exit_probe_from_config(mocker):
@@ -375,6 +377,54 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_loop_closes_the_broker_session_on_drain(mocker):
+    '''
+    The downloader closes its outbound broker session on the way out too.
+
+    Same gap as the search pod (both share cli/_lib/worker_pod): the session was
+    never closed, so aiohttp logged `Unclosed client session` at ERROR on every
+    roll. Covered here as well because the two pods drift apart exactly where
+    only one of them is tested.
+    '''
+    redis_manager = mocker.Mock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    server = mocker.Mock()
+    server.serve = mocker.AsyncMock()
+    server.drain_and_stop = mocker.AsyncMock()
+    worker = mocker.Mock()
+
+    async def _run(evt):
+        await evt.wait()
+
+    worker.run = _run
+    metrics = mocker.Mock()
+    metrics.run = mocker.AsyncMock()
+    broker_client = mocker.Mock()
+    broker_client.close = mocker.AsyncMock()
+
+    captured = {}
+
+    def _fake_signal(signum, handler):
+        captured[signum] = handler
+
+    mocker.patch.object(cli_common.signal, 'signal', new=_fake_signal)
+
+    async def _fire_sigterm():
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
+                                 broker_client=broker_client),
+        _fire_sigterm(),
+    )
+
+    broker_client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker):
     '''
     driver_count drivers share ONE LoopHealth entry, registered by main_loop.
@@ -531,7 +581,7 @@ def test_run_downloader_delegates_to_run_loop(mocker):
         object(), object(), object(), object(), object(), object())
     downloader_cli.run_downloader(worker, server, health, redis_manager, metrics, exit_probe)
     main_loop.assert_called_once_with(worker, server, health, redis_manager, metrics,
-                                      exit_probe, driver_count=1)
+                                      exit_probe, driver_count=1, broker_client=None)
     run_loop.assert_called_once_with(sentinel)
 
 
