@@ -110,6 +110,24 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Standalone search pod — the search TIER (ytmusic today; Spotify + the YouTube
+  # Data API expansion join this same service when media_search folds in).
+  # Not in the tunnel: ytmusicapi calls are metadata lookups, not media fetches,
+  # so they have no reason to consume a Mullvad exit.
+  search:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.search
+    volumes:
+      - ../volumes/cnf/discord.search.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/search-logs:/var/log/discord
+    depends_on:
+      redis:
+        condition: service_started
+      broker:
+        condition: service_started
+    restart: unless-stopped
+
   bot:
     build:
       context: ..
@@ -136,5 +154,7 @@ services:
       postgres:
         condition: service_healthy
       downloader:
+        condition: service_started
+      search:
         condition: service_started
     restart: unless-stopped

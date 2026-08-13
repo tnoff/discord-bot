@@ -53,12 +53,12 @@ from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
-from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
+from discord_bot.utils.integrations import youtube_music
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 from discord_bot.clients.youtube_music_search_client import (
-    InMemoryYoutubeMusicSearchClient, YoutubeMusicSearchClient,
+    HttpYoutubeMusicSearchClient, InMemoryYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
 from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.utils.sql_retry import async_retry_database_commands
@@ -163,6 +163,19 @@ class DownloadClientConfig(BaseModel):
     entrypoint, the cog is a client only.'''
     url: str
 
+class YoutubeMusicSearchClientConfig(BaseModel):
+    '''Config for connecting to a remote search pod's HTTP server (HA mode).
+
+    Presence flips the cog from an in-process search worker to the standalone
+    search pod reached over HTTP, exactly as download_client does for downloads;
+    the pod hosts its own server via its CLI entrypoint, so there is no matching
+    server config here.
+
+    Named youtube_music_search_client, NOT search_client: the cog already has a
+    self.search_client (the SearchClient source-expansion member), and the two
+    are unrelated.'''
+    url: str
+
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
@@ -172,6 +185,7 @@ class MusicConfig(BaseModel):
     broker_server: BrokerServerConfig | None = None
     broker_client: BrokerClientConfig | None = None
     download_client: DownloadClientConfig | None = None
+    youtube_music_search_client: YoutubeMusicSearchClientConfig | None = None
 
 #
 # Exceptions
@@ -342,47 +356,57 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
         # YouTube-Music search runs through a worker + client (extracted from the
         # cog).  Search requests are lightweight, so the queue is sized larger than
-        # the play queue.  A future HttpYoutubeMusicSearchClient will front a search
-        # pod; for now the in-memory worker (or, in HA, a RedisYoutubeMusicSearchWorker
-        # run in-process) is wrapped by InMemoryYoutubeMusicSearchClient.
-        search_worker_args = (
-            self.logging_config,
-            YoutubeMusicClient(),
-            FailureQueue(
-                max_size=self.config.download.failure_tracking_max_size,
-                max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
-            ),
-            self.config.download.youtube_wait_period_minimum,
-            self.config.download.youtube_wait_period_max_variance,
-        )
-        search_worker: YoutubeMusicSearchWorkerBase
-        if self.config.download.redis_backed and self.redis_manager:
-            # Redis-backed search queue + shared cross-pod 429 backoff window,
-            # shareable across search pods (runs in-process here, mirroring the
-            # RedisDownloadWorker MR 2b step; the search_server/HttpYoutubeMusicSearchClient
-            # split is later).
-            search_worker = RedisYoutubeMusicSearchWorker(
-                *search_worker_args,
-                redis_manager=self.redis_manager,
-            )
+        # the play queue.
+        self.youtube_music_search_driver: YoutubeMusicSearchDriver | None = None
+        if self.config.youtube_music_search_client:
+            # HA: the search worker runs in the standalone search pod; the bot
+            # submits/clears/blocks over HTTP and never builds an in-process
+            # worker, queue or driver.  Resolutions come back through the broker's
+            # search-result queue, which process_search_results already consumes.
+            self.youtube_music_search_client: YoutubeMusicSearchClient = HttpYoutubeMusicSearchClient(
+                self.config.youtube_music_search_client.url)
         else:
-            search_worker = AsyncioYoutubeMusicSearchWorker(
-                *search_worker_args,
-                queue_max_size=self.config.player.queue_max_size * 2,
+            # Attribute access, not a from-import at module scope: reading
+            # YoutubeMusicClient off the module is what loads ytmusicapi (see
+            # that module's __getattr__), so the HA bot — which never reaches
+            # this branch — never pays for it.
+            search_worker_args = (
+                self.logging_config,
+                youtube_music.YoutubeMusicClient(),
+                FailureQueue(
+                    max_size=self.config.download.failure_tracking_max_size,
+                    max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
+                ),
+                self.config.download.youtube_wait_period_minimum,
+                self.config.download.youtube_wait_period_max_variance,
             )
-        self.youtube_music_search_client: YoutubeMusicSearchClient = InMemoryYoutubeMusicSearchClient(search_worker)
-        # The search loop body is shared with the standalone search pod
-        # (cli/search.py) — see workers/youtube_music_search_driver.  Built here
-        # only for the single-process shape: under HA (MR 6) the cog gets an
-        # HttpYoutubeMusicSearchClient, which deliberately lacks the pop/resolve
-        # surface this driver needs, and stops registering the loop at all.
-        self.youtube_music_search_driver = YoutubeMusicSearchDriver(
-            self.youtube_music_search_client,
-            self.broker_client,
-            self.logger,
-            max_retries=self.config.download.max_youtube_music_search_retries,
-            queue_priority=self.server_queue_priority,
-        )
+            search_worker: YoutubeMusicSearchWorkerBase
+            if self.config.download.redis_backed and self.redis_manager:
+                # Redis-backed search queue + shared cross-pod 429 backoff window,
+                # shareable across search pods (runs in-process here, mirroring the
+                # RedisDownloadWorker MR 2b step).
+                search_worker = RedisYoutubeMusicSearchWorker(
+                    *search_worker_args,
+                    redis_manager=self.redis_manager,
+                )
+            else:
+                search_worker = AsyncioYoutubeMusicSearchWorker(
+                    *search_worker_args,
+                    queue_max_size=self.config.player.queue_max_size * 2,
+                )
+            self.youtube_music_search_client = InMemoryYoutubeMusicSearchClient(search_worker)
+            # The search loop body is shared with the standalone search pod
+            # (cli/search.py) — see workers/youtube_music_search_driver.  Built only
+            # for the single-process shape: HttpYoutubeMusicSearchClient deliberately
+            # lacks the pop/resolve surface this driver needs, because under HA the
+            # pod drives the same code against its own worker.
+            self.youtube_music_search_driver = YoutubeMusicSearchDriver(
+                self.youtube_music_search_client,
+                self.broker_client,
+                self.logger,
+                max_retries=self.config.download.max_youtube_music_search_retries,
+                queue_priority=self.server_queue_priority,
+            )
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -528,10 +552,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return_loop_runner(self.process_search_results, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS))()
         )
-        self._youtube_search_task = self.bot.loop.create_task(
-            return_loop_runner(self.search_youtube_music, self.bot, self.logger,
-                               health=LOOP_HEALTH.register(LOOP_YOUTUBE_MUSIC_SEARCH))()
-        )
+        if self.config.youtube_music_search_client:
+            # HA: the search loop runs in the search pod. Start only the client's
+            # status poller (no bot-side search loop). Nothing registers
+            # LOOP_YOUTUBE_MUSIC_SEARCH here, so this pod emits no
+            # youtube_music_search heartbeat and its health never depends on one —
+            # the pod publishes that series instead, under the same loop name.
+            await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
+            self._youtube_search_task = None
+        else:
+            self._youtube_search_task = self.bot.loop.create_task(
+                return_loop_runner(self.search_youtube_music, self.bot, self.logger,
+                                   health=LOOP_HEALTH.register(LOOP_YOUTUBE_MUSIC_SEARCH))()
+            )
         if self.config.broker_server:
             broker_server = BrokerHttpServer(
                 self.media_broker,
@@ -580,6 +613,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 # HA: no bot-side download loops to cancel; stop the status poller
                 # and close the HTTP session instead.
                 await self.download_client.stop()
+            if self.config.youtube_music_search_client:
+                # Same for search: no bot-side loop, just the poller + session.
+                await self.youtube_music_search_client.stop()
             if self._result_task:
                 self._result_task.cancel()
             if self._search_result_task:

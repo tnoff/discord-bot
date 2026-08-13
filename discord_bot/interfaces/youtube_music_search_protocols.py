@@ -27,16 +27,19 @@ from datetime import datetime, timezone
 from functools import partial
 from random import randint, seed
 from time import time
-from typing import Callable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.exceptions import ExitEarlyException, YoutubeMusicRetryException
 from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.utils.common import LoggingConfig, get_logger
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
-from discord_bot.utils.integrations.youtube_music import (
-    YoutubeMusicClient, YoutubeMusicRetryException,
-)
+
+if TYPE_CHECKING:  # pragma: no cover
+    # Annotation only — importing it for real would pull ytmusicapi into every
+    # process that touches this base, including the HA bot, which never builds a
+    # client (it is injected by the caller; see the constructor docstring).
+    from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
 
 
 class YoutubeMusicSearchWorkerBase(ABC):
@@ -52,7 +55,7 @@ class YoutubeMusicSearchWorkerBase(ABC):
     def __init__(
         self,
         logging_config: LoggingConfig,
-        client: YoutubeMusicClient,
+        client: 'YoutubeMusicClient',
         failure_queue: FailureQueue,
         wait_period_minimum: int,
         wait_period_max_variance: int,

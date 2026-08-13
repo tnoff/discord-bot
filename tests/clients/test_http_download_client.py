@@ -290,11 +290,21 @@ async def test_status_endpoint_returns_worker_snapshot():
 
 @pytest.mark.asyncio
 async def test_heartbeat_observation_reflects_serving_state():
-    '''heartbeat_observations reports 0 before serving, tagged job=downloader.'''
+    '''
+    heartbeat_observations reports 0 before serving, tagged job=downloader_server.
+
+    `downloader_server`, NOT `downloader`: this gauge reports is_serving — the TCP
+    site is up — and the bare name read like the worker loop's heartbeat, so a pod
+    whose consumer loop was wedged still showed 1 until the liveness probe
+    restarted it. The loop's own series is `downloader_worker`, published by
+    cli/_lib/worker_pod.py, and the two must not collide on this label. Mirrors the
+    search server's existing `youtube_music_search_server` convention.
+    '''
     _, server = _make_server()
+    assert DownloadHttpServer.HEARTBEAT_JOB == 'downloader_server'
     (observation,) = server.heartbeat_observations()
     assert observation.value == 0
-    assert observation.attributes == {'background_job': 'downloader'}
+    assert observation.attributes == {'background_job': 'downloader_server'}
 
 
 # ---------------------------------------------------------------------------

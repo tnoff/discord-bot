@@ -51,12 +51,31 @@ bot = [
 ]
 # Slim extra for the standalone search pod (cli/search.py, Dockerfile.search):
 # the search tier is thin HTTP clients only — no yt-dlp/ffmpeg/deno, no boto3, no
-# sqlalchemy — so the image installs this instead of [bot].  ytmusicapi is listed
-# in BOTH extras on purpose: the bot pod still runs the search loop in-process
-# until the MR 6 cutover, so it cannot drop the dependency yet. Removing it from
-# [bot] is a one-line change then (the same discipline that keeps sqlalchemy off
-# the dispatcher).  media_search's spotipy + google-api-python-client join this
-# extra when those providers fold into the pod.
+# sqlalchemy — so the image installs this instead of [bot].
+#
+# ytmusicapi is listed in BOTH extras, PERMANENTLY — but the HA bot no longer
+# IMPORTS it.  Those are two separate things and it is worth being precise:
+#
+#   Import chain: fixed.  utils/integrations/youtube_music.py defers the real
+#   wrapper to first attribute access, so a bot process that never builds a
+#   client never loads ytmusicapi.  Guarded by
+#   tests/cogs/test_music.py::test_bot_import_chain_does_not_pull_ytmusicapi.
+#
+#   Installed dependency: stays.  Single-process mode (no
+#   music.youtube_music_search_client — docker/docker-compose.yml, local dev, and
+#   the whole test suite via tox's extras = bot,test) runs the search worker
+#   in-process and constructs a real client.  HA moves where the search loop
+#   RUNS; it does not remove the in-process mode, so [bot] must still be able to
+#   do it.  Unlike sqlalchemy on the dispatcher, which has no in-process fallback
+#   to support and could therefore be dropped outright.
+#
+# Dropping it from [bot] would buy 1.1 MB of pure Python whose only dependency
+# (requests) every image already installs, at the cost of breaking single-process
+# off a plain [bot] install.  Not worth it — revisit only if single-process is
+# retired.
+#
+# media_search's spotipy + google-api-python-client join this extra when those
+# providers fold into the pod.
 search = [
     "ytmusicapi==1.12.2",
 ]

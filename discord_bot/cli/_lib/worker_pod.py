@@ -16,6 +16,7 @@ belongs in one place.
 '''
 import asyncio
 import logging
+from functools import partial
 from typing import Awaitable, Callable, Iterable
 
 from discord_bot.clients.redis_client import RedisManager
@@ -23,6 +24,8 @@ from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.utils.common import GeneralConfig
 from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth
+from discord_bot.utils.otel import (METER_PROVIDER, MetricNaming, create_observable_gauge,
+                                    loop_heartbeat_observations)
 
 from discord_bot.cli._lib.common import shutdown_event_signals
 
@@ -102,6 +105,28 @@ async def drive_loop(run_iteration: Callable[[asyncio.Event], Awaitable],
             await asyncio.sleep(1)
 
 
+def _publish_loop_heartbeat(loop_name: str, pod_label: str) -> None:
+    '''
+    Publish the ``heartbeat`` observable gauge for this pod's consumer loop.
+
+    The cogs and the dispatcher have always done this for their loops; the worker
+    pods never did, and the gap was invisible because each pod DOES publish a
+    same-named gauge from its HTTP server (``QueueWorkerHttpServer``) — which
+    reports ``is_serving``, i.e. the TCP site is up, not that the loop is turning.
+    So a wedged consumer loop read green in Mimir until the liveness probe
+    restarted the pod, and a loop moved off the bot at a cutover lost its series
+    entirely instead of reappearing under the pod's job label.
+
+    Registered here rather than in each entrypoint so both pods get it from the
+    one place that already owns the LoopHealth entry, and the next pod gets it for
+    free.  ``loop_heartbeat_observations`` emits nothing when the loop is not
+    registered in this process, so this can never produce a permanent 0.
+    '''
+    create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                            partial(loop_heartbeat_observations, loop_name),
+                            f'{pod_label} consumer loop heartbeat')
+
+
 async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisManager,
                                loop_name: str, pod_label: str,
                                task_factory: Callable[[asyncio.Event, LoopHealth],
@@ -114,6 +139,9 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
     schedule: the consumer driver(s) plus whatever else that pod runs (a metrics
     poller, an egress probe).  Registering the health entry here — before any
     driver starts — is what lets a pool share one entry.
+
+    Registering the entry also publishes its ``heartbeat`` gauge (see below), so
+    every worker pod's consumer loop is observable the same way a cog loop is.
     '''
     await redis_manager.start()
     with shutdown_event_signals() as stop_event:
@@ -122,6 +150,7 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
                 asyncio.create_task(health_server.serve())
             asyncio.create_task(http_server.serve())
             loop_health = LOOP_HEALTH.register(loop_name)
+            _publish_loop_heartbeat(loop_name, pod_label)
             for coro in task_factory(stop_event, loop_health):
                 asyncio.create_task(coro)
             logger.info('Main :: %s running', pod_label)

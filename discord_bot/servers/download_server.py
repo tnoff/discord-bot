@@ -31,7 +31,15 @@ class DownloadHttpServer(QueueWorkerHttpServer):
 
     ROUTE_PREFIX: ClassVar[str] = '/downloads'
     SPAN_PREFIX: ClassVar[str] = 'downloader'
-    HEARTBEAT_JOB: ClassVar[str] = 'downloader'
+    # RENAMED from 'downloader' (this MR).  This gauge reports is_serving — the
+    # TCP site is up — not that the download loop is turning, and the bare name
+    # read like the latter: heartbeat{background_job="downloader"} sat at 1 on a
+    # pod whose consumer loop was wedged, right up until the liveness probe
+    # restarted it.  The pod now publishes its consumer loop's LoopHealth under
+    # the loop's own name (cli/_lib/worker_pod.py), so the two would otherwise
+    # collide on this label.  Matches the search pod's existing
+    # 'youtube_music_search_server' convention.
+    HEARTBEAT_JOB: ClassVar[str] = 'downloader_server'
     HEARTBEAT_DESCRIPTION: ClassVar[str] = 'Download HTTP server heartbeat'
     DEFAULT_PORT: ClassVar[int] = 8083
 

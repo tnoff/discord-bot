@@ -28,6 +28,13 @@ music:
     url: http://broker:8081
   download_client:
     url: http://gluetun:8083
+  # HA search path: submit/clear/block searches against the standalone search pod
+  # instead of running the search loop in-process. Resolutions come back through
+  # the broker's search-result queue, the same way download results do. Drop this
+  # key to fall back to the in-process worker (the search service then has no
+  # producer and idles).
+  youtube_music_search_client:
+    url: http://search:8084
   download:
     spotify_credentials:
       client_id: !ENV ${SPOTIFY_CLIENT_ID}

@@ -1,0 +1,34 @@
+# Standalone search config — for docker/docker-compose.multiprocess.yml
+# (search service). Entrypoint: discord-search.
+#
+# This is the search TIER's config, not a ytmusic-only one: when the media_search
+# providers fold into this pod they add their own sections here, not their own
+# service.
+#
+# No discord_token: the search pod never connects to the gateway, and
+# discord_token is Optional on GeneralConfig (only the gateway entrypoints
+# require one). No storage/bucket either — the pod resolves queries to videoIds
+# and hands the resolution back through the broker; it never touches media.
+general:
+  redis_url: redis://redis:6379/0
+  search_server:
+    host: 0.0.0.0
+    port: 8084
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+music:
+  # Push search lifecycle updates (RETRY_SEARCH / FAILED) and register resolved
+  # searches back to the broker over HTTP — the same seam the downloader uses.
+  broker_client:
+    url: http://broker:8081
+  download:
+    # 429 backoff window shape. Keep these in step with the bot's config: the
+    # loop moved processes at the cutover, its tuning should not have moved with
+    # it.
+    youtube_wait_period_minimum: 30
+    youtube_wait_period_max_variance: 10
+    max_youtube_music_search_retries: 3

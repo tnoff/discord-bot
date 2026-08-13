@@ -4,6 +4,9 @@ from typing import List
 from unittest.mock import patch, Mock, AsyncMock
 
 import asyncio
+import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
+import sys
+
 import fakeredis.aioredis
 import pytest
 
@@ -23,6 +26,9 @@ from discord_bot.workers.redis_download_worker import RedisDownloadWorker
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
+from discord_bot.clients.youtube_music_search_client import (
+    HttpYoutubeMusicSearchClient, InMemoryYoutubeMusicSearchClient,
+)
 from discord_bot.interfaces.download_protocols import ClearGuildResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
@@ -1616,6 +1622,138 @@ async def test_cog_unload_stops_download_client_in_ha(fake_context, mocker):  #p
     cog.players = {}
     await cog.cog_unload()
     cog.download_client.stop.assert_awaited_once()
+
+
+SEARCH_HA_CONFIG = {'music': {'youtube_music_search_client': {'url': 'http://search-host:8084'}}}
+
+
+def test_bot_import_chain_does_not_pull_ytmusicapi():
+    '''
+    Importing the cog — and the registry every bot process loads it through —
+    must not import ytmusicapi.
+
+    Under HA the search pod owns the ytmusicapi dependency; the bot only builds a
+    client in single-process mode. But cli/_lib/cog_registry.py imports this cog
+    unconditionally, so a module-scope `from ...youtube_music import
+    YoutubeMusicClient` pulled ytmusicapi into every bot process including the HA
+    one. utils/integrations/youtube_music.py defers it to first attribute access
+    instead, and this guards that: reintroducing a top-level import (here, or in
+    the search protocols/workers, which only need the retry exception — now in
+    discord_bot.exceptions) fails this test.
+
+    Subprocess because the rest of this suite has already imported the cog, so
+    the module cache is pre-poisoned and nothing here would be observable.
+    '''
+    probe = (
+        'import sys; import discord_bot.cli._lib.cog_registry; '
+        "print('leaked' if 'ytmusicapi' in sys.modules else '')"
+    )
+    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == ''
+
+
+def test_single_process_still_builds_a_real_ytmusic_client():
+    '''
+    The deferral must not become a removal: without the HA url the cog builds a
+    real YoutubeMusicClient, which is what makes ytmusicapi a genuine [bot]
+    runtime dependency (compose single-process, local dev, this suite) rather
+    than something droppable from the extra.
+    '''
+    probe = (
+        'import sys; from discord_bot.utils.integrations import youtube_music; '
+        "assert 'ytmusicapi' not in sys.modules, 'imported too early'; "
+        'youtube_music.YoutubeMusicClient; '
+        "print('loaded' if 'ytmusicapi' in sys.modules else 'never-loaded')"
+    )
+    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == 'loaded'
+
+
+def test_music_init_with_search_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
+    """HttpYoutubeMusicSearchClient (pointed at the search pod) is built when
+    youtube_music_search_client config is present — the MR 6 cutover selection."""
+    cog = Music(fake_context['bot'], SEARCH_HA_CONFIG | BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.youtube_music_search_client, HttpYoutubeMusicSearchClient)
+    assert cog.youtube_music_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
+
+
+def test_music_init_without_search_client_uses_in_memory(fake_context):  #pylint:disable=redefined-outer-name
+    """InMemoryYoutubeMusicSearchClient (in-process worker) is used by default —
+    single-process and compose deployments are untouched by the cutover."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.youtube_music_search_client, InMemoryYoutubeMusicSearchClient)
+
+
+def test_music_init_builds_no_search_driver_in_ha(fake_context):  #pylint:disable=redefined-outer-name
+    """No driver in HA: it needs the pop/resolve surface HttpYoutubeMusicSearchClient
+    deliberately lacks, because the pod drives that same code against its own worker."""
+    cog = Music(fake_context['bot'], SEARCH_HA_CONFIG | BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert cog.youtube_music_search_driver is None
+    plain = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert plain.youtube_music_search_driver is not None
+
+
+@pytest.mark.asyncio
+async def test_search_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:disable=redefined-outer-name
+    """In HA the search loop lives in the search pod, so the bot registers no
+    youtube_music_search loop and emits no series for it. The pod publishes that
+    series instead, under the same loop name — so the heartbeat moves job labels
+    at the cutover rather than vanishing."""
+    cog = Music(fake_context['bot'], SEARCH_HA_CONFIG | BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client = Mock()
+    cog.youtube_music_search_client.start = AsyncMock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    assert not loop_heartbeat_observations(LOOP_YOUTUBE_MUSIC_SEARCH)
+    assert LOOP_HEALTH.get(LOOP_YOUTUBE_MUSIC_SEARCH) is None
+
+
+@pytest.mark.asyncio
+async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:disable=redefined-outer-name
+    """In HA, cog_load starts the search client's status poller and spawns no
+    bot-side search loop."""
+    cog = Music(fake_context['bot'], SEARCH_HA_CONFIG | BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client = Mock()
+    cog.youtube_music_search_client.start = AsyncMock()
+    mock_loop = Mock()
+    mock_loop.create_task = Mock(return_value=Mock())
+    cog.bot.loop = mock_loop
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    cog.youtube_music_search_client.start.assert_awaited_once()
+    assert cog._youtube_search_task is None  #pylint:disable=protected-access
+    # cleanup + 1 download loop + result + search_result — no youtube_search loop.
+    assert mock_loop.create_task.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_stops_search_client_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """In HA, cog_unload stops the search status poller / closes the HTTP session."""
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+    cog = Music(fake_context['bot'], SEARCH_HA_CONFIG | BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client = Mock()
+    cog.youtube_music_search_client.stop = AsyncMock()
+    cog.players = {}
+    await cog.cog_unload()
+    cog.youtube_music_search_client.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_leaves_search_client_alone_without_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Without the URL there is no poller or session to stop — the in-process
+    client has no stop() and calling one would be an AttributeError."""
+    mocker.patch('discord_bot.cogs.music.rm_tree')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.youtube_music_search_client = Mock()
+    cog.youtube_music_search_client.stop = AsyncMock()
+    cog.players = {}
+    await cog.cog_unload()
+    cog.youtube_music_search_client.stop.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -14,7 +14,7 @@ def yield_youtube_mock(results):
 
 
 def test_youtube_music_client(mocker):
-    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=yield_youtube_mock([]))
+    mocker.patch('discord_bot.utils.integrations._youtube_music_impl.YTMusic', side_effect=yield_youtube_mock([]))
     x = YoutubeMusicClient()
     assert x.search('foo bar') is None
 
@@ -24,7 +24,7 @@ def test_youtube_music_client_with_data(mocker):
             'videoId': '1234'
         }
     ]
-    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=yield_youtube_mock(results))
+    mocker.patch('discord_bot.utils.integrations._youtube_music_impl.YTMusic', side_effect=yield_youtube_mock(results))
     x = YoutubeMusicClient()
     assert x.search('foo bar') == '1234'
 
@@ -40,7 +40,7 @@ def _make_error_mock(exc):
 def test_youtube_music_server_error_429(mocker):
     '''YTMusicServerError with 429 in message raises YoutubeMusicRetryException'''
     error = YTMusicServerError('Rate limit hit: 429 Too Many Requests')
-    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=_make_error_mock(error))
+    mocker.patch('discord_bot.utils.integrations._youtube_music_impl.YTMusic', side_effect=_make_error_mock(error))
     client = YoutubeMusicClient()
     with pytest.raises(YoutubeMusicRetryException):
         client.search('foo bar')
@@ -49,7 +49,7 @@ def test_youtube_music_server_error_429(mocker):
 def test_youtube_music_server_error_other(mocker):
     '''YTMusicServerError without 429 re-raises the original error'''
     error = YTMusicServerError('Internal server error')
-    mocker.patch('discord_bot.utils.integrations.youtube_music.YTMusic', side_effect=_make_error_mock(error))
+    mocker.patch('discord_bot.utils.integrations._youtube_music_impl.YTMusic', side_effect=_make_error_mock(error))
     client = YoutubeMusicClient()
     with pytest.raises(YTMusicServerError):
         client.search('foo bar')

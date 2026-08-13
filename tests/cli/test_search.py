@@ -321,6 +321,69 @@ async def test_main_loop_registers_the_search_loop_health(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_loop_publishes_the_loop_heartbeat_gauge(mocker):
+    '''
+    The pod publishes its consumer loop's heartbeat, under the loop's own name.
+
+    Without this the only heartbeat series the pod emitted was the HTTP server's
+    (`youtube_music_search_server`), which reports is_serving — the TCP site is up,
+    not that the loop is turning — so a wedged loop read green in Mimir until the
+    liveness probe restarted the pod. It also means the cog's
+    `youtube_music_search` series MOVES job labels at the MR 6 cutover instead of
+    disappearing, which is the whole reason the pod reuses the cog's loop name.
+    '''
+    driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
+    gauge = mocker.patch.object(worker_pod, 'create_observable_gauge')
+    captured = _capture_signals(mocker)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        search_cli.main_loop(driver, server, None, redis_manager, metrics),
+        _fire_sigterm(),
+    )
+
+    gauge.assert_called_once()
+    assert gauge.call_args.args[1] == 'heartbeat'
+    # The bound loop name is what becomes the background_job label.
+    assert gauge.call_args.args[2].args == (search_cli.LOOP_SEARCH_WORKER,)
+
+
+@pytest.mark.asyncio
+async def test_pod_loop_heartbeat_reports_the_registered_loop(mocker):
+    '''
+    The published gauge reads the pod's real LoopHealth, so it reports 1 while the
+    loop is completing iterations and 0 once it has gone stale — the same bit the
+    /health probe reads, rather than a second, independent notion of liveness.
+    '''
+    driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
+    observations = {}
+    mocker.patch.object(
+        worker_pod, 'create_observable_gauge',
+        new=lambda _meter, name, callback, _desc: observations.setdefault(name, callback))
+    captured = _capture_signals(mocker)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        # Read the gauge while the loop is still registered and healthy.
+        observations['result'] = observations['heartbeat']()
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        search_cli.main_loop(driver, server, None, redis_manager, metrics),
+        _fire_sigterm(),
+    )
+
+    [observation] = observations['result']
+    assert observation.value == 1
+    assert observation.attributes['background_job'] == search_cli.LOOP_SEARCH_WORKER
+
+
+@pytest.mark.asyncio
 async def test_main_loop_marks_the_loop_stopped_on_drain(mocker):
     '''
     A deliberate drain marks the loop stopped, so a draining pod doesn't fail its
