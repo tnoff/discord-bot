@@ -30,6 +30,7 @@ import shutil
 from time import time
 from typing import Callable, List, Protocol
 
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
@@ -145,7 +146,15 @@ OTEL_SPAN_PREFIX = 'music.download_client'
 # Idle backoff for the run() consumer loop when no request is pending. Sleeping
 # ONLY on the empty path (not before a successful dequeue) keeps back-to-back
 # downloads at full throughput while cutting idle allocation churn (OOM fix).
-_IDLE_POLL_BACKOFF_SECONDS = 0.25
+#
+# Also paces create_source's NO_EXIT_AVAILABLE yield, where every exit is leased or
+# backed off and the item goes straight back on the queue.
+#
+# Every idle poll costs redis work per driver, and pool mode runs one driver per
+# worker_count, so the pod's floor traffic is this rate times the driver count. The
+# trade is pickup latency: a request queued just after a poll waits up to this long
+# before any driver sees it, on a path where the download itself then takes seconds.
+_IDLE_POLL_BACKOFF_SECONDS = 1.0
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 # bandit B104: yt-dlp's source-address config, not a server bind; '0.0.0.0' lets the OS pick (avoids ipv6 issues)
 YTDLP_SOURCE_ADDRESS = '0.0.0.0'  # nosec B104
@@ -482,6 +491,25 @@ class DownloadWorkerBase(ABC):
         '''Return the next pending MediaRequest, raising QueueEmpty if none available.'''
         return await self._merged_get_nowait()
 
+    async def _peek_next_request(self) -> MediaRequest:
+        '''
+        Poll for the next MediaRequest with client instrumentation suppressed.
+
+        run() polls every _IDLE_POLL_BACKOFF_SECONDS whether or not work exists, so
+        the redis spans this emits are almost entirely idle noise — with a driver per
+        egress exit they were ~98% of the downloader's span volume, at a rate set by
+        the poll interval rather than by anything happening.  Suppressing them keeps
+        the trace backend describing real work instead of an empty queue.
+
+        The suppression is scoped to the peek alone, so every span that describes a
+        download survives: create_source, submit, the audio/upload spans, and the
+        redis writes on the result path all run outside this call.  The backoff
+        branch's _dequeue_direct() peeks stay instrumented — they only run while a
+        backoff is active, which is rare and worth seeing.
+        '''
+        with suppress_instrumentation():
+            return await self._merged_get_nowait()
+
     # ------------------------------------------------------------------
     # Consumer loop
     # ------------------------------------------------------------------
@@ -510,7 +538,7 @@ class DownloadWorkerBase(ABC):
                     media_request = await self._dequeue_direct()
                 else:
                     try:
-                        media_request = await self._merged_get_nowait()
+                        media_request = await self._peek_next_request()
                     except QueueEmpty:
                         # Idle: nothing ready after backoff — back off before the
                         # loop runner re-calls rather than busy-spinning.
@@ -518,7 +546,7 @@ class DownloadWorkerBase(ABC):
                         return
         else:
             try:
-                media_request = await self._merged_get_nowait()
+                media_request = await self._peek_next_request()
             except QueueEmpty:
                 # Idle: no pending request — back off before re-poll instead of
                 # busy-spinning every ~10ms (which throttled busy downloads too).

@@ -14,6 +14,10 @@ from unittest.mock import AsyncMock
 
 import fakeredis.aioredis
 import pytest
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.cogs.music_helpers.common import SearchType
@@ -746,3 +750,71 @@ async def test_youtube_success_does_not_log_egress(mocker):
     result = _result(_mk(direct=False), success=True, extractor='youtube')
     await w.update_tracking(result)
     log_exit.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# Idle-poll cost
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_pool_is_empty_tracks_the_round_robin_zset():
+    '''_pool_is_empty reads the same per-pool ZSET _round_robin_pop pops from, so an
+    "empty" answer means the pop would have found nothing anyway.'''
+    w = _worker()
+    assert await w._pool_is_empty(direct=True) is True
+    assert await w._pool_is_empty(direct=False) is True
+    await w._enqueue_request(7, _mk(direct=True))
+    assert await w._pool_is_empty(direct=True) is False
+    # The pools are independent — a DIRECT item leaves the YouTube pool empty.
+    assert await w._pool_is_empty(direct=False) is True
+
+
+@pytest.mark.asyncio
+async def test_idle_pop_takes_no_lock():
+    '''An idle poll must not burn a SET NX + GET + DEL lock cycle per pool just to
+    discover an empty queue. Pool mode runs a driver per egress exit and every driver
+    polls on the idle interval, so that cycle was the pod's dominant redis traffic.'''
+    w = _worker()
+    writes = []
+    client = w._manager.client
+    real_set, real_delete = client.set, client.delete
+
+    async def _spy_set(*args, **kwargs):
+        writes.append(('set', args[0]))
+        return await real_set(*args, **kwargs)
+
+    async def _spy_delete(*args, **kwargs):
+        writes.append(('delete', args[0]))
+        return await real_delete(*args, **kwargs)
+
+    client.set, client.delete = _spy_set, _spy_delete
+
+    assert await w._atomic_pop_direct() is None
+    assert await w._atomic_pop_youtube() is None
+    assert not writes
+
+
+@pytest.mark.asyncio
+async def test_idle_peek_emits_no_spans():
+    '''The idle peek suppresses client instrumentation end to end: polling an empty
+    queue emits no redis spans, while the same read outside the peek still does.
+    Those idle spans were ~98% of the downloader's span volume in pool mode, at a
+    rate set by the poll interval rather than by anything actually happening.'''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    instrumentor = RedisInstrumentor()
+    instrumentor.instrument(tracer_provider=provider)
+    try:
+        w = _worker()
+        # Baseline: the same queue read is traced when it isn't the idle peek.
+        with pytest.raises(asyncio.QueueEmpty):
+            await w._merged_get_nowait()
+        assert [s.name for s in exporter.get_finished_spans()]
+        exporter.clear()
+
+        with pytest.raises(asyncio.QueueEmpty):
+            await w._peek_next_request()
+        assert not exporter.get_finished_spans()
+    finally:
+        instrumentor.uninstrument()

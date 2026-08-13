@@ -216,8 +216,30 @@ class RedisDownloadWorker(DownloadWorkerBase):
             await client.delete(request_key)
             return int(guild_id), request_uuid, raw
 
+    async def _pool_is_empty(self, *, direct: bool) -> bool:
+        '''
+        Lock-free "is there anything queued at all" check for one pool.
+
+        The consumer loop polls every _IDLE_POLL_BACKOFF_SECONDS whether or not work
+        exists, and an idle poll that goes straight into _pop_lock costs a SET NX +
+        GET + DEL lock cycle per pool just to have _round_robin_pop discover an empty
+        ZSET.  With a driver per egress exit that was the pod's dominant redis
+        traffic (and ~98% of its trace spans).  Checking the round-robin ZSET first
+        collapses an idle poll to one ZCARD per pool and takes no lock.
+
+        Only ever skips work that _round_robin_pop would also have skipped: it reads
+        the same ZSET that ZRANGE reads, so an empty count means an empty ZRANGE.  A
+        request landing right after the check simply waits for the next poll, and the
+        count is not trusted in the other direction — a non-empty ZSET still takes the
+        lock and re-checks under it, because a guild can sit in the ZSET with an
+        already-drained queue.
+        '''
+        return not await self._manager.client.zcard(self._guilds_zset_key(direct=direct))
+
     async def _atomic_pop_direct(self) -> tuple[int, str, str | None] | None:
         '''Round-robin pop one DIRECT request under the direct-pool lock.'''
+        if await self._pool_is_empty(direct=True):
+            return None
         async with self._pop_lock(direct=True):
             return await self._round_robin_pop(direct=True)
 
@@ -230,7 +252,14 @@ class RedisDownloadWorker(DownloadWorkerBase):
         serialise pod-wide and concurrent drivers can each pop + reserve a distinct
         exit.  Fixed http-proxy mode keeps the single shared window: bail with
         ('wait', ts) while it backs off, else pop and re-claim it.
+
+        An empty pool returns None before the lock, so a backing-off fixed-mode pod
+        with nothing queued reports "empty" rather than ('wait', ts).  Both raise
+        QueueEmpty in _merged_get_nowait; the 'wait' signal only carries information
+        when there is actually something queued behind the window.
         '''
+        if await self._pool_is_empty(direct=False):
+            return None
         async with self._pop_lock(direct=False):
             if self._egress.is_pool:
                 return await self._round_robin_pop(direct=False)
