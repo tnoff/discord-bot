@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Worker pods now close their outbound broker session when they drain. Both the search and downloader pods hold an `HttpBrokerClient` for the life of the process and neither closed it, so aiohttp logged `Unclosed client session` at ERROR level on every single pod roll — observed in prod during the search cutover. Nothing leaked for long, since the process is exiting either way, but it put a recurring ERROR in the exact window an operator reads logs during a deploy, which is how a real shutdown failure gets missed. `worker_pod_main_loop` takes the client and closes it after draining the HTTP server and before closing Redis, so both pods get the fix from the one place they already share.
+
+## [2.5.74] - 2026-08-13
+
+### Changed
+
 - The `attempt N/M` retry message now takes its M from the worker that owns the N. The count is reported by the downloader (or the search pod) and rendered by the broker, but the budget was read separately by the broker out of *its own* config file — a different file from the worker's, with `max_download_retries` defaulting to 3 in code if unset. Raising the downloader's budget to 5 without touching the broker's config therefore produced `Retrying "…" (attempt 4/3)` in prod on 2026-08-13: a live count against a stale budget. `LifecycleStatusUpdate` now carries `max_retries` alongside `retry_count`, the brokers persist it as `RetryInformation.retry_max`, and `get_retry_summary` prefers it over its own configured max. The broker-side config keys stay as the fallback for a request last touched by a worker that reports no budget, so nothing changes for a single-process deployment where both halves already came from one file.
 
 ## [2.5.73] - 2026-08-13
