@@ -158,6 +158,23 @@ _IDLE_POLL_BACKOFF_SECONDS = 1.0
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 # bandit B104: yt-dlp's source-address config, not a server bind; '0.0.0.0' lets the OS pick (avoids ipv6 issues)
 YTDLP_SOURCE_ADDRESS = '0.0.0.0'  # nosec B104
+# Hold-off before a failed YouTube download is eligible again, doubling per attempt.
+#
+# Pool mode replaced the pod-global backoff with a PER-EXIT one, which rotates exits
+# but paces a single request not at all: a retry re-queued instantly just leases the
+# next free exit. When failures are correlated across exits — a bot-check wave, which
+# is what the 2026-08-13 incident was — that is no pacing whatsoever, and the whole
+# 16-exit pool drained in ~45s while seven distinct videos failed on every one of
+# them. Worse, each lease locks its exit for wait_period_minimum (90s) whether it
+# succeeds or fails, so instant retries burn the pool's throughput ceiling
+# (16 exits / 90s) on attempts that cannot succeed yet, starving requests that could.
+#
+# This is the per-request half the pool migration dropped. DIRECT items are exempt:
+# they are not YouTube-rate-limited and bypass backoff everywhere else too.
+RETRY_BACKOFF_SECONDS_MINIMUM = 30
+# Ceiling on the doubling, so raising max_download_retries can't strand a request
+# for an hour. At the 30s default the sequence is 30/60/120/240/300…
+RETRY_BACKOFF_SECONDS_MAXIMUM = 300
 
 def match_generator(max_video_length: int, banned_videos_list: List[str]):
     '''
@@ -247,6 +264,7 @@ class DownloadWorkerBase(ABC):
         normalize_audio: bool = False,
         broker: BrokerClient | None = None,
         max_retries: int = 3,
+        retry_backoff_seconds_minimum: int = RETRY_BACKOFF_SECONDS_MINIMUM,
         egress_mode: str = EGRESS_MODE_HTTP_PROXY,
         egress_exits: List[str] | None = None,
     ):
@@ -262,6 +280,8 @@ class DownloadWorkerBase(ABC):
                       holds the S3 object key instead of a local path
         broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
+        retry_backoff_seconds_minimum : First retry's hold-off; doubles per attempt.
+                                        0 restores the pre-existing immediate requeue.
         '''
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -299,6 +319,7 @@ class DownloadWorkerBase(ABC):
         self._broker = broker
         self._download_dir = download_dir
         self._max_retries = max_retries
+        self._retry_backoff_minimum = retry_backoff_seconds_minimum
         self.failure_queue: FailureQueue | None = failure_queue
         self._wait_period_minimum = wait_period_minimum
         self._wait_period_max_variance = wait_period_max_variance
@@ -446,6 +467,46 @@ class DownloadWorkerBase(ABC):
         '''Route a MediaRequest to the correct input queue based on its search type.'''
 
     @abstractmethod
+    async def _enqueue_deferred_request(self, guild_id: int, media_request: MediaRequest,
+                                        ready_at: float) -> None:
+        '''Hold a MediaRequest out of the input queue until ready_at (epoch seconds).
+
+        Held requests must survive a pod restart wherever the input queue does —
+        a retry parked in process memory on the Redis worker would silently
+        vanish, which is exactly the failure the durable queue exists to prevent.
+        '''
+
+    @abstractmethod
+    async def _promote_ready_retries(self) -> None:
+        '''Move every deferred request whose ready_at has passed onto the input queue.
+
+        Called once per consumer-loop iteration, so it runs at the idle poll rate
+        per driver; implementations must cost ~one round trip when nothing is due.
+        '''
+
+    def _retry_delay_seconds(self, media_request: MediaRequest, retry_count: int) -> int:
+        '''Seconds to hold this retry off the queue, doubling per attempt.
+
+        Returns 0 for DIRECT items (not YouTube-rate-limited, and they bypass
+        backoff everywhere else) and when the backoff is configured off, in which
+        case the retry is re-queued immediately as it was before.
+        '''
+        if media_request.search_result.search_type == SearchType.DIRECT:
+            return 0
+        if self._retry_backoff_minimum <= 0:
+            return 0
+        delay = self._retry_backoff_minimum * (2 ** max(0, retry_count - 1))
+        return int(min(delay, RETRY_BACKOFF_SECONDS_MAXIMUM))
+
+    async def _requeue_after_retry(self, media_request: MediaRequest, delay_seconds: int) -> None:
+        '''Re-queue a retried request, deferring it when a hold-off applies.'''
+        if delay_seconds <= 0:
+            await self._enqueue_request(media_request.guild_id, media_request)
+            return
+        ready_at = datetime.now(timezone.utc).timestamp() + delay_seconds
+        await self._enqueue_deferred_request(media_request.guild_id, media_request, ready_at)
+
+    @abstractmethod
     async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
 
@@ -528,6 +589,10 @@ class DownloadWorkerBase(ABC):
         non-DIRECT items wait for the backoff to expire.  A DIRECT item
         arriving mid-wait interrupts the wait via DirectItemAvailableException.
         '''
+        # Deferred retries become eligible on wall-clock time, not on an event, so
+        # something has to look. This is the only place that runs regardless of
+        # which dequeue branch is taken below.
+        await self._promote_ready_retries()
         if self.backoff_seconds_remaining:
             try:
                 media_request = await self._dequeue_direct()
@@ -572,17 +637,24 @@ class DownloadWorkerBase(ABC):
             DownloadErrorType.RETRYABLE, DownloadErrorType.BOT_FLAGGED
         }:
             media_request.download_retry_information.retry_count += 1
-            self.logger.info('Retryable error on "%s": %s', media_request, result.status.error_detail)
+            retry_delay = self._retry_delay_seconds(
+                media_request, media_request.download_retry_information.retry_count)
+            self.logger.info('Retryable error on "%s" (retry %d/%d in %ds): %s',
+                             media_request, media_request.download_retry_information.retry_count,
+                             self._max_retries, retry_delay, result.status.error_detail)
             self.logger.info('Failure queue: %s', self.failure_summary)
             if self._broker is not None:
                 await self._broker.update_request_status(request_uuid, LifecycleStatusUpdate(
                     event=LifecycleEvent.RETRY,
                     error_detail=result.status.error_detail,
-                    backoff_seconds=self.backoff_seconds_remaining,
+                    # This request's own hold-off, not the pod-global window: with
+                    # the retry deferred, the wait is now a real per-request number
+                    # rather than "whenever some exit frees".
+                    backoff_seconds=retry_delay or self.backoff_seconds_remaining,
                     retry_count=media_request.download_retry_information.retry_count,
                     max_retries=self._max_retries,
                 ))
-            await self._enqueue_request(media_request.guild_id, media_request)
+            await self._requeue_after_retry(media_request, retry_delay)
             return
 
         # Report the finished result to the broker, which persists a successful

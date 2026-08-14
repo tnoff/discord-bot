@@ -36,6 +36,12 @@ music:
 
     youtube_wait_period_minimum: 30
     youtube_wait_period_max_variance: 10
+    # Hold-off before a failed YouTube download becomes eligible again, doubling
+    # per attempt (30/60/120/240…, capped at 300s). This is per REQUEST; the
+    # windows above are per EXIT, and a retry re-queued instantly just leases the
+    # next free exit — which paces nothing when every exit is failing at once.
+    # Set 0 to restore the immediate requeue. DIRECT items are always exempt.
+    retry_backoff_seconds_minimum: 30
     # No storage.bucket_name -> finished files stay local. That's enough to watch
     # downloads egress through the SOCKS5 exits (grep the logs for "Download egress
     # via exit ..."); add MinIO + a bucket here + on the broker/bot for real playback.

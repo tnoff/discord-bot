@@ -63,6 +63,16 @@ FAILURES_DIRECT_KEY = 'discord_bot:download:failures:direct'
 
 DEFAULT_YOUTUBE_EGRESS_KEY = 'default'
 
+# Retries serving out a hold-off, scored by the epoch second they become eligible.
+# One global ZSET rather than one per guild: promotion is time-ordered across the
+# whole pod, so a single ZRANGEBYSCORE answers "anything due?" in one round trip on
+# the idle path. Members carry '{guild_id}:{request_uuid}' so size/clear can filter
+# by guild without fetching every payload.
+DEFERRED_RETRIES_KEY = 'discord_bot:download:deferred_retries'
+# Cap per promotion sweep so a large backlog coming due at once can't stall the
+# consumer loop; the remainder promotes on the next poll a second later.
+DEFERRED_PROMOTE_BATCH = 32
+
 REQUEST_TTL_SECONDS = 86400  # 24h fallback so abandoned items eventually expire
 FAILURE_TTL_SECONDS = 600  # 10 min — matches FailureQueue.max_age_seconds default
 BACKOFF_POLL_SECONDS = 0.1  # granularity of backoff_wait's shutdown/direct-interrupt polling
@@ -323,6 +333,50 @@ class RedisDownloadWorker(DownloadWorkerBase):
         if direct:
             self._direct_pending_cache = True
 
+    @staticmethod
+    def _deferred_member(guild_id: int, request_uuid: str) -> str:
+        return f'{guild_id}:{request_uuid}'
+
+    @staticmethod
+    def _split_deferred_member(member: str) -> tuple[int, str]:
+        guild_id, _, request_uuid = member.partition(':')
+        return int(guild_id), request_uuid
+
+    async def _enqueue_deferred_request(self, guild_id: int, media_request: MediaRequest,
+                                        ready_at: float) -> None:
+        '''Persist the request and park it in the deferred ZSET until ready_at.
+
+        The payload is written the same way _enqueue_request writes it — the pop
+        path DELETEs it on the way out, so a deferred request has no stored copy
+        left to promote from otherwise.
+        '''
+        request_uuid = str(media_request.uuid)
+        client = self._manager.client
+        await client.set(self._request_key(request_uuid),
+                         media_request.model_dump_json(), ex=REQUEST_TTL_SECONDS)
+        await client.zadd(DEFERRED_RETRIES_KEY,
+                          {self._deferred_member(guild_id, request_uuid): ready_at})
+
+    async def _promote_ready_retries(self) -> None:
+        '''Move every deferred retry whose hold-off has elapsed onto its guild queue.'''
+        client = self._manager.client
+        due = await client.zrangebyscore(DEFERRED_RETRIES_KEY, '-inf', self._now_seconds(),
+                                         start=0, num=DEFERRED_PROMOTE_BATCH)
+        for member in due:
+            # ZREM is the claim: pods share this ZSET, and only the one whose ZREM
+            # removed the member may re-queue it. Without that, two pods promoting
+            # the same second would each enqueue the request and download it twice.
+            if not await client.zrem(DEFERRED_RETRIES_KEY, member):
+                continue
+            _, request_uuid = self._split_deferred_member(member)
+            raw = await client.get(self._request_key(request_uuid))
+            if raw is None:
+                # Payload TTL'd out from under us (24h) — the claim is already
+                # released, so dropping it here is the whole cleanup.
+                continue
+            media_request = self._parse_raw(raw)
+            await self._enqueue_request(media_request.guild_id, media_request)
+
     async def block_guild(self, guild_id: int) -> bool:
         '''Mark the guild blocked (used during shutdown/cleanup).'''
         await self._manager.client.set(self._guild_blocked_key(guild_id), '1')
@@ -341,14 +395,48 @@ class RedisDownloadWorker(DownloadWorkerBase):
             # Drop the guild from the round-robin tracker if its queue is now empty.
             if await client.zcard(queue_key) == 0:
                 await client.zrem(self._guilds_zset_key(direct=direct), str(guild_id))
+        # Deferred retries are pending work for this guild too — left parked they
+        # would resurrect a cleared request when their hold-off elapses.
+        dropped.extend(await self._drain_deferred_for_guild(guild_id, preserve_predicate))
         return dropped
 
+    async def _drain_deferred_for_guild(self, guild_id: int,
+                                        preserve_predicate: Callable[[MediaRequest], bool] | None,
+                                        ) -> List[MediaRequest]:
+        '''Remove and return this guild's deferred retries, honouring the predicate.'''
+        client = self._manager.client
+        dropped: List[MediaRequest] = []
+        for member in await self._deferred_members_for_guild(guild_id):
+            _, request_uuid = self._split_deferred_member(member)
+            raw = await client.get(self._request_key(request_uuid))
+            if raw is None:
+                await client.zrem(DEFERRED_RETRIES_KEY, member)
+                continue
+            media_request = parse_media_request(json.loads(raw))
+            if preserve_predicate is not None and preserve_predicate(media_request):
+                continue
+            await client.zrem(DEFERRED_RETRIES_KEY, member)
+            await client.delete(self._request_key(request_uuid))
+            dropped.append(media_request)
+        return dropped
+
+    async def _deferred_members_for_guild(self, guild_id: int) -> List[str]:
+        '''Deferred ZSET members belonging to one guild, by member prefix.'''
+        prefix = f'{guild_id}:'
+        return [member for member in await self._manager.client.zrange(DEFERRED_RETRIES_KEY, 0, -1)
+                if member.startswith(prefix)]
+
     async def queue_size(self, guild_id: int) -> int:
-        '''Total pending requests for a guild across both pools.'''
+        '''Total pending requests for a guild across both pools.
+
+        Deferred retries count: they are work the guild is still waiting on, and a
+        caller reading 0 concludes it has drained.
+        '''
         client = self._manager.client
         youtube = await client.zcard(self._guild_queue_key(guild_id, direct=False)) or 0
         direct = await client.zcard(self._guild_queue_key(guild_id, direct=True)) or 0
-        return youtube + direct
+        deferred = len(await self._deferred_members_for_guild(guild_id))
+        return youtube + direct + deferred
 
     async def _dequeue_direct(self) -> MediaRequest:
         '''Dequeue the next DIRECT item, raising QueueEmpty if none available.'''

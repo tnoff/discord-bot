@@ -29,7 +29,9 @@ from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableTyp
 from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
-from discord_bot.interfaces.download_protocols import DownloadClient
+from discord_bot.interfaces.download_protocols import (
+    DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
+)
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.utils.failure_queue import FailureQueue
@@ -131,6 +133,9 @@ class MusicDownloadConfig(BaseModel):
     storage: Optional[MusicStorageConfig] = None
     normalize_audio: bool = False
     max_download_retries: int = Field(default=3, ge=1)
+    # Hold-off before a failed YouTube download is retried, doubling per attempt.
+    # 0 restores the immediate requeue (see RETRY_BACKOFF_SECONDS_MINIMUM).
+    retry_backoff_seconds_minimum: int = Field(default=RETRY_BACKOFF_SECONDS_MINIMUM, ge=0)
     max_youtube_music_search_retries: int = Field(default=3, ge=1)
     # Mostly to keep a cap on the queue to avoid issues
     failure_tracking_max_size: int = Field(default=100, ge=1)
@@ -335,6 +340,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 'normalize_audio': self.config.download.normalize_audio,
                 'broker': self.broker_client,
                 'max_retries': self.config.download.max_download_retries,
+                'retry_backoff_seconds_minimum': self.config.download.retry_backoff_seconds_minimum,
             }
             if self.config.download.redis_backed and self.redis_manager:
                 # Redis-backed queue: shareable across downloader pods (MR 2b runs it

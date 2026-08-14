@@ -42,6 +42,11 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         self._input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_available: asyncio.Event = asyncio.Event()
+        # Retries waiting out their hold-off, as (ready_at, guild_id, request).
+        # In-process is the whole storage story here: this worker's input queues
+        # are memory too, so a restart loses a deferred retry exactly as it loses
+        # a queued one. The Redis worker, whose queue is durable, persists instead.
+        self._deferred_retries: list[tuple[float, int, MediaRequest]] = []
 
     @property
     def has_direct_pending(self) -> bool:
@@ -97,6 +102,24 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         else:
             self._input_queue.put_nowait(guild_id, media_request, priority=priority)
 
+    async def _enqueue_deferred_request(self, guild_id: int, media_request: MediaRequest,
+                                        ready_at: float) -> None:
+        '''Park a retry until ready_at instead of queueing it now.'''
+        self._deferred_retries.append((ready_at, guild_id, media_request))
+
+    async def _promote_ready_retries(self) -> None:
+        '''Queue every parked retry whose hold-off has elapsed.'''
+        if not self._deferred_retries:
+            return
+        now = datetime.now(timezone.utc).timestamp()
+        still_waiting = []
+        for ready_at, guild_id, media_request in self._deferred_retries:
+            if ready_at > now:
+                still_waiting.append((ready_at, guild_id, media_request))
+                continue
+            await self._enqueue_request(guild_id, media_request)
+        self._deferred_retries = still_waiting
+
     async def block_guild(self, guild_id: int) -> bool:
         '''Block new submissions for a guild (used during shutdown).'''
         a = self._input_queue.block(guild_id)
@@ -109,15 +132,38 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         '''Clear the input queue for a guild, returning the dropped requests.'''
         dropped = self._input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
         dropped += self._direct_input_queue.clear_queue(guild_id, preserve_predicate=preserve_predicate)
+        # Deferred retries are part of this guild's pending work — leaving them
+        # parked would resurrect a cleared request minutes after the clear.
+        dropped += self._drop_deferred_for_guild(guild_id, preserve_predicate)
         # If no DIRECT items remain across any guild, disarm the wakeup event so
         # backoff_wait does not spuriously raise DirectItemAvailableException.
         if self._direct_input_queue.total_size() == 0:
             self._direct_available.clear()
         return dropped
 
+    def _drop_deferred_for_guild(self, guild_id: int,
+                                 preserve_predicate: Callable[[MediaRequest], bool] | None,
+                                 ) -> list[MediaRequest]:
+        '''Remove and return this guild's deferred retries, honouring the predicate.'''
+        dropped = []
+        kept = []
+        for entry in self._deferred_retries:
+            _, entry_guild, media_request = entry
+            if entry_guild == guild_id and not (preserve_predicate and preserve_predicate(media_request)):
+                dropped.append(media_request)
+                continue
+            kept.append(entry)
+        self._deferred_retries = kept
+        return dropped
+
     async def queue_size(self, guild_id: int) -> int:
-        '''Return the number of pending requests for a guild, or 0 if none.'''
-        return (self._input_queue.size(guild_id) or 0) + (self._direct_input_queue.size(guild_id) or 0)
+        '''Return the number of pending requests for a guild, or 0 if none.
+
+        Deferred retries count: they are pending work the guild is still waiting
+        on, and a caller that reads 0 concludes the guild has drained.
+        '''
+        deferred = sum(1 for _, entry_guild, _ in self._deferred_retries if entry_guild == guild_id)
+        return (self._input_queue.size(guild_id) or 0) + (self._direct_input_queue.size(guild_id) or 0) + deferred
 
     async def _dequeue_direct(self) -> MediaRequest:
         '''Dequeue from the direct queue and clear the wakeup event if it is now empty.'''

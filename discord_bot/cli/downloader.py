@@ -22,6 +22,10 @@ Configure with:
     music.download.*                   — yt-dlp + backoff config (extra_ytdlp_options,
                                          max_video_length, banned_videos_list,
                                          youtube_wait_period_minimum, etc.)
+    music.download.retry_backoff_seconds_minimum
+                                       — hold-off before a failed YouTube download is
+                                         retried, doubling per attempt (default 30;
+                                         0 restores the immediate requeue)
     general.downloader_server          — {host, port} for the HTTP server
                                          (default 0.0.0.0:8083)
 '''
@@ -34,6 +38,7 @@ import click
 
 from discord_bot.clients.broker_client import HttpBrokerClient
 from discord_bot.clients.redis_client import RedisManager
+from discord_bot.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.utils.common import GeneralConfig
 from discord_bot.utils.loop_health import LoopHealth
@@ -171,6 +176,8 @@ def run(settings: dict, general_config: GeneralConfig):
         normalize_audio=bool(download_cfg.get('normalize_audio', False)),
         broker=broker_client,
         max_retries=int(download_cfg.get('max_download_retries', 3)),
+        retry_backoff_seconds_minimum=int(download_cfg.get(
+            'retry_backoff_seconds_minimum', RETRY_BACKOFF_SECONDS_MINIMUM)),
         egress_mode=egress_mode,
         egress_exits=download_cfg.get('egress_exits'),
     )

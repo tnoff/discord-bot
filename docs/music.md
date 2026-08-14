@@ -449,6 +449,26 @@ When a retryable error occurs:
 4. The request is processed again from the download queue
 5. If all retries are exhausted, the request is marked as permanently failed
 
+Step 2 holds the request off the queue before it becomes eligible again, doubling
+per attempt (30s, 60s, 120s, …, capped at 300s):
+
+```
+music:
+  download:
+    retry_backoff_seconds_minimum: 30  # Default: 30; 0 = retry immediately
+```
+
+This is a **per-request** wait, distinct from the per-exit windows that
+`youtube_wait_period_minimum` controls. In pool (`egress_mode`) deployments a
+retry that goes straight back on the queue simply leases the next free exit, so
+the per-exit backoff paces a single request not at all — and because every lease
+locks its exit for `youtube_wait_period_minimum` whether it succeeds or fails,
+instant retries consume the pool's throughput ceiling on attempts that cannot
+succeed while a failure wave is in progress. Requests waiting out a hold-off
+still count toward the guild's queue size and are dropped by a queue clear.
+DIRECT (non-YouTube) requests are exempt and retry immediately, as they bypass
+backoff everywhere else.
+
 This feature helps handle temporary network issues without requiring manual intervention, improving the reliability of playlist and album downloads.
 
 The bot also includes an **adaptive backoff system** that automatically increases wait times when failures occur frequently. See [Retry Backoff System](./music/retry_backoff.md) for detailed explanation of the simple counting-based algorithm and configuration options.

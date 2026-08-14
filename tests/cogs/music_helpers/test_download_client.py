@@ -1742,3 +1742,123 @@ async def test_create_source_stamps_unknown_exit_when_no_probe(mocker):
     attributes = create_calls[0].kwargs['attributes']
     assert attributes['egress.hostname'] == 'unknown'
     assert attributes['egress.ip'] == 'unknown'
+
+
+# --------------------------------------------------------------------------- #
+# Retry hold-off
+# --------------------------------------------------------------------------- #
+
+def test_retry_delay_doubles_per_attempt_and_caps():
+    '''The hold-off doubles per attempt and stops at the ceiling.
+
+    Pool mode's per-exit backoff rotates exits but paces a single request not at
+    all, so retries burn one 90s exit lease each while every exit is failing.
+    '''
+    client = make_download_client(retry_backoff_seconds_minimum=30)
+    mr = fake_source_dict(generate_fake_context())
+    assert [client._retry_delay_seconds(mr, n) for n in (1, 2, 3, 4)] == [30, 60, 120, 240]
+    # Raising max_download_retries can't strand a request for an hour.
+    assert client._retry_delay_seconds(mr, 10) == download_protocols.RETRY_BACKOFF_SECONDS_MAXIMUM
+
+
+def test_retry_delay_zero_for_direct_and_when_disabled():
+    '''DIRECT items are exempt (not YouTube-rate-limited, and they bypass backoff
+    everywhere else), and 0 restores the immediate requeue.'''
+    fake_context = generate_fake_context()
+    client = make_download_client(retry_backoff_seconds_minimum=30)
+    assert client._retry_delay_seconds(fake_source_dict(fake_context, is_direct_search=True), 1) == 0
+
+    disabled = make_download_client(retry_backoff_seconds_minimum=0)
+    assert disabled._retry_delay_seconds(fake_source_dict(fake_context), 1) == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_retryable_defers_instead_of_requeueing():
+    '''A retryable failure parks the request instead of putting it straight back.
+
+    Re-queued immediately it is popped again within the poll interval and leases
+    another exit — the behaviour that drained a 16-exit pool in ~45s on
+    2026-08-13. The request is still pending (queue_size counts it), just not
+    servable yet.
+    '''
+    fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
+    client = make_download_client(yield_dlp_error('Read timed out.'), broker=mock_broker,
+                                  retry_backoff_seconds_minimum=30)
+    mr = fake_source_dict(fake_context)
+    await client.submit(mr.guild_id, mr)
+    await client.run(asyncio.Event())
+
+    assert await client.queue_size(mr.guild_id) == 1
+    with pytest.raises(QueueEmpty):
+        await client._merged_get_nowait()
+    # The RETRY reports this request's own hold-off, not the pod-global window.
+    retry_update = next(call.args[1] for call in mock_broker.update_request_status.call_args_list
+                        if call.args[1].event == LifecycleEvent.RETRY)
+    assert retry_update.backoff_seconds == 30
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_run_retryable_requeues_immediately_when_backoff_disabled():
+    '''retry_backoff_seconds_minimum=0 keeps the pre-existing instant requeue.'''
+    fake_context = generate_fake_context()
+    client = make_download_client(yield_dlp_error('Read timed out.'), broker=AsyncMock(),
+                                  retry_backoff_seconds_minimum=0)
+    mr = fake_source_dict(fake_context)
+    await client.submit(mr.guild_id, mr)
+    await client.run(asyncio.Event())
+
+    assert not client._deferred_retries
+    assert str((await client._merged_get_nowait()).uuid) == str(mr.uuid)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_promote_ready_retries_releases_only_elapsed_holds():
+    '''run() promotes a retry once its hold-off has elapsed, and not before.'''
+    fake_context = generate_fake_context()
+    client = make_download_client(retry_backoff_seconds_minimum=30)
+    ready, waiting = fake_source_dict(fake_context), fake_source_dict(fake_context)
+    now = datetime.now(timezone.utc).timestamp()
+    await client._enqueue_deferred_request(ready.guild_id, ready, now - 1)
+    await client._enqueue_deferred_request(waiting.guild_id, waiting, now + 3600)
+
+    await client._promote_ready_retries()
+
+    assert str((await client._merged_get_nowait()).uuid) == str(ready.uuid)
+    with pytest.raises(QueueEmpty):
+        await client._merged_get_nowait()
+    assert len(client._deferred_retries) == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_clear_guild_queue_drops_deferred_retries():
+    '''Clearing a guild takes its parked retries with it, scoped to that guild.'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mine = fake_source_dict(fake_context)
+    theirs = fake_source_dict(fake_context)
+    theirs.guild_id = mine.guild_id + 1
+    now = datetime.now(timezone.utc).timestamp()
+    await client._enqueue_deferred_request(mine.guild_id, mine, now + 3600)
+    await client._enqueue_deferred_request(theirs.guild_id, theirs, now + 3600)
+
+    dropped = await client.clear_guild_queue(mine.guild_id)
+
+    assert [str(r.uuid) for r in dropped] == [str(mine.uuid)]
+    assert await client.queue_size(mine.guild_id) == 0
+    assert await client.queue_size(theirs.guild_id) == 1
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_clear_guild_queue_preserves_deferred_when_predicate_keeps_it():
+    '''A preserved deferred retry survives the clear and stays parked.'''
+    fake_context = generate_fake_context()
+    client = make_download_client()
+    mr = fake_source_dict(fake_context)
+    await client._enqueue_deferred_request(
+        mr.guild_id, mr, datetime.now(timezone.utc).timestamp() + 3600)
+
+    dropped = await client.clear_guild_queue(mr.guild_id, preserve_predicate=lambda _r: True)
+
+    assert not dropped
+    assert await client.queue_size(mr.guild_id) == 1

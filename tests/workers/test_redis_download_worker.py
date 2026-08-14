@@ -27,7 +27,7 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,
-    FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
+    DEFERRED_RETRIES_KEY, FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
     youtube_failures_key, youtube_wait_until_key,
 )
 
@@ -818,3 +818,146 @@ async def test_idle_peek_emits_no_spans():
         assert not exporter.get_finished_spans()
     finally:
         instrumentor.uninstrument()
+
+
+# --------------------------------------------------------------------------- #
+# Deferred retries
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_deferred_retry_is_withheld_until_ready():
+    '''A deferred retry is not poppable, then is once its hold-off has passed.
+
+    This is the pacing the pool migration lost: per-exit backoff rotates exits
+    but does not hold a single request back at all, so a retry re-queued
+    instantly just leases the next free exit and burns it.
+    '''
+    w = _worker()
+    request = _mk()
+    await w._enqueue_deferred_request(request.guild_id, request,
+                                      w._now_seconds() + 3600)
+    # Parked: nothing on the guild queue, so the consumer loop sees an empty pool.
+    await w._promote_ready_retries()
+    with pytest.raises(asyncio.QueueEmpty):
+        await w._merged_get_nowait()
+
+    # Same request, now due.
+    await w._manager.client.zadd(
+        DEFERRED_RETRIES_KEY,
+        {w._deferred_member(request.guild_id, str(request.uuid)): w._now_seconds() - 1})
+    await w._promote_ready_retries()
+    popped = await w._merged_get_nowait()
+    assert str(popped.uuid) == str(request.uuid)
+    # The claim is consumed — a second sweep must not re-queue it.
+    await w._promote_ready_retries()
+    with pytest.raises(asyncio.QueueEmpty):
+        await w._merged_get_nowait()
+
+
+@pytest.mark.asyncio
+async def test_promote_ready_retries_drops_expired_payload():
+    '''A deferred entry whose request payload TTL'd away is discarded, not raised.'''
+    w = _worker()
+    request = _mk()
+    await w._enqueue_deferred_request(request.guild_id, request, w._now_seconds() - 1)
+    await w._manager.client.delete(w._request_key(str(request.uuid)))
+
+    await w._promote_ready_retries()
+
+    assert await w._manager.client.zcard(DEFERRED_RETRIES_KEY) == 0
+    with pytest.raises(asyncio.QueueEmpty):
+        await w._merged_get_nowait()
+
+
+@pytest.mark.asyncio
+async def test_deferred_retry_claimed_once_across_pods():
+    '''Two pods sharing the ZSET promote a due retry exactly once.
+
+    Both sweep the same second; the ZREM decides. Without it each would enqueue
+    the request and the video would download twice.
+    '''
+    manager = _manager()
+    pod_a, pod_b = _worker(manager), _worker(manager)
+    request = _mk()
+    await pod_a._enqueue_deferred_request(request.guild_id, request,
+                                          pod_a._now_seconds() - 1)
+
+    await pod_a._promote_ready_retries()
+    await pod_b._promote_ready_retries()
+
+    assert await pod_a.queue_size(request.guild_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_deferred_retry_counts_toward_queue_size():
+    '''A guild waiting only on a deferred retry does not report an empty queue —
+    a caller reading 0 concludes the guild has drained.'''
+    w = _worker()
+    request = _mk(guild_id=11)
+    await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
+    assert await w.queue_size(11) == 1
+    # Scoped to the guild that owns it.
+    assert await w.queue_size(12) == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_guild_queue_drops_deferred_retries():
+    '''Clearing a guild takes its parked retries with it — otherwise a cleared
+    request reappears minutes later when its hold-off elapses.'''
+    w = _worker()
+    mine, theirs = _mk(guild_id=11), _mk(guild_id=12)
+    await w._enqueue_deferred_request(11, mine, w._now_seconds() + 3600)
+    await w._enqueue_deferred_request(12, theirs, w._now_seconds() + 3600)
+
+    dropped = await w.clear_guild_queue(11)
+
+    assert [str(r.uuid) for r in dropped] == [str(mine.uuid)]
+    assert await w.queue_size(11) == 0
+    assert await w.queue_size(12) == 1
+    # The payload is gone too, not just the ZSET entry.
+    assert await w._manager.client.get(w._request_key(str(mine.uuid))) is None
+
+
+@pytest.mark.asyncio
+async def test_clear_guild_queue_honours_preserve_predicate_for_deferred():
+    '''A preserved deferred retry survives the clear and stays parked.'''
+    w = _worker()
+    request = _mk(guild_id=11)
+    await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
+
+    dropped = await w.clear_guild_queue(11, preserve_predicate=lambda _r: True)
+
+    assert not dropped
+    assert await w.queue_size(11) == 1
+
+
+@pytest.mark.asyncio
+async def test_promote_ready_retries_skips_member_another_pod_claimed(mocker):
+    '''Losing the ZREM race means another pod owns the promotion — skip it.
+
+    The window is between this pod's ZRANGEBYSCORE and its ZREM; enqueueing
+    anyway would download the same request on two pods.
+    '''
+    w = _worker()
+    request = _mk()
+    await w._enqueue_deferred_request(request.guild_id, request, w._now_seconds() - 1)
+    mocker.patch.object(w._manager.client, 'zrem', AsyncMock(return_value=0))
+
+    await w._promote_ready_retries()
+
+    with pytest.raises(asyncio.QueueEmpty):
+        await w._merged_get_nowait()
+
+
+@pytest.mark.asyncio
+async def test_clear_guild_queue_prunes_deferred_with_expired_payload():
+    '''A deferred entry whose payload TTL'd away is pruned by a clear, not returned.'''
+    w = _worker()
+    request = _mk(guild_id=11)
+    await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
+    await w._manager.client.delete(w._request_key(str(request.uuid)))
+
+    dropped = await w.clear_guild_queue(11)
+
+    assert not dropped
+    assert await w.queue_size(11) == 0
