@@ -17,6 +17,9 @@ Configure with:
     general.monitoring            — optional OTLP / health-server config
     music.storage.bucket_name     — S3 bucket (required for HA checkout)
     music.download.cache          — optional VideoCache config
+    music.general.message_delete_after — seconds before Discord auto-expires the
+                                    bundle summary / failure summary messages this
+                                    process sends (default 300)
 '''
 import asyncio
 import logging
@@ -42,6 +45,11 @@ from discord_bot.cli._lib.common import parse_and_validate_config, run_loop, set
 from discord_bot.cli._lib.db import instrument_sqlalchemy, managed_db
 
 logger = logging.getLogger(__name__)
+
+# Mirror of MusicGeneralConfig.message_delete_after (discord_bot/cogs/music.py).
+# Duplicated rather than imported: cogs.music drags the whole cog import chain
+# (discord.py, spotipy, yt-dlp) into this slim process.
+DEFAULT_MESSAGE_DELETE_AFTER = 300
 
 
 @click.command()
@@ -123,6 +131,7 @@ def run(settings: dict, general_config: GeneralConfig):
         music_settings = settings.get('music', {})
         bucket_name = music_settings.get('storage', {}).get('bucket_name')
         download_cfg = music_settings.get('download', {})
+        music_general_cfg = music_settings.get('general', {})
 
         video_cache = _build_video_cache(download_cfg.get('cache', {}), db_engine, bucket_name)
 
@@ -148,6 +157,17 @@ def run(settings: dict, general_config: GeneralConfig):
             dispatcher=dispatcher,
             download_max_retries=int(download_cfg.get('max_download_retries', 3)),
             search_max_retries=int(download_cfg.get('max_youtube_music_search_retries', 3)),
+            # Without this the base class keeps message_delete_after=None, and every
+            # message this process sends outlives the session: the "Error Details for
+            # Failed Downloads" summary goes out through send_message with no
+            # delete_after (nothing tracks it afterwards, so it is unreachable and
+            # sits in the channel forever), and the finished "Completed N/N" bundle
+            # summary neither expires nor gets dropped from the dispatcher's store.
+            # The in-process path (cogs/music.py) has always passed this; the
+            # standalone broker never did, so the fix that added it was a no-op in HA.
+            message_delete_after=int(
+                music_general_cfg.get('message_delete_after', DEFAULT_MESSAGE_DELETE_AFTER)
+            ),
         )
 
         # Redis-backed bot-ready queues so multiple broker pods share them and a

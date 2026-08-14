@@ -15,6 +15,11 @@ general:
       enabled: true
       port: 8080
 music:
+  general:
+    # Seconds before Discord auto-expires the bundle summary / "Error Details for
+    # Failed Downloads" messages the broker sends. Defaults to 300 when omitted;
+    # set it here if the broker should differ from the bot's own value.
+    message_delete_after: 300
   storage:
     backend: s3
   # No storage.bucket_name -> no S3 cache checkout, which is fine for validating
