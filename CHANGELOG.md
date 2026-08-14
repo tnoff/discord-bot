@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.75] - 2026-08-14
+
+### Changed
+
+- Failed YouTube downloads now wait before becoming eligible again, doubling per attempt (`music.download.retry_backoff_seconds_minimum`, default 30s, capped at 300s; 0 restores the old immediate requeue). Pool mode replaced the pod-global backoff with a per-exit one, which rotates exits but paces a single request not at all — a retry re-queued instantly is popped within the poll interval and leases the next free exit. On 2026-08-13 that drained the whole 16-exit pool in ~45 seconds while seven distinct videos failed on every exit, which is a bot-check wave rather than anything per-request, and every request in flight exhausted its budget inside the wave instead of outliving it. The cost compounds: `_reserve_youtube_exit` locks each exit for `youtube_wait_period_minimum` (90s) whether the download succeeds or fails, so with 16 exits the pool tops out near 10 downloads/minute and instant retries spend that ceiling on attempts that cannot succeed yet, starving requests that would have. Deferred retries are held in a time-scored ZSET on the Redis worker (durable across pod restarts, claimed by ZREM so two pods can't promote the same request) and in memory on the asyncio worker, promoted once per consumer-loop iteration. They count toward a guild's queue size and are dropped by a queue clear, so a parked retry can neither look like a drained queue nor resurrect a cleared request. DIRECT (non-YouTube) requests are exempt and still retry immediately, matching how they bypass backoff everywhere else. The RETRY lifecycle update now reports this per-request hold-off as its `backoff_seconds` instead of the pod-global window.
+
 ## [2.5.74] - 2026-08-13
 
 ### Changed
