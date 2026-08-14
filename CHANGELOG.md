@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.76] - 2026-08-14
+
+### Changed
+
+- The standalone broker now passes `message_delete_after` to `RedisBroker`, so the messages it sends actually expire. `MediaBrokerBase` defaults the kwarg to `None`, and `discord_bot/cli/broker.py` never set it — only the in-process path (`cogs/music.py`) did — so in HA every broker-sent message went to Discord with no `delete_after` and stayed up permanently. The visible symptom was "Error Details for Failed Downloads": it goes out through a one-shot `send_message`, so once sent with no expiry nothing holds a reference to it and there is no key to `remove_mutable`, leaving failure summaries like `Media Request "X", Failure: Video is age restricted, cannot download` in the channel indefinitely. The same `None` also stopped the finished "Completed N/N" bundle summary from expiring, and inverted the dispatcher's `if delete_after is not None` branch so it kept re-saving those bundles instead of dropping them from its store. This was a silent regression: the fix that introduced `message_delete_after` wired the in-process broker and its unit tests, both of which pass, while the deployed HA path never received the value. Configurable as `music.general.message_delete_after` on the broker config (default 300, mirroring `MusicGeneralConfig`); a test pins the CLI's copy of that default to the pydantic model so the two cannot drift. Messages already sent without a `delete_after` are unreachable and need deleting by hand.
+
 ## [2.5.75] - 2026-08-14
 
 ### Changed
