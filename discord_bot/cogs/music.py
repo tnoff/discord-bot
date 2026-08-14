@@ -1023,7 +1023,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             player = await self.get_player(guild.id, create_player=False)
             if reason == CleanupReason.BOT_SHUTDOWN and player and self.dispatcher:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
-                    'Bot is shutting down',
+                    'Bot is shutting down, the play queue is cleared. Queued downloads keep '
+                    'running in the background and will be cached and ready when they finish.',
                     delete_after=self.config.general.message_delete_after)
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
@@ -1056,36 +1057,45 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # We also record any bundle uuids belonging to preserved (playlist-add)
             # items so we can skip deleting those bundles below — their requests
             # are still in flight and will keep updating the broker bundle UI.
+            #
+            # None of this runs on BOT_SHUTDOWN: the queues are parked instead of
+            # drained. Clearing a queue drops the request from Redis, but its broker
+            # registry entry only leaves the in_flight zone when the follow-up
+            # DISCARDED push below deletes it — and that loop is one round-trip per
+            # item, so a SIGKILL part-way through (the pod runs a short grace period)
+            # strands every remaining entry, plus the bundle holding them, until the
+            # 24h TTL. Parking costs nothing: the downloader and search tiers outlive
+            # this pod, work the backlog, and every request reaches a terminal state
+            # that reaps its own entry, while the media lands in the shared cache so
+            # a re-request after the restart is a cache hit.
             preserved_bundle_uuids: set[str] = set()
-            if reason == CleanupReason.BOT_SHUTDOWN:
-                preserve_predicate = None
-            else:
+            if reason != CleanupReason.BOT_SHUTDOWN:
                 def preserve_predicate(req):
                     keep = not req.download_file
                     if keep and req.bundle_uuid:
                         preserved_bundle_uuids.add(req.bundle_uuid)
                     return keep
 
-            clear_result = await self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-            # In HA the predicate runs on the downloader pod, so the closure above
-            # never sees the preserved items — union the pod-reported bundle_uuids
-            # so their bundles are skipped below just as in single-process mode.
-            preserved_bundle_uuids |= clear_result.preserved_bundle_uuids
-            self.logger.debug(f'Cleanup found {len(clear_result.dropped)} existing download items')
-            for item in clear_result.dropped:
-                await self._push_state(item, LifecycleEvent.DISCARDED)
+                clear_result = await self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
+                # In HA the predicate runs on the downloader pod, so the closure above
+                # never sees the preserved items — union the pod-reported bundle_uuids
+                # so their bundles are skipped below just as in single-process mode.
+                preserved_bundle_uuids |= clear_result.preserved_bundle_uuids
+                self.logger.debug(f'Cleanup found {len(clear_result.dropped)} existing download items')
+                for item in clear_result.dropped:
+                    await self._push_state(item, LifecycleEvent.DISCARDED)
 
-            search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-            # Playlist-adds queue for search before they queue for download, so the
-            # search side preserves bundles too — and in HA its predicate also runs
-            # on the search pod, out of reach of the closure above.
-            preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
-            self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')
-            for item in search_clear_result.dropped:
-                await self._push_state(item, LifecycleEvent.DISCARDED)
+                search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
+                # Playlist-adds queue for search before they queue for download, so the
+                # search side preserves bundles too — and in HA its predicate also runs
+                # on the search pod, out of reach of the closure above.
+                preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
+                self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')
+                for item in search_clear_result.dropped:
+                    await self._push_state(item, LifecycleEvent.DISCARDED)
 
-            await self.download_client.block_guild(guild.id)
-            await self.youtube_music_search_client.block_guild(guild.id)
+                await self.download_client.block_guild(guild.id)
+                await self.youtube_music_search_client.block_guild(guild.id)
 
             player = None
             # Clear play queue if that didnt happen
@@ -1097,23 +1107,36 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             if player:
                 self.logger.info(f'Calling cleanup on player {guild.id}')
                 await player.cleanup()
-                if reason != CleanupReason.BOT_SHUTDOWN:
-                    # Cleanup queue messages if they still exist
-                    self.logger.info(f'Clearing queue message for guild {guild.id}')
-                    key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
-                    self.dispatcher.update_mutable(key, guild.id,
-                        self._get_play_order_content(guild.id), player.text_channel.id)
+                # Cleanup queue messages if they still exist.  This runs on
+                # BOT_SHUTDOWN too: the player is gone from self.players by now, so
+                # the content renders empty and the table clears.  Leaving it up
+                # stranded a queue listing in the channel describing a play queue no
+                # process owned any more.
+                self.logger.info(f'Clearing queue message for guild {guild.id}')
+                key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
+                self.dispatcher.update_mutable(key, guild.id,
+                    self._get_play_order_content(guild.id), player.text_channel.id)
 
             # Tear down broker-owned bundles for this guild.  Skip bundles whose
             # playlist-add items survived the queue clear — those will continue
             # to render updates on their own and the cog will release the bundle
             # when those items reach a terminal state.
-            guild_bundles = await self.broker_client.list_bundles_for_guild(guild.id)
-            for bundle_uuid in guild_bundles:
-                if reason != CleanupReason.BOT_SHUTDOWN and bundle_uuid in preserved_bundle_uuids:
-                    self.logger.debug(f'Skipping delete of bundle {bundle_uuid} — has active playlist-add requests')
-                    continue
-                await self.delete_bundle(guild.id, bundle_uuid)
+            #
+            # Skipped entirely on BOT_SHUTDOWN, for the same reason the queues are
+            # parked above: the backlog those bundles track is still being worked by
+            # the downloader and search tiers, so each bundle keeps rendering real
+            # progress and releases itself once its requests go terminal.  Deleting
+            # them here would drop a live progress UI on the floor, and doing it
+            # after the O(queue) work above is what made bundle teardown the first
+            # casualty of the grace period.
+            if reason != CleanupReason.BOT_SHUTDOWN:
+                guild_bundles = await self.broker_client.list_bundles_for_guild(guild.id)
+                for bundle_uuid in guild_bundles:
+                    if bundle_uuid in preserved_bundle_uuids:
+                        self.logger.debug(f'Skipping delete of bundle {bundle_uuid} — has active playlist-add requests')
+                        continue
+                    await self.delete_bundle(guild.id, bundle_uuid)
+
             if reason != CleanupReason.BOT_SHUTDOWN:
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
                 guild_player_path = self.player_dir / f'{guild.id}'

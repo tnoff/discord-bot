@@ -177,6 +177,13 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
 
 @pytest.mark.asyncio
 async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A download still queued at shutdown is parked, not dropped.
+
+    This asserted queue_size == 0 while shutdown drained the queue.  Draining it
+    stranded the matching broker registry entries in the in_flight zone whenever the
+    grace period expired part-way through the follow-up DISCARDED loop, so shutdown
+    now leaves the queue for the downloader tier, which outlives this pod.
+    '''
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -185,7 +192,7 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     s = fake_source_dict(fake_context)
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-    assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 1
 
 
 @pytest.mark.asyncio

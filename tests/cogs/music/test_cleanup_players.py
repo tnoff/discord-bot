@@ -9,7 +9,7 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
 from discord_bot.utils.otel import DiscordContextNaming
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -73,8 +73,120 @@ async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
     # The request state should have been marked discarded
-    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
     assert request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
+
+
+@pytest.mark.asyncio
+async def test_cleanup_marks_download_queue_items_discarded(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """cleanup marks items in the download queue as discarded on a non-shutdown reason.
+
+    The search-queue mirror of this lives above.  Both drain only when the guild
+    itself is going away; BOT_SHUTDOWN parks them instead (see below).
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    request = fake_source_dict(fake_context)
+    await cog.media_broker.register_request(request)
+    await cog.download_client.submit(fake_context['guild'].id, request)
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
+
+    assert request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
+
+
+@pytest.mark.asyncio
+async def test_cleanup_bot_shutdown_parks_download_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """BOT_SHUTDOWN leaves the download queue alone instead of clearing it.
+
+    Clearing drops the request from the queue but only the follow-up DISCARDED push
+    reaps its broker registry entry, so a SIGKILL mid-loop stranded entries in the
+    in_flight zone until the 24h TTL.  The downloader tier outlives this pod and
+    works the backlog on its own.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    request = fake_source_dict(fake_context)
+    await cog.media_broker.register_request(request)
+    await cog.download_client.submit(fake_context['guild'].id, request)
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+
+    # Still queued, and never marked discarded
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 1
+    assert request.lifecycle_stage != MediaRequestLifecycleStage.DISCARDED
+    # Puts are not blocked either, so an in-flight submit racing the shutdown lands
+    # rather than raising PutsBlocked
+    await cog.download_client.submit(fake_context['guild'].id, fake_source_dict(fake_context))
+    assert await cog.download_client.queue_size(fake_context['guild'].id) == 2
+
+
+@pytest.mark.asyncio
+async def test_cleanup_bot_shutdown_parks_search_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """BOT_SHUTDOWN parks the search queue too — the search tier outlives this pod."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    request = fake_source_dict(fake_context)
+    await cog.media_broker.register_request(request)
+    await cog.youtube_music_search_client.submit(fake_context['guild'].id, request)
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+
+    assert await cog.youtube_music_search_client.queue_size(fake_context['guild'].id) == 1
+    assert request.lifecycle_stage != MediaRequestLifecycleStage.DISCARDED
+
+
+@pytest.mark.asyncio
+async def test_cleanup_bot_shutdown_keeps_bundle(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """BOT_SHUTDOWN leaves broker bundles standing.
+
+    The requests they track are parked, not discarded, so each bundle keeps
+    rendering real progress and releases itself once its requests go terminal.
+    Deleting it here dropped a live progress UI, and doing so after the O(queue)
+    discard loop is what made teardown the first casualty of the grace period.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    bundle_uuid = await cog.create_bundle(fake_context['guild'].id, fake_context['channel'].id)
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+
+    assert bundle_uuid in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_bot_shutdown_clears_queue_message(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """BOT_SHUTDOWN clears the play-order message rather than stranding a queue
+    listing in the channel that describes a play queue no process owns."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+
+    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+
+    play_order_key = f'{MultipleMutableType.PLAY_ORDER.value}-{fake_context["guild"].id}'
+    calls = [call.args for call in cog.dispatcher.update_mutable.call_args_list]
+    assert play_order_key in [call[0] for call in calls]
+    # Player is already popped, so the rendered content is empty — the table clears
+    assert [call[2] for call in calls if call[0] == play_order_key] == [[]]
 
 
 @pytest.mark.asyncio
