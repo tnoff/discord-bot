@@ -22,6 +22,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.types.checkout_result import CheckoutResult
+from discord_bot.interfaces.player_session_store import PlayerSessionClient, PlayerSessionStore
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 __all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult']
 
 
-class BrokerClient(Protocol):
+class BrokerClient(PlayerSessionClient, Protocol):
     '''
     Cog-facing handle for the MediaBroker.  Two implementations exist:
 
@@ -147,7 +148,7 @@ class BrokerEntry:
     guild_file_path: Path | None = None
 
 
-class MediaBrokerBase(ABC):
+class MediaBrokerBase(PlayerSessionStore, ABC):
     '''
     Abstract base for media broker implementations.
 
@@ -260,6 +261,10 @@ class MediaBrokerBase(ABC):
     @abstractmethod
     async def get_checked_out_by(self, guild_id: int) -> List[BrokerEntry]:
         '''Return all entries currently checked out by the given guild.'''
+
+    # Player-session persistence is inherited from PlayerSessionStore — it is
+    # player state the broker merely hosts, not media-broker business, so it
+    # lives in its own module rather than widening this interface.
 
     # ------------------------------------------------------------------
     # Bundle lifecycle (broker-owned MultiMediaRequestBundle replacement)

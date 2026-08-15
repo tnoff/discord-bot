@@ -637,3 +637,78 @@ class TestBundleEndpoints:
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/bundles')
             assert resp.status == 422
+
+
+@pytest.mark.asyncio
+class TestPlayerSessionEndpoints:
+    '''GET /sessions, PUT /sessions/{guild_id}, DELETE /sessions/{guild_id}.'''
+
+    @staticmethod
+    def _payload(guild_id: int = 100, voice_channel_id: int = 300,
+                 text_channel_id: int = 200, was_playing: bool = True) -> dict:
+        return {
+            'guild_id': guild_id,
+            'voice_channel_id': voice_channel_id,
+            'text_channel_id': text_channel_id,
+            'queue': [],
+            'was_playing': was_playing,
+        }
+
+    async def test_save_returns_201_and_stores(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.put('/sessions/100', json=self._payload())
+            assert resp.status == 201
+        stored = await broker.list_player_sessions()
+        assert [s.guild_id for s in stored] == [100]
+        assert stored[0].voice_channel_id == 300
+
+    async def test_list_returns_stored_sessions(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            await client.put('/sessions/100', json=self._payload())
+            await client.put('/sessions/101', json=self._payload(guild_id=101))
+            resp = await client.get('/sessions')
+            assert resp.status == 200
+            payload = await resp.json()
+        assert sorted(s['guild_id'] for s in payload['sessions']) == [100, 101]
+
+    async def test_list_empty_returns_empty_list(self):
+        server = _make_server(_make_broker())
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/sessions')
+            assert resp.status == 200
+            assert (await resp.json())['sessions'] == []
+
+    async def test_delete_drops_session(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            await client.put('/sessions/100', json=self._payload())
+            resp = await client.delete('/sessions/100')
+            assert resp.status == 200
+        assert await broker.list_player_sessions() == []
+
+    async def test_save_invalid_body_returns_422(self):
+        server = _make_server(_make_broker())
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.put('/sessions/100', json={'no_required_fields': True})
+            assert resp.status == 422
+
+    async def test_save_guild_id_mismatch_returns_422(self):
+        '''The path segment is the record's identity; a body that disagrees is a
+        caller bug rather than something to resolve in favour of either side.'''
+        broker = _make_broker()
+        server = _make_server(broker)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.put('/sessions/100', json=self._payload(guild_id=999))
+            assert resp.status == 422
+        assert await broker.list_player_sessions() == []
+
+    async def test_non_integer_guild_id_returns_422(self):
+        server = _make_server(_make_broker())
+        async with TestClient(TestServer(server.build_app())) as client:
+            assert (await client.put('/sessions/abc', json=self._payload())).status == 422
+            assert (await client.delete('/sessions/abc')).status == 422

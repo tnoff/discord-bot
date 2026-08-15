@@ -11,6 +11,7 @@ from discord_bot.workers.broker_registry import (
     ENTRY_KEY_PREFIX,
     LOCK_KEY_PREFIX,
     RedisBrokerRegistry,
+    SESSION_KEY_PREFIX,
 )
 
 
@@ -224,3 +225,57 @@ async def test_bundle_lock_times_out_and_proceeds_when_contended(monkeypatch):
     assert entered is True
     # The foreign lock is untouched — we timed out without ever owning it.
     assert await client.get(lock_key) == 'someone-else'
+
+
+# ---------------------------------------------------------------------------
+# get_session / set_session / delete_session / all_sessions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_get_session_absent_returns_none():
+    reg = _registry()
+    assert await reg.get_session(1) is None
+
+
+@pytest.mark.asyncio
+async def test_set_and_get_session_round_trips():
+    reg = _registry()
+    await reg.set_session(1, {'guild_id': 1, 'voice_channel_id': 2})
+    assert await reg.get_session(1) == {'guild_id': 1, 'voice_channel_id': 2}
+
+
+@pytest.mark.asyncio
+async def test_set_session_applies_ttl():
+    '''Sessions expire on their own so an abandoned one cannot squat forever.'''
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    reg = RedisBrokerRegistry(RedisManager.from_client(client))
+    await reg.set_session(1, {'guild_id': 1})
+    ttl = await client.ttl(f'{SESSION_KEY_PREFIX}1')
+    assert 0 < ttl <= broker_registry.SESSION_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_delete_session_removes_key():
+    reg = _registry()
+    await reg.set_session(1, {'guild_id': 1})
+    await reg.delete_session(1)
+    assert await reg.get_session(1) is None
+
+
+@pytest.mark.asyncio
+async def test_all_sessions_scans_every_guild():
+    reg = _registry()
+    await reg.set_session(1, {'guild_id': 1})
+    await reg.set_session(2, {'guild_id': 2})
+    assert sorted(s['guild_id'] for s in await reg.all_sessions()) == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_all_sessions_skips_corrupt_payload():
+    '''A corrupt session is logged and skipped, not fatal to the whole scan —
+    startup reads this, and one bad record must not block every other resume.'''
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    reg = RedisBrokerRegistry(RedisManager.from_client(client))
+    await reg.set_session(1, {'guild_id': 1})
+    await client.set(f'{SESSION_KEY_PREFIX}2', 'not-json')
+    assert [s['guild_id'] for s in await reg.all_sessions()] == [1]

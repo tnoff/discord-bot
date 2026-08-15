@@ -40,6 +40,13 @@ ENTRY_TTL_SECONDS = 86400  # 24h — stale cleanup if broker restarts without re
 IN_FLIGHT_TTL_SECONDS = 86400  # 24h
 LOCK_TTL_SECONDS = 10
 BUNDLE_TTL_SECONDS = 86400  # 24h — bundles share the entry TTL
+SESSION_KEY_PREFIX = 'discord_bot:broker:session:'
+# Player sessions share the entry TTL for a concrete reason: a session replays its
+# queue through the normal enqueue path, which resolves each request against the
+# media cache.  Outliving the entries it references would not break a resume (an
+# evicted request simply re-downloads), but there is no value in holding a session
+# past the point where every request in it has gone cold.
+SESSION_TTL_SECONDS = 86400  # 24h
 BUNDLE_LOCK_TTL_SECONDS = 10
 BUNDLE_LOCK_POLL_INTERVAL_SECONDS = 0.05
 BUNDLE_LOCK_WAIT_SECONDS = 5.0
@@ -128,6 +135,28 @@ class RedisBrokerRegistry:
         Used for guild-scoped lookups (list bundles for a guild on cleanup).
         '''
         return await self._scan_prefix(BUNDLE_KEY_PREFIX, 'bundle')
+
+    async def get_session(self, guild_id: int) -> dict | None:
+        '''Return the stored player session for guild_id, or None if not present.'''
+        raw = await self._client.get(f'{SESSION_KEY_PREFIX}{guild_id}')
+        return json.loads(raw) if raw else None
+
+    async def set_session(self, guild_id: int, data: dict) -> None:
+        '''Upsert a player session with a 24h TTL.'''
+        await self._client.set(
+            f'{SESSION_KEY_PREFIX}{guild_id}', json.dumps(data), ex=SESSION_TTL_SECONDS
+        )
+
+    async def delete_session(self, guild_id: int) -> None:
+        '''Remove a player session from Redis.'''
+        await self._client.delete(f'{SESSION_KEY_PREFIX}{guild_id}')
+
+    async def all_sessions(self) -> list[dict]:
+        '''Return every stored player session dict — point-in-time snapshot.
+
+        Used once per startup to find guilds with playback to resume.
+        '''
+        return await self._scan_prefix(SESSION_KEY_PREFIX, 'player session')
 
     @contextlib.asynccontextmanager
     async def bundle_lock(self, bundle_uuid: str):

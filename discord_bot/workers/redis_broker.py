@@ -14,6 +14,7 @@ from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult,
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.utils.integrations.s3 import delete_file
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
@@ -302,6 +303,19 @@ class RedisBroker(MediaBrokerBase):
             _entry_from_dict(data) for data in entries
             if data.get('checked_out_by') == guild_id and data.get('zone') == 'checked_out'
         ]
+
+    # ------------------------------------------------------------------
+    # Player sessions
+    # ------------------------------------------------------------------
+
+    async def save_player_session(self, session: PlayerSession) -> None:
+        await self._registry.set_session(session.guild_id, session.model_dump(mode='json'))
+
+    async def list_player_sessions(self) -> List[PlayerSession]:
+        return [PlayerSession.model_validate(data) for data in await self._registry.all_sessions()]
+
+    async def delete_player_session(self, guild_id: int) -> None:
+        await self._registry.delete_session(guild_id)
 
     # ------------------------------------------------------------------
     # Bundle storage (the lifecycle methods live on MediaBrokerBase)

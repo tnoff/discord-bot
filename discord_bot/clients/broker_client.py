@@ -20,6 +20,7 @@ from discord_bot.interfaces.broker_protocols import (
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
@@ -169,3 +170,15 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
     async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
         '''Delegate to broker.list_bundles_for_guild.'''
         return await self._broker.list_bundles_for_guild(guild_id)
+
+    async def save_player_session(self, session: PlayerSession) -> None:
+        '''Delegate to broker.save_player_session.'''
+        await self._broker.save_player_session(session)
+
+    async def list_player_sessions(self) -> list[PlayerSession]:
+        '''Delegate to broker.list_player_sessions.'''
+        return await self._broker.list_player_sessions()
+
+    async def delete_player_session(self, guild_id: int) -> None:
+        '''Delegate to broker.delete_player_session.'''
+        await self._broker.delete_player_session(guild_id)

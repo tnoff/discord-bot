@@ -89,6 +89,15 @@ class _StorageBroker(MediaBrokerBase):
     async def get_entry(self, media_request_uuid):  # pylint: disable=unused-argument
         raise NotImplementedError
 
+    async def save_player_session(self, session):  # pylint: disable=unused-argument
+        raise NotImplementedError
+
+    async def list_player_sessions(self):
+        raise NotImplementedError
+
+    async def delete_player_session(self, guild_id):  # pylint: disable=unused-argument
+        raise NotImplementedError
+
     async def get_cache_count(self):
         raise NotImplementedError
 

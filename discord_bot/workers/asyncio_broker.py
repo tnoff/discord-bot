@@ -14,6 +14,7 @@ from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult,
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.utils.integrations.s3 import delete_file, get_file
 from discord_bot.utils.otel import async_otel_span_wrapper, otel_span_wrapper
 from discord_bot.workers.media_bundle import BundleRenderer, BundleState
@@ -44,6 +45,7 @@ class AsyncioBroker(MediaBrokerBase):
         super().__init__(**kwargs)
         self._registry: dict[str, BrokerEntry] = {}
         self._bundles: dict[str, BundleState] = {}
+        self._player_sessions: dict[int, PlayerSession] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -270,6 +272,26 @@ class AsyncioBroker(MediaBrokerBase):
             entry for entry in self._registry.values()
             if entry.checked_out_by == guild_id
         ]
+
+    # ------------------------------------------------------------------
+    # Player sessions
+    #
+    # Single-process mode stores these in memory, which means they do not in
+    # fact survive the restart they exist for.  That is not a gap: without a
+    # separate broker process there is nothing to survive into — the bot and its
+    # broker die together — so a resume is impossible either way and an empty
+    # session list is the honest answer.  Implemented rather than raised so the
+    # cog can call the same surface in both deployment modes.
+    # ------------------------------------------------------------------
+
+    async def save_player_session(self, session: PlayerSession) -> None:
+        self._player_sessions[session.guild_id] = session
+
+    async def list_player_sessions(self) -> List[PlayerSession]:
+        return list(self._player_sessions.values())
+
+    async def delete_player_session(self, guild_id: int) -> None:
+        self._player_sessions.pop(guild_id, None)
 
     # ------------------------------------------------------------------
     # Bundle storage (the lifecycle methods live on MediaBrokerBase)

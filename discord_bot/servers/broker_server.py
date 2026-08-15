@@ -15,6 +15,7 @@ from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, Search
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
@@ -145,6 +146,9 @@ class BrokerHttpServer(AiohttpServerBase):
         app.router.add_post('/bundles', self._handle_create_bundle)
         app.router.add_post('/bundles/{uuid}/finalize', self._handle_finalize_bundle)
         app.router.add_delete('/bundles/{uuid}', self._handle_delete_bundle)
+        app.router.add_get('/sessions', self._handle_list_player_sessions)
+        app.router.add_put('/sessions/{guild_id}', self._handle_save_player_session)
+        app.router.add_delete('/sessions/{guild_id}', self._handle_delete_player_session)
         return app
 
     # ------------------------------------------------------------------
@@ -353,6 +357,41 @@ class BrokerHttpServer(AiohttpServerBase):
         bundle_uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.delete_bundle', context=ctx, kind=SpanKind.SERVER):
             await self._broker.delete_bundle(bundle_uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_list_player_sessions(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        with otel_span_wrapper('broker.list_player_sessions', context=ctx, kind=SpanKind.SERVER):
+            sessions = await self._broker.list_player_sessions()
+        return web.json_response({'sessions': [s.model_dump(mode='json') for s in sessions]})
+
+    async def _handle_save_player_session(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            session = PlayerSession.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        # The path segment is the addressable identity of the record, so a body
+        # that disagrees with it is a caller bug, not something to silently
+        # resolve in favour of one side.
+        try:
+            guild_id = int(request.match_info['guild_id'])
+        except ValueError as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        if guild_id != session.guild_id:
+            raise web.HTTPUnprocessableEntity()
+        with otel_span_wrapper('broker.save_player_session', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.save_player_session(session)
+        return web.json_response({'status': 'ok'}, status=201)
+
+    async def _handle_delete_player_session(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        try:
+            guild_id = int(request.match_info['guild_id'])
+        except ValueError as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.delete_player_session', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.delete_player_session(guild_id)
         return web.json_response({'status': 'ok'})
 
     async def _handle_list_bundles_for_guild(self, request: web.Request) -> web.Response:

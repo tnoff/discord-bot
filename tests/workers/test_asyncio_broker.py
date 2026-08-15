@@ -16,6 +16,7 @@ import pytest
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 
@@ -264,3 +265,42 @@ async def test_single_track_search_cache_hit_tears_down_bundle(fake_context):  #
 
     dispatcher.remove_mutable.assert_any_call(f'request_bundle-{bundle_uuid}')
     assert broker.get_bundle_state(bundle_uuid) is None
+
+
+# ---------------------------------------------------------------------------
+# Player sessions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_player_session_save_list_delete(fake_context):  # pylint: disable=redefined-outer-name
+    '''Single-process sessions round-trip in memory.
+
+    They do not survive the restart they exist for — without a separate broker
+    process there is nothing to survive into — but the surface has to behave so
+    the cog can call it in both deployment modes.
+    '''
+    broker = AsyncioBroker()
+    session = PlayerSession(
+        guild_id=fake_context['guild'].id,
+        voice_channel_id=10,
+        text_channel_id=fake_context['channel'].id,
+        queue=[fake_source_dict(fake_context)],
+        was_playing=True,
+    )
+
+    await broker.save_player_session(session)
+    listed = await broker.list_player_sessions()
+    assert [s.guild_id for s in listed] == [fake_context['guild'].id]
+    assert listed[0].was_playing is True
+    assert len(listed[0].queue) == 1
+
+    await broker.delete_player_session(fake_context['guild'].id)
+    assert await broker.list_player_sessions() == []
+
+
+@pytest.mark.asyncio
+async def test_player_session_delete_absent_is_noop():
+    '''Deleting a session that was never saved does not raise.'''
+    broker = AsyncioBroker()
+    await broker.delete_player_session(4242)
+    assert await broker.list_player_sessions() == []

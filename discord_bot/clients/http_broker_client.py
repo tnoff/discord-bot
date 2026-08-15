@@ -20,6 +20,7 @@ import aiohttp
 from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.clients.http_player_session import HttpPlayerSessionMixin
 from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
@@ -62,7 +63,7 @@ def _media_download_from_dict(data: dict, media_request: MediaRequest) -> MediaD
     return md
 
 
-class HttpBrokerClient(HttpClientMixin):
+class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     '''
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.

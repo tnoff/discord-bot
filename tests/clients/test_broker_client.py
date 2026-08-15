@@ -11,10 +11,12 @@ from aiohttp.test_utils import TestClient, TestServer
 from opentelemetry.trace import SpanKind
 
 import aiohttp
+from aiohttp import web
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.search_resolution import SearchResolution
 # The span-churn assertions patch the span wrapper where HttpBrokerClient uses
 # it, which is its own module now (clients/http_broker_client.py) — the split
@@ -599,3 +601,105 @@ class TestInMemoryBrokerClientFullSurface:
         assert await client.check_cache(_make_request()) == 'cached'
         assert await client.cache_cleanup() is True
         assert await client.get_cache_count() == 5
+
+
+# ---------------------------------------------------------------------------
+# Player sessions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestHttpBrokerClientPlayerSessions:
+    '''HttpBrokerClient session surface against a real BrokerHttpServer.'''
+
+    async def test_save_list_delete_round_trip(self):
+        broker = MediaBroker()
+        server = BrokerHttpServer(broker)
+        context = generate_fake_context()
+        request = fake_source_dict(context)
+        async with TestClient(TestServer(server.build_app())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            await hc.save_player_session(PlayerSession(
+                guild_id=context['guild'].id,
+                voice_channel_id=300,
+                text_channel_id=context['channel'].id,
+                queue=[request],
+                was_playing=True,
+            ))
+
+            sessions = await hc.list_player_sessions()
+            assert [s.guild_id for s in sessions] == [context['guild'].id]
+            assert sessions[0].voice_channel_id == 300
+            assert sessions[0].was_playing is True
+            # The queue survives the HTTP round-trip as real MediaRequests
+            assert [str(r.uuid) for r in sessions[0].queue] == [str(request.uuid)]
+
+            await hc.delete_player_session(context['guild'].id)
+            assert await hc.list_player_sessions() == []
+
+    async def test_list_returns_empty_when_payload_missing(self):
+        '''A response without a sessions key reads as no sessions.'''
+        with patch.object(HttpBrokerClient, '_http', AsyncMock(return_value=None)):
+            hc = HttpBrokerClient('http://broker')
+            assert await hc.list_player_sessions() == []
+
+
+@pytest.mark.asyncio
+class TestHttpBrokerClientPlayerSessionsPeerSkew:
+    '''A broker that predates the /sessions routes 404s them.
+
+    The bot and broker roll independently, so this is an expected deploy window.
+    Startup must still come up (with nothing to resume) and shutdown must still
+    finish, rather than either one raising.
+    '''
+
+    async def test_list_treats_404_as_no_sessions(self):
+        async with TestClient(TestServer(web.Application())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            assert await hc.list_player_sessions() == []
+
+    async def test_save_swallows_404(self):
+        async with TestClient(TestServer(web.Application())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            await hc.save_player_session(PlayerSession(
+                guild_id=1, voice_channel_id=2, text_channel_id=3))
+
+    async def test_delete_swallows_404(self):
+        async with TestClient(TestServer(web.Application())) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            await hc.delete_player_session(1)
+
+    async def test_non_404_error_still_raises(self):
+        '''Only the peer-skew 404 is tolerated; a real server error propagates.'''
+        async def _boom(_request):
+            raise web.HTTPInternalServerError()
+
+        app = web.Application()
+        app.router.add_get('/sessions', _boom)
+        app.router.add_put('/sessions/{guild_id}', _boom)
+        app.router.add_delete('/sessions/{guild_id}', _boom)
+        async with TestClient(TestServer(app)) as tc:
+            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+            with pytest.raises(aiohttp.ClientResponseError):
+                await hc.list_player_sessions()
+            with pytest.raises(aiohttp.ClientResponseError):
+                await hc.save_player_session(PlayerSession(
+                    guild_id=1, voice_channel_id=2, text_channel_id=3))
+            with pytest.raises(aiohttp.ClientResponseError):
+                await hc.delete_player_session(1)
+
+
+@pytest.mark.asyncio
+class TestInMemoryBrokerClientPlayerSessions:
+    '''InMemoryBrokerClient forwards the session surface to the local broker.'''
+
+    async def test_save_list_delete_delegate(self):
+        broker = MediaBroker()
+        client = InMemoryBrokerClient(broker)
+        session = PlayerSession(guild_id=5, voice_channel_id=6, text_channel_id=7)
+
+        await client.save_player_session(session)
+        assert [s.guild_id for s in await client.list_player_sessions()] == [5]
+        assert [s.guild_id for s in await broker.list_player_sessions()] == [5]
+
+        await client.delete_player_session(5)
+        assert await client.list_player_sessions() == []

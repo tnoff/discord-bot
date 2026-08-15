@@ -12,6 +12,8 @@ from discord_bot.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.types.player_session import PlayerSession
+from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
@@ -857,3 +859,82 @@ async def test_register_download_renders_bundle():
     await broker.register_download(_make_download(req))
     entry = await broker.get_entry(str(req.uuid))
     assert entry.zone == Zone.AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Player sessions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_player_session_round_trips_through_redis():
+    '''A saved session comes back with its queue intact, subclasses included.
+
+    The queue field is a discriminated union, so a PlaylistAddRequest must
+    survive as a PlaylistAddRequest rather than degrading to MediaRequest and
+    losing playlist_id.
+    '''
+    broker = _make_broker()
+    req = _make_request()
+    playlist_req = PlaylistAddRequest(
+        guild_id=1, channel_id=2, requester_name='tester', requester_id=9,
+        search_result=SearchResult(search_type=SearchType.DIRECT,
+                                   raw_search_string='https://example.com/other'),
+        playlist_id=77,
+    )
+    await broker.save_player_session(PlayerSession(
+        guild_id=1, voice_channel_id=10, text_channel_id=2,
+        queue=[req, playlist_req], was_playing=True,
+    ))
+
+    sessions = await broker.list_player_sessions()
+    assert len(sessions) == 1
+    assert sessions[0].guild_id == 1
+    assert sessions[0].voice_channel_id == 10
+    assert sessions[0].was_playing is True
+    assert [str(r.uuid) for r in sessions[0].queue] == [str(req.uuid), str(playlist_req.uuid)]
+    assert isinstance(sessions[0].queue[1], PlaylistAddRequest)
+    assert sessions[0].queue[1].playlist_id == 77
+
+
+@pytest.mark.asyncio
+async def test_save_player_session_replaces_existing():
+    '''Saving twice for one guild leaves a single, latest session.'''
+    broker = _make_broker()
+    await broker.save_player_session(PlayerSession(
+        guild_id=1, voice_channel_id=10, text_channel_id=2, was_playing=False))
+    await broker.save_player_session(PlayerSession(
+        guild_id=1, voice_channel_id=99, text_channel_id=2, was_playing=True))
+
+    sessions = await broker.list_player_sessions()
+    assert len(sessions) == 1
+    assert sessions[0].voice_channel_id == 99
+    assert sessions[0].was_playing is True
+
+
+@pytest.mark.asyncio
+async def test_delete_player_session_removes_only_that_guild():
+    '''delete drops one guild's session and leaves the rest.'''
+    broker = _make_broker()
+    await broker.save_player_session(PlayerSession(
+        guild_id=1, voice_channel_id=10, text_channel_id=2))
+    await broker.save_player_session(PlayerSession(
+        guild_id=2, voice_channel_id=20, text_channel_id=3))
+
+    await broker.delete_player_session(1)
+
+    sessions = await broker.list_player_sessions()
+    assert [s.guild_id for s in sessions] == [2]
+
+
+@pytest.mark.asyncio
+async def test_delete_player_session_absent_is_noop():
+    '''Deleting a session that was never saved does not raise.'''
+    broker = _make_broker()
+    await broker.delete_player_session(4242)
+    assert await broker.list_player_sessions() == []
+
+
+@pytest.mark.asyncio
+async def test_list_player_sessions_empty_by_default():
+    '''No sessions stored reads as an empty list, not None.'''
+    assert await _make_broker().list_player_sessions() == []
