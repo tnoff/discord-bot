@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.78] - 2026-08-15
+
+### Changed
+
+- The broker can now store per-guild player sessions, the persistence half of resume-after-restart. A `PlayerSession` records a guild's voice channel, text channel, ordered queue of media requests and whether it was mid-track, and the broker exposes it over `GET /sessions`, `PUT /sessions/{guild_id}` and `DELETE /sessions/{guild_id}`, backed by a Redis key with the same 24h TTL as the entries it references. The session carries the media requests themselves rather than broker entry uuids so that replaying one goes through the cog's ordinary enqueue path, reusing the cache-hit machinery every request already goes through instead of reconstructing `MediaDownload` objects out of registry rows; the queue field is the `AnyMediaRequest` discriminated union, so a `PlaylistAddRequest` survives the round-trip with its `playlist_id` rather than degrading to a bare `MediaRequest`. Nothing writes or reads sessions yet — this is the broker-side seam only, shipped ahead of the bot-side change because the two pods roll independently and the routes have to exist before anything calls them; for the same reason the client treats a 404 on any session route as "broker not upgraded yet" and degrades to "no sessions to resume" rather than failing a startup or aborting a shutdown. Session persistence lives in its own `PlayerSessionStore` / `PlayerSessionClient` interfaces and an `HttpPlayerSessionMixin` rather than being bolted onto the broker interfaces, because it is player state the broker merely hosts — in HA the bot holds no Redis connection of its own, so the broker pod is the only shared store it can reach. Single-process mode implements the same surface in memory, where it is inert by construction: the bot and its broker die together, so there is nothing to resume into and an empty session list is the honest answer.
+
 ## [2.5.77] - 2026-08-14
 
 ### Changed
