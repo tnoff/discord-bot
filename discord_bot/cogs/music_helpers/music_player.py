@@ -10,7 +10,6 @@ from typing import List
 from async_timeout import timeout
 from dappertable import DapperTable, Column, Columns, PaginationLength
 from discord import PCMAudio
-from discord.ext.commands import Context
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 
@@ -57,7 +56,7 @@ class MusicPlayer:
     When the bot disconnects from the Voice it's instance will be destroyed.
     '''
 
-    def __init__(self, ctx: Context,
+    def __init__(self, bot, guild, text_channel,
                  logging_config: LoggingConfig,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
                  dispatcher,
@@ -67,11 +66,15 @@ class MusicPlayer:
                  prefetch_limit: int = 5):
         '''
         Music Player to sit in voice chat
+
+        Takes bot / guild / text_channel rather than a Context: these three were
+        all a Context was ever read for, and a player resumed at startup is built
+        from a stored session with no command behind it.
         '''
         self.logger = get_logger(__name__, logging_config)
-        self.bot = ctx.bot
-        self.guild = ctx.guild
-        self.text_channel = ctx.channel
+        self.bot = bot
+        self.guild = guild
+        self.text_channel = text_channel
 
         self.disconnect_timeout: int = disconnect_timeout
         self.file_dir: Path = file_dir
@@ -441,15 +444,20 @@ class MusicPlayer:
         '''
         return self._history.empty()
 
-    def get_file_paths(self) -> List[Path]:
+    def queued_media_downloads(self) -> List[MediaDownload]:
         '''
-        Get base paths of for player
+        The current track plus everything queued behind it, in play order.
+
+        Replaces get_file_paths, which projected the same traversal down to
+        file paths and had no callers outside its own tests.  Callers take the
+        field they need: .file_path for staged files, .media_request for the
+        session written at shutdown.  The in-progress track leads, since a resume
+        restarts it from the beginning rather than seeking into it.
         '''
         items = []
         if self.current_media_download:
-            items.append(self.current_media_download.file_path)
-        for item in self._play_queue.items():
-            items.append(item.file_path)
+            items.append(self.current_media_download)
+        items.extend(self._play_queue.items())
         return items
 
     async def cleanup(self):

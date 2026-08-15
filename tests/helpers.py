@@ -201,7 +201,8 @@ class FakeBotUser():
         return f'{self.id}'
 
 class FakeGuild():
-    def __init__(self, members: Optional[list[Any]] = None, roles: Optional[list[Any]] = None, voice: Optional[Any] = None) -> None:
+    def __init__(self, members: Optional[list[Any]] = None, roles: Optional[list[Any]] = None, voice: Optional[Any] = None,
+                 channels: Optional[list[Any]] = None) -> None:
         self.id = random_id()
         self.name = random_string()
         self.emojis = []
@@ -209,6 +210,13 @@ class FakeGuild():
         self.members = members or []
         self.roles = roles or []
         self.voice_client = voice
+        self.channels = channels or []
+
+    def get_channel(self, channel_id: int) -> Optional[Any]:
+        for channel in self.channels:
+            if channel.id == channel_id:
+                return channel
+        return None
 
     async def leave(self) -> None:
         self.left_guild = True
@@ -338,6 +346,12 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
             return FakePartialMessageable(channel_id)
 
         async def fetch_guild(self, guild_id: int) -> Optional[Any]:
+            for guild in self.guilds:
+                if guild.id == guild_id:
+                    return guild
+            return None
+
+        def get_guild(self, guild_id: int) -> Optional[Any]:
             for guild in self.guilds:
                 if guild.id == guild_id:
                     return guild

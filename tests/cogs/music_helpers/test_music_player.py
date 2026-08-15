@@ -23,7 +23,7 @@ def with_music_player(fake_context): #pylint:disable=redefined-outer-name
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], {}, 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
+        player = MusicPlayer(fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
         yield player
 
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name
@@ -168,7 +168,7 @@ def test_music_get_player_paths(fake_context): #pylint:disable=redefined-outer-n
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
-            result = player.get_file_paths()
+            result = [d.file_path for d in player.queued_media_downloads()]
             assert result[0] == sd.file_path
 
 def test_music_clear_queue_messages(fake_context): #pylint:disable=redefined-outer-name
@@ -500,7 +500,7 @@ def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
         player = MusicPlayer(
-            fake_context['context'], {}, queue_max_size, 0.01, Path(tmp_dir),
+            fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, queue_max_size, 0.01, Path(tmp_dir),
             dispatcher, history_playlist_id, history_queue, broker=broker,
         )
         yield player
@@ -569,7 +569,7 @@ async def test_player_loop_history_playlist_id(fake_context): #pylint:disable=re
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
-        player = MusicPlayer(fake_context['context'], {}, 10, 0.01, Path(tmp_dir),
+        player = MusicPlayer(fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir),
                              dispatcher, 999, history_queue)
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.add_to_play_queue(media_download)
@@ -588,7 +588,7 @@ async def test_player_loop_history_queue_full_evicts_oldest(fake_context): #pyli
         dispatcher.update_mutable = Mock()
         history_queue = Queue()
         # maxsize=1 means _history also holds at most 1 entry
-        player = MusicPlayer(fake_context['context'], {}, 1, 0.01, Path(tmp_dir),
+        player = MusicPlayer(fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 1, 0.01, Path(tmp_dir),
                              dispatcher, None, history_queue)
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd1:
             with fake_media_download(player.file_dir, fake_context=fake_context) as sd2:
@@ -667,15 +667,15 @@ def test_on_prefetch_done_silent_when_cancelled(fake_context): #pylint:disable=r
 
 
 # ---------------------------------------------------------------------------
-# get_file_paths with current_media_download
+# queued_media_downloads with current_media_download
 # ---------------------------------------------------------------------------
 
-def test_get_file_paths_includes_current_media_download(fake_context): #pylint:disable=redefined-outer-name
-    """get_file_paths includes current_media_download.file_path"""
+def test_queued_media_downloads_includes_current_media_download(fake_context): #pylint:disable=redefined-outer-name
+    """queued_media_downloads leads with current_media_download"""
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as current_dl:
             player.current_media_download = current_dl
-            result = player.get_file_paths()
+            result = [d.file_path for d in player.queued_media_downloads()]
             assert current_dl.file_path in result
 
 
@@ -749,7 +749,7 @@ async def test_player_loop_real_broker_checkout_plays(fake_context): #pylint:dis
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         player = MusicPlayer(
-            fake_context['context'], {}, 10, 0.01, Path(tmp_dir),
+            fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir),
             dispatcher, None, Queue(), broker=broker,
         )
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:

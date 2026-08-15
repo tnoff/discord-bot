@@ -42,6 +42,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
+from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
@@ -531,6 +532,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return_loop_runner(self.cleanup_players, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()
         )
+        # One-shot, not a loop: sessions are consumed once at startup.  It waits
+        # on the gateway itself rather than going through return_loop_runner,
+        # which would re-run it forever.
+        self._init_task = self.bot.loop.create_task(self.resume_player_sessions())
         if self.config.download_client:
             # HA: the consumer loop runs in the downloader pod. Start only the
             # client's status poller (no bot-side download loops). Nothing
@@ -1011,6 +1016,123 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             await async_retry_database_commands(db_session, db_session.commit)
             return history_playlist.id
 
+    async def _save_player_session(self, guild, player: MusicPlayer) -> None:
+        '''
+        Persist a guild's player state so the next startup can resume it.
+
+        No session is written when the bot is not in a voice channel: there is
+        nothing to rejoin, and a session with no channel would only be discarded
+        on the way back up.
+        '''
+        voice_client = guild.voice_client
+        channel = getattr(voice_client, 'channel', None)
+        if channel is None:
+            self.logger.debug(f'No voice channel for guild {guild.id}, skipping session save')
+            return
+        session = PlayerSession(
+            guild_id=guild.id,
+            voice_channel_id=channel.id,
+            text_channel_id=player.text_channel.id,
+            queue=[download.media_request for download in player.queued_media_downloads()],
+            was_playing=player.current_media_download is not None,
+        )
+        self.logger.info(f'Saving player session for guild {guild.id} with '
+                         f'{len(session.queue)} queued item(s), was_playing={session.was_playing}')
+        await self.broker_client.save_player_session(session)
+
+    async def resume_player_sessions(self) -> None:
+        '''
+        Rejoin and resume any guild that was mid-track when the bot went down.
+
+        One-shot, run after the gateway is ready so guild/channel lookups resolve.
+        '''
+        await self.bot.wait_until_ready()
+        sessions = await self.broker_client.list_player_sessions()
+        self.logger.info(f'Found {len(sessions)} player session(s) to consider resuming')
+        for session in sessions:
+            try:
+                await self._resume_player_session(session)
+            except Exception as e:  #pylint:disable=broad-except
+                # One guild's bad session must not stop the others from resuming.
+                self.logger.exception(f'Error resuming player session for guild {session.guild_id}: {e}')
+
+    async def _resume_player_session(self, session: PlayerSession) -> None:
+        '''
+        Resume a single stored session, if it still makes sense to.
+
+        The session is dropped first, unconditionally: it describes a moment that
+        has already passed, so a resume that fails part-way through must not be
+        retried on the next restart against even staler state.
+        '''
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.resume_player_session', kind=SpanKind.INTERNAL,
+                                           attributes={DiscordContextNaming.GUILD.value: session.guild_id}):
+            await self.broker_client.delete_player_session(session.guild_id)
+
+            if not session.was_playing:
+                self.logger.debug(f'Session for guild {session.guild_id} was not mid-track, not resuming')
+                return
+            guild = self.bot.get_guild(session.guild_id)
+            if guild is None:
+                self.logger.warning(f'Guild {session.guild_id} not found, cannot resume session')
+                return
+            voice_channel = guild.get_channel(session.voice_channel_id)
+            text_channel = guild.get_channel(session.text_channel_id)
+            if voice_channel is None or text_channel is None:
+                self.logger.warning(f'Voice or text channel gone for guild {session.guild_id}, cannot resume session')
+                return
+            # Don't play to an empty room.  Everyone leaving while the bot was
+            # down is the clearest signal nobody is waiting on the queue.
+            if not [member for member in voice_channel.members if not member.bot]:
+                self.logger.info(f'No listeners left in voice channel {voice_channel.id} for guild '
+                                 f'{session.guild_id}, not resuming')
+                return
+            requests = [request for request in session.queue if request.download_file]
+            if not requests:
+                self.logger.info(f'Session for guild {session.guild_id} has no playable requests, not resuming')
+                return
+
+            self.logger.info(f'Resuming playback in guild {session.guild_id} with {len(requests)} request(s)')
+            player = await self.get_player(session.guild_id, join_channel=voice_channel,
+                                           guild=guild, text_channel=text_channel)
+            if player is None:
+                self.logger.warning(f'Could not build player for guild {session.guild_id}, cannot resume session')
+                return
+            self.dispatcher.send_message(session.guild_id, text_channel.id,
+                f'Resumed after a restart, re-queueing {len(requests)} item(s)',
+                delete_after=self.config.general.message_delete_after)
+            for request in requests:
+                await self._resume_media_request(request, player)
+
+    async def _resume_media_request(self, request: MediaRequest, player: MusicPlayer) -> None:
+        '''
+        Re-enqueue one request from a resumed session.
+
+        A fresh MediaRequest is minted from the stored one's already-resolved
+        search result rather than replaying the stored object itself: that object
+        carries a terminal lifecycle stage and a uuid whose broker entry may still
+        exist, and re-registering it would look finished the moment it arrived.
+        The bundle is deliberately not carried over — the bundle it belonged to
+        described the original request batch, not this replay.
+        '''
+        fresh = MediaRequest(
+            guild_id=request.guild_id,
+            channel_id=player.text_channel.id,
+            requester_name=request.requester_name,
+            requester_id=request.requester_id,
+            search_result=request.search_result,
+        )
+        await self.broker_client.register_request(fresh)
+        if await self._enqueue_media_download_from_cache(fresh, player=player):
+            await self._push_state(fresh, LifecycleEvent.COMPLETED)
+            return
+        try:
+            await self.download_client.submit(fresh.guild_id, fresh)
+            await self._push_state(fresh, LifecycleEvent.QUEUED)
+        except (PutsBlocked, QueueFull) as e:
+            self.logger.info(f'Cannot re-queue "{str(fresh)}" while resuming guild '
+                             f'{fresh.guild_id}: {type(e).__name__}')
+            await self._push_state(fresh, LifecycleEvent.DISCARDED)
+
     async def cleanup(self, guild, reason: CleanupReason = CleanupReason.QUEUE_TIMEOUT):
         '''
         Cleanup guild player
@@ -1021,6 +1143,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.CONSUMER, attributes={DiscordContextNaming.GUILD.value: guild.id}):
             self.logger.info(f'Starting cleanup on guild {guild.id}, reason: {reason.value}')
             player = await self.get_player(guild.id, create_player=False)
+            if reason == CleanupReason.BOT_SHUTDOWN and player:
+                # Capture the session before anything below tears state down: the
+                # voice disconnect drops the channel we need to rejoin, and
+                # player.cleanup() empties the queue we need to replay.
+                await self._save_player_session(guild, player)
             if reason == CleanupReason.BOT_SHUTDOWN and player and self.dispatcher:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                     'Bot is shutting down, the play queue is cleared. Queued downloads keep '
@@ -1147,7 +1274,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                          join_channel = None,
                          create_player: bool=True,
                          ctx: Context = None,
-                         check_voice_client_active: bool=False):
+                         check_voice_client_active: bool=False,
+                         guild = None,
+                         text_channel = None):
         '''
         Retrieve the guild player, or generate one.
 
@@ -1156,24 +1285,29 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         create_player : Create player if doesn't exist yet
         ctx: Original context call
         check_voice_client_active: Check if we're currently playing anything
+        guild / text_channel : Explicit stand-ins for ctx.guild / ctx.channel, for
+            callers with no command behind them (a session resumed at startup).
+            Ignored when ctx is given.
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.get_player', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: guild_id}):
+            target_guild = ctx.guild if ctx else guild
+            target_text_channel = ctx.channel if ctx else text_channel
             try:
                 player = self.players[guild_id]
             except KeyError:
                 if check_voice_client_active:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                    self.dispatcher.send_message(target_guild.id, target_text_channel.id,
                         'I am not currently playing anything',
                         delete_after=self.config.general.message_delete_after)
                     return None
                 if not create_player:
                     return None
                 # Make directory for guild specific files
-                guild_path = self.player_dir / f'{ctx.guild.id}'
+                guild_path = self.player_dir / f'{target_guild.id}'
                 guild_path.mkdir(exist_ok=True, parents=True)
                 # Generate and start player
-                history_playlist_id = await self.__get_history_playlist(ctx.guild.id)
-                player = MusicPlayer(ctx,
+                history_playlist_id = await self.__get_history_playlist(target_guild.id)
+                player = MusicPlayer(self.bot, target_guild, target_text_channel,
                                      self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.dispatcher,

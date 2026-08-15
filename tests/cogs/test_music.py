@@ -1523,7 +1523,7 @@ async def test_cog_load_starts_broker_server_when_configured(fake_context, mocke
     await cog.cog_load()
     # cog_load schedules 5 background tasks normally (cleanup + download + result +
     # search_result + youtube_search); +1 for the broker server = 6 total
-    assert mock_loop.create_task.call_count == 6
+    assert mock_loop.create_task.call_count == 7
 
 
 def test_max_concurrent_downloads_defaults_to_one(fake_context):  #pylint:disable=redefined-outer-name
@@ -1548,7 +1548,7 @@ async def test_cog_load_spawns_configured_download_loops(fake_context):  #pylint
     await cog.cog_load()
     assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
     # cleanup + 3 download loops + result + search_result + youtube_search = 7 scheduled tasks
-    assert mock_loop.create_task.call_count == 7
+    assert mock_loop.create_task.call_count == 8
 
 
 def test_music_init_with_download_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
@@ -1613,7 +1613,7 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.download_client.start.assert_awaited_once()
     assert cog._download_tasks == []  #pylint:disable=protected-access
     # cleanup + result + youtube_search only — no download loops, no broker server.
-    assert mock_loop.create_task.call_count == 4
+    assert mock_loop.create_task.call_count == 5
 
 
 @pytest.mark.asyncio
@@ -1735,7 +1735,7 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.youtube_music_search_client.start.assert_awaited_once()
     assert cog._youtube_search_task is None  #pylint:disable=protected-access
     # cleanup + 1 download loop + result + search_result — no youtube_search loop.
-    assert mock_loop.create_task.call_count == 4
+    assert mock_loop.create_task.call_count == 5
 
 
 @pytest.mark.asyncio
