@@ -45,6 +45,7 @@ from discord_bot.types.download import DownloadErrorType, DownloadResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.workers.redis_guild_queue import (
+    RedisGuildBlockMixin,
     build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
 )
 
@@ -52,7 +53,6 @@ REQUEST_KEY_PREFIX = 'discord_bot:download:request:'
 GUILD_QUEUE_PREFIX = 'discord_bot:download:guild:'
 GUILD_YOUTUBE_SUFFIX = ':youtube'
 GUILD_DIRECT_SUFFIX = ':direct'
-GUILD_BLOCKED_SUFFIX = ':blocked'
 GUILDS_YOUTUBE_KEY = 'discord_bot:download:guilds:youtube'
 GUILDS_DIRECT_KEY = 'discord_bot:download:guilds:direct'
 # Per-egress-bucket prefixes: pods behind distinct egress IPs keep independent
@@ -96,7 +96,7 @@ def youtube_failures_key(egress_key: str) -> str:
 POP_LOCK_KEY_PREFIX = 'discord_bot:download:poplock:'
 
 
-class RedisDownloadWorker(DownloadWorkerBase):
+class RedisDownloadWorker(RedisGuildBlockMixin, DownloadWorkerBase):
     '''
     Multi-pod download engine backed by Redis ZSET queues.
 
@@ -107,6 +107,8 @@ class RedisDownloadWorker(DownloadWorkerBase):
     async hooks refresh from Redis; cross-pod correctness is enforced by the pop-lock
     + per-egress claim, not the cache.
     '''
+
+    GUILD_KEY_PREFIX = GUILD_QUEUE_PREFIX
     def __init__(self, *args, redis_manager: RedisManager,
                  youtube_egress_key: str = DEFAULT_YOUTUBE_EGRESS_KEY, **kwargs):
         '''
@@ -142,10 +144,6 @@ class RedisDownloadWorker(DownloadWorkerBase):
     def _guild_queue_key(guild_id: int, *, direct: bool) -> str:
         suffix = GUILD_DIRECT_SUFFIX if direct else GUILD_YOUTUBE_SUFFIX
         return f'{GUILD_QUEUE_PREFIX}{guild_id}{suffix}'
-
-    @staticmethod
-    def _guild_blocked_key(guild_id: int) -> str:
-        return f'{GUILD_QUEUE_PREFIX}{guild_id}{GUILD_BLOCKED_SUFFIX}'
 
     @staticmethod
     def _guilds_zset_key(*, direct: bool) -> str:
@@ -376,11 +374,6 @@ class RedisDownloadWorker(DownloadWorkerBase):
                 continue
             media_request = self._parse_raw(raw)
             await self._enqueue_request(media_request.guild_id, media_request)
-
-    async def block_guild(self, guild_id: int) -> bool:
-        '''Mark the guild blocked (used during shutdown/cleanup).'''
-        await self._manager.client.set(self._guild_blocked_key(guild_id), '1')
-        return True
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,

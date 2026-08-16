@@ -19,7 +19,9 @@ from discord_bot.clients.redis_client import RedisManager
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
+from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, FAILURES_KEY, GUILDS_KEY, WAIT_UNTIL_KEY,
@@ -308,3 +310,53 @@ async def test_backoff_wait_sliced_returns_early_with_window_still_open():
 
     # Returned early, and the window is still open — the caller waits another slice.
     assert w.backoff_seconds_remaining > 0
+
+
+# ---------------------------------------------------------------------------
+# Guild block enforcement
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_submit_raises_puts_blocked_while_guild_blocked():
+    '''The flag is enforced on submit — it used to be written and never read.'''
+    w = _worker()
+    await w.block_guild(7)
+    with pytest.raises(PutsBlocked):
+        await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 0
+
+
+@pytest.mark.asyncio
+async def test_block_guild_expires():
+    '''The block carries a TTL, mirroring the transient in-process block.'''
+    w = _worker()
+    await w.block_guild(7)
+    ttl = await w._manager.client.ttl(w._guild_blocked_key(7))
+    assert 0 < ttl <= GUILD_BLOCK_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_submit_allowed_again_once_block_expires():
+    '''Once the window lapses the guild accepts searches again.'''
+    w = _worker()
+    await w.block_guild(7)
+    await w._manager.client.delete(w._guild_blocked_key(7))  # simulate expiry
+    await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 1
+
+
+@pytest.mark.asyncio
+async def test_block_is_scoped_to_one_guild():
+    '''Blocking one guild leaves the others accepting work.'''
+    w = _worker()
+    await w.block_guild(7)
+    await w.submit(8, _mk(guild_id=8))
+    assert await w.queue_size(8) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_worker_block_key_does_not_collide_with_download():
+    '''The two workers key off different prefixes, so blocking a guild's searches
+    leaves its downloads alone (and vice versa).'''
+    w = _worker()
+    assert w._guild_blocked_key(7).startswith('discord_bot:ytmusic_search:')

@@ -42,12 +42,12 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.exceptions import YoutubeMusicRetryException
 from discord_bot.workers.redis_guild_queue import (
+    RedisGuildBlockMixin,
     build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
 )
 
 REQUEST_KEY_PREFIX = 'discord_bot:ytmusic_search:request:'
 GUILD_QUEUE_PREFIX = 'discord_bot:ytmusic_search:guild:'
-GUILD_BLOCKED_SUFFIX = ':blocked'
 GUILDS_KEY = 'discord_bot:ytmusic_search:guilds'
 WAIT_UNTIL_KEY = 'discord_bot:ytmusic_search:wait_until'
 FAILURES_KEY = 'discord_bot:ytmusic_search:failures'
@@ -60,7 +60,7 @@ FAILURE_TTL_SECONDS = 600  # 10 min — matches FailureQueue.max_age_seconds def
 _DEFAULT_FAILURE_SUMMARY = '0 failures in queue'
 
 
-class RedisYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
+class RedisYoutubeMusicSearchWorker(RedisGuildBlockMixin, YoutubeMusicSearchWorkerBase):
     '''
     Multi-pod YouTube-Music search engine backed by Redis ZSET queues.
 
@@ -71,6 +71,8 @@ class RedisYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
     cache the async hooks refresh from Redis; cross-pod correctness is enforced by
     the pop-lock, not the cache.
     '''
+
+    GUILD_KEY_PREFIX = GUILD_QUEUE_PREFIX
     def __init__(self, *args, redis_manager: RedisManager, **kwargs):
         '''
         Forward the resolution / backoff kwargs to YoutubeMusicSearchWorkerBase,
@@ -95,10 +97,6 @@ class RedisYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
     @staticmethod
     def _guild_queue_key(guild_id: int) -> str:
         return f'{GUILD_QUEUE_PREFIX}{guild_id}'
-
-    @staticmethod
-    def _guild_blocked_key(guild_id: int) -> str:
-        return f'{GUILD_QUEUE_PREFIX}{guild_id}{GUILD_BLOCKED_SUFFIX}'
 
     @staticmethod
     def _now_seconds() -> float:
@@ -167,11 +165,6 @@ class RedisYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
         if not raw:
             raise QueueEmpty('Search request payload missing')
         return parse_media_request(json.loads(raw))
-
-    async def block_guild(self, guild_id: int) -> bool:
-        '''Mark the guild blocked (used during shutdown/cleanup).'''
-        await self._manager.client.set(self._guild_blocked_key(guild_id), '1')
-        return True
 
     async def clear_guild_queue(self, guild_id: int,
                                 preserve_predicate: Callable[[MediaRequest], bool] | None = None,

@@ -25,6 +25,8 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
+from discord_bot.types.queue import PutsBlocked
+from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 from discord_bot.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,
     DEFERRED_RETRIES_KEY, FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
@@ -961,3 +963,61 @@ async def test_clear_guild_queue_prunes_deferred_with_expired_payload():
 
     assert not dropped
     assert await w.queue_size(11) == 0
+
+
+# ---------------------------------------------------------------------------
+# Guild block enforcement
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_submit_raises_puts_blocked_while_guild_blocked():
+    '''The flag is now enforced on submit — it used to be written and never read,
+    so a blocked guild kept accepting work.'''
+    w = _worker()
+    await w.block_guild(7)
+    with pytest.raises(PutsBlocked):
+        await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 0
+
+
+@pytest.mark.asyncio
+async def test_block_guild_expires():
+    '''The block carries a TTL.  DistributedQueue.block, which this mirrors,
+    blocks a queue object that is dropped when the guild's queue drains or is
+    cleared, so the in-process block is inherently transient and has no unblock
+    call.  A key with no expiry would wedge the guild permanently instead.'''
+    w = _worker()
+    await w.block_guild(7)
+    ttl = await w._manager.client.ttl(w._guild_blocked_key(7))
+    assert 0 < ttl <= GUILD_BLOCK_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_submit_allowed_again_once_block_expires():
+    '''Once the window lapses the guild accepts submissions again.'''
+    w = _worker()
+    await w.block_guild(7)
+    await w._manager.client.delete(w._guild_blocked_key(7))  # simulate expiry
+    await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 1
+
+
+@pytest.mark.asyncio
+async def test_block_is_scoped_to_one_guild():
+    '''Blocking one guild leaves the others accepting work.'''
+    w = _worker()
+    await w.block_guild(7)
+    await w.submit(8, _mk(guild_id=8))
+    assert await w.queue_size(8) == 1
+
+
+@pytest.mark.asyncio
+async def test_internal_requeue_is_not_blocked():
+    '''Only new submissions are blocked.  The worker's own retry /
+    no-exit-available / deferred-promotion re-queues are work already accepted;
+    they run on the consumer loop with no PutsBlocked handler above them, so
+    raising there would take the loop down rather than shed one request.'''
+    w = _worker()
+    await w.block_guild(7)
+    await w._enqueue_request(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 1

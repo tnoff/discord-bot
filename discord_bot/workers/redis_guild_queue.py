@@ -19,6 +19,69 @@ from typing import Awaitable, Callable
 
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.types.queue import PutsBlocked
+
+GUILD_BLOCKED_SUFFIX = ':blocked'
+
+# Why a TTL instead of an explicit unblock call.
+#
+# This mirrors DistributedQueue.block, which blocks a per-guild *queue object* --
+# and that object is dropped whenever the guild's queue drains (get_nowait) or is
+# cleared (clear_queue), so the next put_nowait recreates a fresh, unblocked
+# queue.  The in-process block is therefore inherently transient, which is why
+# there is no unblock method anywhere to mirror.
+#
+# A Redis key with no expiry would not reproduce that behaviour, it would invert
+# it: the guild would stay blocked for the life of the Redis data and never
+# accept another request.  The block only has to outlive the teardown it guards
+# -- clear the guild's queue, then stop a racing submit from refilling a queue
+# that is going away -- so it expires shortly after on its own.
+GUILD_BLOCK_TTL_SECONDS = 60
+
+
+class RedisGuildBlockMixin:
+    '''
+    block_guild plus submit-side enforcement for a Redis-backed worker.
+
+    Mix in BEFORE the worker base so this submit runs first and cooperatively
+    delegates to the base implementation:
+
+        class RedisDownloadWorker(RedisGuildBlockMixin, DownloadWorkerBase):
+            GUILD_KEY_PREFIX = GUILD_QUEUE_PREFIX
+
+    The host class must expose ``_manager`` (a RedisManager) and set
+    GUILD_KEY_PREFIX.
+
+    Only submit is gated, not the internal enqueue paths.  "Block new
+    submissions" means exactly that: the worker's own retry, no-exit-available
+    and deferred-promotion re-queues are work already accepted, they run on the
+    consumer loop with no PutsBlocked handler above them, and failing them would
+    take the loop down rather than shed the request.
+    '''
+
+    GUILD_KEY_PREFIX: str = ''
+
+    def _guild_blocked_key(self, guild_id: int) -> str:
+        '''Redis key holding the block flag for one guild.'''
+        return f'{self.GUILD_KEY_PREFIX}{guild_id}{GUILD_BLOCKED_SUFFIX}'
+
+    async def block_guild(self, guild_id: int) -> bool:
+        '''Block new submissions for a guild for the teardown window.'''
+        await self._manager.client.set(self._guild_blocked_key(guild_id), '1',
+                                       ex=GUILD_BLOCK_TTL_SECONDS)
+        return True
+
+    async def guild_is_blocked(self, guild_id: int) -> bool:
+        '''True while the guild is inside its teardown block window.'''
+        return bool(await self._manager.client.get(self._guild_blocked_key(guild_id)))
+
+    async def submit(self, guild_id: int, media_request: MediaRequest,
+                     priority: int | None = None) -> None:
+        '''Reject the submission if the guild is blocked, else enqueue as normal.'''
+        if await self.guild_is_blocked(guild_id):
+            raise PutsBlocked(f'Puts blocked for guild {guild_id}')
+        await super().submit(guild_id, media_request, priority=priority)
+
 
 POP_LOCK_TTL_SECONDS = 10
 POP_LOCK_POLL_INTERVAL_SECONDS = 0.05
