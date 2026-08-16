@@ -371,3 +371,29 @@ def test_voice_clients_connected_gauge(fake_context):  # pylint: disable=redefin
     assert len(observations) == 1
     assert observations[0].value == 1
     assert observations[0].attributes[DiscordContextNaming.GUILD.value] == guild_a.id
+
+
+def test_voice_clients_connected_gauge_reports_zero_when_disconnected(fake_context):  # pylint: disable=redefined-outer-name
+    """With nothing connected the gauge reports an explicit 0 rather than no
+    series — same reason as active_players: an idle bot must not read as a dead
+    one."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.bot.voice_clients = []
+
+    observations = cog._Music__voice_clients_connected_callback(None)  # pylint: disable=protected-access
+
+    assert len(observations) == 1
+    assert observations[0].value == 0
+    assert not (observations[0].attributes or {})
+
+
+def test_voice_clients_connected_gauge_reports_zero_when_all_lack_guilds(fake_context):  # pylint: disable=redefined-outer-name
+    """A client with no guild is skipped; if that leaves nothing, the gauge still
+    reports 0 rather than an empty list."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.bot.voice_clients = [FakeVoiceClient(guild=None)]
+
+    observations = cog._Music__voice_clients_connected_callback(None)  # pylint: disable=protected-access
+
+    assert len(observations) == 1
+    assert observations[0].value == 0

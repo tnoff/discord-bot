@@ -743,6 +743,23 @@ def test_music_active_players_callback(fake_context):  #pylint:disable=redefined
     assert result[1].value == 1
     assert result[2].value == 1
 
+def test_music_active_players_callback_reports_zero_when_idle(fake_context):  #pylint:disable=redefined-outer-name
+    """With no players the gauge reports an explicit 0 rather than no series.
+
+    Emitting nothing made an idle bot indistinguishable from a dead one in
+    Mimir, and made "a bundle is alive with no player behind it" unwritable as
+    an alert. The zero only exists while the pod is running, which is what
+    separates the two cases."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert not cog.players
+
+    result = cog._Music__active_players_callback(None)  # pylint: disable=protected-access
+
+    assert len(result) == 1
+    assert result[0].value == 0
+    # No guild to name, so the zero carries no guild attribute — aggregate with sum()
+    assert not (result[0].attributes or {})
+
 @pytest.mark.asyncio
 async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test cog unload with active players"""

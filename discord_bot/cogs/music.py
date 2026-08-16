@@ -479,14 +479,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
     def __active_players_callback(self, _options):
         '''
-        Get active players
+        Get active players, or an explicit zero when there are none.
+
+        The zero matters more than it looks.  Emitting only per-guild
+        observations meant the whole series vanished whenever no guild had a
+        player, so "bot up and idle" and "bot down" were indistinguishable in
+        Mimir — and the condition worth alerting on, a broker bundle still alive
+        with no player behind it, could not be written at all.  The zero exists
+        only while this pod is running, which is exactly what separates the two.
+
+        It carries no guild attribute because there is no guild to name; that
+        makes it a distinct series from the per-guild ones, so aggregate with
+        sum() rather than reading a single series.  Note the per-guild series go
+        stale rather than vanishing instantly, so sum() can briefly count both a
+        departing guild and this zero — any alert on it wants a `for:` longer
+        than the staleness window.
         '''
-        items = []
-        for key in self.players:
-            items.append(Observation(1, attributes={
-                DiscordContextNaming.GUILD.value: key,
-            }))
-        return items
+        if not self.players:
+            return [Observation(0)]
+        return [
+            Observation(1, attributes={DiscordContextNaming.GUILD.value: key})
+            for key in self.players
+        ]
 
     def __voice_clients_connected_callback(self, _options):
         '''
@@ -495,6 +509,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         Unlike active_players (which counts MusicPlayer objects in self.players),
         this reflects the raw voice socket, so an orphaned connection whose player
         was already reaped still shows here — the signal a stranded bot leaves.
+
+        Falls back to an explicit zero when nothing is connected, for the same
+        reason active_players does: without it the series disappears entirely and
+        an idle bot reads identically to a dead one.
         '''
         items = []
         for voice_client in self.bot.voice_clients:
@@ -504,7 +522,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             items.append(Observation(1, attributes={
                 DiscordContextNaming.GUILD.value: guild.id,
             }))
-        return items
+        return items or [Observation(0)]
 
     def __cache_filestats_callback_used(self, _options):
         '''
