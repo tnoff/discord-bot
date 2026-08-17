@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.81] - 2026-08-17
+
+### Changed
+
+- Fixed: the downloader and search pods now clear per-guild block keys left in Redis without an expiry when they start. Builds before the block carried a TTL wrote those keys and never read them back, so enforcing the block on submit turned every leftover into a permanent block — `!play` failed for the affected guild with `PutsBlocked` surfaced as an HTTP 500, and there was no unblock path to recover it. Keys that carry a TTL are left alone, so a teardown in progress keeps its block.
+
 ## [2.5.80] - 2026-08-16
 
 ### Changed
