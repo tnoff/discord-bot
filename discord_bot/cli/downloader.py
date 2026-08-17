@@ -125,7 +125,7 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
 
     await worker_pod_main_loop(download_http_server, health_server, redis_manager,
                                LOOP_DOWNLOADER_WORKER, 'Downloader', _tasks,
-                               broker_client=broker_client)
+                               broker_client=broker_client, worker=worker)
 
 
 def run_downloader(worker: RedisDownloadWorker, download_http_server: DownloadHttpServer,

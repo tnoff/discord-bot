@@ -131,7 +131,7 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
                                loop_name: str, pod_label: str,
                                task_factory: Callable[[asyncio.Event, LoopHealth],
                                                       Iterable[Awaitable]],
-                               broker_client=None):
+                               broker_client=None, worker=None):
     '''
     Run a worker pod until SIGTERM/SIGINT, then drain the HTTP server and Redis.
 
@@ -150,8 +150,24 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
     single pod roll.  Harmless in itself — the process is exiting — but it is
     recurring ERROR-level noise in the exact window an operator reads logs during
     a rollout, which is how a real shutdown error gets missed.
+
+    ``worker`` is the pod's queue worker.  It is taken here only to sweep the
+    legacy no-expiry guild blocks out of Redis before the HTTP server starts
+    accepting submits -- do it after, and the pod spends the gap rejecting work
+    for guilds it is about to unblock.  Passed explicitly rather than reached for
+    through ``http_server``: the server owns the worker as private state, and the
+    sweep is a pod-startup concern, not an HTTP one.
     '''
     await redis_manager.start()
+    if worker is not None:
+        # Startup-only, and self-limiting: every block this build writes carries a
+        # TTL, so once the leftovers are gone the sweep finds nothing on later
+        # starts.  Cheap enough to leave in permanently, which is the point -- a
+        # restored snapshot brings the leftovers back.
+        removed = await worker.clear_stale_guild_blocks()
+        if removed:
+            logger.warning('Main :: %s cleared %s stale guild block(s) with no expiry',
+                           pod_label, removed)
     with shutdown_event_signals() as stop_event:
         try:
             if health_server:

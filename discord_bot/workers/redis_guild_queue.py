@@ -38,6 +38,10 @@ GUILD_BLOCKED_SUFFIX = ':blocked'
 # that is going away -- so it expires shortly after on its own.
 GUILD_BLOCK_TTL_SECONDS = 60
 
+# Redis TTL sentinel: the key exists but has no expiry set.  (-2 is "no such
+# key".)  Only a -1 block key can be a legacy write -- see clear_stale_guild_blocks.
+NO_EXPIRY_TTL = -1
+
 
 class RedisGuildBlockMixin:
     '''
@@ -74,6 +78,33 @@ class RedisGuildBlockMixin:
     async def guild_is_blocked(self, guild_id: int) -> bool:
         '''True while the guild is inside its teardown block window.'''
         return bool(await self._manager.client.get(self._guild_blocked_key(guild_id)))
+
+    async def clear_stale_guild_blocks(self) -> int:
+        '''
+        Drop block keys left behind with no expiry, returning how many went.
+
+        Builds before GUILD_BLOCK_TTL_SECONDS landed wrote this key with a plain
+        SET and no expiry, and nothing ever read it back, so the keys piled up
+        unnoticed -- there is no unblock path anywhere to clear them with.  Adding
+        the submit-side gate then turned every one of those leftovers into a
+        permanent block on that guild: prod lost !play for every guild carrying
+        one, and a guild only recovered by chance, when a teardown happened to
+        overwrite its key with a TTL'd one.
+
+        Keys with a TTL are left alone, which is what makes this safe to run
+        unconditionally on every pod start.  Every write this class makes carries
+        an expiry, so a -1 key cannot be a live block -- and a teardown racing
+        this sweep keeps its block instead of having it swept out from under it.
+        The same reasoning covers a restored Redis snapshot, where the leftovers
+        come back with the rest of the data.
+        '''
+        client = self._manager.client
+        pattern = f'{self.GUILD_KEY_PREFIX}*{GUILD_BLOCKED_SUFFIX}'
+        stale = [key async for key in client.scan_iter(pattern)
+                 if await client.ttl(key) == NO_EXPIRY_TTL]
+        for key in stale:
+            await client.delete(key)
+        return len(stale)
 
     async def submit(self, guild_id: int, media_request: MediaRequest,
                      priority: int | None = None) -> None:

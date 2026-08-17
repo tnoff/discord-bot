@@ -97,10 +97,11 @@ def test_run_wires_collaborators(mocker):
     mocks['SearchMetrics'].assert_called_once_with(worker)
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
-    # broker_client is forwarded so the drain path can close its session.
+    # broker_client is forwarded so the drain path can close its session, and the
+    # worker so the pod can sweep stale guild blocks before it serves.
     mocks['run_search'].assert_called_once_with(
         driver, server, None, redis_manager, mocks['SearchMetrics'].return_value,
-        broker_client=broker_client)
+        broker_client=broker_client, worker=worker)
 
 
 def test_run_forwards_backoff_and_retry_config(mocker):
@@ -462,6 +463,33 @@ async def test_main_loop_marks_the_loop_stopped_on_drain(mocker):
     assert registry_stops == [search_cli.LOOP_SEARCH_WORKER]
 
 
+@pytest.mark.asyncio
+async def test_main_loop_sweeps_stale_blocks_when_given_a_worker(mocker):
+    '''
+    The search pod sweeps its own legacy blocks on start.
+
+    Covered on both pods because they thread the worker through separately —
+    cli/_lib/worker_pod is shared, but the wiring that reaches it is not, and a
+    default that silently stays None is exactly how this arrives dead in prod.
+    '''
+    driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
+    worker = mocker.Mock()
+    worker.clear_stale_guild_blocks = mocker.AsyncMock(return_value=1)
+    captured = _capture_signals(mocker)
+
+    async def _fire_sigterm():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        search_cli.main_loop(driver, server, None, redis_manager, metrics, worker=worker),
+        _fire_sigterm(),
+    )
+
+    worker.clear_stale_guild_blocks.assert_awaited_once()
+
+
 def test_run_search_delegates_to_run_loop(mocker):
     '''run_search hands the main_loop coroutine to run_loop.'''
     run_loop = mocker.patch.object(search_cli, 'run_loop')
@@ -472,7 +500,7 @@ def test_run_search_delegates_to_run_loop(mocker):
         object(), object(), object(), object(), object())
     search_cli.run_search(driver, server, health, redis_manager, metrics)
     main_loop.assert_called_once_with(driver, server, health, redis_manager, metrics,
-                                      broker_client=None)
+                                      broker_client=None, worker=None)
     run_loop.assert_called_once_with(sentinel)
 
 

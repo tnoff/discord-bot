@@ -981,6 +981,41 @@ async def test_submit_raises_puts_blocked_while_guild_blocked():
 
 
 @pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_drops_legacy_download_blocks():
+    '''
+    The download tier carries the same pre-TTL leftovers as the search tier.
+
+    Search fails first in the play path, so fixing only that side would just move
+    the wedge one hop downstream to the downloader.
+    '''
+    w = _worker()
+    await w._manager.client.set(w._guild_blocked_key(7), '1')  # legacy: no ex=
+    with pytest.raises(PutsBlocked):
+        await w.submit(7, _mk(guild_id=7))
+
+    assert await w.clear_stale_guild_blocks() == 1
+
+    await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 1
+
+
+@pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_spares_the_queue_keys():
+    '''
+    The download prefix also carries :youtube and :direct queue keys.
+
+    Those have no expiry either, so a sweep matching on the prefix alone rather
+    than the :blocked suffix would delete a guild's queued work.
+    '''
+    w = _worker()
+    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, _mk(guild_id=7, direct=True))
+
+    assert await w.clear_stale_guild_blocks() == 0
+    assert await w.queue_size(7) == 2
+
+
+@pytest.mark.asyncio
 async def test_block_guild_expires():
     '''The block carries a TTL.  DistributedQueue.block, which this mirrors,
     blocks a queue object that is dropped when the guild's queue drains or is

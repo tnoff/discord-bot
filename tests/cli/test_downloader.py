@@ -13,6 +13,19 @@ from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
 
+def _pod_worker(mocker):
+    '''
+    Worker mock for the pod loops.
+
+    ``worker_pod_main_loop`` awaits the stale-block sweep before it starts
+    serving, so a bare Mock (whose attributes are not awaitable) fails there
+    rather than in the code under test.
+    '''
+    worker = mocker.Mock()
+    worker.clear_stale_guild_blocks = mocker.AsyncMock(return_value=0)
+    return worker
+
+
 def _settings(*, broker_url='http://broker:8081',
               bucket='media-bucket', extra_download=None, extra_general=None):
     '''Build a minimal raw settings dict for run().'''
@@ -253,7 +266,7 @@ async def test_drive_worker_guards_broad_exception(mocker):
         # Second call: request shutdown so the loop exits cleanly.
         stop_event.set()
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
     worker.run = _run
     mocker.patch.object(downloader_cli.asyncio, 'sleep', new=mocker.AsyncMock())
     log = mocker.Mock(spec=logging.Logger)
@@ -277,7 +290,7 @@ async def test_drive_worker_exits_on_exit_early(mocker):
     async def _run(_evt):
         raise ExitEarlyException('shutdown')
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
     worker.run = _run
     log = mocker.Mock(spec=logging.Logger)
     health = LoopHealth('test_pool')
@@ -290,7 +303,7 @@ async def test_drive_worker_skips_when_already_stopped(mocker):
     '''A pre-set stop_event means run() is never called.'''
     stop_event = asyncio.Event()
     stop_event.set()
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
     worker.run = mocker.AsyncMock()
     health = LoopHealth('test_pool')
     await downloader_cli._drive_worker(worker, stop_event, mocker.Mock(), health)  # pylint: disable=protected-access
@@ -312,7 +325,7 @@ async def test_drive_worker_leaves_pool_health_running_for_siblings(mocker):
     async def _run(_evt):
         raise ExitEarlyException('shutdown')
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
     worker.run = _run
     health = LoopHealth('test_pool')
 
@@ -333,7 +346,7 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
     health_server = mocker.Mock()
     health_server.serve = mocker.AsyncMock()
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
 
     async def _run(evt):
         # Block on the shutdown event so the driver task doesn't busy-loop and
@@ -392,7 +405,7 @@ async def test_main_loop_closes_the_broker_session_on_drain(mocker):
     server = mocker.Mock()
     server.serve = mocker.AsyncMock()
     server.drain_and_stop = mocker.AsyncMock()
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
 
     async def _run(evt):
         await evt.wait()
@@ -440,7 +453,7 @@ async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker)
     server.serve = mocker.AsyncMock()
     server.drain_and_stop = mocker.AsyncMock()
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
 
     async def _run(evt):
         await evt.wait()
@@ -496,7 +509,7 @@ async def test_main_loop_owns_marking_the_pool_stopped(mocker):
     server.serve = mocker.AsyncMock()
     server.drain_and_stop = mocker.AsyncMock()
 
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
 
     async def _run(evt):
         await evt.wait()
@@ -540,7 +553,7 @@ async def test_main_loop_without_health_server(mocker):
     server = mocker.Mock()
     server.serve = mocker.AsyncMock()
     server.drain_and_stop = mocker.AsyncMock()
-    worker = mocker.Mock()
+    worker = _pod_worker(mocker)
 
     async def _run(evt):
         await evt.wait()
@@ -569,6 +582,50 @@ async def test_main_loop_without_health_server(mocker):
     )
     server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_main_loop_sweeps_stale_blocks_before_serving(mocker):
+    '''
+    The stale-block sweep runs, and runs before the HTTP server accepts submits.
+
+    Ordering is the point, not just the call: sweeping after serve() leaves a
+    window where the pod rejects work for the very guilds it is about to unblock.
+    '''
+    redis_manager = mocker.Mock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    server = mocker.Mock()
+    server.drain_and_stop = mocker.AsyncMock()
+    worker = _pod_worker(mocker)
+
+    order = []
+    worker.clear_stale_guild_blocks = mocker.AsyncMock(
+        side_effect=lambda: order.append('sweep') or 2)
+    server.serve = mocker.AsyncMock(side_effect=lambda: order.append('serve'))
+
+    async def _run(evt):
+        await evt.wait()
+
+    worker.run = _run
+    metrics = mocker.Mock()
+    metrics.run = mocker.AsyncMock()
+
+    captured = {}
+    mocker.patch.object(cli_common.signal, 'signal', new=captured.setdefault)
+
+    async def _fire():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
+        _fire(),
+    )
+
+    worker.clear_stale_guild_blocks.assert_awaited_once()
+    assert order == ['sweep', 'serve']
 
 
 def test_run_downloader_delegates_to_run_loop(mocker):

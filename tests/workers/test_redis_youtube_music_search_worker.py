@@ -355,6 +355,71 @@ async def test_block_is_scoped_to_one_guild():
 
 
 @pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_drops_keys_with_no_expiry():
+    '''
+    A block written without an expiry is a leftover from a pre-TTL build.
+
+    Those keys were write-only until submit started reading them, at which point
+    each one became a permanent block on its guild — the prod outage this sweep
+    exists to prevent recurring.
+    '''
+    w = _worker()
+    key = w._guild_blocked_key(7)
+    await w._manager.client.set(key, '1')  # legacy write: no ex=
+
+    assert await w.clear_stale_guild_blocks() == 1
+    assert await w._manager.client.get(key) is None
+
+
+@pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_unwedges_submit():
+    '''After the sweep the guild accepts searches again — the outage symptom.'''
+    w = _worker()
+    await w._manager.client.set(w._guild_blocked_key(7), '1')
+    with pytest.raises(PutsBlocked):
+        await w.submit(7, _mk(guild_id=7))
+
+    await w.clear_stale_guild_blocks()
+
+    await w.submit(7, _mk(guild_id=7))
+    assert await w.queue_size(7) == 1
+
+
+@pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_leaves_a_live_block_alone():
+    '''A teardown racing the sweep keeps its block: TTL'd keys are not stale.'''
+    w = _worker()
+    await w.block_guild(7)
+
+    assert await w.clear_stale_guild_blocks() == 0
+    assert await w.guild_is_blocked(7) is True
+
+
+@pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_ignores_other_keys():
+    '''The sweep is scoped to this worker's block keys, not the whole keyspace.'''
+    w = _worker()
+    await w.submit(7, _mk(guild_id=7))  # queue ZSET + tracker, no expiry
+    await w._manager.client.set('discord_bot:download:guild:7:blocked', '1')
+
+    assert await w.clear_stale_guild_blocks() == 0
+    assert await w.queue_size(7) == 1
+    assert await w._manager.client.get('discord_bot:download:guild:7:blocked') == '1'
+
+
+@pytest.mark.asyncio
+async def test_clear_stale_guild_blocks_sweeps_every_guild():
+    '''Every leftover goes in one pass, not just the first one found.'''
+    w = _worker()
+    for guild_id in (7, 8, 9):
+        await w._manager.client.set(w._guild_blocked_key(guild_id), '1')
+
+    assert await w.clear_stale_guild_blocks() == 3
+    for guild_id in (7, 8, 9):
+        assert await w.guild_is_blocked(guild_id) is False
+
+
+@pytest.mark.asyncio
 async def test_search_worker_block_key_does_not_collide_with_download():
     '''The two workers key off different prefixes, so blocking a guild's searches
     leaves its downloads alone (and vice versa).'''
