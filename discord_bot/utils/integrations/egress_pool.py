@@ -220,6 +220,16 @@ class Egress(ABC):
         '''Exit ids available to fan out across; empty for the fixed proxy.'''
         return ()
 
+    def client_for_exit(self, _exit_name: str):
+        '''
+        The client pinned to one exit, for out-of-band use (IP attribution).
+
+        Exposed on the strategy so callers never reach through to the client
+        cache: a pool owns how an exit maps to a client, and the fixed proxy has
+        no per-exit notion at all.  Defaults to None for the modes that don't.
+        '''
+        return None
+
 
 class HttpProxyEgress(Egress):
     '''Every download goes through one fixed-proxy client (today's model).'''
@@ -261,3 +271,7 @@ class PoolEgress(Egress):
     def exit_names(self) -> tuple:
         '''The pool's exit ids (used to size the driver fleet + gate on soonest-free).'''
         return self._pool.exit_names
+
+    def client_for_exit(self, exit_name: str):
+        '''The cached client routing out ``exit_name`` (same one its downloads use).'''
+        return self._clients.for_exit(exit_name)

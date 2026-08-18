@@ -210,3 +210,22 @@ def test_pool_egress_is_pool_and_exposes_exits():
                         ExitClients({}, MullvadSocks5Resolver(), client_factory=_FakeClient))
     assert egress.is_pool is True
     assert egress.exit_names == ('a', 'b')
+
+
+def test_pool_egress_exposes_the_client_for_an_exit():
+    '''
+    The per-exit client is reachable through the strategy, and it is the SAME
+    cached client that exit's downloads use.
+
+    IP attribution is only meaningful if it is probed over the identical
+    transport — a separately built client could resolve a different exit.
+    '''
+    clients = ExitClients({}, MullvadSocks5Resolver(), client_factory=_FakeClient)
+    egress = PoolEgress(ExitPool(['us-lax-wg-001', 'us-nyc-wg-301']), clients)
+    assert egress.client_for_exit('us-lax-wg-001') is clients.for_exit('us-lax-wg-001')
+    assert egress.client_for_exit('us-lax-wg-001') is not egress.client_for_exit('us-nyc-wg-301')
+
+
+def test_http_proxy_egress_has_no_per_exit_client():
+    '''The fixed proxy has no per-exit notion, so it reports none.'''
+    assert HttpProxyEgress(object()).client_for_exit('a') is None

@@ -23,6 +23,9 @@ def _pod_worker(mocker):
     '''
     worker = mocker.Mock()
     worker.clear_stale_guild_blocks = mocker.AsyncMock(return_value=0)
+    # Fixed-proxy default: no per-exit IP probe to schedule.  The pool case is
+    # covered by test_main_loop_runs_the_pool_exit_ip_probe.
+    worker.pool_exit_ip_probe = None
     return worker
 
 
@@ -626,6 +629,55 @@ async def test_main_loop_sweeps_stale_blocks_before_serving(mocker):
 
     worker.clear_stale_guild_blocks.assert_awaited_once()
     assert order == ['sweep', 'serve']
+
+
+@pytest.mark.asyncio
+async def test_main_loop_runs_the_pool_exit_ip_probe(mocker):
+    '''
+    Pool mode schedules the per-exit IP probe alongside the drivers.
+
+    Without this the pool path has no IP attribution at all: the fixed-proxy
+    ExitProbe is never built for a pool mode, so egress.ip stayed 'unknown' on
+    every span and there was nothing to compare the leased exit against.
+    '''
+    redis_manager = mocker.Mock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    server = mocker.Mock()
+    server.serve = mocker.AsyncMock()
+    server.drain_and_stop = mocker.AsyncMock()
+    worker = _pod_worker(mocker)
+
+    probe_ran = asyncio.Event()
+
+    async def _probe_run(evt):
+        probe_ran.set()
+        await evt.wait()
+
+    worker.pool_exit_ip_probe = mocker.Mock()
+    worker.pool_exit_ip_probe.run = _probe_run
+
+    async def _run(evt):
+        await evt.wait()
+
+    worker.run = _run
+    metrics = mocker.Mock()
+    metrics.run = mocker.AsyncMock()
+
+    captured = {}
+    mocker.patch.object(cli_common.signal, 'signal', new=captured.setdefault)
+
+    async def _fire():
+        for _ in range(4):
+            await asyncio.sleep(0)
+        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+
+    await asyncio.gather(
+        downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
+        _fire(),
+    )
+
+    assert probe_ran.is_set()
 
 
 def test_run_downloader_delegates_to_run_loop(mocker):

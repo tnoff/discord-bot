@@ -47,7 +47,7 @@ from discord_bot.types.download import (
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.integrations.egress_probe import (
-    cached_exit_attributes, cached_exit_hostname, UNKNOWN_EXIT,
+    cached_exit_attributes, cached_exit_hostname, PoolExitIpProbe, UNKNOWN_EXIT,
 )
 from discord_bot.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
@@ -331,6 +331,19 @@ class DownloadWorkerBase(ABC):
         # Optional ExitProbe, wired by the downloader entrypoint; None on the
         # in-process/bot path, in which case exit attribution reads 'unknown'.
         self._exit_probe = None
+        # Pool modes lease a different exit per download, so a single-exit probe
+        # cannot answer "which IP did THIS download leave from".  Build a per-exit
+        # probe instead; the entrypoint schedules its refresh loop.  Until an exit
+        # resolves, attribution falls back to the exit name alone as before.
+        self._pool_exit_ip_probe = None
+        if self._egress.is_pool:
+            self._pool_exit_ip_probe = PoolExitIpProbe(self._egress.exit_names,
+                                                       self._egress.client_for_exit)
+
+    @property
+    def pool_exit_ip_probe(self):
+        '''Per-exit IP probe for pool modes, or None for the fixed proxy.'''
+        return self._pool_exit_ip_probe
 
     def set_exit_probe(self, exit_probe) -> None:
         '''Attach an ExitProbe whose cached exit the download path attributes to.'''
@@ -694,7 +707,14 @@ class DownloadWorkerBase(ABC):
         # Stamp the exit this download left from: the leased exit in a pool mode, or
         # the probe-discovered exit for the fixed http proxy.
         if egress.exit_name is not None:
-            exit_hostname, exit_ip = egress.exit_name, UNKNOWN_EXIT
+            # The lease names the exit; the pool probe supplies its IP once resolved.
+            # Both matter: the hostname says which relay was chosen, the IP is what
+            # the origin actually saw, and only comparing the two catches a download
+            # leaving from an address the lease did not intend.
+            exit_hostname = egress.exit_name
+            exit_ip = UNKNOWN_EXIT
+            if self._pool_exit_ip_probe is not None:
+                exit_ip = self._pool_exit_ip_probe.ip_for(egress.exit_name) or UNKNOWN_EXIT
         else:
             exit_hostname, exit_ip = cached_exit_attributes(self._exit_probe)
         span_attributes[AttributeNaming.EGRESS_HOSTNAME.value] = exit_hostname

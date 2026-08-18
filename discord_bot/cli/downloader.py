@@ -121,6 +121,11 @@ async def main_loop(worker: RedisDownloadWorker, download_http_server: DownloadH
         # proxy; failures never propagate into the download path.
         if exit_probe is not None:
             tasks.append(exit_probe.run(stop_event))
+        # Pool modes get the per-exit variant instead — one cached IP per leased
+        # exit, resolved through that exit's own client. Built by the worker (it
+        # owns the egress strategy), scheduled here like any other poller.
+        if worker.pool_exit_ip_probe is not None:
+            tasks.append(worker.pool_exit_ip_probe.run(stop_event))
         return tasks
 
     await worker_pod_main_loop(download_http_server, health_server, redis_manager,

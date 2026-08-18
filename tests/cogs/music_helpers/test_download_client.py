@@ -1729,6 +1729,65 @@ async def test_create_source_stamps_leased_exit_in_pool_mode(mocker):
     assert attributes['egress.ip'] == 'unknown'
 
 
+class _FakePoolIpProbe:
+    '''PoolExitIpProbe stand-in returning a canned IP per exit.'''
+
+    def __init__(self, by_exit):
+        self._by_exit = by_exit
+
+    def ip_for(self, exit_name):
+        '''Cached IP for one exit, or None when unresolved.'''
+        return self._by_exit.get(exit_name)
+
+
+def test_pool_mode_builds_a_per_exit_ip_probe():
+    '''Pool modes get the per-exit probe; the fixed proxy gets none.'''
+    pooled = make_download_client(egress_mode='mullvad-socks5',
+                                  egress_exits=['us-lax-wg-001', 'us-nyc-wg-301'])
+    assert pooled.pool_exit_ip_probe is not None
+    assert make_download_client().pool_exit_ip_probe is None
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_stamps_the_resolved_pool_exit_ip(mocker):
+    '''
+    A resolved pool exit stamps its real egress IP, not 'unknown'.
+
+    The leased hostname alone cannot be checked against what the origin saw —
+    which is exactly the comparison needed to tell a flagged relay apart from a
+    download leaving via an address the lease did not intend.
+    '''
+    mock = yield_dlp_error('Video unavailable')
+    x = make_download_client(mock)
+    x._pool_exit_ip_probe = _FakePoolIpProbe({'us-lax-wg-001': '9.9.9.9'})
+    mocker.patch.object(x._egress, 'acquire',
+                        AsyncMock(return_value=DownloadEgress(mock, 'us-lax-wg-001')))
+    spy = mocker.patch.object(download_protocols, 'otel_span_wrapper',
+                              wraps=download_protocols.otel_span_wrapper)
+    await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    create_calls = [c for c in spy.call_args_list
+                    if c.args and c.args[0].endswith('.create_source')]
+    attributes = create_calls[0].kwargs['attributes']
+    assert attributes['egress.hostname'] == 'us-lax-wg-001'
+    assert attributes['egress.ip'] == '9.9.9.9'
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_stamps_unknown_for_an_unresolved_pool_exit(mocker):
+    '''An exit the probe has not resolved yet degrades to unknown, not a crash.'''
+    mock = yield_dlp_error('Video unavailable')
+    x = make_download_client(mock)
+    x._pool_exit_ip_probe = _FakePoolIpProbe({})
+    mocker.patch.object(x._egress, 'acquire',
+                        AsyncMock(return_value=DownloadEgress(mock, 'us-lax-wg-001')))
+    spy = mocker.patch.object(download_protocols, 'otel_span_wrapper',
+                              wraps=download_protocols.otel_span_wrapper)
+    await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    create_calls = [c for c in spy.call_args_list
+                    if c.args and c.args[0].endswith('.create_source')]
+    assert create_calls[0].kwargs['attributes']['egress.ip'] == 'unknown'
+
+
 @pytest.mark.asyncio(loop_scope="session")
 async def test_create_source_stamps_unknown_exit_when_no_probe(mocker):
     '''With no probe attached, the span attributes fall back to unknown.'''

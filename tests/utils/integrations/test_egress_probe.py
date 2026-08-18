@@ -7,7 +7,7 @@ import pytest
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils.integrations.egress_probe import (
     EXIT_PROBE_TYPES, MULLVAD_JSON_URL, MullvadExitProbe, UNKNOWN_EXIT,
-    _default_session_factory, build_exit_probe, cached_exit_attributes,
+    PoolExitIpProbe, _default_session_factory, build_exit_probe, cached_exit_attributes,
     cached_exit_hostname,
 )
 
@@ -192,3 +192,155 @@ async def test_default_session_factory_builds_client_session():
         assert isinstance(session, aiohttp.ClientSession)
     finally:
         await session.close()
+
+
+# --------------------------------------------------------------------------- #
+# PoolExitIpProbe — per-exit IP attribution for the socks5 pool modes
+# --------------------------------------------------------------------------- #
+
+class _FakeUrlopenResponse:
+    '''yt-dlp-response-shaped sync context manager over a JSON body.'''
+
+    def __init__(self, body):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def read(self):
+        '''Return the raw response body, as yt-dlp's Response.read does.'''
+        return self._body
+
+
+class _FakeExitClient:
+    '''yt-dlp-client stand-in whose urlopen returns a canned body per exit.'''
+
+    def __init__(self, body, raise_exc=None):
+        self._body = body
+        self.raise_exc = raise_exc
+        self.calls = []
+
+    def urlopen(self, url):
+        '''Record the probed URL, then raise or return the canned body.'''
+        self.calls.append(url)
+        if self.raise_exc is not None:
+            raise self.raise_exc
+        return _FakeUrlopenResponse(self._body)
+
+
+def _pool_probe(bodies, raise_for=()):
+    '''Return (probe, clients) over a {exit_name: json_body} mapping.'''
+    clients = {
+        name: _FakeExitClient(body,
+                              raise_exc=OSError('relay down') if name in raise_for else None)
+        for name, body in bodies.items()
+    }
+    probe = PoolExitIpProbe(tuple(bodies), clients.__getitem__)
+    return probe, clients
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_resolves_each_exit_through_its_own_client():
+    '''Each exit is probed through the client its downloads use, not a shared one.'''
+    probe, clients = _pool_probe({
+        'us-dal-wg-001': '{"ip": "1.2.3.4"}',
+        'us-sea-wg-001': '{"ip": "5.6.7.8"}',
+    })
+
+    await probe.refresh()
+
+    assert probe.ip_for('us-dal-wg-001') == '1.2.3.4'
+    assert probe.ip_for('us-sea-wg-001') == '5.6.7.8'
+    assert clients['us-dal-wg-001'].calls == [MULLVAD_JSON_URL]
+
+
+def test_pool_probe_ip_is_none_before_any_refresh():
+    '''Attribution falls back to the exit name until a probe has succeeded.'''
+    probe, _ = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    assert probe.ip_for('us-dal-wg-001') is None
+    assert probe.ip_for('never-configured') is None
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_one_bad_exit_does_not_block_the_others():
+    '''
+    A dead relay must not cost the whole pool its attribution.
+
+    The probe runs on the same relays the downloads use, so a flapping exit is
+    routine — it has to degrade to 'unknown' for that exit alone.
+    '''
+    probe, _ = _pool_probe({
+        'us-dal-wg-001': '{"ip": "1.2.3.4"}',
+        'us-sea-wg-001': '{"ip": "5.6.7.8"}',
+    }, raise_for={'us-dal-wg-001'})
+
+    await probe.refresh()
+
+    assert probe.ip_for('us-dal-wg-001') is None
+    assert probe.ip_for('us-sea-wg-001') == '5.6.7.8'
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_keeps_last_known_ip_when_an_exit_starts_failing():
+    '''A later failure keeps the previous answer rather than blanking it.'''
+    probe, clients = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    await probe.refresh()
+
+    clients['us-dal-wg-001'].raise_exc = OSError('relay down')
+    await probe.refresh()
+
+    assert probe.ip_for('us-dal-wg-001') == '1.2.3.4'
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_failsafe_on_junk_payloads():
+    '''A non-dict body or a blank/non-string ip never caches junk.'''
+    probe, _ = _pool_probe({
+        'a': '["not", "a", "dict"]',
+        'b': '{"ip": "   "}',
+        'c': '{"ip": 12345}',
+        'd': '{}',
+    })
+
+    await probe.refresh()
+
+    assert [probe.ip_for(name) for name in ('a', 'b', 'c', 'd')] == [None, None, None, None]
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_run_refreshes_until_stopped(mocker):
+    '''run() polls refresh on a tick and exits promptly on the stop event.'''
+    probe, _ = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    stop = asyncio.Event()
+    calls = {'n': 0}
+
+    async def _refresh():
+        calls['n'] += 1
+        if calls['n'] == 2:
+            stop.set()
+
+    mocker.patch.object(probe, 'refresh', side_effect=_refresh)
+    await probe.run(stop, interval=0.001)
+
+    assert calls['n'] == 2
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_run_swallows_a_refresh_error(mocker):
+    '''A refresh blowing up never takes the pod's task down.'''
+    probe, _ = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    stop = asyncio.Event()
+    calls = {'n': 0}
+
+    async def _boom():
+        calls['n'] += 1
+        stop.set()
+        raise RuntimeError('probe exploded')
+
+    mocker.patch.object(probe, 'refresh', side_effect=_boom)
+    await probe.run(stop, interval=0.001)   # must not raise
+
+    assert calls['n'] == 1
