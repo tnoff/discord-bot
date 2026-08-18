@@ -68,8 +68,32 @@ class MullvadSocks5Resolver(ExitProxyResolver):
     '''Routes an exit through that Mullvad server's in-tunnel SOCKS5 proxy.'''
 
     def proxy_url(self, exit_name: str) -> str:
-        '''``socks5h://`` (remote DNS) to the server's SOCKS5 endpoint on 1080.'''
-        return f'socks5h://{mullvad_socks5_endpoint(exit_name)}:{MULLVAD_SOCKS5_PORT}'
+        '''
+        ``socks5://`` (LOCAL DNS) to the server's SOCKS5 endpoint on 1080.
+
+        Deliberately not ``socks5h``.  With remote DNS the relay resolves the
+        destination itself and picks the address family, and Mullvad's relays
+        answer over IPv6 -- googlevideo then 403s the media fetch from every exit
+        in the pool, which is not something rotation can route around because it
+        is categorical rather than a flagged-IP problem.  Confirmed in prod
+        2026-08-17: ~10 of the 16 exits sampled, every media fetch on IPv6, every
+        one a 403, while extraction over the same relay returned 200.
+
+        yt-dlp's own ``--force-ipv4`` cannot reach this.  ``source_address``
+        constrains only the socket that opens the hop to the relay, so with
+        remote DNS the family of the final connection is the relay's call.
+
+        Resolving locally puts it back under our control: this pod is single-stack
+        IPv4 (no pod IPv6, and gluetun's tunnel address is a /32), so glibc sorts
+        IPv6 destinations last as unusable (RFC 6724 rule 1), yt-dlp takes the
+        first result and hands the relay an IPv4 destination.
+
+        The cost is that these lookups resolve through cluster DNS rather than at
+        the relay, so googlevideo's CDN node is chosen from the cluster's vantage
+        point instead of the exit's.  A suboptimal CDN node is worth an egress
+        family that actually works.
+        '''
+        return f'socks5://{mullvad_socks5_endpoint(exit_name)}:{MULLVAD_SOCKS5_PORT}'
 
 
 # Non-default egress modes -> exit-proxy resolver. Register a VPN/proxy provider
