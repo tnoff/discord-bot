@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fixed: downloads now leave the Mullvad SOCKS5 exits over IPv4. The resolver used `socks5h://`, which let the relay resolve the destination and pick the address family; it answered over IPv6 and googlevideo returned `HTTP Error 403: Forbidden` on the media fetch from every exit in the pool, so exit rotation could not route around it. Switching to `socks5://` resolves locally on a pod that has no IPv6 address, so the relay is handed an IPv4 destination. Note that yt-dlp's `--force-ipv4` never applied here: `source_address` only constrains the hop to the relay.
+
+## [2.5.83] - 2026-08-18
+
+### Changed
+
 - Added: the downloader pod now resolves and caches the public egress IP of each pool exit, so `egress.ip` is stamped on download spans in the socks5 pool modes instead of always reading `unknown`. Each exit is probed through its own yt-dlp client, i.e. over the exact transport its downloads use, so the recorded IP is the one the origin actually sees. A probe failure degrades that exit to `unknown` and never touches the download path.
 
 ## [2.5.82] - 2026-08-17
