@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.83] - 2026-08-18
+
+### Changed
+
+- Added: the downloader pod now resolves and caches the public egress IP of each pool exit, so `egress.ip` is stamped on download spans in the socks5 pool modes instead of always reading `unknown`. Each exit is probed through its own yt-dlp client, i.e. over the exact transport its downloads use, so the recorded IP is the one the origin actually sees. A probe failure degrades that exit to `unknown` and never touches the download path.
+
 ## [2.5.82] - 2026-08-17
 
 ### Changed
