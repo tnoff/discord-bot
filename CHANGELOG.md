@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.85] - 2026-08-19
+
+### Changed
+
+- - Fixed: a successful download could still fail to register. `DownloadResult.ytdlp_data` carried yt-dlp's entire raw info dict, which is not JSON-safe — an HLS download attaches `FFmpegFixupM3u8PP` instances under `__postprocessors`, and `register_download_result` then died on `model_dump(mode='json')` with `PydanticSerializationError: Unable to serialize unknown type`. Because the media had already downloaded, this surfaced as a request stuck after a working download rather than as a download error. The field is now projected down to the six keys consumers actually read (`id`, `title`, `webpage_url`, `uploader`, `duration`, `extractor`) — the same shape the cache-hit path already builds by hand — which removes the whole class of failure rather than blacklisting the types yt-dlp happens to embed today, and drops the format list from every payload crossing HTTP and Redis.
+
 ## [2.5.84] - 2026-08-19
 
 ### Changed
