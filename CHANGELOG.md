@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.84] - 2026-08-19
+
+### Changed
+
+- - Reverted: the `socks5h://` -> `socks5://` change shipped in 2.5.83 was a no-op and never took effect in production. yt-dlp rewrites `socks5://` to `socks5h://` on every request (`clean_proxies`), so remote DNS was always on and the proxy behaved identically before and after. The real cause of the `HTTP Error 403: Forbidden` media fetches was unrelated to egress: YouTube began 403ing every format minted by the `android_vr` player client on 2026-08-17, and yt-dlp's removal of that client from its defaults is still unreleased. The resolver is back on `socks5h://` with the rewrite documented so this is not attempted again.
+
 ## [2.5.83] - 2026-08-18
 
 ### Changed
