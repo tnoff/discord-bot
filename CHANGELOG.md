@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Each published image now has an enforced import boundary. `tests/cli/test_import_boundaries.py` asserts, per entrypoint and in a subprocess, the packages that image must never pull into `sys.modules` — because on a slim image an unexpected import is an ImportError at pod start, discovered on a rollout, not a red test. This replaces the two ad-hoc guards that covered only the search pod and the bot's ytmusicapi boundary, and adds a check that every published console script has a boundary, so a sixth image cannot silently ship without one.
+- Writing the boundaries down found sqlalchemy reaching the downloader pod by two separate routes. `cli/downloader.py` was importing `HttpBrokerClient` from `clients/broker_client.py` — the heavy module the search pod had already stopped using — and `interfaces/download_protocols.py` was importing the `BrokerClient` Protocol from `interfaces/broker_protocols.py`, whose `MediaBrokerBase` annotations pull `VideoCacheClient` (sqlalchemy) and whose module pulls `integrations.s3` (boto3). The Protocol moves to `interfaces/broker_client_protocol.py`, re-exported from its old home — the same split, and the same reason, as `CheckoutResult` and `ClearGuildResult` before it. The downloader image no longer imports sqlalchemy or dappertable.
+
+## [2.5.85] - 2026-08-19
+
+### Changed
+
 - - Fixed: a successful download could still fail to register. `DownloadResult.ytdlp_data` carried yt-dlp's entire raw info dict, which is not JSON-safe — an HLS download attaches `FFmpegFixupM3u8PP` instances under `__postprocessors`, and `register_download_result` then died on `model_dump(mode='json')` with `PydanticSerializationError: Unable to serialize unknown type`. Because the media had already downloaded, this surfaced as a request stuck after a working download rather than as a download error. The field is now projected down to the six keys consumers actually read (`id`, `title`, `webpage_url`, `uploader`, `duration`, `extractor`) — the same shape the cache-hit path already builds by hand — which removes the whole class of failure rather than blacklisting the types yt-dlp happens to embed today, and drops the format list from every payload crossing HTTP and Redis.
 
 ## [2.5.84] - 2026-08-19
