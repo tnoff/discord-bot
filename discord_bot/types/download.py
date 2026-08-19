@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from discord_bot.types.playlist_add_request import AnyMediaRequest
 
@@ -77,6 +77,14 @@ class DownloadStatus(BaseModel):
     error_detail: str | None = None
 
 
+# The only keys any consumer reads out of yt-dlp's info dict. MediaDownload
+# lifts these six in __post_init__; the playlist-add path in cogs/music.py reads
+# webpage_url/title/uploader; both download workers read extractor. The cache-hit
+# path in video_cache_client already fabricates exactly this shape by hand, so it
+# is the de-facto contract -- this just makes the download path agree with it.
+YTDLP_DATA_KEYS = ('id', 'title', 'webpage_url', 'uploader', 'duration', 'extractor')
+
+
 class DownloadResult(BaseModel):
     '''
     Represent a complete download result from the client
@@ -89,3 +97,28 @@ class DownloadResult(BaseModel):
     post_process_timestamp: datetime | None = None
     file_size_bytes: int | None = None
     span_context: dict | None = None
+
+    @field_validator('ytdlp_data')
+    @classmethod
+    def project_ytdlp_data(cls, value: dict | None) -> dict | None:
+        '''
+        Reduce yt-dlp's raw info dict to the keys consumers actually read.
+
+        That dict is not JSON-safe. An HLS download makes yt-dlp attach
+        FFmpegFixupM3u8PP instances under ``__postprocessors``, and
+        ``register_download_result`` then died on ``model_dump(mode='json')``
+        with ``PydanticSerializationError: Unable to serialize unknown type``.
+        The download itself had already succeeded, so the failure surfaced as a
+        stuck request rather than a download error.
+
+        Projecting is deliberate over blacklisting the offending types: yt-dlp
+        is free to embed new objects in that dict at any version, and a
+        blacklist would have to keep chasing them. It also drops the entire
+        format list, which is the bulk of the payload crossing HTTP and Redis.
+
+        Runs on deserialization too, so a round-trip through the broker is a
+        no-op rather than a second projection.
+        '''
+        if value is None:
+            return None
+        return {key: value[key] for key in YTDLP_DATA_KEYS if key in value}
