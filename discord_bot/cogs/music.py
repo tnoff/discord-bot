@@ -33,7 +33,7 @@ from discord_bot.interfaces.download_protocols import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
@@ -849,8 +849,9 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         return True
 
     async def __return_bad_video(self, media_request: MediaRequest, user_message: str | None,
-                                 skip_callback_functions: bool=False):
-        await self._push_state(media_request, LifecycleEvent.FAILED, failure_reason=user_message)
+                                 skip_callback_functions: bool=False, rejected: bool=False):
+        await self._push_state(media_request, LifecycleEvent.FAILED, failure_reason=user_message,
+                               rejected=rejected)
         if not skip_callback_functions and media_request.history_playlist_item_id:
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
@@ -967,9 +968,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_download_results', kind=SpanKind.CONSUMER, attributes=attributes, links=span_links_from_context(media_request.span_context) + span_links_from_context(result.span_context)) as span:
             if not result.status.success:
+                rejected = is_rejection(result.status.error_type)
                 self.logger.info(f'Terminal error on "{str(media_request)}": {result.status.error_detail or ""}')
-                span.set_status(StatusCode.ERROR)
-                await self.__return_bad_video(media_request, result.status.user_message)
+                # A rejection is a decision, not a fault — the pipeline looked at the
+                # video and declined it (too long, banned, private, age restricted).
+                # Marking those spans ERROR made the Consumer Span Error Rate alert
+                # page on ordinary user input, so only genuine failures stay ERROR.
+                span.set_status(StatusCode.OK if rejected else StatusCode.ERROR)
+                await self.__return_bad_video(media_request, result.status.user_message,
+                                              rejected=rejected)
                 return
 
             self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
@@ -1956,14 +1963,16 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 playlist_item_id = await self.__playlist_insert_item(db_session, request.playlist_id, result.webpage_url, result.title, result.uploader)
         except PlaylistMaxLength:
             await self._push_state(request, LifecycleEvent.FAILED,
-                                   failure_reason='Unable to add item to playlist, playlist too long')
+                                   failure_reason='Unable to add item to playlist, playlist too long',
+                                   rejected=True)
             return
         playlist_public_view_id = await self.__get_playlist_public_view(request.playlist_id, request.guild_id)
         if playlist_item_id:
             await self._push_state(request, LifecycleEvent.COMPLETED)
             return
         await self._push_state(request, LifecycleEvent.FAILED,
-                               failure_reason=f'Item "{result.title}" already exists in playlist {playlist_public_view_id}')
+                               failure_reason=f'Item "{result.title}" already exists in playlist {playlist_public_view_id}',
+                               rejected=True)
 
     @playlist.command(name='item-add')
     @command_wrapper

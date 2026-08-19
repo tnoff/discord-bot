@@ -143,7 +143,7 @@ class RedisBroker(MediaBrokerBase):
         elif update.event == LifecycleEvent.COMPLETED:
             media_request.state_machine.mark_completed()
         elif update.event == LifecycleEvent.FAILED:
-            media_request.state_machine.mark_failed(update.failure_reason)
+            media_request.state_machine.mark_failed(update.failure_reason, rejected=update.rejected)
         data['request'] = media_request.model_dump(mode='json')
         # A DISCARDED/FAILED request is terminal — it will never yield a playable
         # download — so drop its registry entry instead of leaving it parked in

@@ -49,7 +49,14 @@ Manages the lifecycle of multiple media requests (playlists, albums, searches).
 - `table` - DapperTable for paginated table rendering
 - `row_collections` - Cached paginated rows (frozen after all requests added)
 - `media_requests` - List of request dictionaries
-- `total`, `completed`, `failed`, `discarded` - Counters for tracking progress
+- `total`, `completed`, `failed`, `rejected`, `discarded` - Counters for tracking progress
+
+`rejected` counts requests that reached FAILED because the *video* was declined
+(too long, banned, private, age restricted, unavailable, format missing) rather
+than because the download broke. They render as "Media request rejected" and are
+summarised under their own "Details for Rejected Requests" header; the banner
+tail reads `N failed, M rejected` (the `0 failed` half is dropped when nothing
+actually failed).
 
 **Request Tracking Structure**:
 

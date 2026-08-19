@@ -89,7 +89,7 @@ class AsyncioBroker(MediaBrokerBase):
         elif update.event == LifecycleEvent.COMPLETED:
             entry.request.state_machine.mark_completed()
         elif update.event == LifecycleEvent.FAILED:
-            entry.request.state_machine.mark_failed(update.failure_reason)
+            entry.request.state_machine.mark_failed(update.failure_reason, rejected=update.rejected)
         # A DISCARDED/FAILED request is terminal — drop its registry entry so
         # de-duplicated / failed requests don't accumulate. We keep the local
         # `entry` reference, so the bundle sync/render below still works.

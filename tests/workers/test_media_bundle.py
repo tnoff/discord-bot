@@ -629,3 +629,76 @@ def test_edit_search_banner_noop_without_banner(fake_context):  # pylint: disabl
     renderer = BundleRenderer.new(fake_context['guild'].id, fake_context['channel'].id)
     renderer._edit_search_banner('ignored')  # pylint: disable=protected-access
     assert renderer.state.has_search_banner is False
+
+
+# ---------------------------------------------------------------------------
+# Rejections (video declined) vs genuine download failures
+# ---------------------------------------------------------------------------
+
+def test_rejected_request_counts_and_renders_as_rejected(fake_context):  # pylint: disable=redefined-outer-name
+    '''A rejection bumps the rejected counter, not failed, and says "rejected"
+    in both the row and the banner.'''
+    renderer = BundleRenderer.new(fake_context['guild'].id, fake_context['channel'].id)
+    renderer.set_multi_input_request('Best of Steely Dan')
+    mr = fake_source_dict(fake_context)
+    mr.state_machine.mark_queued()
+    renderer.add_media_request(mr)
+    renderer.all_requests_added()
+
+    mr.state_machine.mark_failed('Video duration 1176 seconds exceeds max duration of 900 seconds',
+                                 rejected=True)
+    renderer.update_request_status()
+
+    assert renderer.state.rejected == 1
+    assert renderer.state.failed == 0
+    joined = '\n'.join(renderer.print())
+    assert 'Media request rejected' in joined
+    assert 'Media request failed download' not in joined
+    # The zero-failure clause is swallowed when everything terminal was rejected.
+    assert '0/1 media requests processed successfully, 1 rejected' in joined
+
+
+def test_banner_lists_failures_and_rejections_separately(fake_context):  # pylint: disable=redefined-outer-name
+    '''A bundle with one of each reports both counts.'''
+    renderer = BundleRenderer.new(fake_context['guild'].id, fake_context['channel'].id)
+    renderer.set_multi_input_request('Best of Steely Dan')
+    requests = []
+    for _ in range(2):
+        mr = fake_source_dict(fake_context)
+        mr.state_machine.mark_queued()
+        renderer.add_media_request(mr)
+        requests.append(mr)
+    renderer.all_requests_added()
+
+    requests[0].state_machine.mark_failed('cannot download')
+    requests[1].state_machine.mark_failed('Video is banned by bot maintainer', rejected=True)
+    renderer.update_request_status()
+
+    joined = '\n'.join(renderer.print())
+    assert '0/2 media requests processed successfully, 1 failed, 1 rejected' in joined
+
+
+def test_get_failure_summary_splits_rejections_from_failures(fake_context):  # pylint: disable=redefined-outer-name
+    '''Failures and rejections are summarised under their own headers.'''
+    renderer = BundleRenderer.new(fake_context['guild'].id, fake_context['channel'].id)
+    requests = []
+    for _ in range(2):
+        mr = fake_source_dict(fake_context)
+        mr.state_machine.mark_queued()
+        renderer.add_media_request(mr)
+        requests.append(mr)
+    renderer.all_requests_added()
+
+    requests[0].state_machine.mark_failed('cannot download')
+    requests[1].state_machine.mark_failed('Video duration 1176 seconds exceeds max duration '
+                                          'of 900 seconds', rejected=True)
+
+    summary = renderer.get_failure_summary()
+    assert summary is not None
+    joined = '\n'.join(summary)
+    assert 'Error Details for Failed Downloads' in joined
+    assert 'Failure: cannot download' in joined
+    assert 'Details for Rejected Requests' in joined
+    assert 'Reason: Video duration 1176 seconds exceeds max duration of 900 seconds' in joined
+    # Both groups are marked sent.
+    assert renderer.get_failure_summary() is None

@@ -707,12 +707,18 @@ NO: Treat as permanent failure
 ```
 download_client.download() raises DownloadClientException
     ↓
-bundle.update_request_status(FAILED, failure_reason=...)
+bundle.update_request_status(FAILED, failure_reason=..., rejected=True)
     ↓
-Message: "Media request failed download: <reason>"
+Message: "Media request rejected: <name>"
     ↓
 Continue processing other tracks
 ```
+
+These are *rejections*, not failures: the pipeline looked at the video and
+declined it (`is_rejection()` in `types/download.py` lists the error types).
+They bump the bundle's `rejected` counter instead of `failed`, and
+`process_download_results` leaves its consumer span `OK` so the span
+error-rate alert doesn't page on ordinary user input.
 
 ### **Queue Full**
 ```

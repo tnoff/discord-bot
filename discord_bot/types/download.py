@@ -34,6 +34,10 @@ class LifecycleStatusUpdate(BaseModel):
     error_detail: str | None = None
     backoff_seconds: int | None = None
     failure_reason: str | None = None
+    # True when a FAILED event is a content rejection (the video doesn't qualify)
+    # rather than a download that broke.  Carried here so the bundle UI can say
+    # "rejected" instead of "failed" — see REJECTION_ERROR_TYPES.
+    rejected: bool = False
     # Authoritative attempt number for RETRY / RETRY_SEARCH events. The worker
     # increments its own copy of the request; the broker's display copy never
     # sees that bump, so it is carried here and stored on the request for the
@@ -65,6 +69,28 @@ class DownloadErrorType(str, Enum):
     FILE_NOT_FOUND = 'file_not_found'
     TOO_LONG = 'too_long'
     BANNED = 'banned'
+
+
+# Terminal errors where the *video* is the problem — nothing about the download
+# broke, we looked at the item and declined it.  These render as "rejected" in
+# the bundle UI so a 900-second-limit hit doesn't read like a crashed download.
+# Everything else (retry limit exhausted, missing file, bot flagging, no search
+# result) stays a failure.
+REJECTION_ERROR_TYPES = frozenset({
+    DownloadErrorType.PRIVATE_VIDEO,
+    DownloadErrorType.TERMS_VIOLATION,
+    DownloadErrorType.UNAVAILABLE,
+    DownloadErrorType.AGE_RESTRICTED,
+    DownloadErrorType.INVALID_FORMAT,
+    DownloadErrorType.TOO_LONG,
+    DownloadErrorType.BANNED,
+})
+
+
+def is_rejection(error_type: DownloadErrorType | None) -> bool:
+    '''True when a terminal download error means the video was declined rather
+    than the download failing.'''
+    return error_type in REJECTION_ERROR_TYPES
 
 
 class DownloadStatus(BaseModel):

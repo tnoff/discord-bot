@@ -78,6 +78,10 @@ class MediaRequest(BaseModel):
     youtube_music_retry_information: RetryInformation = Field(default_factory=RetryInformation)
     # Failure reason tracking
     failure_reason: str | None = None
+    # True when the FAILED stage is a content rejection (too long, banned,
+    # private, ...) rather than a download that broke.  Drives the "rejected"
+    # wording and counter in the bundle UI.
+    rejected: bool = False
 
     _state_machine: Any = PrivateAttr(default=None)
 
@@ -209,10 +213,16 @@ class MediaRequestStateMachine:
         info.retry_reason_sent = False
         self._transition(MediaRequestLifecycleStage.RETRY_SEARCH)
 
-    def mark_failed(self, reason: str | None = None):
-        '''Transition to FAILED, optionally recording a failure reason'''
+    def mark_failed(self, reason: str | None = None, rejected: bool = False):
+        '''Transition to FAILED, optionally recording a failure reason.
+
+        ``rejected`` marks the terminal state as a content rejection (the video
+        was declined — too long, banned, private) rather than a download that
+        broke, so the bundle UI can word and count it separately.
+        '''
         if reason is not None:
             self._request.failure_reason = reason
+        self._request.rejected = rejected
         self._transition(MediaRequestLifecycleStage.FAILED)
 
     def mark_completed(self):

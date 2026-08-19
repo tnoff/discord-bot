@@ -82,6 +82,10 @@ class BundleState(BaseModel):
     total: int = 0
     completed: int = 0
     failed: int = 0
+    # Requests that reached FAILED as a content rejection (too long, banned,
+    # private, ...).  Counted apart from `failed` so the banner doesn't report a
+    # declined video as a broken download.
+    rejected: int = 0
     discarded: int = 0
     all_requests_enqueued: bool = False
     is_shutdown: bool = False
@@ -132,6 +136,8 @@ def _request_row_text(req_state: BundledRequestState) -> str:
     if stage in (MediaRequestLifecycleStage.QUEUED, MediaRequestLifecycleStage.SEARCHING):
         return f'Media request queued for download: "{name}"'
     if stage == MediaRequestLifecycleStage.FAILED:
+        if media_request.rejected:
+            return f'Media request rejected: "{name}"'
         return f'Media request failed download: "{name}"'
     return ''
 
@@ -146,9 +152,18 @@ def _search_banner_text(state: BundleState, finished: bool) -> str:
     if state.all_requests_enqueued:
         if finished:
             top_line = f'Completed processing of "{multi_input}"'
+        # "0 failed" is the baseline tail; the rejected clause only shows up
+        # once something was actually rejected, and swallows the zero-failure
+        # clause so a purely-rejected bundle reads "1 rejected", not
+        # "0 failed, 1 rejected".
+        tail = []
+        if state.failed or not state.rejected:
+            tail.append(f'{state.failed} failed')
+        if state.rejected:
+            tail.append(f'{state.rejected} rejected')
         top_line = (
             f'{top_line}\n{state.completed}/{state.total - state.discarded} '
-            f'media requests processed successfully, {state.failed} failed'
+            f'media requests processed successfully, {", ".join(tail)}'
         )
     return top_line
 
@@ -264,13 +279,17 @@ class BundleRenderer:
         )
         self._table.add_row(f'Processing "{multi_input}"')
 
-    def _increment_counter_for_stage(self, stage: MediaRequestLifecycleStage) -> None:
+    def _increment_counter_for_stage(self, stage: MediaRequestLifecycleStage,
+                                     rejected: bool = False) -> None:
         if stage == MediaRequestLifecycleStage.COMPLETED:
             self.state.completed += 1
         elif stage == MediaRequestLifecycleStage.DISCARDED:
             self.state.discarded += 1
         elif stage == MediaRequestLifecycleStage.FAILED:
-            self.state.failed += 1
+            if rejected:
+                self.state.rejected += 1
+            else:
+                self.state.failed += 1
 
     def add_media_request(self, media_request: MediaRequest) -> None:
         '''Attach a request to the bundle and seed its table row.
@@ -419,7 +438,8 @@ class BundleRenderer:
                 self._edit_row_data(req, '')
                 self._increment_counter_for_stage(current_stage)
             elif current_stage == MediaRequestLifecycleStage.FAILED:
-                self._increment_counter_for_stage(current_stage)
+                self._increment_counter_for_stage(
+                    current_stage, rejected=req.media_request.rejected)
                 # Keep the row text short — the failure reason goes in
                 # get_failure_summary's separate message.
                 self._edit_row_data(req, _request_row_text(req))
@@ -440,26 +460,40 @@ class BundleRenderer:
         return [s for s in result_strings if s != '']
 
     def get_failure_summary(self) -> Optional[List[str]]:
-        '''Return a single-message error summary for unsent failures, or None.'''
-        failed = [
+        '''Return error-summary messages for unsent terminal reasons, or None.
+
+        Rejections (the video was declined — too long, banned, private) and
+        genuine download failures are summarised in separate messages so each
+        header matches what actually happened to those requests.
+        '''
+        pending = [
             req for req in self.state.bundled_requests
             if req.media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
             and req.media_request.failure_reason
             and not req.failure_reason_sent
         ]
-        if not failed:
+        if not pending:
             return None
-        table = DapperTable(
-            pagination_options=PaginationLength(self.state.pagination_length),
-            prefix='Error Details for Failed Downloads\n',
-        )
-        for req in failed:
-            table.add_row(
-                f'Media Request "{req.media_request.display_name}", '
-                f'Failure: {req.media_request.failure_reason}'
+        messages: List[str] = []
+        for rejected, prefix, label in (
+            (False, 'Error Details for Failed Downloads\n', 'Failure'),
+            (True, 'Details for Rejected Requests\n', 'Reason'),
+        ):
+            group = [req for req in pending if req.media_request.rejected == rejected]
+            if not group:
+                continue
+            table = DapperTable(
+                pagination_options=PaginationLength(self.state.pagination_length),
+                prefix=prefix,
             )
-            req.failure_reason_sent = True
-        return table.render()
+            for req in group:
+                table.add_row(
+                    f'Media Request "{req.media_request.display_name}", '
+                    f'{label}: {req.media_request.failure_reason}'
+                )
+                req.failure_reason_sent = True
+            messages.extend(table.render())
+        return messages
 
     def get_retry_summary(
         self, download_max_retries: int, search_max_retries: int

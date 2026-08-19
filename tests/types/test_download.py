@@ -3,8 +3,10 @@ Tests for the DownloadResult model, in particular the ytdlp_data projection.
 '''
 from discord_bot.types.download import (
     YTDLP_DATA_KEYS,
+    DownloadErrorType,
     DownloadResult,
     DownloadStatus,
+    is_rejection,
 )
 
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -81,3 +83,21 @@ def test_ytdlp_data_projection_survives_round_trip():
     original = _result(_full_ytdlp_data())
     restored = DownloadResult.model_validate(original.model_dump(mode='json'))
     assert restored.ytdlp_data == original.ytdlp_data
+
+
+def test_is_rejection_true_for_content_checks():
+    '''Terminal errors where the video itself was declined classify as rejections.'''
+    for error_type in (DownloadErrorType.TOO_LONG, DownloadErrorType.BANNED,
+                       DownloadErrorType.PRIVATE_VIDEO, DownloadErrorType.TERMS_VIOLATION,
+                       DownloadErrorType.UNAVAILABLE, DownloadErrorType.AGE_RESTRICTED,
+                       DownloadErrorType.INVALID_FORMAT):
+        assert is_rejection(error_type) is True
+
+
+def test_is_rejection_false_for_broken_downloads():
+    '''Retry exhaustion, missing files and empty searches stay plain failures.'''
+    for error_type in (DownloadErrorType.RETRY_LIMIT_EXCEEDED, DownloadErrorType.RETRYABLE,
+                       DownloadErrorType.BOT_FLAGGED, DownloadErrorType.FILE_NOT_FOUND,
+                       DownloadErrorType.NOT_FOUND, DownloadErrorType.NO_EXIT_AVAILABLE,
+                       None):
+        assert is_rejection(error_type) is False

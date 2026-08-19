@@ -5,6 +5,10 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.music import Music
 from discord_bot.exceptions import ExitEarlyException
@@ -393,3 +397,90 @@ async def test_run_idle_backoff_active_empty_queue_backs_off(mocker):
     mocker.patch.object(worker, 'backoff_wait', new=AsyncMock(return_value=None))
     await worker.run(asyncio.Event())
     sleep_mock.assert_awaited_once_with(download_protocols._IDLE_POLL_BACKOFF_SECONDS)  # pylint: disable=protected-access
+
+
+def yield_download_worker_video_too_long():
+    """Fake download client that returns a TOO_LONG DownloadResult"""
+    class FakeDownloadWorker(AsyncioDownloadWorker):
+        def __init__(self, *_args, **kwargs):
+            super().__init__(None, Path('/tmp'),
+                failure_queue=kwargs.get('failure_queue'),
+                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
+                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
+                broker=kwargs.get('broker'),
+            )
+
+        async def create_source(self, media_request, *_args, **_kwargs):
+            result = DownloadResult(
+                status=DownloadStatus(success=False, error_type=DownloadErrorType.TOO_LONG,
+                                      error_detail='Video Too Long',
+                                      user_message='Video duration 1176 seconds exceeds max duration of 900 seconds'),
+                media_request=media_request, ytdlp_data=None, file_name=None)
+            await self.update_tracking(result)
+            return result
+
+    return FakeDownloadWorker
+
+
+@pytest.mark.asyncio()
+async def test_download_video_too_long_marks_request_rejected(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """A content-check terminal error (TOO_LONG) lands as a rejection, not a plain failure."""
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker',
+                 side_effect=yield_download_worker_video_too_long())
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    s = fake_source_dict(fake_context)
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    await cog.media_broker.register_request(s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.run(cog.bot_shutdown_event)
+    exporter = _consumer_span_exporter(mocker)
+    await cog.process_download_results()
+    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
+    assert s.lifecycle_stage == MediaRequestLifecycleStage.FAILED
+    assert s.rejected is True
+    # A declined video is not a fault — the consumer span the error-rate alert
+    # watches must not go red for it.
+    assert _process_results_span_status(exporter) is StatusCode.OK
+
+
+@pytest.mark.asyncio()
+async def test_download_retry_limit_exceeded_keeps_consumer_span_error(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """A genuine terminal failure still marks the consumer span ERROR."""
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker',
+                 side_effect=yield_download_worker_retry_limit_exceeded())
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.dispatcher = MagicMock()
+    s = fake_source_dict(fake_context)
+    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+    await cog.media_broker.register_request(s)
+    await cog.download_client.submit(fake_context['guild'].id, s)
+    await cog.download_client.run(cog.bot_shutdown_event)
+    exporter = _consumer_span_exporter(mocker)
+    await cog.process_download_results()
+    assert s.rejected is False
+    assert _process_results_span_status(exporter) is StatusCode.ERROR
+
+
+def _consumer_span_exporter(mocker):
+    """Swap in a recording tracer so span *status* survives to an assertion.
+
+    The suite runs with no global tracer provider, so spans are non-recording
+    and drop their status entirely (see tests/utils/test_otel.py).
+    """
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    return exporter
+
+
+def _process_results_span_status(exporter):
+    """Status of the process_download_results consumer span."""
+    spans = [s for s in exporter.get_finished_spans() if s.name.endswith('process_download_results')]
+    assert len(spans) == 1
+    return spans[0].status.status_code
