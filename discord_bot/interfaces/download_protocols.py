@@ -36,7 +36,7 @@ from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from discord_bot.interfaces.broker_protocols import BrokerClient
+from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.clear_guild_result import ClearGuildResult

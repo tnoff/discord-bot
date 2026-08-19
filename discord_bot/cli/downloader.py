@@ -36,7 +36,7 @@ from tempfile import TemporaryDirectory
 
 import click
 
-from discord_bot.clients.broker_client import HttpBrokerClient
+from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_bot.servers.download_server import DownloadHttpServer

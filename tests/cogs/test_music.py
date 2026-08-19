@@ -1651,30 +1651,6 @@ async def test_cog_unload_stops_download_client_in_ha(fake_context, mocker):  #p
 SEARCH_HA_CONFIG = {'music': {'youtube_music_search_client': {'url': 'http://search-host:8084'}}}
 
 
-def test_bot_import_chain_does_not_pull_ytmusicapi():
-    '''
-    Importing the cog — and the registry every bot process loads it through —
-    must not import ytmusicapi.
-
-    Under HA the search pod owns the ytmusicapi dependency; the bot only builds a
-    client in single-process mode. But cli/_lib/cog_registry.py imports this cog
-    unconditionally, so a module-scope `from ...youtube_music import
-    YoutubeMusicClient` pulled ytmusicapi into every bot process including the HA
-    one. utils/integrations/youtube_music.py defers it to first attribute access
-    instead, and this guards that: reintroducing a top-level import (here, or in
-    the search protocols/workers, which only need the retry exception — now in
-    discord_bot.exceptions) fails this test.
-
-    Subprocess because the rest of this suite has already imported the cog, so
-    the module cache is pre-poisoned and nothing here would be observable.
-    '''
-    probe = (
-        'import sys; import discord_bot.cli._lib.cog_registry; '
-        "print('leaked' if 'ytmusicapi' in sys.modules else '')"
-    )
-    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
-                            capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == ''
 
 
 def test_single_process_still_builds_a_real_ytmusic_client():

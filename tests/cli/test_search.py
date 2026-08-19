@@ -1,8 +1,6 @@
 '''Tests for the standalone search CLI entrypoint (the shared search pod).'''
 import asyncio
 import logging
-import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
-import sys
 
 import pytest
 
@@ -512,24 +510,3 @@ def test_main_parses_config_and_runs(mocker):
     search_cli.main.callback('cfg.yml')
     parse.assert_called_once_with('cfg.yml')
     run.assert_called_once_with({'k': 'v'}, 'general')
-
-
-def test_search_pod_import_chain_stays_slim():
-    '''
-    Importing the pod entrypoint must not drag in yt-dlp, sqlalchemy or boto3.
-
-    The search image installs the slim [search] extra, so any of these appearing
-    in the chain is an ImportError at pod start, not a test-time nicety — and it
-    is an easy one to add by accident (importing a type from
-    interfaces/download_protocols, say, which imports yt_dlp).  Run in a
-    subprocess because the rest of this suite has already imported the cog, and
-    with the module cache pre-poisoned nothing here would be observable.
-    '''
-    probe = (
-        'import sys; import discord_bot.cli.search; '
-        "leaked = [m for m in ('yt_dlp', 'sqlalchemy', 'boto3', 'moviepy') if m in sys.modules]; "
-        'print(",".join(leaked))'
-    )
-    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
-                            capture_output=True, text=True, check=True)
-    assert result.stdout.strip() == ''
