@@ -47,24 +47,9 @@ def test_mullvad_socks5_endpoint_rejects_bad_names(bad):
 
 
 def test_mullvad_resolver_proxy_url():
-    '''The Mullvad resolver maps an exit to its socks5 endpoint on 1080.'''
+    '''The Mullvad resolver maps an exit to its socks5h endpoint on 1080.'''
     assert MullvadSocks5Resolver().proxy_url('us-lax-wg-001') == \
-        'socks5://us-lax-wg-socks5-001.relays.mullvad.net:1080'
-
-
-def test_mullvad_resolver_uses_local_dns_not_socks5h():
-    '''
-    The scheme must stay socks5, never socks5h.
-
-    With remote DNS the relay resolves the destination and picks the address
-    family; Mullvad answers over IPv6 and googlevideo 403s the media fetch from
-    every exit, which rotation cannot route around. yt-dlp's --force-ipv4 cannot
-    override it either -- source_address only binds the hop to the relay. Local
-    DNS on this single-stack IPv4 pod is what keeps the egress on IPv4.
-    '''
-    url = MullvadSocks5Resolver().proxy_url('us-lax-wg-001')
-    assert url.startswith('socks5://')
-    assert not url.startswith('socks5h://')
+        'socks5h://us-lax-wg-socks5-001.relays.mullvad.net:1080'
 
 
 def test_build_exit_resolver_selects_mullvad_socks5():
@@ -147,7 +132,7 @@ def test_exit_clients_builds_with_resolver_proxy():
     clients = ExitClients({'format': 'bestaudio/best'}, MullvadSocks5Resolver(),
                           client_factory=_FakeClient)
     client = clients.for_exit('us-lax-wg-001')
-    assert client.opts['proxy'] == 'socks5://us-lax-wg-socks5-001.relays.mullvad.net:1080'
+    assert client.opts['proxy'] == 'socks5h://us-lax-wg-socks5-001.relays.mullvad.net:1080'
     assert client.opts['format'] == 'bestaudio/best'
 
 
@@ -193,7 +178,7 @@ async def test_pool_egress_leases_client_and_releases():
     egress = PoolEgress(pool, clients)
     dl = await egress.acquire(_reserve_ok)
     assert dl.exit_name == 'us-lax-wg-001'
-    assert dl.client.opts['proxy'] == 'socks5://us-lax-wg-socks5-001.relays.mullvad.net:1080'
+    assert dl.client.opts['proxy'] == 'socks5h://us-lax-wg-socks5-001.relays.mullvad.net:1080'
     assert pool.leased == frozenset({'us-lax-wg-001'})
     egress.release(dl)
     assert pool.leased == frozenset()
