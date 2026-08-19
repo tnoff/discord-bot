@@ -1,5 +1,5 @@
 # Standalone downloader config — for docker/docker-compose.multiprocess.yml
-# (downloader service). Entrypoint: discord-downloader. No Discord gateway; the
+# (downloader-vpn service, profile "vpn"). Entrypoint: discord-downloader. No Discord gateway; the
 # token is a placeholder only so config validation passes.
 #
 # Runs in mullvad-socks5 egress mode: each download leaves through a different

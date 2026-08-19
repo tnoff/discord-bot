@@ -1,3 +1,25 @@
+# Multi-process (HA) local stack.
+#
+# The downloader comes in two flavours, behind two mutually exclusive profiles.
+# Pick one; the core services (redis, postgres, dispatcher, broker, search, bot)
+# have no profile and always start.
+#
+#   docker compose -f docker/docker-compose.multiprocess.yml --profile local up -d --build
+#     downloader-direct: downloads egress straight out of the compose network.
+#     Needs a Discord token and nothing else — no Mullvad key. This is the
+#     contributor default.
+#
+#   docker compose -f docker/docker-compose.multiprocess.yml --profile vpn up -d --build
+#     gluetun + downloader-vpn: the prod shape — one WireGuard tunnel, a different
+#     Mullvad SOCKS5 exit per download. Needs MULLVAD_WG_PRIVATE_KEY (+ addresses
+#     and entry server) in docker/.env; gluetun never goes healthy without a real
+#     key, and the downloader is gated on it.
+#
+# Both downloader flavours answer to the network alias "downloader-host", so
+# volumes/cnf/discord.bot.cnf points at http://downloader-host:8083 either way.
+# For the tunnel flavour the alias sits on gluetun, since downloader-vpn shares
+# gluetun's netns and has no network identity of its own.
+
 # Fixed subnet so gluetun can exempt the compose network from the tunnel (see the
 # downloader/gluetun FIREWALL_OUTBOUND_SUBNETS below).
 
@@ -68,10 +90,39 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Key-free downloader: default (http-proxy) egress mode with no proxy set, so
+  # downloads leave through the compose network like any other container. Same
+  # image and same entrypoint as downloader-vpn — only the egress config differs.
+  downloader-direct:
+    profiles: ["local"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.downloader
+    environment: *aws-env
+    networks:
+      default:
+        aliases:
+          - downloader-host
+    volumes:
+      - ../volumes/cnf/discord.downloader.direct.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/downloader-logs:/var/log/discord
+    depends_on:
+      redis:
+        condition: service_started
+      broker:
+        condition: service_started
+    restart: unless-stopped
+
   # Mullvad WireGuard tunnel. The downloader shares this netns so the per-server
   # SOCKS5 exits are reachable. Set the Mullvad key + entry server in docker/.env.
   gluetun:
+    profiles: ["vpn"]
     image: docker.io/qmcgaw/gluetun:v3.41.1
+    # downloader-vpn listens inside this netns, so the alias the bot dials lives here.
+    networks:
+      default:
+        aliases:
+          - downloader-host
     cap_add:
       - NET_ADMIN
     devices:
@@ -92,7 +143,9 @@ services:
     restart: unless-stopped
 
   # Standalone downloader running in mullvad-socks5 egress mode, in-tunnel.
-  downloader:
+  # Prod shape. Requires a Mullvad key — use downloader-direct if you have none.
+  downloader-vpn:
+    profiles: ["vpn"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.downloader
@@ -153,8 +206,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      downloader:
-        condition: service_started
+      # No downloader entry: both flavours are profiled, and a profile-less
+      # service cannot depend on a profiled one — compose refuses to start.
+      # Harmless: the bot polls the downloader's status endpoint and retries, so
+      # it tolerates the downloader being absent, late or mid-restart (that poll
+      # loop is what logs "downloader status poller error" during a prod rollout).
       search:
         condition: service_started
     restart: unless-stopped

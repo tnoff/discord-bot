@@ -23,11 +23,13 @@ general:
 music:
   # HA download path: enqueue to the standalone downloader + read results from the
   # broker instead of downloading in-process. download_client.url points at the
-  # downloader's HTTP server, reached via gluetun (the downloader shares its netns).
+  # "downloader-host" network alias, which resolves to whichever downloader
+  # flavour is up — downloader-direct (profile "local") or gluetun, whose netns
+  # downloader-vpn shares (profile "vpn"). Same URL either way.
   broker_client:
     url: http://broker:8081
   download_client:
-    url: http://gluetun:8083
+    url: http://downloader-host:8083
   # HA search path: submit/clear/block searches against the standalone search pod
   # instead of running the search loop in-process. Resolutions come back through
   # the broker's search-result queue, the same way download results do. Drop this

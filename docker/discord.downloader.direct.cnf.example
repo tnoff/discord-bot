@@ -1,0 +1,42 @@
+# Key-free downloader config — for docker/docker-compose.multiprocess.yml
+# (downloader-direct service, profile "local"). Entrypoint: discord-downloader.
+# No Discord gateway; the token is a placeholder only so config validation passes.
+#
+# No egress_mode key, so the downloader runs the default http-proxy mode with no
+# proxy configured: downloads leave straight out of the compose network. No
+# Mullvad key, no tunnel, nothing to sign up for — this is the config to copy if
+# you just want the stack running locally.
+#
+# For the prod-shaped per-download Mullvad exits, use discord.downloader.cnf
+# with the downloader-vpn service (profile "vpn") instead.
+general:
+  discord_token: placeholder-not-used
+  redis_url: redis://redis:6379/0
+  downloader_server:
+    host: 0.0.0.0
+    port: 8083
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+music:
+  # Post download results back to the broker over HTTP.
+  broker_client:
+    url: http://broker:8081
+  download:
+    download_dir_path: /opt/discord/downloads
+
+    youtube_wait_period_minimum: 30
+    youtube_wait_period_max_variance: 10
+    # Hold-off before a failed YouTube download becomes eligible again, doubling
+    # per attempt (30/60/120/240…, capped at 300s), per REQUEST. Set 0 to restore
+    # the immediate requeue. DIRECT items are always exempt.
+    retry_backoff_seconds_minimum: 30
+    # No storage.bucket_name -> finished files stay local, so the bot cannot read
+    # them back and playback won't work. Enough to exercise the download path end
+    # to end; add MinIO + a bucket here and on the broker/bot for real playback.
+    #
+    # There is no egress_probe either, so exit attribution reads "unknown" — the
+    # single egress here is whatever your host's IP is.

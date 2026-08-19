@@ -148,14 +148,30 @@ The `bot` service mounts `./cnf/discord.cnf` and exposes port 8080 for the healt
 
 ### Setup B — multi-process with Redis (`docker-compose.multiprocess.yml`)
 
-Runs the dispatcher and bot as separate containers connected via Redis Streams.
+Runs each subsystem as its own container, connected via Redis Streams — the same
+split that runs in prod.
 See [Cross-process dispatch](./message_dispatcher.md#cross-process-dispatch-via-redis-streams) for background.
 
 ```bash
-docker compose -f docker/docker-compose.multiprocess.yml up -d
+# no Mullvad account needed
+docker compose -f docker/docker-compose.multiprocess.yml --profile local up -d
 ```
 
-Three services are started:
+The core services — `redis`, `postgres`, `dispatcher`, `broker`, `search`, `bot` —
+have no profile and always start. The downloader sits behind one of two mutually
+exclusive profiles:
+
+| Profile | Adds | Needs |
+|---------|------|-------|
+| `local` | `downloader-direct` — downloads leave straight out of the compose network | nothing beyond the Discord token |
+| `vpn` | `gluetun` + `downloader-vpn` — one WireGuard tunnel, a different Mullvad SOCKS5 exit per download (the prod shape) | `MULLVAD_WG_PRIVATE_KEY` in `docker/.env` |
+
+Both answer to the `downloader-host` network alias, so the bot config is the same
+either way. A bare `docker compose up` with no `--profile` starts the core six and
+no downloader at all. See [HA architecture](./ha.md#docker-compose) for the full
+service table and the config files each one mounts.
+
+The three services the sections below configure:
 
 | Service | Purpose |
 |---------|---------|
