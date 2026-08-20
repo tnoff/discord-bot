@@ -1,4 +1,4 @@
-from asyncio import Queue as asyncio_queue
+from asyncio import Queue as asyncio_queue, QueueFull
 import random
 from time import time
 from typing import Generic, TypeVar
@@ -9,6 +9,36 @@ class PutsBlocked(Exception):
     '''
     Puts Blocked on Queue
     '''
+
+# How a submit rejection crosses the bot -> worker-pod HTTP seam.
+#
+# submit() raising PutsBlocked or QueueFull in-process is normal control flow,
+# not a fault: cogs/music.py catches both at every submit site and cleans up
+# (delete the bundle, push DISCARDED). Across the pod split the exception type
+# cannot travel, so the worker pod encodes it as one of these statuses and the
+# bot-side client decodes it back before the cog sees it. Without that, the
+# rejection escaped _handle_submit as an unhandled exception -> aiohttp 500 ->
+# `except PutsBlocked` never matched and the whole command failed.
+#
+# 4xx specifically, and never 5xx: async_retry_broker_command retries 5xx three
+# times with exponential backoff, and a rejection is deterministic -- retrying
+# only delays the identical answer (observed as ~7s added to a doomed /play).
+SUBMIT_REJECTION_STATUS: dict[type[Exception], int] = {
+    PutsBlocked: 409,
+    QueueFull: 429,
+}
+
+SUBMIT_REJECTION_BY_STATUS: dict[int, type[Exception]] = {
+    status: exception for exception, status in SUBMIT_REJECTION_STATUS.items()
+}
+
+
+def submit_rejection_status(exception: Exception) -> int | None:
+    '''Status for a submit rejection, or None if it is not one.'''
+    for exception_type, status in SUBMIT_REJECTION_STATUS.items():
+        if isinstance(exception, exception_type):
+            return status
+    return None
 
 class Queue(asyncio_queue[T], Generic[T]):
     '''

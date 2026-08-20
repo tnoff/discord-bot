@@ -6,16 +6,22 @@ TestServer + TestClient; the RedisDownloadWorker is replaced by a small fake tha
 records calls + returns canned responses.  RedisDownloadWorker.status_snapshot
 itself is covered against fakeredis in tests/workers/test_redis_download_worker.py.
 '''
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from aiohttp import ClientResponseError
 from aiohttp.test_utils import TestClient, TestServer
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 
 from discord_bot.clients.download_client import HttpDownloadClient
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
 from discord_bot.types.search import SearchResult
 
 
@@ -336,3 +342,87 @@ async def test_block_endpoint_rejects_malformed_body():
     async with TestClient(TestServer(server.build_app())) as tc:
         resp = await tc.post('/downloads/block', json={})
     assert resp.status == 422
+
+
+# ---------------------------------------------------------------------------
+# Submit rejections across the HTTP seam
+#
+# PutsBlocked/QueueFull are normal control flow the music cog handles at every
+# submit site.  Before this was wired they escaped _handle_submit as an
+# unhandled exception -> aiohttp 500 -> the bot retried three times and the cog
+# saw a ClientResponseError its `except PutsBlocked` could not match, failing
+# the whole command (trace fc7c6b0b, 2026-08-17).
+# ---------------------------------------------------------------------------
+
+def _recording_tracer():
+    '''Throwaway SDK tracer + exporter; the suite has no global provider, so
+    span status is dropped without one.'''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider.get_tracer('test'), exporter
+
+
+@pytest.mark.parametrize('expected', list(SUBMIT_REJECTION_STATUS))
+@pytest.mark.asyncio
+async def test_submit_rejection_arrives_as_the_in_process_exception(expected):
+    '''A worker-side refusal reaches the caller as the same exception type it
+    would raise in-process, not as a ClientResponseError.
+
+    Parametrised over SUBMIT_REJECTION_STATUS rather than a hand-written list, so
+    this doubles as the drift guard for the server's `except (PutsBlocked,
+    QueueFull)`: adding an entry to the mapping without wiring the catch fails
+    here instead of silently falling through to a 500.'''
+    worker, server = _make_server()
+    worker.submit = AsyncMock(side_effect=expected('refused'))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with pytest.raises(expected):
+            await client.submit(7, _media_request(guild_id=7))
+
+
+@pytest.mark.asyncio
+async def test_submit_rejection_is_not_retried():
+    '''A refusal is deterministic, so it must propagate on the first attempt.
+    Encoded as 5xx it burned three extra retries with exponential backoff before
+    returning the identical answer.'''
+    worker, server = _make_server()
+    worker.submit = AsyncMock(side_effect=PutsBlocked('blocked'))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with pytest.raises(PutsBlocked):
+            await client.submit(7, _media_request(guild_id=7))
+    assert worker.submit.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_submit_genuine_fault_still_raises_and_still_retries():
+    '''Only the two queue-contract exceptions are translated. Anything else is
+    a real server fault: still a 500, still retried, still surfaces raw.'''
+    worker, server = _make_server()
+    worker.submit = AsyncMock(side_effect=RuntimeError('boom'))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with pytest.raises(ClientResponseError):
+            await client.submit(7, _media_request(guild_id=7))
+    assert worker.submit.await_count > 1
+
+
+@pytest.mark.asyncio
+async def test_submit_rejection_leaves_both_seam_spans_ok():
+    '''A refusal is a decision, not a fault. Both the server and client submit
+    spans must end OK, or every blocked-guild submit reads as an error on the
+    seam error-rate panels and alerts.'''
+    worker, server = _make_server()
+    worker.submit = AsyncMock(side_effect=PutsBlocked('blocked'))
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        async with TestClient(TestServer(server.build_app())) as tc:
+            client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+            with pytest.raises(PutsBlocked):
+                await client.submit(7, _media_request(guild_id=7))
+    submit_spans = [s for s in exporter.get_finished_spans() if s.name == 'downloader.submit']
+    assert len(submit_spans) == 2, [s.name for s in exporter.get_finished_spans()]
+    for span in submit_spans:
+        assert span.status.status_code is not StatusCode.ERROR
+        assert span.attributes['queue.submit_rejection'] == 'PutsBlocked'

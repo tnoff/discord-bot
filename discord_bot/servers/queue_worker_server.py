@@ -25,8 +25,9 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.types.queue import PutsBlocked, QueueFull, submit_rejection_status
 from discord_bot.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
-                                     MetricNaming)
+                                     MetricNaming, AttributeNaming)
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,28 @@ class QueueWorkerHttpServer(AiohttpServerBase):
             media_request = parse_media_request(body['media_request'])
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
-        with otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', context=ctx, kind=SpanKind.SERVER):
-            await self._worker.submit(guild_id, media_request, priority=priority)
+        rejection: Exception | None = None
+        with otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', context=ctx, kind=SpanKind.SERVER) as span:
+            try:
+                await self._worker.submit(guild_id, media_request, priority=priority)
+            except (PutsBlocked, QueueFull) as exc:
+                # Spelled out rather than derived from SUBMIT_REJECTION_STATUS:
+                # pylint cannot infer that a dict's keys are exception classes and
+                # rejects `except tuple(...)` (E0712). Drift is guarded by the
+                # end-to-end test, which parametrises over that dict -- adding an
+                # entry there without adding it here fails the test.
+                #
+                # Caught INSIDE the span on purpose. otel_span_wrapper marks any
+                # escaping exception ERROR, and a queue refusal is an expected
+                # answer the cog handles -- letting it escape would make every
+                # blocked-guild submit read as a server fault on the error-rate
+                # panels and alerts.
+                rejection = exc
+                span.set_attributes({AttributeNaming.SUBMIT_REJECTION.value: type(exc).__name__})
+        if rejection is not None:
+            return web.json_response(
+                {'status': 'rejected', 'reason': type(rejection).__name__, 'detail': str(rejection)},
+                status=submit_rejection_status(rejection))
         return web.json_response({'status': 'ok'}, status=202)
 
     async def _handle_clear(self, request: web.Request) -> web.Response:

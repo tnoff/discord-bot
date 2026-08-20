@@ -51,6 +51,10 @@ class AttributeNaming(Enum):
     # spans/logs, never a metric label.
     EGRESS_HOSTNAME = 'egress.hostname'
     EGRESS_IP = 'egress.ip'
+    # Why a queue submit was refused (PutsBlocked / QueueFull). Set on the
+    # seam spans, which stay OK: a refusal is a decision, not a fault, and
+    # marking it ERROR is what inflates the seam's error rate.
+    SUBMIT_REJECTION = 'queue.submit_rejection'
 
 class DiscordContextNaming(Enum):
     '''

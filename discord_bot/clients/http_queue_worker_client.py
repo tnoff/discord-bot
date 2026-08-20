@@ -26,13 +26,15 @@ import asyncio
 import logging
 from typing import Callable, ClassVar
 
+from aiohttp import ClientResponseError
 from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
-from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.types.queue import SUBMIT_REJECTION_BY_STATUS
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +87,30 @@ class HttpQueueWorkerClient(HttpClientMixin):
 
     async def submit(self, guild_id: int, media_request: MediaRequest,
                      priority: int | None = None) -> None:
-        '''POST {prefix} — the worker pod enqueues the request on its Redis queue.'''
-        async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', kind=SpanKind.CLIENT):
-            await self._http('POST', self._submit_url,
-                             self._build_submit_body(guild_id, media_request, priority))
+        '''POST {prefix} — the worker pod enqueues the request on its Redis queue.
+
+        Re-raises a queue refusal as the in-process exception the cog already
+        handles.  The worker pod cannot send PutsBlocked/QueueFull over HTTP, so
+        it encodes them as the statuses in SUBMIT_REJECTION_BY_STATUS; decoding
+        here is what keeps `except PutsBlocked` at the call sites working across
+        the pod split rather than surfacing a bare ClientResponseError.
+        '''
+        rejection: Exception | None = None
+        async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', kind=SpanKind.CLIENT) as span:
+            try:
+                await self._http('POST', self._submit_url,
+                                 self._build_submit_body(guild_id, media_request, priority))
+            except ClientResponseError as exc:
+                rejection_type = SUBMIT_REJECTION_BY_STATUS.get(exc.status)
+                if rejection_type is None:
+                    raise
+                # Raised after the span closes so a refusal leaves this span OK,
+                # mirroring the server side.
+                rejection = rejection_type(
+                    f'{rejection_type.__name__} for guild {guild_id} from the {self.SPAN_PREFIX} worker')
+                span.set_attributes({AttributeNaming.SUBMIT_REJECTION.value: rejection_type.__name__})
+        if rejection is not None:
+            raise rejection
 
     async def block_guild(self, guild_id: int) -> bool:
         '''POST {prefix}/block — refuse subsequent submits for this guild.'''

@@ -18,6 +18,8 @@ from unittest.mock import AsyncMock
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from discord_bot.types.queue import PutsBlocked
+
 from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 from discord_bot.cogs.music_helpers.common import SearchType
@@ -387,3 +389,18 @@ async def test_draining_server_refuses_new_requests():
         server.start_draining()
         resp = await tc.get('/search/ytmusic/status')
     assert resp.status == 503
+
+
+@pytest.mark.asyncio
+async def test_blocked_guild_submit_maps_back():
+    '''The regression this seam actually hit in production (trace fc7c6b0b,
+    2026-08-17): a blocked guild made the search pod 500, the bot retried three
+    times, and /play failed with a ClientResponseError the cog could not match
+    against `except PutsBlocked`.'''
+    worker, server = _make_server()
+    worker.submit = AsyncMock(side_effect=PutsBlocked('Puts blocked for guild 7'))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpYoutubeMusicSearchClient(str(tc.make_url('')), session=tc.session)
+        with pytest.raises(PutsBlocked):
+            await client.submit(7, _media_request(guild_id=7))
+    assert worker.submit.await_count == 1
