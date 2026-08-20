@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The single-process deployment is retired. `discord-bot` now names the HA bot process (`cli/bot.py`) instead of the full one-process entrypoint, `cli/full.py` is deleted along with `docker/docker-compose.yml` and `docker/discord.cnf.example`, and the multiprocess compose stack is the only supported way to run the bot. `discord-bot-min` survives as a deprecated alias for the same entrypoint, because the deployed manifests still set `DISCORD_BOT_CMD=discord-bot-min` and dropping the name before they flip would CrashLoop the bot pod on exec.
+- Nothing builds an in-process `MessageDispatcher` any more: `cli/bot.py` requires `dispatch_http_url` and refuses to start without it, so an unset value is a startup error rather than a quiet fall back to single-process mode. The music cog's in-process broker, download and search fallbacks still exist in the code — those come out separately, once nothing can construct them from a deployed configuration.
+
+## [2.5.88] - 2026-08-20
+
+### Changed
+
 - - Fixed: a blocked or full guild queue no longer fails the whole command. `submit()` raising `PutsBlocked` or `QueueFull` is normal control flow that `cogs/music.py` handles at every call site — delete the bundle, push `DISCARDED`, return quietly — but that contract did not survive the pod split. The worker pod's `_handle_submit` caught only body-parse errors, so a refusal escaped as an unhandled exception, aiohttp turned it into a 500, `async_retry_broker_command` retried it three times with exponential backoff, and the bot received a `ClientResponseError` that `except PutsBlocked` could not match. A single `/play` against a blocked guild therefore spent ~7s retrying a deterministic refusal and then failed with an opaque Internal Server Error, leaving its bundle behind. The two queue-contract exceptions are now encoded as `409`/`429` by the worker pod and decoded back into the real exception type by the bot-side client, so the existing handlers work unchanged across the seam; being 4xx they also propagate on the first attempt instead of burning retries. Both submit spans stay `OK` for a refusal — it is a decision, not a fault, and marking it `ERROR` is what inflated the seam's error rate. This is one fix in the shared base class, so it covers the live download path and the YouTube-Music search path together; the search path is where it was observed (trace `fc7c6b0b`, 2026-08-17).
 
 ## [2.5.87] - 2026-08-19
