@@ -5,6 +5,15 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.89] - 2026-08-20
+
+### Changed
+
+- `music.youtube_music_search_client` is now required config, and the music cog is a search *client* only. The in-process branch — an `AsyncioYoutubeMusicSearchWorker` (or Redis-backed worker) behind an `InMemoryYoutubeMusicSearchClient`, driven by the cog's own `search_youtube_music` loop — is gone, along with the loop, its heartbeat registration and the `YoutubeMusicSearchDriver` the cog used to build. The search pod has owned that loop in production since the cutover; the cog kept a second copy of the wiring that nothing could reach.
+- **`ytmusicapi` leaves the `[bot]` extra.** It was pinned there because the cog built a real `YoutubeMusicClient` whenever the search url was absent, which is what `discord-bot!209` ran into when it tried to drop the package. With no in-process branch there is no client to build: `ytmusicapi` now lives only in `[search]`, and the test suite installs `bot,search,test`.
+- **A bad music config is now fatal rather than a silent skip.** `load_cogs` treats `CogMissingRequiredArg` as "this cog opts out" and moves on with a debug line — correct for `include.music: false`, and dangerous for a music section that is present and fails to validate, since a fat-fingered client url would have started a bot with no music at all. The enabled-check runs before config validation, and a validation failure now raises `DiscordBotException`, which nothing catches.
+- The `InMemory*` / `Asyncio*` search implementations still exist, as test doubles: `tests.helpers.attach_in_process_search` rebuilds exactly the stack the cog used to build, so the driver's behaviour stays under test without standing up an aiohttp server. A test asserts the cog module no longer references them at all, since a reintroduced fallback is invisible until a pod runs the wrong half.
+
 ## [2.5.88] - 2026-08-20
 
 ### Changed
