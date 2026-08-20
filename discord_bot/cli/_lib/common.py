@@ -3,16 +3,15 @@ import contextlib
 from asyncio import get_running_loop
 from contextlib import asynccontextmanager
 import logging
-import re
 import signal
 import sys
-from typing import Callable, Iterator, List
+from typing import Callable, Iterator
 
 from pyaml_env import parse_config
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider, ReadableSpan, SpanProcessor
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -39,37 +38,6 @@ from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 from discord_bot.utils.gc_census import GcCensusProfiler
-
-
-class FilterOKRetrySpans(SpanProcessor):
-    '''
-    Filter spammy spans for the retry clients.
-    Wraps another SpanProcessor and only forwards spans that should not be filtered.
-    Accepts a list of regex patterns to match span names against.
-    '''
-    def __init__(self, next_processor: SpanProcessor, patterns: List[str]):
-        self._next = next_processor
-        self._patterns = [re.compile(p) for p in patterns]
-
-    def on_start(self, span, parent_context=None):
-        self._next.on_start(span, parent_context)
-
-    def on_end(self, span: ReadableSpan):
-        '''
-        Overrides on_end, filter OK spans matching configured patterns
-        '''
-        if span.status.is_ok:
-            for pattern in self._patterns:
-                if pattern.match(span.name):
-                    return  # Don't forward to next processor
-        # Forward to next processor
-        self._next.on_end(span)
-
-    def shutdown(self):
-        self._next.shutdown()
-
-    def force_flush(self, timeout_millis=30000):
-        return self._next.force_flush(timeout_millis)
 
 
 def read_config(config_file: str) -> dict:
@@ -101,12 +69,16 @@ def setup_otlp(general_config: GeneralConfig):
     RedisInstrumentor().instrument(tracer_provider=tracer_provider)
     span_exporter = OTLPSpanExporter()
     trace_provider = trace.get_tracer_provider()
-    batch_processor = BatchSpanProcessor(span_exporter)
-    if general_config.monitoring.otlp.filter_high_volume_spans:
-        patterns = general_config.monitoring.otlp.high_volume_span_patterns
-        trace_provider.add_span_processor(FilterOKRetrySpans(batch_processor, patterns))
-    else:
-        trace_provider.add_span_processor(batch_processor)
+    # Span filtering is the otel-collector's job now — see the
+    # filter/drop-ok-high-volume-spans processor in
+    # monitoring/collector/config.yaml in docker-apps. Doing it here meant a
+    # regex list per service in the ConfigMap, only applied on a pod roll, and
+    # it could never reach the redis auto-instrumentation spans that turned out
+    # to be 99.5% of the volume (they are created by the redis instrumentor,
+    # not by this process's wrappers, but more to the point the filter was
+    # name-based and redis names its spans after the bare command, which
+    # collides with the HTTP client spans).
+    trace_provider.add_span_processor(BatchSpanProcessor(span_exporter))
     resource = get_aggregated_resources(detectors=[OTELResourceDetector()])
     exporter = OTLPMetricExporter()
     reader = PeriodicExportingMetricReader(exporter)

@@ -28,20 +28,18 @@ _LOOP_ERROR_BACKOFF_SECONDS = 1.0
 _LOOP_ERROR_BACKOFF_MAX_SECONDS = 30.0
 
 # Pydantic models for config validation
-# Default patterns for high volume spans that are filtered when in OK state
-DEFAULT_HIGH_VOLUME_SPAN_PATTERNS = [
-    r'^sql_retry\.retry_db_command$',
-    r'^utils\.retry_command_async$',
-    r'^utils\.message_send_async$',
-]
 
 class MonitoringOtlpConfig(BaseModel):
-    '''OTLP monitoring configuration'''
+    '''
+    OTLP monitoring configuration
+
+    Span filtering used to live here as filter_high_volume_spans /
+    high_volume_span_patterns. It moved to the otel-collector
+    (filter/drop-ok-high-volume-spans in monitoring/collector/config.yaml in
+    docker-apps), so both keys are gone. Extra keys are ignored, so a config
+    still carrying them is accepted and has no effect.
+    '''
     enabled: bool
-    # Filter high volume spans, only filters those in OK state
-    filter_high_volume_spans: bool = True
-    # List of regex patterns to filter (when in OK state)
-    high_volume_span_patterns: list[str] = Field(default_factory=DEFAULT_HIGH_VOLUME_SPAN_PATTERNS.copy)
 
 class MonitoringMemoryProfilingConfig(BaseModel):
     '''Memory profiling monitoring configuration'''

@@ -11,7 +11,7 @@ from opentelemetry.trace.status import StatusCode
 import pytest
 
 from discord_bot.exceptions import ExitEarlyException
-from discord_bot.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig, DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
+from discord_bot.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig
 from discord_bot.utils.common import get_logger
 from discord_bot.utils.discord_retry import async_retry_command
 from discord_bot.utils.discord_retry import async_retry_discord_message_command
@@ -138,65 +138,27 @@ def test_pydantic_otlp_config_minimal():
     config = GeneralConfig(**reject_input)
     assert config.monitoring.otlp.enabled is True
 
-def test_pydantic_otlp_config_default_span_patterns():
-    '''Test that default high volume span patterns are applied'''
-    config_input = {
-        'discord_token': 'abctoken',
-        'monitoring': {
-            'otlp': {
-                'enabled': True,
-            },
-        },
-    }
-    config = GeneralConfig(**config_input)
-    assert config.monitoring.otlp.high_volume_span_patterns == DEFAULT_HIGH_VOLUME_SPAN_PATTERNS
-    assert config.monitoring.otlp.filter_high_volume_spans is True
-
-def test_pydantic_otlp_config_custom_span_patterns():
-    '''Test that custom high volume span patterns can be set'''
-    custom_patterns = [
-        r'^custom\.span$',
-        r'.*heartbeat.*',
-    ]
-    config_input = {
-        'discord_token': 'abctoken',
-        'monitoring': {
-            'otlp': {
-                'enabled': True,
-                'high_volume_span_patterns': custom_patterns,
-            },
-        },
-    }
-    config = GeneralConfig(**config_input)
-    assert config.monitoring.otlp.high_volume_span_patterns == custom_patterns
-
-def test_pydantic_otlp_config_empty_span_patterns():
-    '''Test that empty span patterns list can be set'''
-    config_input = {
-        'discord_token': 'abctoken',
-        'monitoring': {
-            'otlp': {
-                'enabled': True,
-                'high_volume_span_patterns': [],
-            },
-        },
-    }
-    config = GeneralConfig(**config_input)
-    assert config.monitoring.otlp.high_volume_span_patterns == []
-
-def test_pydantic_otlp_config_disable_span_filtering():
-    '''Test that span filtering can be disabled'''
+def test_pydantic_otlp_config_ignores_retired_span_filter_keys():
+    '''
+    Span filtering moved to the otel-collector, so both keys are gone from the
+    model. A ConfigMap still carrying them must stay loadable and simply ignore
+    them — that is what lets the collector-side filter deploy before the config
+    is cleaned up, rather than needing the two changes to land together.
+    '''
     config_input = {
         'discord_token': 'abctoken',
         'monitoring': {
             'otlp': {
                 'enabled': True,
                 'filter_high_volume_spans': False,
+                'high_volume_span_patterns': [r'^custom\.span$'],
             },
         },
     }
     config = GeneralConfig(**config_input)
-    assert config.monitoring.otlp.filter_high_volume_spans is False
+    assert config.monitoring.otlp.enabled is True
+    assert not hasattr(config.monitoring.otlp, 'filter_high_volume_spans')
+    assert not hasattr(config.monitoring.otlp, 'high_volume_span_patterns')
 
 def test_get_logger():
     # Test default options

@@ -31,8 +31,6 @@ general:
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
 | `enabled` | boolean | Yes | N/A | Enable/disable OTLP instrumentation for metrics, traces, and logs |
-| `filter_high_volume_spans` | boolean | No | `true` | Enable filtering of high volume spans that are in OK state |
-| `high_volume_span_patterns` | list[string] | No | See below | List of regex patterns to match span names for filtering |
 
 #### Logging Section (`logging`)
 
@@ -63,62 +61,37 @@ general:
 
 ### High Volume Span Filtering
 
-When `filter_high_volume_spans` is enabled, spans matching the configured regex patterns are filtered out if they complete successfully (OK status). Failed spans are always exported for debugging purposes.
+Span filtering is **not done by this application**. It lives in the
+otel-collector, as the `filter/drop-ok-high-volume-spans` processor in
+`monitoring/collector/config.yaml` in the `docker-apps` repo.
 
-#### Default Patterns
+It used to be here: a `FilterOKRetrySpans` span processor driven by
+`filter_high_volume_spans` / `high_volume_span_patterns`, configured per
+service. Both keys are retired. A config that still sets them loads fine and
+they are ignored.
 
-By default, the following patterns are filtered:
+Two reasons it moved:
 
-```yaml
-high_volume_span_patterns:
-  - '^sql_retry\.retry_db_command$'
-  - '^utils\.retry_command_async$'
-  - '^utils\.message_send_async$'
-```
+**One rule set instead of five.** Each service carried its own pattern list in
+its own ConfigMap block, the lists drifted, and a change only took effect when
+the pod rolled. The collector applies one rule set to every service, including
+the ones that were never in this codebase, and a change takes effect on the
+collector roll.
 
-#### Custom Patterns
+**It could not filter what actually needed filtering.** The redis
+auto-instrumentation emits a CLIENT span per command, and the services issue
+most of theirs from background poll loops outside any request context, so each
+becomes its own single-span trace in Tempo — measured at 99.5% of
+`discord-search`'s span volume. Filtering that here was not an option, because
+this filter matched on span *name* and redis names its spans after the bare
+command (`GET`, `SET`, `DEL`), which collides with the HTTP client spans
+`RequestsInstrumentor` produces. The collector matches on the `db.system`
+attribute instead, which tells the two apart.
 
-You can override or extend the default patterns with your own regex patterns:
-
-```yaml
-general:
-  monitoring:
-    otlp:
-      enabled: true
-      filter_high_volume_spans: true
-      high_volume_span_patterns:
-        # Filter all spans starting with "internal."
-        - '^internal\.'
-        # Filter specific heartbeat spans
-        - '^heartbeat\.check$'
-        # Filter spans containing "cache" anywhere in the name
-        - '.*cache.*'
-        # Keep default retry patterns
-        - '^sql_retry\.retry_db_command$'
-        - '^utils\.retry_command_async$'
-        - '^utils\.message_send_async$'
-```
-
-#### Pattern Examples
-
-| Pattern | Matches | Does Not Match |
-|---------|---------|----------------|
-| `^utils\.` | `utils.retry`, `utils.message_send` | `my_utils.foo` |
-| `.*heartbeat.*` | `system.heartbeat.check`, `heartbeat` | `heart_beat` |
-| `^db\.(query\|insert)$` | `db.query`, `db.insert` | `db.delete`, `db.query.slow` |
-| `^api\.v[0-9]+\.` | `api.v1.users`, `api.v2.posts` | `api.legacy.users` |
-
-#### Disabling Filtering
-
-To export all spans including high volume ones:
-
-```yaml
-general:
-  monitoring:
-    otlp:
-      enabled: true
-      filter_high_volume_spans: false
-```
+The collector filter keeps every ERROR span, and never drops SERVER or
+CONSUMER spans regardless of name — the trace error-rate alerts divide errors
+by all spans of that kind, so dropping the successful ones would leave a
+denominator made only of errors.
 
 ## Environment Variables
 
