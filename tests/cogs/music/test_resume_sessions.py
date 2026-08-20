@@ -11,8 +11,8 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.player_session import PlayerSession
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import (FakeChannel, FakeGuild, FakeVoiceClient, fake_engine, fake_context,  #pylint:disable=unused-import
-                           fake_source_dict, fake_media_download)
+from tests.helpers import (attach_in_process_search, FakeChannel, FakeGuild, FakeVoiceClient,  #pylint:disable=unused-import
+                           fake_engine, fake_context, fake_source_dict, fake_media_download)
 
 
 class _FakeMember:
@@ -117,6 +117,7 @@ async def test_non_shutdown_cleanup_saves_nothing(mocker, fake_context):  #pylin
     '''Only BOT_SHUTDOWN writes a session — the other reasons mean the guild is
     genuinely done, not coming back.'''
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))

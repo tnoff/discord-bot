@@ -304,7 +304,7 @@ Each loop reports its health through an OpenTelemetry observable gauge
 | `download_files` | Audio downloads (single-process only — under HA this runs in the downloader pod and the bot emits no such series) |
 | `process_download_results` | Download result routing |
 | `process_search_results` | Resolved-search consumer |
-| `youtube_music_search` | YouTube Music search |
+| `youtube_music_search` | YouTube Music search — **search pod only**; the cog registers no such loop |
 | `post_play_processing` | Post-play history/playlist tracking (only with a configured database) |
 
 **Value**: `1` while the loop is completing iterations, `0` once it has gone its

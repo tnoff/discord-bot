@@ -8,18 +8,17 @@ the bot through the broker's search-result queue.  The per-request retry policy
 too — it is request policy rather than queue mechanics, so it belongs with the
 loop that applies it, not with the queue implementation underneath.
 
-This lives in its own module because it has two drivers, in two different
-processes:
+This lives in its own module because it had two drivers, in two different
+processes: the music cog's ``search_youtube_music`` loop against an
+InMemoryYoutubeMusicSearchClient, and ``cli/search.py`` inside the standalone
+search pod against a RedisYoutubeMusicSearchWorker and an HttpBrokerClient.  The
+cog's half is gone (projects/discord-bot-ha-only) — the pod is the only driver
+in production now, and the in-memory collaborators survive only as test doubles
+(tests.helpers.attach_in_process_search).
 
-  * single-process — the music cog's ``search_youtube_music`` loop drives it
-    against an InMemoryYoutubeMusicSearchClient and the in-process broker;
-  * HA — ``cli/search.py`` drives it inside the standalone search pod against a
-    RedisYoutubeMusicSearchWorker and an HttpBrokerClient.
-
-Both call ``run_once``; only the collaborators differ, which is the point.  A
-copy in each caller would drift exactly where drift is most expensive — this is
-the seam whose two prod incidents were both version skew between independently
-deployed halves — and pylint's R0801 would reject the copy anyway.
+The seam stays because the collaborator-agnostic shape is what let the loop move
+processes without a rewrite, and because it is what keeps the pod's tests able to
+drive the real loop body without an aiohttp server.
 
 Nothing here imports the cog, so the search pod's import chain never reaches
 yt-dlp, sqlalchemy or boto3 (the same discipline that keeps sqlalchemy off the
@@ -43,9 +42,9 @@ from discord_bot.utils.otel import (
 )
 
 # Span name is deliberately the cog's old one ('music' + the loop name) rather
-# than a pod-flavoured rename: the same logical operation moves processes at the
-# MR 6 cutover, and a renamed span would break trace comparison across exactly
-# the window where a regression is most likely.
+# than a pod-flavoured rename: the same logical operation moved processes at the
+# cutover, and a renamed span would have broken trace comparison across exactly
+# the window where a regression was most likely. Keep it.
 SEARCH_SPAN_NAME = 'music.search_youtube_music'
 
 # Longest a single iteration sleeps out a 429 backoff window.  A search backoff

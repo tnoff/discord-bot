@@ -7,7 +7,7 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
-from tests.cogs.test_music import BASE_MUSIC_CONFIG
+from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import fake_media_download
 from tests.helpers import fake_engine, fake_context  # pylint: disable=unused-import
 
@@ -63,7 +63,7 @@ async def test_get_player_check_voice_client_active(mocker, fake_context):  # py
 @pytest.mark.asyncio
 async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """Test adding source to player with S3 caching enabled"""
-    config = {
+    config = music_config({
         'music': {
             'download': {
                 'cache': {
@@ -74,7 +74,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
                 }
             }
         }
-    } | BASE_MUSIC_CONFIG
+    })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)

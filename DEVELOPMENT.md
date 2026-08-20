@@ -23,7 +23,7 @@ Use a virtualenv. Editable install picks up local changes:
 ```bash
 virtualenv venv
 source venv/bin/activate
-pip install -e ".[bot,test]"
+pip install -e ".[bot,search,test]"
 ```
 
 Available extras:

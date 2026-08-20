@@ -12,7 +12,7 @@ from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
-from tests.cogs.test_music import BASE_MUSIC_CONFIG
+from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
@@ -51,13 +51,13 @@ async def test_history_playlist_update(mocker, fake_engine, fake_context):  #pyl
 
 @pytest.mark.asyncio
 async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    config = {
+    config = music_config({
         'music': {
             'playlist': {
                 'server_playlist_max_size': 1,
             }
         }
-    } | BASE_MUSIC_CONFIG
+    })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

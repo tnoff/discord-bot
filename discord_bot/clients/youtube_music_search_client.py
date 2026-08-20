@@ -75,15 +75,13 @@ class HttpYoutubeMusicSearchClient(HttpQueueWorkerClient):
     only the route and span prefixes differ from the downloader's client.
 
     **Deliberately narrower than the Protocol**: no resolve / get_input_nowait /
-    backoff_wait / set_wait_timestamp.  Those four exist for the single-process
-    shape, where the cog's own search_youtube_music loop pops a request, resolves
-    it, and hands the resolution to the broker.  Under HA that loop belongs to the
-    search pod — it owns the ytmusicapi client, the queue it pops from, and the
-    shared 429 window — and the bot receives resolutions back through the broker's
-    search-result queue (the MR 2 seam), not through this client.  The cog stops
-    registering LOOP_YOUTUBE_MUSIC_SEARCH when a search URL is configured, exactly
-    as it already skips LOOP_DOWNLOAD_FILES under a configured download_client
-    (that wiring is MR 6).  Calling one of the four here is a programming error,
+    backoff_wait / set_wait_timestamp.  Those four belong to whoever drives the
+    search loop, and that is the search pod: it owns the ytmusicapi client, the
+    queue it pops from, and the shared 429 window.  The bot receives resolutions
+    back through the broker's search-result queue, not through this client, and
+    registers no search loop at all — the cog used to run one itself when no
+    search url was configured, and that in-process shape is gone
+    (projects/discord-bot-ha-only).  Calling one of the four here is a programming error,
     not a runtime fallback, so they are absent rather than raising stubs.
     '''
 

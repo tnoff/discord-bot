@@ -7,18 +7,22 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import VideoCache
 from discord_bot.cogs.music import Music
-from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.exceptions import DiscordBotException
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
-from tests.cogs.test_music import BASE_MUSIC_CONFIG
+from tests.cogs.test_music import music_config
 from tests.helpers import async_mock_session, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 
 
 def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pylint:disable=redefined-outer-name
-    '''enable_cache_files without storage raises CogMissingRequiredArg at construction time'''
-    config = {
+    '''enable_cache_files without storage is fatal at construction time.
+
+    Raises DiscordBotException rather than CogMissingRequiredArg on purpose:
+    load_cogs skips a cog that raises the latter, so a music section that IS
+    present and does not validate would silently start a music-less bot.'''
+    config = music_config({
         'music': {
             'download': {
                 'cache': {
@@ -26,15 +30,15 @@ def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pyli
                 }
             }
         }
-    } | BASE_MUSIC_CONFIG
-    with pytest.raises(CogMissingRequiredArg, match='enable_cache_files requires storage'):
+    })
+    with pytest.raises(DiscordBotException, match='enable_cache_files requires storage'):
         Music(fake_context['bot'], config, fake_context['bot'])
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''In S3 mode, upload_file is called by InMemoryDownloadClient during create_source.
     cache_cleanup is a no-op while the entry is still in the broker registry.'''
-    config = {
+    config = music_config({
         'music': {
             'download': {
                 'cache': {
@@ -45,7 +49,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
                 }
             }
         }
-    } | BASE_MUSIC_CONFIG
+    })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -67,7 +71,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
-    config = {
+    config = music_config({
         'music': {
             'download': {
                 'cache': {
@@ -79,7 +83,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
                 }
             }
         }
-    } | BASE_MUSIC_CONFIG
+    })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

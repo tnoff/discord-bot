@@ -117,7 +117,7 @@ probes, so this metric and the pod's readiness can never disagree.
 | `download_files` | bot (single-process only) | Audio download loop (Music) — not emitted in HA, where downloads run in the downloader pod |
 | `process_download_results` | bot | Download result routing (Music) |
 | `process_search_results` | bot | Resolved-search consumer, submits downloads (Music) |
-| `youtube_music_search` | bot | YouTube Music search loop (Music) |
+| `youtube_music_search` | search pod | YouTube Music search loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `post_play_processing` | bot | Post-play history/playlist tracking (Music) — only with a configured database |
 | `downloader_worker` | downloader pod | Download consumer driver |
 | `broker` | broker pod, or bot with an embedded broker | Broker HTTP server accepting requests* |

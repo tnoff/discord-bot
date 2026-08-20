@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
+from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.database import BASE
 from discord_bot.types.dispatch_request import (
@@ -31,6 +32,10 @@ from discord_bot.types.fetched_message import FetchedMessage
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
+from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.utils.integrations import youtube_music
+from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 class HelperException(Exception):
     '''
@@ -142,6 +147,42 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
+
+
+def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeMusicSearchDriver:
+    '''
+    Rebuild the in-process search stack the cog no longer builds itself.
+
+    The cog is an HTTP client only since the dual-path collapse — the search loop
+    runs in the standalone search pod. These in-memory implementations survive as
+    test doubles (projects/discord-bot-ha-only): driving the driver against them
+    keeps its behaviour under test without standing up an aiohttp server, which is
+    what the alternative would cost.
+
+    Swaps the cog's HttpYoutubeMusicSearchClient for an InMemory one over a real
+    AsyncioYoutubeMusicSearchWorker, wired exactly as the cog used to wire it, and
+    returns the driver that used to be cog.youtube_music_search_driver. Callers
+    drive one iteration with `await driver.run_once(cog.bot_shutdown_event)`.
+    '''
+    worker = AsyncioYoutubeMusicSearchWorker(
+        cog.logging_config,
+        client or youtube_music.YoutubeMusicClient(),
+        FailureQueue(
+            max_size=cog.config.download.failure_tracking_max_size,
+            max_age_seconds=cog.config.download.failure_tracking_max_age_seconds,
+        ),
+        cog.config.download.youtube_wait_period_minimum,
+        cog.config.download.youtube_wait_period_max_variance,
+        queue_max_size=cog.config.player.queue_max_size * 2,
+    )
+    cog.youtube_music_search_client = InMemoryYoutubeMusicSearchClient(worker)
+    return YoutubeMusicSearchDriver(
+        cog.youtube_music_search_client,
+        cog.broker_client,
+        cog.logger,
+        max_retries=cog.config.download.max_youtube_music_search_retries,
+        queue_priority=cog.server_queue_priority,
+    )
 
 class AsyncIterator():
     def __init__(self, items: list[Any]) -> None:
