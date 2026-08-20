@@ -196,8 +196,10 @@ general:
     music: true
 ```
 
-`dispatch_http_url` activates `HttpDispatchClient`. If unset, `CogHelper._dispatcher`
-falls back to the in-process `MessageDispatcher` cog (single-process mode).
+`dispatch_http_url` activates `HttpDispatchClient`, and `cli/bot.py` refuses to
+start without it. There is no longer an in-process fallback to fall back *to*:
+the single-process entrypoint that built a local `MessageDispatcher` was retired,
+so an unset `dispatch_http_url` is a startup error rather than a quiet mode switch.
 
 ---
 

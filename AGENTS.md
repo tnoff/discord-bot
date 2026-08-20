@@ -11,8 +11,7 @@ internals, etc.
 
 | Topic | Location |
 |-------|----------|
-| Full bot entry-point (gateway + cogs) | `discord_bot/cli/full.py` (registered as `discord-bot`) |
-| Min bot entry-point (cogs only, no in-process dispatcher) | `discord_bot/cli/bot.py` (registered as `discord-bot-min`) |
+| Bot entry-point (gateway + cogs, no in-process dispatcher) | `discord_bot/cli/bot.py` (registered as `discord-bot`, and as the deprecated alias `discord-bot-min`) |
 | Dispatcher-only entry-point | `discord_bot/cli/dispatcher.py` (registered as `discord-dispatcher`) |
 | `POSSIBLE_COGS` registry | `discord_bot/cli/_lib/cog_registry.py` |
 | `CogHelperBase` + dispatch helpers | `discord_bot/cogs/common.py` (see `docs/common.md`) |
@@ -37,15 +36,16 @@ through the project venv. Same goes for pylint.
 ### `MessageDispatcher` worker runs outside the cog system
 
 The per-guild priority dispatcher used to live in `cogs/message_dispatcher.py`
-but is now `discord_bot/workers/message_dispatcher.py`. The `discord-bot`
-(full) entry-point spins it up alongside the gateway; the
-`discord-dispatcher` entry-point runs only the dispatcher + its HTTP server;
-the `discord-bot-min` entry-point runs the gateway and cogs but leaves
-dispatch to an out-of-process dispatcher. Other cogs retrieve the dispatcher
-lazily via `self._dispatcher` (in-process worker or `HTTPDispatchClient`
-depending on `general.dispatch_cross_process`). If neither is wired up,
-`_dispatcher` raises `RuntimeError` on first use — there is no silent
-fallback. `CommandErrorHandler` is registered unconditionally before any
+but is now `discord_bot/workers/message_dispatcher.py`. It runs only in the
+`discord-dispatcher` entry-point (the worker + its HTTP server); the
+`discord-bot` entry-point runs the gateway and cogs and requires
+`dispatch_http_url`, leaving dispatch to that out-of-process worker. The
+single-process entry-point that used to spin the dispatcher up alongside the
+gateway (`cli/full.py`) is gone — no shipped entrypoint builds an in-process
+`MessageDispatcher` any more. Other cogs retrieve the dispatcher lazily via
+`self._dispatcher` (in-process worker or `HTTPDispatchClient` depending on
+`general.dispatch_cross_process`). If neither is wired up, `_dispatcher` raises
+`RuntimeError` on first use — there is no silent fallback. `CommandErrorHandler` is registered unconditionally before any
 cog list is loaded.
 
 ### `bot.loop` is `None` in tests
@@ -118,8 +118,7 @@ task is live and `0` when it's done. New metric names go into
 ```
 discord_bot/
   cli/
-    full.py                     # `discord-bot` entry-point (gateway + cogs + in-process dispatcher)
-    bot.py                      # `discord-bot-min` entry-point (gateway + cogs, no dispatcher)
+    bot.py                      # `discord-bot` entry-point (gateway + cogs, no dispatcher)
     dispatcher.py               # `discord-dispatcher` entry-point (dispatcher worker + HTTP server)
     health.py                   # HealthServer factory (kept out of _lib so importing it doesn't pull sqlalchemy)
     _lib/                       # shared CLI helpers (imported by the entry-points)

@@ -187,7 +187,7 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       <<: *aws-env
-      DISCORD_BOT_CMD: discord-bot-min
+      DISCORD_BOT_CMD: discord-bot
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}

@@ -99,7 +99,10 @@ test = [
 ]
 
 [project.scripts]
-discord-bot = "discord_bot.cli.full:main"
+discord-bot = "discord_bot.cli.bot:main"
+# Deprecated alias for the same entrypoint. The deployed manifests still set
+# DISCORD_BOT_CMD=discord-bot-min, and dropping the name before docker-apps
+# flips would CrashLoop the bot pod on exec. Remove it after that flip lands.
 discord-bot-min = "discord_bot.cli.bot:main"
 discord-dispatcher = "discord_bot.cli.dispatcher:main"
 discord-broker = "discord_bot.cli.broker:main"

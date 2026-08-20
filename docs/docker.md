@@ -133,23 +133,10 @@ docker run -d \
 
 ## Docker Compose
 
-Two Compose files are provided for different deployment scenarios.
-
-### Setup A — single container (`docker-compose.yml`)
-
-Standard single-process deployment with no Redis:
-
-```bash
-# Place your config at cnf/discord.cnf, then:
-docker compose -f docker/docker-compose.yml up -d
-```
-
-The `bot` service mounts `./cnf/discord.cnf` and exposes port 8080 for the health check.
-
-### Setup B — multi-process with Redis (`docker-compose.multiprocess.yml`)
-
-Runs each subsystem as its own container, connected via Redis Streams — the same
-split that runs in prod.
+`docker/docker-compose.multiprocess.yml` is the only Compose file: it runs each
+subsystem as its own container, connected via Redis Streams — the same split that
+runs in prod. The single-container `docker-compose.yml` was removed along with the
+single-process entrypoint it started.
 See [Cross-process dispatch](./message_dispatcher.md#cross-process-dispatch-via-redis-streams) for background.
 
 ```bash

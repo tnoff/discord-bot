@@ -70,6 +70,11 @@ RUN chmod +x /entrypoint.sh && \
 
 EXPOSE 8080
 
+# Parity with the other four images: name the console script rather than leaning
+# on the entrypoint's default. `discord-bot` is the HA bot process (cli.bot) —
+# the single-process entrypoint it used to name was retired.
+ENV DISCORD_BOT_CMD=discord-bot
+
 WORKDIR "/opt/discord"
 
 # Switch to non-root user for runtime

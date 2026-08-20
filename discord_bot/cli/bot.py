@@ -1,9 +1,12 @@
 '''
-HA bot process — gateway connection, all cogs, SQLAlchemy DB.
+The bot process — gateway connection, all cogs, SQLAlchemy DB.
 
-Use this for HA deployments where a separate discord-dispatcher worker handles message queuing.
-Configure dispatch_http_url in general settings so cogs route via HttpDispatchClient.
-For single-process deployments use discord-bot (full) instead.
+The only bot entrypoint: a separate discord-dispatcher worker handles message
+queuing, so dispatch_http_url is required and cogs route via HttpDispatchClient.
+Registered as discord-bot (and, until the deployed manifests stop asking for it,
+also as discord-bot-min).  The single-process entrypoint that ran the gateway,
+the cogs and the dispatcher in one process was retired — see
+projects/discord-bot-ha-only in the docs repo.
 '''
 import logging
 
@@ -28,13 +31,13 @@ from discord_bot.cli.health import setup_health_server
 @click.command()
 @click.argument('config_file', type=click.Path(dir_okay=False))
 def main(config_file):
-    '''Run the HA Discord bot process (gateway, all cogs, no local dispatcher).'''
+    '''Run the Discord bot process (gateway, all cogs; dispatch goes to the dispatcher pod).'''
     settings, general_config = parse_and_validate_config(config_file)
     run(settings, general_config)
 
 
 async def main_loop(bot: Bot, cog_list: list, token: str, health_server=None):
-    '''Main loop for the HA bot process.'''
+    '''Main loop for the bot process.'''
     logger = logging.getLogger('main')
     async with bot_lifecycle(bot, cog_list, health_server=health_server):
         logger.info('Main :: Starting bot in HA mode')
@@ -47,7 +50,7 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
 
 
 def run(settings: dict, general_config: GeneralConfig):
-    '''Entry point for the HA bot process.'''
+    '''Entry point for the bot process.'''
     with managed_db(general_config) as db_engine:
         logger = setup_observability(general_config)
         instrument_sqlalchemy(db_engine)

@@ -35,7 +35,7 @@ Available extras:
 
 The test suite uses `pytest-postgresql`, which expects `pg_ctl` and friends
 on `PATH`. Install the system postgres binaries (`apt install postgresql`
-or `brew install postgresql`) or run `docker compose -f docker/docker-compose.yml up -d postgres`
+or `brew install postgresql`) or run `docker compose -f docker/docker-compose.multiprocess.yml up -d postgres`
 before running the suite.
 
 ## Running the bot

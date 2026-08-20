@@ -112,9 +112,9 @@ def test_every_published_image_has_a_boundary():
 
     Without this, adding a sixth image silently gets no boundary at all — the
     failure mode being guarded against is an image nobody thought to guard.
-    ``discord-bot`` (cli.full, single-process) is deliberately absent: it is
-    slated for removal by projects/discord-bot-ha-only and installs the full
-    [bot] extra, so it has no boundary to hold.
+    Every published script is now covered: ``discord-bot`` is cli.bot, since
+    projects/discord-bot-ha-only retired the single-process entrypoint that used
+    to own that name.
     '''
     covered = {p.values[0] for p in IMAGE_BOUNDARIES}
     assert covered == {
