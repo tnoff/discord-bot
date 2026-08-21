@@ -154,9 +154,36 @@ class RedisYoutubeMusicSearchWorker(RedisGuildBlockMixin, YoutubeMusicSearchWork
         # ZADD NX so an already-listed guild keeps its round-robin position.
         await client.zadd(GUILDS_KEY, {str(guild_id): self._now_seconds()}, nx=True)
 
+    async def _queue_is_empty(self) -> bool:
+        '''
+        Lock-free "is anything queued at all" check.
+
+        The search loop polls every SEARCH_IDLE_POLL_BACKOFF_SECONDS (0.25 s)
+        whether or not work exists, and an idle poll that goes straight into
+        redis_pop_lock costs a SET NX + GET + DEL lock cycle just to have
+        _round_robin_pop discover an empty ZSET.  With one pod that was 20 of the
+        ~23 redis commands/s this service issued, against roughly 0.03 searches/s
+        — and because those spans are created outside any request context, each
+        was its own single-span trace, which is how they came to be 99.5% of the
+        service's span volume.
+
+        Only ever skips work that _round_robin_pop would also have skipped: it
+        reads the same ZSET that _round_robin_pop's ZRANGE reads, so an empty
+        count means an empty ZRANGE.  A request landing right after the check
+        simply waits for the next poll, and the count is not trusted in the other
+        direction — a non-empty ZSET still takes the lock and re-checks under it,
+        because a guild can sit in the ZSET with an already-drained queue.
+
+        Mirrors RedisDownloadWorker._pool_is_empty, which exists for exactly this
+        reason on the download side.
+        '''
+        return not await self._manager.client.zcard(GUILDS_KEY)
+
     async def get_input_nowait(self) -> MediaRequest:
         '''Round-robin pop the next request under the pop-lock, raising QueueEmpty
         if nothing is queued (or the popped payload has already TTL'd away).'''
+        if await self._queue_is_empty():
+            raise QueueEmpty('No search requests in queue')
         async with redis_pop_lock(self._manager.client, POP_LOCK_KEY):
             result = await self._round_robin_pop()
         if result is None:

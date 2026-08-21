@@ -24,7 +24,7 @@ from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.workers.redis_youtube_music_search_worker import (
-    RedisYoutubeMusicSearchWorker, FAILURES_KEY, GUILDS_KEY, WAIT_UNTIL_KEY,
+    RedisYoutubeMusicSearchWorker, FAILURES_KEY, GUILDS_KEY, POP_LOCK_KEY, WAIT_UNTIL_KEY,
 )
 
 
@@ -425,3 +425,78 @@ async def test_search_worker_block_key_does_not_collide_with_download():
     leaves its downloads alone (and vice versa).'''
     w = _worker()
     assert w._guild_blocked_key(7).startswith('discord_bot:ytmusic_search:')
+
+
+# --------------------------------------------------------------------------- #
+# Idle-poll cost
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_queue_is_empty_tracks_the_round_robin_zset():
+    '''_queue_is_empty reads the same ZSET _round_robin_pop pops from, so an "empty"
+    answer means the pop would have found nothing anyway.'''
+    w = _worker()
+    assert await w._queue_is_empty() is True
+    await w.submit(7, _mk(guild_id=7))
+    assert await w._queue_is_empty() is False
+    await w.get_input_nowait()
+    assert await w._queue_is_empty() is True
+
+
+@pytest.mark.asyncio
+async def test_idle_pop_takes_no_lock():
+    '''An idle poll must not burn a SET NX + GET + DEL lock cycle just to discover an
+    empty queue.  The loop polls every 0.25 s regardless of work, so that cycle was
+    20 of this service's ~23 redis commands/s against ~0.03 searches/s.'''
+    w = _worker()
+    writes = []
+    client = w._manager.client
+    real_set, real_delete = client.set, client.delete
+
+    async def _spy_set(*args, **kwargs):
+        writes.append(('set', args[0]))
+        return await real_set(*args, **kwargs)
+
+    async def _spy_delete(*args, **kwargs):
+        writes.append(('delete', args[0]))
+        return await real_delete(*args, **kwargs)
+
+    client.set, client.delete = _spy_set, _spy_delete
+
+    with pytest.raises(QueueEmpty):
+        await w.get_input_nowait()
+    assert not writes
+
+
+@pytest.mark.asyncio
+async def test_non_empty_queue_still_pops_under_the_lock():
+    '''The pre-check is not trusted in the other direction: a non-empty ZSET still
+    takes the pop-lock, so concurrent pods cannot pop the same request.'''
+    w = _worker()
+    await w.submit(7, _mk(guild_id=7))
+    locked = []
+    client = w._manager.client
+    real_set = client.set
+
+    async def _spy_set(*args, **kwargs):
+        if args[0] == POP_LOCK_KEY:
+            locked.append(args[0])
+        return await real_set(*args, **kwargs)
+
+    client.set = _spy_set
+
+    assert await w.get_input_nowait() is not None
+    assert locked == [POP_LOCK_KEY]
+
+
+@pytest.mark.asyncio
+async def test_stale_guild_entry_is_reaped_under_the_lock():
+    '''A guild left in the round-robin ZSET with an already-drained queue makes the
+    pre-check say "not empty"; the lock is taken and _round_robin_pop reaps it,
+    raising QueueEmpty.  This is the case the count must not be trusted for.'''
+    w = _worker()
+    await w._manager.client.zadd(GUILDS_KEY, {'7': 1.0})
+    assert await w._queue_is_empty() is False
+    with pytest.raises(QueueEmpty):
+        await w.get_input_nowait()
+    assert await w._queue_is_empty() is True
