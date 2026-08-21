@@ -10,6 +10,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import fake_media_download
 from tests.helpers import fake_engine, fake_context  # pylint: disable=unused-import
+from tests.helpers import attach_in_process_broker
 
 
 @pytest.mark.asyncio
@@ -76,6 +77,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -85,13 +87,14 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as media_download:
             await cog.add_source_to_player(media_download, cog.players[fake_context['guild'].id])
             assert cog.players[fake_context['guild'].id].get_queue_items()
-            assert await cog.video_cache.get_webpage_url_item(media_download.media_request)
+            assert await cog.broker_client.local_broker.video_cache.get_webpage_url_item(media_download.media_request)
 
 
 @pytest.mark.asyncio
 async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """Test adding source to player when queue is blocked"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -107,6 +110,7 @@ async def test_player_message_queue_integration(mocker, fake_context):  # pylint
     """Test that player operations trigger dispatcher.update_mutable calls"""
     from unittest.mock import Mock  # pylint: disable=import-outside-toplevel
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -149,6 +153,7 @@ async def test_player_queue_management(mocker, fake_context):  # pylint: disable
 async def test_add_source_to_player_queue_full(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """add_source_to_player returns False when the play queue is full."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -197,6 +202,7 @@ async def test_cog_load_with_db_engine_creates_post_play_task(fake_engine, fake_
 async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """add_source_to_player calls trigger_prefetch on the player after register_download"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -212,6 +218,7 @@ async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: di
 async def test_add_source_to_player_queue_full_with_bundle(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
     """add_source_to_player sets failure_reason on the bundle when queue is full."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -223,7 +230,7 @@ async def test_add_source_to_player_queue_full_with_bundle(fake_engine, mocker, 
                 fake_context['guild'].id, fake_context['channel'].id, input_string='test',
             )
             media_download.media_request.bundle_uuid = bundle_uuid
-            await cog.media_broker.register_request(media_download.media_request)
+            await cog.broker_client.register_request(media_download.media_request)
             result = await cog.add_source_to_player(media_download, player)
             assert result is False
             assert media_download.media_request.failure_reason is not None

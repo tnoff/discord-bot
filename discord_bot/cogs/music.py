@@ -32,9 +32,8 @@ from discord_bot.interfaces.download_client_protocol import (
 )
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
-from discord_bot.workers.asyncio_broker import AsyncioBroker
-from discord_bot.servers.broker_server import BrokerHttpServer
-from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
@@ -44,7 +43,7 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient, MusicCacheConfig
+from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig
 from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.database import PlaylistItem, Playlist
@@ -59,7 +58,7 @@ from discord_bot.clients.youtube_music_search_client import (
 from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
-from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, AttributeNaming, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, command_wrapper, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # GLOBALS
@@ -141,14 +140,19 @@ class MusicDownloadConfig(BaseModel):
             raise ValueError('enable_cache_files requires storage to be configured')
         return self
 
-class BrokerServerConfig(BaseModel):
-    '''Config for running a broker HTTP server on this process.'''
-    # bandit B104: '0.0.0.0' default is intentional — worker pods reach the broker across the docker/k8s network; operators override via music.broker_server.host in config
-    host: str = '0.0.0.0'  # nosec B104
-    port: int = Field(default=8081, ge=1, le=65535)
-
 class BrokerClientConfig(BaseModel):
-    '''Config for connecting to a remote broker HTTP server.'''
+    '''Config for connecting to the broker pod's HTTP server.
+
+    Required: the broker runs as a standalone pod and the cog is a client only.
+    It used to be optional, selecting an in-process AsyncioBroker when absent —
+    that fallback is gone, so a missing url is a startup error rather than a quiet
+    mode switch (projects/discord-bot-ha-only).
+
+    There is no matching server config here any more.  music.broker_server used to
+    run a BrokerHttpServer inside the bot process so the download and search pods
+    could reach an otherwise in-process broker; the broker pod hosts its own server
+    via cli/broker.py (general.broker_server), and that key is the one that has
+    been in use since the broker cutover on 2026-07-01.'''
     url: str
 
 class DownloadClientConfig(BaseModel):
@@ -185,8 +189,7 @@ class MusicConfig(BaseModel):
     player: MusicPlayerConfig = Field(default_factory=MusicPlayerConfig)
     playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
-    broker_server: BrokerServerConfig | None = None
-    broker_client: BrokerClientConfig | None = None
+    broker_client: BrokerClientConfig
     download_client: DownloadClientConfig
     youtube_music_search_client: YoutubeMusicSearchClientConfig
 
@@ -292,36 +295,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.download_dir = Path(TemporaryDirectory().name) #pylint:disable=consider-using-with
             self.download_dir.mkdir(exist_ok=True, parents=True)
 
-        self.video_cache = None
-        if self.config.download.cache.enable_cache_files and self.db_engine and storage_bucket_name:
-            self.video_cache = VideoCacheClient(
-                self.config.download.cache.max_cache_files,
-                partial(self.with_db_session),
-                max_cache_size_bytes=(
-                    self.config.download.cache.max_cache_size_mb * 1024 * 1024
-                    if self.config.download.cache.max_cache_size_mb else None
-                ),
-                storage_type='s3',
-            )
-
-        self.media_broker = AsyncioBroker(
-            video_cache=self.video_cache,
-            bucket_name=storage_bucket_name,
-            dispatcher=self.dispatcher,
-            download_max_retries=self.config.download.max_download_retries,
-            search_max_retries=self.config.download.max_youtube_music_search_retries,
-            message_delete_after=self.config.general.message_delete_after,
-        )
-
-        if self.config.broker_client:
-            # bucket_name is load-bearing in HA: an HA broker's checkout returns
-            # CheckoutResult(s3_key=...), and the client stamps bucket_name onto
-            # it so MusicPlayer knows where to fetch the file from S3. Without it
-            # the player falls through to open() the raw s3_key and 404s.
-            self.broker_client = HttpBrokerClient(
-                self.config.broker_client.url, bucket_name=storage_bucket_name)
-        else:
-            self.broker_client = InMemoryBrokerClient(self.media_broker)
+        # The broker runs in the standalone broker pod: it owns the registry, the
+        # bundle state, the video cache and the S3 checkout, and the cog reaches
+        # all of it over HTTP.  No in-process AsyncioBroker and no VideoCacheClient
+        # are built here — the broker pod builds both from its own config
+        # (cli/broker.py reads music.download.cache), so music.download.cache in a
+        # BOT config is inert.
+        #
+        # bucket_name is load-bearing: the broker's checkout returns
+        # CheckoutResult(s3_key=...), and the client stamps bucket_name onto it so
+        # MusicPlayer knows where to fetch the file from S3.  Without it the player
+        # falls through to open() the raw s3_key and 404s.
+        self.broker_client: BrokerClient = HttpBrokerClient(
+            self.config.broker_client.url, bucket_name=storage_bucket_name)
 
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
         # Downloads run in the standalone downloader pod: the cog submits, clears
@@ -358,44 +344,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         ):
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                     partial(loop_heartbeat_observations, job_name), description)
-        create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value, self.__download_result_queue_depth_callback, 'Pending download results awaiting processing')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.SEARCH_RESULT_QUEUE_DEPTH.value, self.__search_result_queue_depth_callback, 'Pending resolved searches awaiting download submit')
 
     # Metric callback functons
-    def __download_result_queue_depth_callback(self, _options):
-        '''
-        Total pending download results waiting to be routed to players.
-
-        Only meaningful when broker_client owns a local result queue
-        (single-process / embedded broker server); HA mode reports 0 because the
-        queue lives on the broker pod and this gauge needs a synchronous read.
-        '''
-        result_queue = getattr(self.broker_client, 'result_queue', None)
-        raw_queue = getattr(result_queue, 'raw_queue', None)
-        depth = raw_queue.qsize() if raw_queue is not None else 0
-        return [
-            Observation(depth, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'process_download_results'
-            })
-        ]
-
-    def __search_result_queue_depth_callback(self, _options):
-        '''
-        Total resolved searches waiting to be submitted to the download pipeline.
-
-        Only meaningful when broker_client owns a local search-result queue
-        (single-process / embedded broker server); HA mode reports 0 because the
-        queue lives on the broker pod and this gauge needs a synchronous read.
-        '''
-        search_result_queue = getattr(self.broker_client, 'search_result_queue', None)
-        raw_queue = getattr(search_result_queue, 'raw_queue', None)
-        depth = raw_queue.qsize() if raw_queue is not None else 0
-        return [
-            Observation(depth, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'process_search_results'
-            })
-        ]
-
     def __active_players_callback(self, _options):
         '''
         Get active players, or an explicit zero when there are none.
@@ -490,13 +440,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # and emits no heartbeat for one — the search pod publishes that series
         # instead (cli/search.py's LOOP_SEARCH_WORKER, the same loop name).
         await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
-        if self.config.broker_server:
-            broker_server = BrokerHttpServer(
-                self.media_broker,
-                host=self.config.broker_server.host,
-                port=self.config.broker_server.port,
-            )
-            self.bot.loop.create_task(broker_server.serve())
+        # No embedded BrokerHttpServer: the broker pod serves that surface.
         if self.db_engine:
             self._start_tasks()
 
@@ -881,9 +825,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 span.set_status(StatusCode.OK)
                 return
 
-            # The broker already persisted this result when the download client
-            # reported it (locally for InMemoryBrokerClient, remotely for
-            # HttpBrokerClient) — build the MediaDownload the player needs from
+            # The broker pod already persisted this result when the download
+            # client reported it — build the MediaDownload the player needs from
             # the result rather than from a return value the HTTP client can't
             # round-trip.
             media_download = MediaDownload(result.file_name, result.ytdlp_data, media_request)

@@ -22,6 +22,7 @@ from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_do
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient
+from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_search
 from tests.helpers import attach_in_process_download
 
@@ -133,6 +134,7 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -154,6 +156,7 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -176,6 +179,7 @@ async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disabl
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -200,6 +204,7 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -303,6 +308,7 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -327,6 +333,7 @@ async def test_playlist_history_queue(mocker, fake_engine, fake_context):  #pyli
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            attach_in_process_broker(cog)
             attach_in_process_download(cog)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -345,6 +352,7 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_download_worker_download_exception())
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = MagicMock()
@@ -368,6 +376,7 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
@@ -1132,6 +1141,7 @@ async def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_e
 async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that playlist queue operations add history_playlist_item_id to media requests"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
 
     # Mock database operations
     with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
@@ -1174,6 +1184,7 @@ async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_co
 async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test that playlist queue completion messaging is simplified in new version"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
 
     # Mock database operations
     with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
@@ -1206,6 +1217,7 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
 async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #pylint:disable=redefined-outer-name
     """Test that enqueue_media_requests registers requests against a broker bundle"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     attach_in_process_search(cog)
 
     # Test the method that routes entries into the broker bundle
@@ -1228,7 +1240,7 @@ async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #p
 
     # Verify the broker holds the bundle with correct guild/channel and the
     # two requests attached.
-    state = cog.media_broker.get_bundle_state(bundle_uuid)
+    state = cog.broker_client.local_broker.get_bundle_state(bundle_uuid)
     assert state is not None
     assert state.guild_id == fake_context['guild'].id
     assert state.channel_id == fake_context['channel'].id
@@ -1239,6 +1251,7 @@ async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #p
 async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     """Test history playlist queue retains special behavior"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
 
     # Mock database operations for history playlist
     with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
@@ -1558,6 +1571,7 @@ async def test_playlist_queue_save_duplicate(fake_engine, fake_context):  #pylin
 async def test_playlist_queue_internal_shuffle(fake_context):  #pylint:disable=redefined-outer-name
     """__playlist_queue shuffles items when shuffle=True"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mock_items = [
         MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
@@ -1590,6 +1604,7 @@ async def test_playlist_queue_internal_max_num_negative(fake_context):  #pylint:
 async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint:disable=redefined-outer-name
     """__playlist_queue truncates items to max_num when max_num < len(items)"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mock_items = [
         MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
@@ -1613,6 +1628,7 @@ async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint
 async def test_playlist_queue_internal_max_num_larger_than_list(fake_context):  #pylint:disable=redefined-outer-name
     """__playlist_queue uses full list when max_num >= len(items)"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mock_items = [
         MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')

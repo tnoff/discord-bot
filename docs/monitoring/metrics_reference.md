@@ -52,11 +52,39 @@ These metrics are exported by the Music cog when enabled.
 
 **Type**: Observable Gauge
 **Unit**: dimensionless (1)
-**Description**: Total number of completed download results waiting to be routed to players, summed across all guilds
+**Description**: Completed download results sitting on the broker's bot-ready
+queue, waiting for a bot pod to route them to players
+**Emitted by**: the broker pod (`cli/broker.py` → `BrokerMetrics`), from a
+background poller — the queue lives in Redis and an observable-gauge callback is
+synchronous, so it reads a cached value refreshed every 15s
 **Labels**:
-- `background_job` = `process_download_results`
+- `background_job` = `broker`
 
-**Usage**: A sustained non-zero value means the result consumer (`_result_task`) is falling behind or has stalled. Under normal load this should drain to zero quickly after each download completes.
+**Usage**: A sustained non-zero value means the bot's result consumer
+(`_result_task`) is falling behind or has stalled. Under normal load this drains
+to zero quickly after each download completes.
+
+The bot pod used to publish this same metric with
+`background_job="process_download_results"`, reading a queue that only ever
+existed in single-process mode — under HA that series was a permanent, confident
+`0` sitting next to the broker's real one. It was removed with the broker
+dual-path collapse (projects/discord-bot-ha-only); **scope any query for this
+metric to `job="discord-broker"` or to `background_job="broker"`**, not to the
+bare metric name.
+
+### `music.search_result_queue_depth`
+
+**Type**: Observable Gauge
+**Unit**: dimensionless (1)
+**Description**: Resolved searches sitting on the broker's bot-ready queue,
+waiting for a bot pod to submit them to the download pipeline
+**Emitted by**: the broker pod, same poller and same 15s refresh as above
+**Labels**:
+- `background_job` = `broker`
+
+**Usage**: The search-side twin of the download queue. A sustained non-zero value
+means `process_search_results` on the bot is behind. Same scoping caveat: the bot
+pod's permanent-zero copy of this series is gone.
 
 ## MessageDispatcher Metrics
 

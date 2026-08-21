@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
+from functools import partial
 from datetime import datetime, timezone
 from random import choice
 from pathlib import Path
@@ -17,9 +18,11 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
+from discord_bot.clients.broker_client import InMemoryBrokerClient
 from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import BASE
 from discord_bot.types.dispatch_request import (
     FetchChannelHistoryRequest,
@@ -35,6 +38,7 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
+from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
@@ -151,6 +155,54 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
         yield session
 
 
+
+def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None) -> AsyncioBroker:
+    '''
+    Rebuild the in-process broker stack the cog no longer builds itself.
+
+    The cog is an HTTP client only since the broker dual path was collapsed — the
+    registry, the bundle state, the video cache and the S3 checkout all live in
+    the broker pod. AsyncioBroker, VideoCacheClient and InMemoryBrokerClient
+    survive as test doubles (projects/discord-bot-ha-only), and this wires them
+    exactly as the cog used to, so tests keep driving real broker behaviour
+    through `cog.broker_client` instead of standing up a broker pod behind an
+    aiohttp server.
+
+    Returns the engine, which is what tests reach for when they need to assert on
+    registry state directly (the cog's old `cog.media_broker`).
+
+    Call this BEFORE attach_in_process_download / attach_in_process_search: both
+    read `cog.broker_client` to wire their worker, so attaching them first leaves
+    them holding the HttpBrokerClient this replaces.
+
+    video_cache overrides the client built from cog config — pass one to exercise
+    the cache path without an enable_cache_files config, or a fake to assert on
+    calls. By default the cog's own config decides, exactly as it used to.
+    '''
+    bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None
+    if video_cache is None and cog.config.download.cache.enable_cache_files and cog.db_engine and bucket_name:
+        max_mb = cog.config.download.cache.max_cache_size_mb
+        video_cache = VideoCacheClient(
+            cog.config.download.cache.max_cache_files,
+            partial(cog.with_db_session),
+            max_cache_size_bytes=(max_mb * 1024 * 1024 if max_mb else None),
+            storage_type='s3',
+        )
+    broker = AsyncioBroker(
+        video_cache=video_cache,
+        bucket_name=bucket_name,
+        dispatcher=cog.dispatcher,
+        download_max_retries=cog.config.download.max_download_retries,
+        search_max_retries=cog.config.download.max_youtube_music_search_retries,
+        message_delete_after=cog.config.general.message_delete_after,
+    )
+    # Only broker_client is set on the cog: it is real production state, just a
+    # different implementation. The engine and the cache are NOT re-attached as
+    # cog.media_broker / cog.video_cache — the cog has no such attributes any
+    # more, and re-adding them would let a test assert against a shape production
+    # cannot have. Tests that need the engine use the returned handle.
+    cog.broker_client = InMemoryBrokerClient(broker)
+    return broker
 
 def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> InMemoryDownloadClient:
     '''

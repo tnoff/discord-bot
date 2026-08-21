@@ -14,6 +14,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from tests.cogs.test_music import music_config
 from tests.helpers import async_mock_session, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
+from tests.helpers import attach_in_process_broker
 
 
 def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pylint:disable=redefined-outer-name
@@ -51,6 +52,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -59,14 +61,14 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             # Simulate what InMemoryDownloadClient does: upload then register with S3 key
             s3_key = f'cache/{sd.media_request.uuid}.mp3'
-            upload_mock(cog.media_broker.bucket_name, sd.file_path, s3_key)
+            upload_mock(cog.broker_client.local_broker.bucket_name, sd.file_path, s3_key)
             sd.file_path = Path(s3_key)
-            await cog.media_broker.register_download(sd)
+            await cog.broker_client.register_download(sd)
             upload_mock.assert_called_once()
             async with async_mock_session(fake_engine) as session:
                 assert (await session.execute(select(sql_count()).select_from(VideoCache))).scalar() == 1
             # cleanup is a no-op when entry is still in broker registry (AVAILABLE)
-            result = await cog.media_broker.cache_cleanup()
+            result = await cog.broker_client.cache_cleanup()
             assert result is False
 
 @pytest.mark.asyncio
@@ -85,6 +87,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+    attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -93,9 +96,9 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
                 delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
-                await cog.video_cache.iterate_file(sd)
-                await cog.video_cache.iterate_file(sd2)
+                await cog.broker_client.local_broker.video_cache.iterate_file(sd)
+                await cog.broker_client.local_broker.video_cache.iterate_file(sd2)
                 # Neither is in the broker registry, so both are evictable
-                await cog.media_broker.cache_cleanup()
+                await cog.broker_client.cache_cleanup()
                 delete_mock.assert_called_once()
-                assert not await cog.media_broker.check_cache(sd.media_request)
+                assert not await cog.broker_client.check_cache(sd.media_request)

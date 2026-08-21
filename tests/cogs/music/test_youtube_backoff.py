@@ -13,6 +13,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_worker
 from tests.helpers import fake_engine, fake_context, fake_source_dict, fake_media_download #pylint:disable=unused-import
+from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_download
 
 
@@ -134,6 +135,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_download_worker_retryable_exception())
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
@@ -159,6 +161,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_download_worker_retryable_exception())
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
@@ -191,6 +194,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_download_worker_bot_flagged())
     freezer.move_to('2025-01-01 12:00:00 UTC')
 
@@ -220,6 +224,7 @@ async def test_successful_download_clears_failure_from_queue(freezer, fake_conte
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             cog.dispatcher = MagicMock()
             freezer.move_to('2025-01-01 12:00:00 UTC')

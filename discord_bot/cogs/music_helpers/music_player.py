@@ -19,7 +19,8 @@ from discord_bot.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
-from discord_bot.interfaces.broker_protocols import CheckoutResult, MediaBrokerBase
+from discord_bot.interfaces.broker_client_protocol import BrokerClient
+from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
@@ -62,7 +63,7 @@ class MusicPlayer:
                  dispatcher,
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
-                 broker: MediaBrokerBase | None = None,
+                 broker: BrokerClient | None = None,
                  prefetch_limit: int = 5):
         '''
         Music Player to sit in voice chat
@@ -104,7 +105,7 @@ class MusicPlayer:
         self.shutdown_reason: CleanupReason | None = None
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
-        self.broker: MediaBrokerBase | None = broker
+        self.broker: BrokerClient | None = broker
         self.prefetch_limit: int = prefetch_limit
 
     async def start_tasks(self):

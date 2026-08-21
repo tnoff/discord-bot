@@ -1,5 +1,16 @@
 # Media Broker
 
+> **Status note (projects/discord-bot-ha-only).** This is the original design
+> doc, written when the broker was an in-process class. The migration it
+> describes as future work has shipped: the broker runs as its own pod
+> (`cli/broker.py`), keeps its state in Redis (`RedisBroker`) and serves the bot,
+> downloader and search pods over HTTP (`servers/broker_server.py`). The music
+> cog is now a client only — `music.broker_client.url` is required config and
+> there is no in-process fallback. `AsyncioBroker` and `InMemoryBrokerClient`
+> still exist, but only as test doubles. The lifecycle model, the zone
+> transitions and the reference-counting rules below are all still accurate; the
+> deployment shape is not.
+
 ## Overview
 
 The media broker is a lifecycle registry that tracks every piece of media flowing through the music system — from the moment a `MediaRequest` enters the pipeline to the moment the player finishes with the downloaded file and it can safely be evicted from cache.
@@ -176,12 +187,22 @@ broker.get_checked_out_by(guild_id)
 
 Each entry has the `MediaDownload` with the file path and all metadata needed to reconstruct the player queue. Files still on disk can be re-queued immediately. Files that were evicted would need to be re-downloaded (re-registered as IN_FLIGHT and routed through the download queue again).
 
-## Future Considerations
+## Future Considerations — what happened
 
-The in-process design is intentional for the first iteration — no HTTP, no serialization, just a Python class with an in-memory dict. The interface is stable enough that the backing store can be swapped later:
+The in-process design was intentional for the first iteration — no HTTP, no
+serialization, just a Python class with an in-memory dict — and the interface was
+built so the backing store could be swapped later. All three of the swaps
+sketched here have since shipped, and the prediction that callers would not need
+to change held:
 
-- **Redis**: replace the dict with Redis hash operations, making the broker visible across multiple bot processes or shards
-- **Remote HTTP service**: the transition methods become HTTP calls, files are transferred rather than referenced by local path
-- **SQS-style handoff**: broker entries become messages on queues, consumed by separate download or playback workers
+- **Redis**: `workers/redis_broker.py` replaces the dict with Redis operations, so
+  broker state survives a pod restart and multiple broker pods can share it
+- **Remote HTTP service**: `servers/broker_server.py` fronts it, and the cog talks
+  to it through `HttpBrokerClient`. Files are referenced by S3 key rather than by
+  local path — the checkout returns a `CheckoutResult(s3_key=...)` and the bot
+  fetches the object before playback
+- **Separate workers**: the download and search tiers are their own pods, both
+  consuming from and reporting back to the broker
 
-The `MediaBroker` class is the seam where that migration happens. Callers (cog, player, cache cleanup) do not need to change when the backing store changes.
+`MediaBrokerBase` was the seam, as expected. What did change is that the seam is
+now the *only* path: the cog holds a `BrokerClient`, never an engine.

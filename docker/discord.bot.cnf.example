@@ -21,8 +21,11 @@ general:
     delete_messages: true
     music: true
 music:
-  # HA download path: enqueue to the standalone downloader + read results from the
-  # broker instead of downloading in-process. download_client.url points at the
+  # All three of these keys are REQUIRED: the bot is a client of the broker,
+  # downloader and search pods and has no in-process fallback for any of them
+  # (projects/discord-bot-ha-only). A missing url is a startup error.
+  #
+  # download_client.url points at the
   # "downloader-host" network alias, which resolves to whichever downloader
   # flavour is up — downloader-direct (profile "local") or gluetun, whose netns
   # downloader-vpn shares (profile "vpn"). Same URL either way.
@@ -30,11 +33,9 @@ music:
     url: http://broker:8081
   download_client:
     url: http://downloader-host:8083
-  # HA search path: submit/clear/block searches against the standalone search pod
-  # instead of running the search loop in-process. Resolutions come back through
-  # the broker's search-result queue, the same way download results do. Drop this
-  # key to fall back to the in-process worker (the search service then has no
-  # producer and idles).
+  # HA search path: submit/clear/block searches against the standalone search pod.
+  # Resolutions come back through the broker's search-result queue, the same way
+  # download results do.
   youtube_music_search_client:
     url: http://search:8084
   download:

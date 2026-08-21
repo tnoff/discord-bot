@@ -55,6 +55,16 @@ IMAGE_BOUNDARIES = [
         # not import the engine. spotipy, googleapiclient and bs4 are still here
         # — the cog builds the SearchClient source-expansion member at module
         # scope, and that is media_search's to move.
+        #
+        # The broker collapse added nothing to this list, and that is the answer
+        # to the open question in projects/discord-bot-ha-only: the bot keeps
+        # boto3 and sqlalchemy on their own merits, not the broker's. boto3
+        # reaches it through music_player's integrations.s3 get_file — under HA
+        # the broker's checkout returns an s3_key and the BOT fetches the file
+        # before playback — and sqlalchemy through delete_messages, markov and
+        # the playlist tables. What the collapse did drop is three heavy modules:
+        # workers/asyncio_broker, servers/broker_server and clients/broker_client
+        # are no longer imported by the bot process at all.
         id='bot',
     ),
     pytest.param(
@@ -104,6 +114,38 @@ def test_image_import_boundary(entrypoint, forbidden):
         f'Find the chain with: python -c "import {entrypoint}" under a tracing '
         f'__import__ hook, then split the light type out of the heavy module — '
         f'the same move as CheckoutResult, ClearGuildResult and BrokerClient.'
+    )
+
+
+# Internal modules the bot process must not import. Unlike the package lists
+# above, none of these would ImportError on the bot image — [bot] installs
+# everything they need. They are here because importing them is the signature of
+# a reintroduced in-process fallback, and a fallback is silent: the bot would run
+# its own private broker registry while the downloader and search pods talked to
+# the real one, and the symptom is "audio never plays", not a crash.
+BOT_FORBIDDEN_MODULES = (
+    'discord_bot.workers.asyncio_broker',
+    'discord_bot.servers.broker_server',
+    'discord_bot.clients.broker_client',
+    'discord_bot.workers.asyncio_download_worker',
+    'discord_bot.workers.asyncio_youtube_music_search_worker',
+)
+
+
+def test_bot_imports_no_in_process_tier_modules():
+    '''The bot process imports none of the in-process engine modules.'''
+    probe = (
+        'import importlib, sys; importlib.import_module("discord_bot.cli.bot"); '
+        f'print(",".join(sorted(m for m in {list(BOT_FORBIDDEN_MODULES)!r} if m in sys.modules)))'
+    )
+    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
+                            capture_output=True, text=True, check=True)
+    leaked = [m for m in result.stdout.strip().split(',') if m]
+    assert not leaked, (
+        f'the bot process imported {leaked} — these are test doubles, not deployable '
+        f'code. Something re-introduced an in-process tier, or annotated against an '
+        f'engine type instead of the client Protocol (which is how '
+        f'interfaces/broker_protocols kept reaching music_player).'
     )
 
 

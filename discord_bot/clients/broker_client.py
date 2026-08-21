@@ -1,11 +1,18 @@
 '''
 Cog-facing broker clients.
 
-InMemoryBrokerClient wraps a local MediaBrokerBase (AsyncioBroker) for
-single-process deployments; HttpBrokerClient forwards every call to a remote
-BrokerHttpServer for HA deployments.  Both satisfy the BrokerClient Protocol
-(interfaces/broker_protocols) so the cog depends only on the Protocol and lets
-config decide which is constructed.
+HttpBrokerClient (re-exported from clients/http_broker_client.py) forwards every
+call to the broker pod's BrokerHttpServer.  It is the only implementation any
+deployment builds: music.broker_client is required config
+(projects/discord-bot-ha-only).
+
+InMemoryBrokerClient wraps a local MediaBrokerBase (AsyncioBroker) and is now a
+TEST DOUBLE — tests.helpers.attach_in_process_broker builds this stack so the
+suite can drive real broker behaviour without standing up a pod behind an aiohttp
+server.  Nothing a pod can be configured with reaches it, and
+tests/cogs/test_music.py::test_cog_builds_no_in_process_broker_stack asserts that.
+
+Both satisfy the BrokerClient Protocol (interfaces/broker_client_protocol).
 '''
 import logging
 from pathlib import Path
@@ -38,15 +45,13 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
     components run in the same process.
 
     Wide by design: it implements the full BrokerClient Protocol (~19 methods)
-    plus the result_queue / search_result_queue / local_broker accessors an
-    embedded BrokerHttpServer and the cog's depth gauges read — so it trips
-    too-many-public-methods, disabled here as on the Music cog.
+    plus the result_queue / search_result_queue / local_broker accessors tests
+    read to reach the engine directly — so it trips too-many-public-methods,
+    disabled here as on the Music cog.
 
     The internal result_queue holds DownloadResults reported by the local
     DownloadClient so next_result can hand them off to the cog's
-    process_download_results router.  Pass an explicit queue if it needs to
-    be shared with an embedded BrokerHttpServer (so external download workers
-    POSTing in land on the same queue the cog drains).
+    process_download_results router.
     '''
     def __init__(self, broker: MediaBrokerBase,
                  result_queue: DownloadResultQueue | None = None,

@@ -153,13 +153,13 @@ discord_bot/
       search_client.py          # SearchClient — URL parsing, Spotify/YouTube patterns
       video_cache_client.py     # VideoCacheClient — local file cache with S3 backup
   clients/
-    broker_client.py            # in-process broker shim
+    broker_client.py            # InMemoryBrokerClient — test double (no deployment builds it)
     dispatch_client_base.py     # shared base for HTTP/Redis dispatch clients
     http_dispatch_client.py     # HTTPDispatchClient — cross-process dispatch over HTTP
     redis_client.py             # Redis-backed dispatch client / queue helpers
   servers/
     base.py                     # shared aiohttp server base
-    broker_server.py            # in-process broker HTTP shim
+    broker_server.py            # broker pod HTTP API (cli/broker.py serves it)
     dispatch_server.py          # dispatcher HTTP API (used by HTTPDispatchClient)
     health_server.py            # main bot readiness/liveness server
     health_server_base.py       # shared health-server scaffolding
