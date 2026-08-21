@@ -404,17 +404,19 @@ music:
 
 ### Download Concurrency
 
-How many downloads run at once depends on the deployment:
+Downloads run in the standalone downloader pod, so concurrency is the pod's
+setting: `music.download.worker_count` (default `1`) sets how many concurrent
+download drivers it runs. In `mullvad-socks5` pool mode it's capped at the number
+of `egress_exits`, so no driver is permanently starved of an exit.
 
-- **In-process (single-process bot):** `music.download.max_concurrent_downloads` (default `1`) sets how many download loops the bot runs itself.
-- **HA (standalone downloader pod):** `music.download.worker_count` (default `1`) sets how many concurrent download drivers the downloader pod runs. In `mullvad-socks5` pool mode it's capped at the number of `egress_exits`, so no driver is permanently starved of an exit.
+(`max_concurrent_downloads` sized the *bot's* in-process download loops and is
+gone with them — see `projects/discord-bot-ha-only` in the docs repo.)
 
-Either way, only raise it above `1` when downloads egress over **distinct source IPs**. yt-dlp/YouTube rate-limits per source IP, so running multiple concurrent downloads behind a single egress IP (a shared VPN — i.e. `http-proxy` mode) gets throttled or flagged quickly. `mullvad-socks5` mode is exactly the case that makes concurrency safe: each concurrent download leases a **different exit IP** and each exit self-paces via its own per-exit backoff window.
+Only raise it above `1` when downloads egress over **distinct source IPs**. yt-dlp/YouTube rate-limits per source IP, so running multiple concurrent downloads behind a single egress IP (a shared VPN — i.e. `http-proxy` mode) gets throttled or flagged quickly. `mullvad-socks5` mode is exactly the case that makes concurrency safe: each concurrent download leases a **different exit IP** and each exit self-paces via its own per-exit backoff window.
 
 ```
 music:
   download:
-    max_concurrent_downloads: 1  # in-process bot; Default: 1
     worker_count: 1              # standalone downloader pod; Default: 1
 ```
 

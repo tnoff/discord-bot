@@ -26,6 +26,7 @@ from discord_bot.workers.media_bundle import BundleRenderer
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import attach_in_process_search, fake_media_download
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
+from tests.helpers import attach_in_process_download
 
 
 class BrokerBundleProxy:
@@ -175,6 +176,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
@@ -304,6 +306,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient(None)  # No result
 
@@ -534,6 +537,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
 
     # Create a broker bundle
@@ -654,6 +658,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
 
     # Create a broker bundle
@@ -765,6 +770,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
@@ -891,6 +897,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.youtube_music_search_client.local_worker._client = MockYoutubeMusicClient('test-video-id')
 
@@ -1072,6 +1079,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
             return 'test-video-id'
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.youtube_music_search_client.local_worker._client = SucceedOnSecondCallClient()
 

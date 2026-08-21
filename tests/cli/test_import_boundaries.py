@@ -48,12 +48,13 @@ MEDIA = (YT_DLP, MOVIEPY)
 IMAGE_BOUNDARIES = [
     pytest.param(
         'discord_bot.cli.bot',
-        (YTMUSICAPI,),
-        # Only ytmusicapi today. The bot still imports yt_dlp, spotipy,
-        # googleapiclient and bs4 because the cog constructs the in-process
-        # download worker and the SearchClient source-expansion member at module
-        # scope. Those become forbidden when single-process retires — that is the
-        # point of projects/discord-bot-ha-only, and this list is where it lands.
+        (YTMUSICAPI,) + MEDIA,
+        # yt_dlp and moviepy joined the list when the download dual path was
+        # collapsed: the cog no longer builds an in-process worker, and the
+        # DownloadClient Protocol + HttpDownloadClient moved to modules that do
+        # not import the engine. spotipy, googleapiclient and bs4 are still here
+        # — the cog builds the SearchClient source-expansion member at module
+        # scope, and that is media_search's to move.
         id='bot',
     ),
     pytest.param(

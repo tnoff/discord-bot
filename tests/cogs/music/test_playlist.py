@@ -23,6 +23,7 @@ from tests.helpers import async_mock_session, fake_source_dict, fake_media_downl
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient
 from tests.helpers import attach_in_process_search
+from tests.helpers import attach_in_process_download
 
 @pytest.mark.asyncio
 async def test_create_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -115,9 +116,9 @@ async def test_list_playlist_with_history(fake_engine, mocker, fake_context):  #
 async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -130,9 +131,9 @@ async def test_playlist_add_item_invalid_history(fake_engine, mocker, fake_conte
 async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -151,9 +152,9 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context):  #
 async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -173,9 +174,9 @@ async def test_playlist_remove_item(fake_engine, mocker, fake_context):  #pylint
 async def test_playlist_show(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -197,9 +198,9 @@ async def test_playlist_delete(mocker, fake_engine, fake_context):  #pylint:disa
 
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -222,9 +223,9 @@ async def test_playlist_delete_history(mocker, fake_engine, fake_context):  #pyl
 
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -300,9 +301,9 @@ async def test_play_queue(mocker, fake_engine, fake_context):  #pylint:disable=r
     mocker.patch.object(MusicPlayer, 'start_tasks')
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -326,6 +327,7 @@ async def test_playlist_history_queue(mocker, fake_engine, fake_context):  #pyli
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            attach_in_process_download(cog)
             cog.dispatcher = MagicMock()
             await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
             cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(cog.players[fake_context['guild'].id].history_playlist_id, sd))
@@ -342,8 +344,8 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_download_worker_download_exception())
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            attach_in_process_download(cog, worker_cls=yield_download_worker_download_exception())
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = MagicMock()
             cog.bot.loop = asyncio.get_running_loop()
@@ -364,9 +366,9 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
 async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
@@ -388,9 +390,9 @@ async def test_playlist_merge(mocker, fake_engine, fake_context):  #pylint:disab
 async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
     sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])

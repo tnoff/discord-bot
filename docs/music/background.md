@@ -44,6 +44,11 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ### 1. **Download Files Loop** (`download_files()`)
 
+> **Where it runs**: the standalone downloader pod, not the bot. The cog used to
+> drive this loop itself when no `music.download_client` was configured; that
+> in-process path is gone (`projects/discord-bot-ha-only`), so the bot submits
+> over HTTP and consumes results, and everything below describes the pod.
+
 **Purpose**: Download media files from YouTube using yt-dlp
 
 **Key Responsibilities**:
@@ -301,7 +306,7 @@ Each loop reports its health through an OpenTelemetry observable gauge
 | `background_job` | Loop |
 |---|---|
 | `cleanup_players` | Inactive player cleanup |
-| `download_files` | Audio downloads (single-process only — under HA this runs in the downloader pod and the bot emits no such series) |
+| `download_files` | Audio downloads — **downloader pod only**; the cog registers no such loop and emits no series |
 | `process_download_results` | Download result routing |
 | `process_search_results` | Resolved-search consumer |
 | `youtube_music_search` | YouTube Music search — **search pod only**; the cog registers no such loop |

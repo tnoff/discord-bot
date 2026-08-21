@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
+from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.database import BASE
@@ -34,6 +35,7 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
+from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
@@ -148,6 +150,45 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
     async with session_factory() as session:
         yield session
 
+
+
+def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> InMemoryDownloadClient:
+    '''
+    Rebuild the in-process download stack the cog no longer builds itself.
+
+    The cog is an HTTP client only since the download dual path was collapsed —
+    the consumer loop runs in the downloader pod. AsyncioDownloadWorker and
+    InMemoryDownloadClient survive as test doubles (projects/discord-bot-ha-only),
+    and this wires them exactly as the cog used to, so tests keep driving the real
+    worker with `await cog.download_client.run(...)` instead of standing up a
+    downloader pod.
+
+    worker_cls swaps in a fake worker subclass — what the tests used to get by
+    patching discord_bot.cogs.music.AsyncioDownloadWorker, which no longer exists
+    to patch.
+    '''
+    bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None
+    worker = (worker_cls or AsyncioDownloadWorker)(
+        cog.logging_config,
+        cog.download_dir,
+        queue_max_size=cog.config.player.queue_max_size,
+        extra_ytdlp_options=cog.config.download.extra_ytdlp_options,
+        max_video_length=cog.config.download.max_video_length,
+        banned_video_list=cog.config.download.banned_videos_list,
+        failure_queue=FailureQueue(
+            max_size=cog.config.download.failure_tracking_max_size,
+            max_age_seconds=cog.config.download.failure_tracking_max_age_seconds,
+        ),
+        wait_period_minimum=cog.config.download.youtube_wait_period_minimum,
+        wait_period_max_variance=cog.config.download.youtube_wait_period_max_variance,
+        bucket_name=bucket_name,
+        normalize_audio=cog.config.download.normalize_audio,
+        broker=cog.broker_client,
+        max_retries=cog.config.download.max_download_retries,
+        retry_backoff_seconds_minimum=cog.config.download.retry_backoff_seconds_minimum,
+    )
+    cog.download_client = InMemoryDownloadClient(worker)
+    return cog.download_client
 
 def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeMusicSearchDriver:
     '''

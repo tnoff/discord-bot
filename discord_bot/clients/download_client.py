@@ -13,9 +13,8 @@ in interfaces/download_protocols.py; they are re-exported here so existing
 '''
 import asyncio
 import logging
-from typing import ClassVar
 
-from discord_bot.clients.http_queue_worker_client import HttpQueueWorkerClient
+from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.in_memory_queue_worker_client import InMemoryQueueWorkerClient
 from discord_bot.interfaces.download_protocols import (
     DownloadClient,
@@ -89,22 +88,3 @@ class InMemoryDownloadClient(InMemoryQueueWorkerClient):
     async def run(self, shutdown_event: asyncio.Event) -> None:
         '''Consume one queued request and download it; driven as a background loop.'''
         await self._worker.run(shutdown_event)
-
-
-class HttpDownloadClient(HttpQueueWorkerClient):
-    '''
-    DownloadClient that forwards the cog-facing surface to a remote downloader pod.
-
-    The whole surface — producer calls (submit / block_guild / clear_guild_queue)
-    against the downloader's DownloadHttpServer, plus the cached read surface
-    (failure_summary / backoff_seconds_remaining / queue_size) a background poller
-    refreshes from GET /downloads/status — lives on HttpQueueWorkerClient, which the
-    search pod's client shares.  Only the route and span prefixes differ.
-
-    There is no `run` or `local_worker`: the download consumer loop runs in the
-    downloader pod (owned by its CLI entrypoint), not on the bot side.  start() /
-    stop() drive the status poller, mirroring the local client's run() lifecycle.
-    '''
-
-    ROUTE_PREFIX: ClassVar[str] = '/downloads'
-    SPAN_PREFIX: ClassVar[str] = 'downloader'

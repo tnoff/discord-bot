@@ -17,10 +17,12 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context, fake_source_dict #pylint:disable=unused-import
 from tests.helpers import attach_in_process_search
+from tests.helpers import attach_in_process_download
 
 @pytest.mark.asyncio
 async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -60,6 +62,7 @@ async def test_cleanup_players_no_players(mocker, fake_context):  # pylint: disa
 async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup marks items in youtube_music_search_queue as discarded."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -87,6 +90,7 @@ async def test_cleanup_marks_download_queue_items_discarded(mocker, fake_context
     itself is going away; BOT_SHUTDOWN parks them instead (see below).
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -113,6 +117,7 @@ async def test_cleanup_bot_shutdown_parks_download_queue(mocker, fake_context): 
     works the backlog on its own.
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -198,6 +203,7 @@ async def test_cleanup_bot_shutdown_clears_queue_message(mocker, fake_context): 
 async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup skips bundles that belong to a different guild."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -218,6 +224,7 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
 async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup skips bundles that still have active (non-terminal) PlaylistAddRequest items."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -255,6 +262,7 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
 async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup removes the guild's player subdirectory (prefetched files) when it exists."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -299,6 +307,7 @@ async def test_cleanup_disconnect_error_still_reaps_player(mocker, fake_context)
     """A voice-client disconnect error is logged but does not abort cleanup or
     leave the player behind (the strand this fix prevents)."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)

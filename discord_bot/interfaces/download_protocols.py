@@ -1,5 +1,6 @@
 '''
-Download engine base + cog-facing DownloadClient Protocol.
+Download engine base.  The cog-facing DownloadClient Protocol now lives in
+interfaces/download_client_protocol (re-exported below).
 
 Two shapes live here, mirroring interfaces/broker_protocols.py:
 
@@ -28,7 +29,7 @@ from pathlib import Path
 import random
 import shutil
 from time import time
-from typing import Callable, List, Protocol
+from typing import Callable, List
 
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 from opentelemetry.trace.status import StatusCode
@@ -37,9 +38,19 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
+from discord_bot.interfaces.download_client_protocol import (
+    DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
+)
+from discord_bot.types.clear_guild_result import ClearGuildResult
+
+# DownloadClient and RETRY_BACKOFF_SECONDS_MINIMUM moved to
+# interfaces/download_client_protocol so that annotating a download handle does
+# not import this module's engine deps (yt_dlp, moviepy via utils/audio, boto3
+# via integrations/s3). Re-exported here so existing imports keep working —
+# same move, same reason, as BrokerClient before them.
+__all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult']
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
@@ -158,20 +169,6 @@ _IDLE_POLL_BACKOFF_SECONDS = 1.0
 YTDLP_OUTPUT_TEMPLATE = '%(extractor)s.%(id)s.%(ext)s'
 # bandit B104: yt-dlp's source-address config, not a server bind; '0.0.0.0' lets the OS pick (avoids ipv6 issues)
 YTDLP_SOURCE_ADDRESS = '0.0.0.0'  # nosec B104
-# Hold-off before a failed YouTube download is eligible again, doubling per attempt.
-#
-# Pool mode replaced the pod-global backoff with a PER-EXIT one, which rotates exits
-# but paces a single request not at all: a retry re-queued instantly just leases the
-# next free exit. When failures are correlated across exits — a bot-check wave, which
-# is what the 2026-08-13 incident was — that is no pacing whatsoever, and the whole
-# 16-exit pool drained in ~45s while seven distinct videos failed on every one of
-# them. Worse, each lease locks its exit for wait_period_minimum (90s) whether it
-# succeeds or fails, so instant retries burn the pool's throughput ceiling
-# (16 exits / 90s) on attempts that cannot succeed yet, starving requests that could.
-#
-# This is the per-request half the pool migration dropped. DIRECT items are exempt:
-# they are not YouTube-rate-limited and bypass backoff everywhere else too.
-RETRY_BACKOFF_SECONDS_MINIMUM = 30
 # Ceiling on the doubling, so raising max_download_retries can't strand a request
 # for an hour. At the 30s default the sequence is 30/60/120/240/300…
 RETRY_BACKOFF_SECONDS_MAXIMUM = 300
@@ -194,48 +191,6 @@ def match_generator(max_video_length: int, banned_videos_list: List[str]):
                     raise VideoBanned('Video Banned', user_message='Video is banned by bot maintainer')
 
     return filter_function
-
-
-class DownloadClient(Protocol):
-    '''
-    Cog-facing handle for the download pipeline.
-
-    The producer surface (submit / block_guild / clear_guild_queue /
-    queue_size) is async so a Redis-backed client can do its I/O inline; the
-    cog drives the consumer via run() as a background loop.  failure_summary /
-    backoff_seconds_remaining stay synchronous — they read cached backoff state
-    the run() loop refreshes — for logging and metrics.
-    '''
-    async def submit(self, guild_id: int, media_request: MediaRequest,
-                     priority: int | None = None) -> None:
-        '''Enqueue a MediaRequest for download; results are reported to the broker.'''
-
-    async def block_guild(self, guild_id: int) -> bool:
-        '''Block new submissions for a guild (used during shutdown/cleanup).'''
-
-    async def clear_guild_queue(self, guild_id: int,
-                                preserve_predicate: Callable[[MediaRequest], bool] | None = None,
-                                ) -> ClearGuildResult:
-        '''Clear the input queue for a guild.
-
-        Returns a ClearGuildResult carrying the dropped requests plus the
-        bundle_uuids of any items the predicate preserved (so the cog can skip
-        deleting those bundles, including in HA where the predicate runs on the
-        downloader pod, not the bot).'''
-
-    async def queue_size(self, guild_id: int) -> int:
-        '''Return the number of pending requests for a guild, or 0 if none.'''
-
-    @property
-    def failure_summary(self) -> str:
-        '''Human-readable summary of the download failure queue.'''
-
-    @property
-    def backoff_seconds_remaining(self) -> int | None:
-        '''Seconds remaining in the current backoff period, or None if not set.'''
-
-    async def run(self, shutdown_event: asyncio.Event) -> None:
-        '''Consume one queued request and download it; driven as a background loop.'''
 
 
 class DownloadWorkerBase(ABC):

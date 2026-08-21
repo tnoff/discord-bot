@@ -114,7 +114,7 @@ probes, so this metric and the pod's readiness can never disagree.
 | `delete_message_check` | bot | Message-deletion producer loop |
 | `delete_message_result` | bot | Message-deletion result consumer |
 | `cleanup_players` | bot | Inactive music player cleanup (Music) |
-| `download_files` | bot (single-process only) | Audio download loop (Music) — not emitted in HA, where downloads run in the downloader pod |
+| `download_files` | downloader pod | Audio download loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `process_download_results` | bot | Download result routing (Music) |
 | `process_search_results` | bot | Resolved-search consumer, submits downloads (Music) |
 | `youtube_music_search` | search pod | YouTube Music search loop — the bot no longer runs one, so the series only ever carries the pod's label set |

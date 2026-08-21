@@ -26,15 +26,12 @@ from sqlalchemy.engine.base import Engine
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
-from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
-from discord_bot.workers.redis_download_worker import RedisDownloadWorker
-from discord_bot.interfaces.download_protocols import (
+from discord_bot.clients.http_download_client import HttpDownloadClient
+from discord_bot.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
-from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
@@ -114,7 +111,6 @@ class MusicDownloadConfig(BaseModel):
     # Number of concurrent download loops. Defaults to 1: yt-dlp/YouTube
     # rate-limits per source IP, so a single downloader per egress IP is the
     # safe default. Raise only when downloads egress over distinct IPs.
-    max_concurrent_downloads: int = Field(default=1, ge=1)
     # Back the download queue with Redis (RedisDownloadWorker) instead of the
     # in-process AsyncioDownloadWorker, so downloads can be shared across pods.
     # Requires a redis_manager; falls back to in-process if unset.
@@ -156,12 +152,15 @@ class BrokerClientConfig(BaseModel):
     url: str
 
 class DownloadClientConfig(BaseModel):
-    '''Config for connecting to a remote downloader HTTP server (HA mode).
+    '''Config for connecting to the downloader pod's HTTP server.
 
-    Presence flips the cog from an in-process download worker to a standalone
-    downloader pod reached over HTTP; unlike the broker there is no matching
-    server config here — the downloader pod hosts its own server via its CLI
-    entrypoint, the cog is a client only.'''
+    Required: downloads run in the standalone downloader pod and the cog submits,
+    clears and blocks over HTTP.  It used to be optional, selecting an in-process
+    download worker when absent — that fallback is gone, so a missing url is a
+    startup error rather than a quiet mode switch (projects/discord-bot-ha-only).
+
+    Unlike the broker there is no matching server config here: the downloader pod
+    hosts its own server via its CLI entrypoint, the cog is a client only.'''
     url: str
 
 class YoutubeMusicSearchClientConfig(BaseModel):
@@ -188,7 +187,7 @@ class MusicConfig(BaseModel):
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
     broker_server: BrokerServerConfig | None = None
     broker_client: BrokerClientConfig | None = None
-    download_client: DownloadClientConfig | None = None
+    download_client: DownloadClientConfig
     youtube_music_search_client: YoutubeMusicSearchClientConfig
 
 #
@@ -213,7 +212,6 @@ _IDLE_POLL_BACKOFF_SECONDS = 0.25
 # heartbeat gauge's background_job attribute, so the metric series and the health
 # server's `loops` payload name the same loop the same way.
 LOOP_CLEANUP_PLAYERS = 'cleanup_players'
-LOOP_DOWNLOAD_FILES = 'download_files'
 LOOP_PROCESS_DOWNLOAD_RESULTS = 'process_download_results'
 LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
 LOOP_POST_PLAY_PROCESSING = 'post_play_processing'
@@ -245,7 +243,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.players = {}
         self._cleanup_task = None
-        self._download_tasks = []
         self._result_task = None
         self._search_result_task = None
         self._post_play_processing_task = None
@@ -327,48 +324,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.broker_client = InMemoryBrokerClient(self.media_broker)
 
         self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
-        # Add any filter functions, do some logic so we only pass a single function into the processor
-        if self.config.download_client:
-            # HA: the download worker runs in a standalone downloader pod; the bot
-            # submits/clears over HTTP and never builds an in-process worker or
-            # queue. Download results still return through the broker result loop.
-            self.download_client: DownloadClient = HttpDownloadClient(self.config.download_client.url)
-        else:
-            failure_queue = FailureQueue(
-                max_size=self.config.download.failure_tracking_max_size,
-                max_age_seconds=self.config.download.failure_tracking_max_age_seconds,
-            )
-            download_worker_kwargs = {
-                'extra_ytdlp_options': self.config.download.extra_ytdlp_options,
-                'max_video_length': self.config.download.max_video_length,
-                'banned_video_list': self.config.download.banned_videos_list,
-                'failure_queue': failure_queue,
-                'wait_period_minimum': self.config.download.youtube_wait_period_minimum,
-                'wait_period_max_variance': self.config.download.youtube_wait_period_max_variance,
-                'bucket_name': storage_bucket_name,
-                'normalize_audio': self.config.download.normalize_audio,
-                'broker': self.broker_client,
-                'max_retries': self.config.download.max_download_retries,
-                'retry_backoff_seconds_minimum': self.config.download.retry_backoff_seconds_minimum,
-            }
-            if self.config.download.redis_backed and self.redis_manager:
-                # Redis-backed queue: shareable across downloader pods (MR 2b runs it
-                # in-process; the download_server/HttpDownloadClient split is later).
-                download_worker = RedisDownloadWorker(
-                    self.logging_config,
-                    self.download_dir,
-                    redis_manager=self.redis_manager,
-                    youtube_egress_key=self.config.download.youtube_egress_key,
-                    **download_worker_kwargs,
-                )
-            else:
-                download_worker = AsyncioDownloadWorker(
-                    self.logging_config,
-                    self.download_dir,
-                    queue_max_size=self.config.player.queue_max_size,
-                    **download_worker_kwargs,
-                )
-            self.download_client: DownloadClient = InMemoryDownloadClient(download_worker)
+        # Downloads run in the standalone downloader pod: the cog submits, clears
+        # and blocks over HTTP and never builds an in-process worker or queue.
+        # Results still return through the broker's download-result queue, which
+        # process_download_results consumes.
+        self.download_client: DownloadClient = HttpDownloadClient(self.config.download_client.url)
         # The search loop runs in the standalone search pod; the cog submits,
         # clears and blocks over HTTP and never builds a worker, queue or driver.
         # Resolutions come back through the broker's search-result queue, which
@@ -392,7 +352,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # rather than a permanent 0 that would trip the stalled-loop alert.
         for job_name, description in (
                 (LOOP_CLEANUP_PLAYERS, 'Cleanup player loop heartbeat'),
-                (LOOP_DOWNLOAD_FILES, 'Download files loop heartbeat'),
                 (LOOP_PROCESS_DOWNLOAD_RESULTS, 'Download result processing loop heartbeat'),
                 (LOOP_PROCESS_SEARCH_RESULTS, 'Search result processing loop heartbeat'),
                 (LOOP_POST_PLAY_PROCESSING, 'Playlist update loop heartbeat'),
@@ -514,25 +473,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # on the gateway itself rather than going through return_loop_runner,
         # which would re-run it forever.
         self._init_task = self.bot.loop.create_task(self.resume_player_sessions())
-        if self.config.download_client:
-            # HA: the consumer loop runs in the downloader pod. Start only the
-            # client's status poller (no bot-side download loops). Nothing
-            # registers LOOP_DOWNLOAD_FILES here, so this pod emits no
-            # download_files heartbeat and its health never depends on one.
-            await self.download_client.start(self.bot, self.bot_shutdown_event)
-            self._download_tasks = []
-        else:
-            # One download loop per configured slot. Defaults to 1 so downloads stay
-            # serial per egress IP (yt-dlp/YouTube rate-limits per source IP).
-            # All slots share one LoopHealth: any slot making progress means the
-            # download loop as a whole is alive, matching the old any()-of-tasks
-            # heartbeat.
-            download_health = LOOP_HEALTH.register(LOOP_DOWNLOAD_FILES)
-            self._download_tasks = [
-                self.bot.loop.create_task(return_loop_runner(partial(self.download_client.run, self.bot_shutdown_event), self.bot, self.logger,
-                                                             health=download_health)())
-                for _ in range(self.config.download.max_concurrent_downloads)
-            ]
+        # The download loop lives in the downloader pod. The cog starts only the
+        # client's status poller. The bot registers no download loop and emits no
+        # download_files heartbeat; the downloader pod publishes that series.
+        await self.download_client.start(self.bot, self.bot_shutdown_event)
         self._result_task = self.bot.loop.create_task(
             return_loop_runner(self.process_download_results, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS))()
@@ -582,18 +526,15 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             # Cancelling a task never runs the loop runner's exit path, so mark
             # these stopped here: a cancelled loop is a deliberate shutdown, not
             # a wedge, and must not fail the liveness probe while the pod drains.
-            LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES, LOOP_PROCESS_DOWNLOAD_RESULTS,
+            LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
                                      LOOP_PROCESS_SEARCH_RESULTS, LOOP_POST_PLAY_PROCESSING)
             if self._init_task:
                 self._init_task.cancel()
             if self._cleanup_task:
                 self._cleanup_task.cancel()
-            for download_task in self._download_tasks:
-                download_task.cancel()
-            if self.config.download_client:
-                # HA: no bot-side download loops to cancel; stop the status poller
-                # and close the HTTP session instead.
-                await self.download_client.stop()
+            # No bot-side download loops to cancel — stop the status poller and
+            # close the HTTP session instead.
+            await self.download_client.stop()
             # No bot-side search loop to cancel — just the poller + session.
             await self.youtube_music_search_client.stop()
             if self._result_task:

@@ -5,12 +5,11 @@ from unittest.mock import patch, Mock, AsyncMock
 
 import asyncio
 
-import fakeredis.aioredis
 import pytest
 
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.cogs import music as music_module
-from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES,
+from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
                                     LOOP_POST_PLAY_PROCESSING, LOOP_PROCESS_DOWNLOAD_RESULTS,
                                     LOOP_PROCESS_SEARCH_RESULTS)
 from discord_bot.utils.loop_health import LOOP_HEALTH
@@ -21,8 +20,6 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
-from discord_bot.workers.redis_download_worker import RedisDownloadWorker
-from discord_bot.clients.redis_client import RedisManager
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
 from discord_bot.clients.youtube_music_search_client import (
@@ -38,6 +35,7 @@ from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 from tests.helpers import attach_in_process_search
+from tests.helpers import attach_in_process_download
 
 # youtube_music_search_client is required config since the dual-path collapse —
 # the cog is an HTTP client only, and tests that need the in-process search stack
@@ -48,6 +46,10 @@ from tests.helpers import attach_in_process_search
 # publishes no such series still have something to assert against.
 SEARCH_LOOP_NAME = 'youtube_music_search'
 
+# Same story for downloads: the cog used to own this loop and its name; the
+# downloader pod owns both now.
+DOWNLOAD_LOOP_NAME = 'download_files'
+
 BASE_MUSIC_CONFIG = {
     'general': {
         'include': {
@@ -55,6 +57,7 @@ BASE_MUSIC_CONFIG = {
         }
     },
     'music': {
+        'download_client': {'url': 'http://downloader-host:8083'},
         'youtube_music_search_client': {'url': 'http://search-host:8084'},
     },
 }
@@ -217,6 +220,7 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     now leaves the queue for the downloader tier, which outlives this pod.
     '''
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    attach_in_process_download(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -271,6 +275,7 @@ async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefin
     s1 = fake_source_dict(fake_context)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = Mock()
     await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -296,9 +301,9 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -321,9 +326,9 @@ async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-nam
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -363,9 +368,9 @@ async def test_shuffle(mocker, fake_context):  #pylint:disable=redefined-outer-n
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -386,9 +391,9 @@ async def test_remove_item(mocker, fake_context):  #pylint:disable=redefined-out
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -409,9 +414,9 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -451,9 +456,9 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             mocker.patch.object(MusicPlayer, 'start_tasks')
             fake_channel2 = FakeChannel(guild=fake_context['guild'])
             fake_context2 = FakeContext(guild=fake_context['guild'], channel=fake_channel2, bot=fake_context['bot'], author=fake_context['author'])
-            mocker.patch('discord_bot.cogs.music.AsyncioDownloadWorker', side_effect=yield_fake_download_worker(sd))
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+            attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             search_driver = attach_in_process_search(cog)
             cog.dispatcher = Mock()
             await cog.play_(cog, fake_context['context'], search='foo bar')
@@ -472,6 +477,7 @@ async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:dis
     s1 = fake_source_dict(fake_context)
     mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     cog.dispatcher = Mock()
     # Put source dict so we can a download queue to block
     await cog.download_client.submit(fake_context['guild'].id, s)
@@ -645,7 +651,6 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
 
     # Mock the tasks to None (default state)
     cog._cleanup_task = None  # pylint: disable=protected-access
-    cog._download_tasks = []  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Mock file operations at pathlib level
@@ -664,7 +669,6 @@ async def test_cog_unload_cancels_search_result_task(mocker, fake_context):  #py
     """cog_unload cancels the process_search_results task when one is running."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog._cleanup_task = None  # pylint: disable=protected-access
-    cog._download_tasks = []  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
     search_task = mocker.Mock()
     cog._search_result_task = search_task  # pylint: disable=protected-access
@@ -695,7 +699,7 @@ def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:di
 
     # Nothing has started yet: no series at all, rather than a 0 that would read
     # as "the loop died" for a loop that simply isn't running in this process.
-    for job_name in (LOOP_CLEANUP_PLAYERS, LOOP_DOWNLOAD_FILES, LOOP_PROCESS_DOWNLOAD_RESULTS,
+    for job_name in (LOOP_CLEANUP_PLAYERS, DOWNLOAD_LOOP_NAME, LOOP_PROCESS_DOWNLOAD_RESULTS,
                      LOOP_PROCESS_SEARCH_RESULTS, LOOP_POST_PLAY_PROCESSING, SEARCH_LOOP_NAME):
         assert not loop_heartbeat_observations(job_name)
 
@@ -815,7 +819,6 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
 
     # Set tasks to None to avoid cancellation
     cog._cleanup_task = None  # pylint: disable=protected-access
-    cog._download_tasks = []  # pylint: disable=protected-access
     cog._post_play_processing_task = None  # pylint: disable=protected-access
 
     # Add fake players with mock destroy method
@@ -905,7 +908,11 @@ def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=red
     })
 
     with patch('discord_bot.interfaces.download_protocols.YoutubeDL') as mock_ytdl:
-        Music(fake_context['bot'], config, fake_context['dispatcher'])
+        cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+        # The cog builds no worker any more, so the merge happens where the
+        # downloader pod does it. attach_in_process_download stands in for the pod
+        # and feeds it the same config the cog was given.
+        attach_in_process_download(cog)
 
         # Check that custom options were merged
         call_args = mock_ytdl.call_args[0][0]  # First positional arg (options dict)
@@ -939,7 +946,6 @@ async def test_shutdown_calls_cleanup_per_guild(fake_context, mocker):  #pylint:
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
     cog._cleanup_task = None  #pylint:disable=protected-access
-    cog._download_tasks = []  #pylint:disable=protected-access
     cog._post_play_processing_task = None  #pylint:disable=protected-access
 
     await cog.cog_unload()
@@ -961,7 +967,6 @@ async def test_shutdown_no_players(fake_context, mocker):  #pylint:disable=redef
     mocker.patch('discord_bot.cogs.music.rm_tree')
 
     cog._cleanup_task = None  #pylint:disable=protected-access
-    cog._download_tasks = []  #pylint:disable=protected-access
     cog._post_play_processing_task = None  #pylint:disable=protected-access
 
     await cog.cog_unload()
@@ -999,13 +1004,11 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
 
     # Create mock tasks
     mock_cleanup_task = Mock()
-    mock_download_task = Mock()
     mock_result_task = Mock()
     mock_history_task = Mock()
 
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
-    cog._download_tasks = [mock_download_task]
     cog._result_task = mock_result_task
     cog._post_play_processing_task = mock_history_task
 
@@ -1021,7 +1024,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
 
     # Verify all tasks were cancelled
     mock_cleanup_task.cancel.assert_called_once()
-    mock_download_task.cancel.assert_called_once()
     mock_result_task.cancel.assert_called_once()
     mock_history_task.cancel.assert_called_once()
 
@@ -1040,7 +1042,6 @@ async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint
 
     # Set tasks to None  #pylint:disable=protected-access
     cog._cleanup_task = None
-    cog._download_tasks = []
     cog._post_play_processing_task = None
 
     await cog.cog_unload()
@@ -1107,6 +1108,7 @@ async def test_voice_client_disconnected_without_manual_cleanup(fake_context, mo
     voice_client.cleanup() — calling cleanup() first detaches the socket and can
     suppress the gateway leave, stranding the bot in the channel."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1136,6 +1138,7 @@ async def test_voice_client_disconnected_without_manual_cleanup(fake_context, mo
 async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup handles case when voice_client is None"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1191,6 +1194,7 @@ async def test_voice_client_cleanup_with_bot_shutdown(fake_context, mocker):  #p
 async def test_voice_client_cleanup_without_bot_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup with a non-BOT_SHUTDOWN reason does not send a message"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep')
@@ -1258,6 +1262,7 @@ async def test_voice_client_cleanup_bot_shutdown_awaits_disconnect(fake_context,
 async def test_voice_client_cleanup_when_player_does_not_exist(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that cleanup continues when player doesn't exist in self.players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1288,6 +1293,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     dispatcher = Mock()
     # The broker captures the dispatcher at construction time, so pass the spy in.
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, dispatcher)
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1325,6 +1331,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
 async def test_voice_client_cleanup_player_removed_externally(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test cleanup when player was already removed from cog.players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_download(cog)
     attach_in_process_search(cog)
     mocker.patch('discord_bot.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1578,37 +1585,10 @@ async def test_cog_load_starts_broker_server_when_configured(fake_context, mocke
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.BrokerHttpServer.serve', new_callable=AsyncMock)
     await cog.cog_load()
-    # cog_load schedules 5 normally (cleanup + init + download + result +
-    # search_result — the search loop lives in the search pod now); +1 for the
-    # broker server = 6.
-    assert mock_loop.create_task.call_count == 6
-
-
-def test_max_concurrent_downloads_defaults_to_one(fake_context):  #pylint:disable=redefined-outer-name
-    """The download concurrency knob defaults to a single serial downloader."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert cog.config.download.max_concurrent_downloads == 1
-
-
-@pytest.mark.asyncio
-async def test_cog_load_spawns_configured_download_loops(fake_context):  #pylint:disable=redefined-outer-name
-    """cog_load starts one download loop per max_concurrent_downloads slot."""
-    config = music_config({
-        'music': {
-            'download': {'max_concurrent_downloads': 3}
-        }
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
-    # cleanup + init + 3 download loops + result + search_result. The search loop
-    # is not among them — it runs in the search pod.
-    assert mock_loop.create_task.call_count == 7
-
+    # cog_load schedules 4 normally (cleanup + init + result + search_result —
+    # the download and search loops live in their own pods); +1 for the broker
+    # server = 5.
+    assert mock_loop.create_task.call_count == 5
 
 def test_music_init_with_download_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
     """HttpDownloadClient (pointed at the downloader pod) is built when
@@ -1620,26 +1600,11 @@ def test_music_init_with_download_client_config_uses_http(fake_context):  #pylin
     assert isinstance(cog.download_client, HttpDownloadClient)
     assert cog.download_client._base_url == 'http://downloader-host:8083'  # pylint: disable=protected-access
 
-
-def test_music_init_without_download_client_uses_in_memory(fake_context):  #pylint:disable=redefined-outer-name
-    """InMemoryDownloadClient (in-process worker) is used by default."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.download_client, InMemoryDownloadClient)
-
-
-def test_download_heartbeat_gauge_registered_without_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """The bot-side download_files heartbeat gauge is registered in single-process mode."""
-    gauge = mocker.patch('discord_bot.cogs.music.create_observable_gauge')
-    Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    descriptions = [call.args[3] for call in gauge.call_args_list if len(call.args) > 3]
-    assert 'Download files loop heartbeat' in descriptions
-
-
 @pytest.mark.asyncio
 async def test_download_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:disable=redefined-outer-name
-    """In HA the download loop lives in the downloader pod, so the bot registers
-    no download_files loop and emits no series for it — it would otherwise sit at
-    0 and trip the stalled-loop alert (and now also fail the pod's liveness probe)."""
+    """The download loop lives in the downloader pod, so the bot registers no
+    download_files loop and emits no series for it — it would otherwise sit at 0
+    and trip the stalled-loop alert (and fail the pod's liveness probe)."""
     config = music_config({
         'music': {'download_client': {'url': 'http://downloader-host:8083'}}
     })
@@ -1651,8 +1616,8 @@ async def test_download_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:
     cog.bot.loop = mock_loop
     cog.dispatcher = Mock()
     await cog.cog_load()
-    assert not loop_heartbeat_observations(LOOP_DOWNLOAD_FILES)
-    assert LOOP_HEALTH.get(LOOP_DOWNLOAD_FILES) is None
+    assert not loop_heartbeat_observations(DOWNLOAD_LOOP_NAME)
+    assert LOOP_HEALTH.get(DOWNLOAD_LOOP_NAME) is None
 
 
 @pytest.mark.asyncio
@@ -1670,9 +1635,8 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.download_client.start.assert_awaited_once()
-    assert cog._download_tasks == []  #pylint:disable=protected-access
-    # cleanup + init + result + search_result only — no download loops (HA), no
-    # search loop, no broker server.
+    # cleanup + init + result + search_result only — the download and search
+    # loops both live in their own pods now, and no broker server is configured.
     assert mock_loop.create_task.call_count == 4
 
 
@@ -1726,6 +1690,34 @@ def test_cog_builds_no_in_process_search_stack(fake_context):  #pylint:disable=r
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
 
+def test_cog_builds_no_in_process_download_stack(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    A deployment-shaped config never constructs the in-process download stack.
+
+    Same contract as the search tier, and the same reason for checking the module
+    and not just the instance: re-importing AsyncioDownloadWorker here would put
+    yt_dlp and moviepy back on the bot image, which
+    tests/cli/test_import_boundaries.py would then fail — but only if someone runs
+    it, whereas this fails on the construction itself.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.download_client, HttpDownloadClient)
+    assert not isinstance(cog.download_client, InMemoryDownloadClient)
+    for symbol in ('InMemoryDownloadClient', 'AsyncioDownloadWorker', 'RedisDownloadWorker',
+                   'FailureQueue'):
+        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
+
+
+def test_missing_download_client_config_is_fatal(fake_context):  #pylint:disable=redefined-outer-name
+    """A music section without the downloader url kills the process, as with search."""
+    config = {'general': {'include': {'music': True}},
+              'music': {'youtube_music_search_client': {'url': 'http://search-host:8084'}}}
+    with pytest.raises(DiscordBotException) as exc_info:
+        Music(fake_context['bot'], config, fake_context['dispatcher'])
+    assert 'Invalid music config' in str(exc_info.value)
+    assert not isinstance(exc_info.value, CogMissingRequiredArg)
+
+
 def test_missing_search_client_config_is_fatal_not_a_cog_skip(fake_context):  #pylint:disable=redefined-outer-name
     """
     A music section without the search url kills the process; it does not skip music.
@@ -1773,9 +1765,9 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.youtube_music_search_client.start.assert_awaited_once()
-    # cleanup + init + 1 download loop + result + search_result = 5. No search
-    # loop among them: the cog no longer has one to spawn.
-    assert mock_loop.create_task.call_count == 5
+    # cleanup + init + result + search_result = 4. Neither the download nor the
+    # search loop is among them; the cog has neither to spawn.
+    assert mock_loop.create_task.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -1818,37 +1810,3 @@ async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylin
     await cog.cleanup(guild, reason=CleanupReason.QUEUE_TIMEOUT)
     # keep-bundle preserved by the downloader → skipped; drop-bundle deleted.
     cog.delete_bundle.assert_awaited_once_with(4242, 'drop-bundle')
-
-
-@pytest.mark.asyncio
-async def test_download_slots_share_one_health(fake_context):  #pylint:disable=redefined-outer-name
-    """Every download slot reports to one LoopHealth: any slot progressing keeps
-    the download loop healthy, matching the any()-of-tasks heartbeat it replaces."""
-    config = music_config({'music': {'download': {'max_concurrent_downloads': 3}}})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    assert len(cog._download_tasks) == 3  #pylint:disable=protected-access
-    observations = loop_heartbeat_observations(LOOP_DOWNLOAD_FILES)
-    assert len(observations) == 1  # one series for the whole pool, not one per slot
-    assert observations[0].value == 1
-
-
-@pytest.mark.asyncio
-async def test_redis_backed_config_selects_redis_download_worker(fake_context):  #pylint:disable=redefined-outer-name
-    '''redis_backed=True + a redis_manager wires the cog to a RedisDownloadWorker.'''
-    manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
-    config = music_config({'general': {'include': {'music': True}}, 'music': {'download': {'redis_backed': True}}})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], redis_manager=manager)
-    assert isinstance(cog.download_client.local_worker, RedisDownloadWorker)
-
-
-@pytest.mark.asyncio
-async def test_redis_backed_without_manager_falls_back_to_asyncio(fake_context):  #pylint:disable=redefined-outer-name
-    '''redis_backed=True but no redis_manager falls back to the in-process worker.'''
-    config = music_config({'general': {'include': {'music': True}}, 'music': {'download': {'redis_backed': True}}})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert isinstance(cog.download_client.local_worker, AsyncioDownloadWorker)
