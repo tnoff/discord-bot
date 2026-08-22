@@ -3,6 +3,7 @@ import asyncio
 
 import aiohttp
 import pytest
+from opentelemetry.instrumentation.utils import is_instrumentation_enabled
 
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.utils.integrations.egress_probe import (
@@ -222,10 +223,12 @@ class _FakeExitClient:
         self._body = body
         self.raise_exc = raise_exc
         self.calls = []
+        self.instrumentation_live = []
 
     def urlopen(self, url):
         '''Record the probed URL, then raise or return the canned body.'''
         self.calls.append(url)
+        self.instrumentation_live.append(is_instrumentation_enabled())
         if self.raise_exc is not None:
             raise self.raise_exc
         return _FakeUrlopenResponse(self._body)
@@ -344,3 +347,38 @@ async def test_pool_probe_run_swallows_a_refresh_error(mocker):
     await probe.run(stop, interval=0.001)   # must not raise
 
     assert calls['n'] == 1
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_request_runs_with_instrumentation_suppressed():
+    '''The probe request emits no auto-instrumented client span.
+
+    yt-dlp's client is requests-backed, so without suppression every probe
+    produces a client span -- one per exit per tick -- and a relay that fails to
+    connect stamps it ERROR, reporting a fault for a failure refresh() is built
+    to tolerate.  Asserted at the urlopen boundary rather than by counting spans
+    so it holds regardless of which instrumentations happen to be installed.'''
+    probe, clients = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    await probe.refresh()
+    assert clients['us-dal-wg-001'].instrumentation_live == [False]
+    assert probe.ip_for('us-dal-wg-001') == '1.2.3.4'
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_suppression_does_not_leak_past_the_request():
+    '''Suppression is scoped to the probe request, so the download spans this
+    attribution gets stamped onto are still instrumented afterwards.'''
+    probe, _ = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+    await probe.refresh()
+    assert is_instrumentation_enabled() is True
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_failing_exit_is_still_suppressed():
+    '''The failing path is the one that was emitting ERROR spans, so it must be
+    inside the suppression too -- not just the happy path.'''
+    probe, clients = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'},
+                                 raise_for=('us-dal-wg-001',))
+    await probe.refresh()
+    assert clients['us-dal-wg-001'].instrumentation_live == [False]
+    assert probe.ip_for('us-dal-wg-001') is None

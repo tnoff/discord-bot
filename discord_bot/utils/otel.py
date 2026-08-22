@@ -212,6 +212,28 @@ def otel_span_wrapper(span_name: str, ctx: Context = None,
 
 
 @asynccontextmanager
+async def async_untraced_span():
+    '''
+    Stand-in for async_otel_span_wrapper that starts no span at all.
+
+    Background pollers re-run on a fixed interval whether or not anything has
+    happened, so every tick they emit is noise at a rate set by the poll
+    interval rather than by real work — the same problem
+    RedisDownloadWorker._peek_next_request solved with suppress_instrumentation().
+    That helper only silences *auto*-instrumented spans, so it cannot suppress a
+    manual TRACER.start_as_current_span; a poller on a hand-rolled span has to
+    skip creating it instead.
+
+    Yields the non-recording INVALID_SPAN so a shared body can keep calling
+    set_attributes / set_status / record_exception unconditionally — they are
+    all no-ops on it — and needs no branch for the untraced case.
+
+    A tolerated failure still reaches the operator: pollers log it at WARNING.
+    '''
+    yield trace.INVALID_SPAN
+
+
+@asynccontextmanager
 async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
                                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                                    attributes: dict = None,

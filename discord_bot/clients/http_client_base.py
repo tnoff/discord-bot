@@ -26,8 +26,12 @@ class HttpClientMixin:
         inject(headers)
         return headers
 
-    async def _http(self, method: str, url: str, body: dict | None = None):
-        '''Execute an HTTP request with retry; returns parsed JSON or None.'''
+    async def _http(self, method: str, url: str, body: dict | None = None,
+                    traced: bool = True):
+        '''Execute an HTTP request with retry; returns parsed JSON or None.
+
+        traced=False suppresses the retry wrapper's span; see
+        async_retry_broker_command.'''
         session = self._get_session()
         async def _call():
             async with session.request(
@@ -39,4 +43,4 @@ class HttpClientMixin:
                 if resp.content_type == 'application/json':
                     return await resp.json()
                 return None
-        return await async_retry_broker_command(_call)
+        return await async_retry_broker_command(_call, traced=traced)

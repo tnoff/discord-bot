@@ -426,3 +426,81 @@ async def test_submit_rejection_leaves_both_seam_spans_ok():
     for span in submit_spans:
         assert span.status.status_code is not StatusCode.ERROR
         assert span.attributes['queue.submit_rejection'] == 'PutsBlocked'
+
+
+# ---------------------------------------------------------------------------
+# Status-poller span volume
+#
+# The poller runs every POLL_INTERVAL_SECONDS (1s) whether or not anything
+# changed, so its spans are emitted at the poll rate rather than per unit of
+# work. Two of these clients made utils.retry_broker_command ~99% of the bot's
+# span volume, and while the worker pod was being rescheduled onto a new node
+# every tick also landed an ERROR span for a failure _poll_status_loop_once
+# already handles by keeping the cached values (2026-08-22 01:34-01:40 UTC).
+# ---------------------------------------------------------------------------
+
+def _span_names(exporter):
+    '''Names of every span the exporter saw, both halves of the wire.'''
+    return [s.name for s in exporter.get_finished_spans()]
+
+
+@pytest.mark.asyncio
+async def test_status_poll_emits_no_spans_on_either_half():
+    '''A full status refresh -- client poll through server handler -- is silent.
+
+    Both halves are unspanned deliberately: with the client no longer starting a
+    span there is no caller context to continue, so a server span here would be a
+    root span per second per worker describing an unremarkable cache refresh.'''
+    _, server = _make_server()
+    tracer, exporter = _recording_tracer()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with patch('discord_bot.utils.otel.TRACER', tracer):
+            await client._poll_status_loop_once()  # pylint: disable=protected-access
+    assert _span_names(exporter) == []
+    assert client.failure_summary == '0 failures in queue'
+
+
+@pytest.mark.asyncio
+async def test_status_poll_failure_emits_no_spans():
+    '''An unreachable worker pod -- the node-replacement case -- stays silent in
+    traces and leaves the cached values in place.'''
+    tracer, exporter = _recording_tracer()
+    client = HttpDownloadClient('http://127.0.0.1:1')
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock):
+            await client._poll_status_loop_once()  # pylint: disable=protected-access
+    await client.close()
+    assert _span_names(exporter) == []
+    assert client.failure_summary == '0 failures in queue'
+
+
+@pytest.mark.asyncio
+async def test_real_work_is_still_traced_on_both_halves():
+    '''Only the status poll went quiet.  A submit -- which loses work if it fails
+    -- still emits the client retry span and the server handler span.'''
+    _, server = _make_server()
+    tracer, exporter = _recording_tracer()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with patch('discord_bot.utils.otel.TRACER', tracer):
+            await client.submit(7, _media_request(guild_id=7))
+    names = _span_names(exporter)
+    assert 'utils.retry_broker_command' in names
+    assert 'downloader.submit' in names
+
+
+@pytest.mark.asyncio
+async def test_status_poll_still_updates_the_cache_without_spans():
+    '''Dropping the spans must not change what the poll actually does.'''
+    _, server = _make_server(_FakeWorker(status={
+        'failure_summary': '2 failures in queue',
+        'backoff_seconds_remaining': 11,
+        'queue_sizes': {'7': 5},
+    }))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        await client._poll_status_loop_once()  # pylint: disable=protected-access
+        assert client.failure_summary == '2 failures in queue'
+        assert client.backoff_seconds_remaining == 11
+        assert await client.queue_size(7) == 5

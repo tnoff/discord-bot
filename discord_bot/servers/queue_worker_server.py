@@ -20,7 +20,6 @@ import logging
 from typing import ClassVar
 
 from aiohttp import web
-from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
 from discord_bot.servers.base import AiohttpServerBase
@@ -168,8 +167,18 @@ class QueueWorkerHttpServer(AiohttpServerBase):
 
     async def _handle_status(self, request: web.Request) -> web.Response:
         '''GET {prefix}/status — live queue/backoff/failure snapshot for the bot
-        pod's polling client.'''
-        ctx = extract(request.headers)
-        with otel_span_wrapper(f'{self.SPAN_PREFIX}.status', context=ctx, kind=SpanKind.SERVER):
-            snapshot = await self._worker.status_snapshot()
+        pod's polling client.
+
+        Deliberately unspanned, the server half of the same decision as
+        HttpQueueWorkerClient._poll_status_loop_once: the bot polls this route
+        every second per worker whether or not anything changed, so a span here
+        is emitted at the poll rate rather than per unit of work — ~3.5k/hour on
+        each of the downloader and search pods, against single-digit hourly rates
+        for the spans that describe real work.  The client no longer starts a
+        span for the poll either, so there is no longer a caller context to
+        continue: every one of these would be a root span describing an
+        unremarkable cache refresh.  Routes that mutate queue state keep theirs.
+        '''
+        del request
+        snapshot = await self._worker.status_snapshot()
         return web.json_response(snapshot, status=200)

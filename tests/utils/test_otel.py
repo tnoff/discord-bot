@@ -9,8 +9,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.utils.otel import (
-    async_otel_span_wrapper, capture_span_context, command_wrapper,
-    otel_span_wrapper, span_links_from_context,
+    async_otel_span_wrapper, async_untraced_span, capture_span_context,
+    command_wrapper, otel_span_wrapper, span_links_from_context,
 )
 
 
@@ -231,3 +231,36 @@ async def test_async_otel_span_wrapper_with_links():
     links = [trace.Link(link_ctx)]
     async with async_otel_span_wrapper('test.async_linked_span', links=links) as span:
         assert span is not None
+
+
+@pytest.mark.asyncio
+async def test_async_untraced_span_emits_nothing():
+    '''The untraced stand-in starts no span at all.
+
+    suppress_instrumentation() cannot do this job: it gates auto-instrumentation
+    only, so a manual start_as_current_span inside it still records.  A poller on
+    a hand-rolled span has to skip creating it.'''
+    tracer, exporter = _recording_tracer()
+    with patch('discord_bot.utils.otel.TRACER', tracer):
+        async with async_untraced_span():
+            pass
+    assert not exporter.get_finished_spans()
+
+
+@pytest.mark.asyncio
+async def test_async_untraced_span_yields_a_usable_no_op_span():
+    '''It yields the non-recording INVALID_SPAN, so a body shared with the traced
+    path can call the span API unconditionally instead of branching.'''
+    async with async_untraced_span() as span:
+        assert span.is_recording() is False
+        span.set_attributes({'retry_count': 1})
+        span.set_status(StatusCode.ERROR)
+        span.record_exception(ValueError('ignored'))
+
+
+@pytest.mark.asyncio
+async def test_async_untraced_span_does_not_swallow_exceptions():
+    '''Untraced must not change control flow -- only whether a span is emitted.'''
+    with pytest.raises(ValueError):
+        async with async_untraced_span():
+            raise ValueError('propagates')

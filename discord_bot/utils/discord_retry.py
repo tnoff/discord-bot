@@ -6,7 +6,7 @@ from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimi
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming
+from discord_bot.utils.otel import async_otel_span_wrapper, async_untraced_span, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'utils'
 
@@ -84,14 +84,24 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
                 await async_sleep(2 ** retry)
 
 
-async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries: int = 3):
+async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries: int = 3,
+                                    traced: bool = True):
     '''
     Retry broker HTTP calls with per-exception handling:
       - ClientConnectionError (includes ServerDisconnectedError, ServerTimeoutError): exponential backoff retry
       - ClientResponseError 5xx: exponential backoff retry
       - ClientResponseError 4xx: propagate immediately (client error, won't change on retry)
+
+    traced=False starts no span.  Reserved for fixed-interval background pollers,
+    whose ticks are emitted at the poll rate rather than per unit of work: at 1Hz
+    per client this span was ~99% of the bot's total span volume, and every tick
+    against a restarting worker pod also landed as an ERROR span for a failure
+    the poller already tolerates.  Callers that lose work when the call fails
+    stay traced.
     '''
-    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_broker_command', kind=SpanKind.CLIENT) as span:
+    span_cm = (async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_broker_command', kind=SpanKind.CLIENT)
+               if traced else async_untraced_span())
+    async with span_cm as span:
         for retry in range(max_retries + 1):
             span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
             try:

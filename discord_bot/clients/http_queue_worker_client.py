@@ -178,10 +178,17 @@ class HttpQueueWorkerClient(HttpClientMixin):
     async def _poll_status_loop_once(self) -> None:
         '''One status-refresh iteration.  Errors are swallowed so a transient
         worker-pod hiccup doesn't kill the poller.  Factored out so tests can drive
-        the cache-update logic without the loop timing.'''
+        the cache-update logic without the loop timing.
+
+        Untraced (traced=False): this runs every POLL_INTERVAL_SECONDS whether or
+        not anything changed, so its spans are emitted at the poll rate rather than
+        per unit of work.  Two clients at 1Hz made this span ~99% of the bot's span
+        volume, and while the worker pod was being rescheduled every tick also
+        landed an ERROR span for a failure this method already handles by keeping
+        the cached values.  The warning below is the signal; the span was noise.'''
         try:
             status = await asyncio.wait_for(
-                self._http('GET', f'{self._submit_url}/status'),
+                self._http('GET', f'{self._submit_url}/status', traced=False),
                 timeout=self.STATUS_REQUEST_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.warning('%s status poller error: %s', self.SPAN_PREFIX, exc)

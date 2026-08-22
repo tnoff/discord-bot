@@ -29,6 +29,7 @@ import logging
 from abc import ABC, abstractmethod
 
 import aiohttp
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from discord_bot.exceptions import DiscordBotException
 
@@ -207,10 +208,23 @@ class PoolExitIpProbe:
         Blocking: fetch the probe payload through this exit's yt-dlp client.
 
         Runs off the event loop (see refresh) because yt-dlp's urlopen is sync.
+
+        Instrumentation is suppressed for the request itself.  yt-dlp's client is
+        requests-backed, so opentelemetry-instrumentation-requests auto-emits a
+        client span per probe: one per exit per tick, ~200/hour at the default
+        interval, and a relay that fails to connect stamps that span ERROR after
+        the SOCKS connect timeout.  That is a failure this class is built to
+        tolerate — refresh() already keeps the last-known IP and logs a WARNING —
+        so those spans were reporting a fault where there was none, and they were
+        the single largest source of error spans in the downloader.
+
+        Scoped to the request alone: the download spans this attribution is
+        stamped onto are created outside it and keep their instrumentation.
         '''
         client = self._client_for_exit(exit_name)
-        with client.urlopen(self._probe_url) as response:
-            data = json.loads(response.read())
+        with suppress_instrumentation():
+            with client.urlopen(self._probe_url) as response:
+                data = json.loads(response.read())
         if not isinstance(data, dict):
             return None
         return _clean_str(data.get(self._ip_field))
