@@ -32,6 +32,18 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.queue import PutsBlocked
 from tests.helpers import fake_source_dict, generate_fake_context
 
+
+def make_pcm(source: Path, payload: bytes = b'pcm data') -> Path:
+    '''Write a real .pcm beside `source` and return its path.
+
+    _create_source stats the PCM to record file_size_bytes, so a patched
+    edit_audio_file has to hand back a path that actually exists on disk.
+    '''
+    pcm_path = source.with_suffix('.pcm')
+    pcm_path.write_bytes(payload)
+    return pcm_path
+
+
 class MockYTDLP():
     '''Mock yt-dlp client that returns a fake successful download result.'''
     def __init__(self, fake_file_path : Path = 'foo-bar.mp3'):
@@ -251,13 +263,38 @@ async def test_prepare_source():
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
         assert result.file_name == pcm_path
         assert result.post_process_timestamp is not None
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_records_pcm_size_not_download_size():
+    '''file_size_bytes must size the PCM that gets cached, not the compressed download.
+
+    The PCM is what __upload_s3 puts in the bucket and what VideoCache sums for
+    max_cache_size_mb eviction. Recording the pre-conversion size made the cache
+    under-count every entry by the compression ratio (~12x for s16le/48k stereo
+    against a 128 kbps source), so the bucket ran far past its configured cap.
+    '''
+    with NamedTemporaryFile(delete=False) as tmp_file:
+        download_path = Path(tmp_file.name)
+    # Deliberately lopsided: a small "compressed" download, a large PCM.
+    download_path.write_bytes(b'x' * 16)
+    pcm_path = make_pcm(download_path, payload=b'\0' * 4096)
+
+    x = make_download_client(MockYTDLP(fake_file_path=download_path))
+    y = fake_source_dict(generate_fake_context())
+    with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        result = await x.create_source(y, 3)
+
+    assert result.status.success
+    assert result.file_name == pcm_path
+    assert result.file_size_bytes == 4096, 'size must follow the PCM, not the 16-byte download'
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_single_video_no_entries():
@@ -285,7 +322,7 @@ async def test_prepare_source_single_video_no_entries():
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLPSingleVideo(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
@@ -407,7 +444,7 @@ async def test_prepare_source_md5_match_no_warning(mocker):
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
     with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
-               return_value=file_path.with_suffix('.pcm')):
+               return_value=make_pcm(file_path)):
         result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_not_called()
@@ -433,7 +470,7 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
     with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
-               return_value=file_path.with_suffix('.pcm')):
+               return_value=make_pcm(file_path)):
         result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_called_once()
@@ -449,7 +486,7 @@ async def test_prepare_source_no_md5_no_warning(mocker):
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         mock_logger = mocker.patch.object(x, 'logger')
         y = fake_source_dict(fake_context)
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
@@ -1263,7 +1300,7 @@ async def test_run_success_reports_result_to_broker():
         mr = fake_source_dict(fake_context)
         await client.submit(mr.guild_id, mr)
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
@@ -1461,7 +1498,7 @@ async def test_run_direct_item_bypasses_active_backoff():
         await client.submit(mr.guild_id, mr)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
@@ -1478,7 +1515,7 @@ async def test_run_direct_item_interrupts_mid_wait():
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
 
         async def submit_after_delay():
             await asyncio.sleep(0.05)
@@ -1537,7 +1574,7 @@ async def test_run_three_direct_items_all_processed_with_backoff():
             await client.submit(mr.guild_id, mr)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             for _ in range(3):
                 await client.run(shutdown)
@@ -1554,7 +1591,7 @@ async def test_run_three_direct_items_arriving_mid_backoff():
         client = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)), broker=mock_broker)
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
 
         async def submit_three_with_delays():
             for _ in range(3):
@@ -1633,7 +1670,7 @@ async def test_run_no_backoff_preserves_submission_order():
         await client.submit(mr_search.guild_id, mr_search)
         await client.submit(mr_direct.guild_id, mr_direct)
         shutdown = asyncio.Event()
-        pcm_path = Path(tmp_file.name).with_suffix('.pcm')
+        pcm_path = make_pcm(Path(tmp_file.name))
         with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
             await client.run(shutdown)

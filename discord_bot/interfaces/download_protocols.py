@@ -837,6 +837,13 @@ class DownloadWorkerBase(ABC):
                     )
                     result = result.model_copy(update={
                         'file_name': pcm_path,
+                        # The PCM is what gets uploaded and cached, so the cache
+                        # must size THAT, not the compressed download it came
+                        # from. s16le/48k stereo runs ~12x the size of a 128 kbps
+                        # source; leaving the pre-conversion size here made
+                        # max_cache_size_mb evict against a number an order of
+                        # magnitude too small, so the bucket ran ~12x its cap.
+                        'file_size_bytes': pcm_path.stat().st_size,
                         'post_process_timestamp': post_process_timestamp,
                     })
                 except AudioProcessingError as error:
