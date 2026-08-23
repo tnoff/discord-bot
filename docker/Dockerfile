@@ -52,10 +52,17 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # discord_bot-<VERSION>.dist-info, and `importlib.metadata.version()` resolved
 # to the 0.0.0 one. Nothing reads the version at runtime today, but the image
 # would have reported the wrong one.
+#
+# It installs to a SEPARATE prefix (/install-app, not /install). That split is
+# what keeps the export phase cheap: the final stage copies the two prefixes as
+# two layers, so a source change only ever produces a small new layer. Merging
+# them here would put ~474 MB of dependencies into a layer that our own package
+# rewrites on every commit, and buildkit would recompress and re-upload all of
+# it per build (measured: `exporting layers` 270.9s of a 283.3s export step).
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY alembic/ "${APPDIR}/alembic/"
 COPY alembic.ini VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps --prefix=/install "${APPDIR}[bot]"
+RUN pip install --no-cache-dir --no-deps --prefix=/install-app "${APPDIR}[bot]"
 
 
 # ---------- final: runtime only ----------
@@ -82,20 +89,31 @@ ENV DENO_INSTALL_ROOT="/opt/discord/.deno"
 ENV PATH="/opt/discord/.deno/bin:$PATH"
 
 # Directory structure + non-root user (UID/GID 1000).
+# The chown happens HERE, while these directories are still empty. Doing it
+# after the COPYs below (as a `chown -R` over ${WORKDIR}) rewrote every file
+# the Deno copy had just placed, producing a 95.6 MB layer that was a pure
+# duplicate of the 95.6 MB directly above it.
 RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
         "${WORKDIR}/cnf" "${WORKDIR}/downloads" "${WORKDIR}/db" && \
     groupadd -g 1000 discord && \
-    useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
+    useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord && \
+    chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
 
-# Python site-packages + console scripts from the builder stage.
+# Third-party dependencies (~474 MB). Keyed on pyproject.toml only, so this
+# layer is byte-identical across source changes and stays CACHED — which is the
+# entire point of installing it to its own prefix in the builder.
 COPY --from=builder /install /usr/local
 # Deno static binary (installed to /opt/deno in the builder -> runtime home).
-COPY --from=builder /opt/deno /opt/discord/.deno
+# --chown avoids a later `chown -R` that would duplicate the whole tree.
+COPY --from=builder --chown=discord:discord /opt/deno /opt/discord/.deno
+
+# Our own package. Small, and the only one of these that changes per commit —
+# so it goes LAST, below everything stable.
+COPY --from=builder /install-app /usr/local
 
 COPY docker/entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh && \
-    chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8080
 
