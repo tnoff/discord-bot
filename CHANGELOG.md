@@ -5,6 +5,14 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.97] - 2026-08-23
+
+### Changed
+
+- ### Changed
+- **The bot image no longer rewrites 474 MB of dependencies on every commit.** The final stage copied the builder's entire `/install` prefix — third-party dependencies *and* our own package — as a single 474 MB layer, so any source change invalidated it and buildkit recompressed the lot. Measured on a code-change CI build, `exporting layers` was **270.9 s of a 283.3 s** export step, and the export phase was ~345–426 s of a ~530–600 s job. The builder now installs dependencies to `/install` and the package to `/install-app`, and the final stage copies them as separate layers: the dependency layer is keyed on `pyproject.toml` alone and stays cached, while the only layer that changes per commit is **2.47 MB**. Together with the `chown` fix below, the per-commit layer churn goes from ~665 MB to ~2.5 MB.
+- **Removed a 95.6 MB layer that was a byte-for-byte duplicate of the layer above it.** `RUN chmod +x /entrypoint.sh && chown -R discord:discord "${WORKDIR}"` ran *after* the Deno runtime was copied into `${WORKDIR}/.deno`, so it rewrote all 95.6 MB of it into a new layer. The directories are now chowned while still empty, in the same `RUN` that creates them, and the Deno copy carries `--chown` instead. Image size drops 1.3 GB → 1.2 GB.
+
 ## [2.5.96] - 2026-08-23
 
 ### Changed
