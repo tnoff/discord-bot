@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.98] - 2026-08-23
+
+### Changed
+
+- Broker `/results/next` and `/search-results/next` no longer emit a span on an empty (204) poll. Both endpoints are polled roughly once a second per bot pod even while idle, and with no active span on the client to attach to, every empty poll was landing in Tempo as its own single-span root trace — 2 spans/s between them, 22% of all trace volume, none of it attached to a real request. The span is now opened only once a result is actually being handed back, matching what `BrokerClient.next_result` has always done on the client side. Hit/empty accounting is unchanged.
+
 ## [2.5.97] - 2026-08-23
 
 ### Changed
