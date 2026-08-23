@@ -15,18 +15,47 @@ RUN apt-get update && \
 
 ENV APPDIR="/opt/packages/discord-bot"
 
-COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY alembic/ "${APPDIR}/alembic/"
-COPY alembic.ini pyproject.toml VERSION "${APPDIR}/"
-
-# Install into a relocatable prefix the final stage copies into /usr/local.
-RUN pip install --no-cache-dir --prefix=/install "${APPDIR}[bot]"
-
 # Deno (yt-dlp runtime dependency). The installer ignores env overrides piped
 # into `sh` and always lands in $HOME/.deno (here /root/.deno), so relocate it
 # explicitly to a fixed path the final stage copies out.
 # https://github.com/yt-dlp/yt-dlp/issues/14404
+# Kept ABOVE every source COPY: it depends on nothing in this repo, so anything
+# below a COPY would re-fetch it on each code change.
 RUN curl -fsSL https://deno.land/install.sh | sh && mv /root/.deno /opt/deno
+
+# ---- dependency layer: keyed on pyproject.toml alone ----
+# Installs the third-party dependency set (the expensive, network-bound step)
+# against a STUB package, so this layer is invalidated by a dependency change
+# and nothing else.
+#
+# The stub is what keeps VERSION out of this layer.  setuptools resolves the
+# version via `[tool.setuptools.dynamic] version = {file = "VERSION"}` and will
+# not build without it, but VERSION is bumped by *every* MR (the changelog.d
+# workflow), so copying the real one here would bust the dep install on every
+# change and defeat the split entirely.  A placeholder satisfies the build; the
+# real version is installed by the source layer below.
+COPY pyproject.toml "${APPDIR}/"
+RUN mkdir -p "${APPDIR}/discord_bot" && \
+    : > "${APPDIR}/discord_bot/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/VERSION" && \
+    pip install --no-cache-dir --prefix=/install "${APPDIR}[bot]" && \
+    rm -rf /install/lib/python*/site-packages/discord_bot \
+           /install/lib/python*/site-packages/discord_bot-0.0.0.dist-info
+
+# ---- source layer: the actual package ----
+# --no-deps because the layer above already resolved and installed every
+# third-party requirement; this installs our package only.
+#
+# The stub install is torn down in the layer above rather than overwritten
+# here: pip cannot reliably uninstall from a `--prefix` tree, so leaving it in
+# place produced BOTH a discord_bot-0.0.0.dist-info and the real
+# discord_bot-<VERSION>.dist-info, and `importlib.metadata.version()` resolved
+# to the 0.0.0 one. Nothing reads the version at runtime today, but the image
+# would have reported the wrong one.
+COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY alembic/ "${APPDIR}/alembic/"
+COPY alembic.ini VERSION "${APPDIR}/"
+RUN pip install --no-cache-dir --no-deps --prefix=/install "${APPDIR}[bot]"
 
 
 # ---------- final: runtime only ----------
