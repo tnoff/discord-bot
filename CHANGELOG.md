@@ -5,6 +5,14 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.95] - 2026-08-23
+
+### Changed
+
+- ### Changed
+- **The bot image installs dependencies before copying source, so a code change no longer rebuilds them.** `docker/Dockerfile` copied `discord_bot/` above `pip install "${APPDIR}[bot]"`, so every source edit invalidated the dependency install *and* the Deno fetch below it. Measured across 44 successful `pr-check:build-bot` runs (2026-08-15→22) the job was sharply bimodal: 6 runs at 60–80s (identical-source rebuild, full cache hit) against 34 runs at 450–880s, median 496s — the S3 layer cache only paid on rebuilds of unchanged source. The dependency set now installs against a stub package keyed on `pyproject.toml` alone, and the real package installs `--no-deps` in a layer below the source copy; the Deno install moves above every `COPY`, since it depends on nothing in this repo. Locally, a source change plus a `VERSION` bump goes from 39.4s (dependency install and Deno both re-running) to 13.7s with both `CACHED`, against a ~44s cold build in each case.
+- `VERSION` is deliberately kept out of the dependency layer. setuptools resolves the version from it via `[tool.setuptools.dynamic]`, but the changelog workflow bumps it on every MR, so copying the real file into that layer would bust the dependency install on every change and defeat the split. The layer writes a `0.0.0` placeholder and tears the stub back out, leaving `/install` holding only third-party dependencies; the source layer installs the real version. The teardown matters: pip cannot reliably uninstall from a `--prefix` tree, and leaving the stub in place produced both a `discord_bot-0.0.0.dist-info` and the real one, with `importlib.metadata.version()` resolving to `0.0.0`. Nothing reads the version at runtime today, but the image reported the wrong one.
+
 ## [2.5.94] - 2026-08-22
 
 ### Changed
