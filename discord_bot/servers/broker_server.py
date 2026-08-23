@@ -209,15 +209,33 @@ class BrokerHttpServer(AiohttpServerBase):
         return web.json_response({'status': 'ok'})
 
     async def _handle_next_result(self, request: web.Request) -> web.Response:
-        '''GET /results/next — pop the next bot-ready DownloadResult, or 204.'''
-        ctx = extract(request.headers)
-        with otel_span_wrapper('broker.next_result', context=ctx, kind=SpanKind.SERVER):
-            result = await self._result_queue.get_nowait()
+        '''GET /results/next — pop the next bot-ready DownloadResult, or 204.
+
+        The empty (204) path intentionally mints NO span, mirroring the client
+        half in BrokerClient.next_result, which has skipped it since it was
+        written. This endpoint is polled ~1/second even while idle, and because
+        an empty poll leaves no active span on the client there is no context to
+        attach to — every one landed in Tempo as its own single-span root trace.
+        Measured 2026-08-22: 0.99 spans/s here, the same again on
+        /search-results/next, together 22% of everything reaching Tempo and none
+        of it attached to a real request.
+
+        This has to be fixed here rather than at the collector: SERVER spans are
+        exempt from filter/drop-ok-high-volume-spans by design (dropping the OK
+        half of a SERVER span leaves trace-error-rate-server dividing errors by
+        errors), so nothing downstream will take these.
+
+        Hit/empty accounting is unchanged — _RESULT_FETCH_COUNTER records both
+        outcomes and is what the queue-depth panels read.
+        '''
+        result = await self._result_queue.get_nowait()
         if result is None:
             _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
             return web.Response(status=204)
         _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
-        return web.json_response(result.model_dump(mode='json'))
+        with otel_span_wrapper('broker.next_result', context=extract(request.headers),
+                               kind=SpanKind.SERVER):
+            return web.json_response(result.model_dump(mode='json'))
 
     async def _handle_register_search_result(self, request: web.Request) -> web.Response:
         '''POST /search-results — push a resolved search onto the bot-ready queue.'''
@@ -231,15 +249,19 @@ class BrokerHttpServer(AiohttpServerBase):
         return web.json_response({'status': 'ok'}, status=202)
 
     async def _handle_next_search_result(self, request: web.Request) -> web.Response:
-        '''GET /search-results/next — pop the next bot-ready SearchResolution, or 204.'''
-        ctx = extract(request.headers)
-        with otel_span_wrapper('broker.next_search_result', context=ctx, kind=SpanKind.SERVER):
-            resolution = await self._search_result_queue.get_nowait()
+        '''GET /search-results/next — pop the next bot-ready SearchResolution, or 204.
+
+        Empty polls mint no span, for the reasons spelled out on
+        _handle_next_result above.
+        '''
+        resolution = await self._search_result_queue.get_nowait()
         if resolution is None:
             _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
             return web.Response(status=204)
         _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
-        return web.json_response(resolution.model_dump(mode='json'))
+        with otel_span_wrapper('broker.next_search_result', context=extract(request.headers),
+                               kind=SpanKind.SERVER):
+            return web.json_response(resolution.model_dump(mode='json'))
 
     async def _handle_checkout(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)

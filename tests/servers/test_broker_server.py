@@ -9,6 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
@@ -28,6 +31,20 @@ def _make_request():
 
 def _make_server(broker: MediaBroker) -> BrokerHttpServer:
     return BrokerHttpServer(broker)
+
+
+def _span_exporter(mocker) -> InMemorySpanExporter:
+    """Swap in a recording tracer so emitted spans survive to an assertion.
+
+    The suite runs with no global tracer provider, so spans are non-recording
+    and never reach an exporter at all (see tests/utils/test_otel.py). Without
+    this, the "no span on an empty poll" assertions below would pass vacuously.
+    """
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    return exporter
 
 
 class TestQueueItemProxy:
@@ -84,6 +101,32 @@ class TestNextResultCounter:
             assert resp.status == 200
         counter.add.assert_called_once_with(1, {'outcome': 'hit'})
 
+    async def test_empty_poll_emits_no_span(self, mocker):
+        '''An empty poll mints no span at all — it is polled ~1/s while idle.'''
+        exporter = _span_exporter(mocker)
+        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=None)
+        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/results/next')
+            assert resp.status == 204
+        assert [span.name for span in exporter.get_finished_spans()] == []
+
+    async def test_hit_emits_the_span(self, mocker):
+        '''A poll that hands back a result still gets its broker.next_result span.'''
+        exporter = _span_exporter(mocker)
+        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        result = MagicMock()
+        result.model_dump.return_value = {'ok': True}
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=result)
+        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/results/next')
+            assert resp.status == 200
+        assert [span.name for span in exporter.get_finished_spans()] == ['broker.next_result']
+
 
 @pytest.mark.asyncio
 class TestNextSearchResultCounter:
@@ -110,6 +153,32 @@ class TestNextSearchResultCounter:
             resp = await client.get('/search-results/next')
             assert resp.status == 200
         counter.add.assert_called_once_with(1, {'outcome': 'hit'})
+
+    async def test_empty_poll_emits_no_span(self, mocker):
+        '''Same as /results/next — an empty search poll mints no span.'''
+        exporter = _span_exporter(mocker)
+        mocker.patch('discord_bot.servers.broker_server._SEARCH_RESULT_FETCH_COUNTER')
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=None)
+        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/search-results/next')
+            assert resp.status == 204
+        assert [span.name for span in exporter.get_finished_spans()] == []
+
+    async def test_hit_emits_the_span(self, mocker):
+        '''A search poll that hands back a resolution still gets its span.'''
+        exporter = _span_exporter(mocker)
+        mocker.patch('discord_bot.servers.broker_server._SEARCH_RESULT_FETCH_COUNTER')
+        resolution = MagicMock()
+        resolution.model_dump.return_value = {'ok': True}
+        queue = MagicMock()
+        queue.get_nowait = AsyncMock(return_value=resolution)
+        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.get('/search-results/next')
+            assert resp.status == 200
+        assert [span.name for span in exporter.get_finished_spans()] == ['broker.next_search_result']
 
 
 @pytest.mark.asyncio
