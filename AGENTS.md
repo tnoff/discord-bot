@@ -11,7 +11,7 @@ internals, etc.
 
 | Topic | Location |
 |-------|----------|
-| Bot entry-point (gateway + cogs, no in-process dispatcher) | `discord_bot/cli/bot.py` (registered as `discord-bot`, and as the deprecated alias `discord-bot-min`) |
+| Bot entry-point (gateway + cogs, no in-process dispatcher) | `discord_bot/cli/bot.py` (registered as `discord-bot`) |
 | Dispatcher-only entry-point | `discord_bot/cli/dispatcher.py` (registered as `discord-dispatcher`) |
 | `POSSIBLE_COGS` registry | `discord_bot/cli/_lib/cog_registry.py` |
 | `CogHelperBase` + dispatch helpers | `discord_bot/cogs/common.py` (see `docs/common.md`) |

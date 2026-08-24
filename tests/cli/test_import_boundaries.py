@@ -27,6 +27,8 @@ an honest gap.
 '''
 import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
 import sys
+import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -165,15 +167,22 @@ def test_every_published_image_has_a_boundary():
 
     Without this, adding a sixth image silently gets no boundary at all — the
     failure mode being guarded against is an image nobody thought to guard.
-    Every published script is now covered: ``discord-bot`` is cli.bot, since
-    projects/discord-bot-ha-only retired the single-process entrypoint that used
-    to own that name.
+
+    The published set is read from pyproject rather than restated here. It used
+    to be a hardcoded literal, which meant it agreed with ``[project.scripts]``
+    only for as long as someone kept both in step by hand — and a stale copy
+    passes just as green as a correct one. Dropping the ``discord-bot-min``
+    alias is exactly the event this test claims to notice, and the literal
+    version would not have.
     '''
+    pyproject = tomllib.loads(
+        (Path(__file__).resolve().parents[2] / 'pyproject.toml').read_text(encoding='utf-8')
+    )
+    published = {target.split(':', 1)[0]
+                 for target in pyproject['project']['scripts'].values()}
     covered = {p.values[0] for p in IMAGE_BOUNDARIES}
-    assert covered == {
-        'discord_bot.cli.bot',
-        'discord_bot.cli.dispatcher',
-        'discord_bot.cli.broker',
-        'discord_bot.cli.downloader',
-        'discord_bot.cli.search',
-    }
+    assert covered == published, (
+        f'console scripts and image boundaries disagree: '
+        f'{published ^ covered}. Every published script ships as an image, so '
+        f'every one needs a boundary above.'
+    )

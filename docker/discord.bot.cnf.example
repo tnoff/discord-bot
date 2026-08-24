@@ -1,5 +1,5 @@
 # HA bot config — for docker/docker-compose.multiprocess.yml (bot service).
-# Entrypoint: discord-bot-min (cli.bot). Cogs run here; all Discord REST
+# Entrypoint: discord-bot (cli.bot). Cogs run here; all Discord REST
 # calls are forwarded to the dispatcher pod over HTTP.
 #
 # Secrets resolve from env vars via pyaml_env. Set them in docker/.env

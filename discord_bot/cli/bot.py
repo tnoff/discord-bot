@@ -3,10 +3,10 @@ The bot process — gateway connection, all cogs, SQLAlchemy DB.
 
 The only bot entrypoint: a separate discord-dispatcher worker handles message
 queuing, so dispatch_http_url is required and cogs route via HttpDispatchClient.
-Registered as discord-bot (and, until the deployed manifests stop asking for it,
-also as discord-bot-min).  The single-process entrypoint that ran the gateway,
-the cogs and the dispatcher in one process was retired — see
-projects/discord-bot-ha-only in the docs repo.
+Registered as discord-bot.  The single-process entrypoint that ran the gateway,
+the cogs and the dispatcher in one process was retired, and the transitional
+discord-bot-min alias was dropped once the deployed manifests stopped naming it
+— see projects/discord-bot-ha-only in the docs repo.
 '''
 import logging
 
