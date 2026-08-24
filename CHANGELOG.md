@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.99] - 2026-08-24
+
+### Changed
+
+- The broker, downloader and search pods no longer import `discord.py`. Four routes reached them, all through modules every entrypoint loads: `utils/otel` imported `Context` at module scope for a runtime `isinstance` in `command_wrapper`; `utils/common` and `cli/_lib/common` named `Bot` in annotations; and `utils/discord_retry` held both the discord-message retry helper and the transport-level ones that every HTTP client uses. `command_wrapper` moved to `utils/otel_command`, `build_bot` to `cli/_lib/gateway`, the annotations moved under `TYPE_CHECKING`, and the discord-free retries moved to `utils/retry` (re-exported from their old home). Measured on the entrypoints: `discord` is gone from all three worker pods. The dispatcher keeps it deliberately — it sends and edits real messages. The per-image import boundaries now assert this, so it cannot regress.
+
 ## [2.5.98] - 2026-08-23
 
 ### Changed
