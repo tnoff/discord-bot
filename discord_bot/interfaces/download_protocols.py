@@ -45,8 +45,8 @@ from discord_bot.types.clear_guild_result import ClearGuildResult
 
 # DownloadClient and RETRY_BACKOFF_SECONDS_MINIMUM moved to
 # interfaces/download_client_protocol so that annotating a download handle does
-# not import this module's engine deps (yt_dlp, moviepy via utils/audio, boto3
-# via integrations/s3). Re-exported here so existing imports keep working —
+# not import this module's engine deps (yt_dlp, boto3 via integrations/s3).
+# Re-exported here so existing imports keep working —
 # same move, same reason, as BrokerClient before them.
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult']
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError

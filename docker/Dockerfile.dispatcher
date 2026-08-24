@@ -33,7 +33,10 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
 
 # No git needed: the dispatcher installs base deps only (no `[bot]`), and the
 # base dependency set has no `git+https` VCS dep (that's `[bot]`'s dappertable).
-RUN pip install "${APPDIR}"
+# Installs [dispatcher] -- the core set plus discord.py. It used to install no
+# extra at all, so "base deps only" was a habit rather than a declaration; now
+# the image names what it needs, like the other four.
+RUN pip install "${APPDIR}[dispatcher]"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user

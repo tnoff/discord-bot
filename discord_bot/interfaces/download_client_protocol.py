@@ -3,8 +3,8 @@ The cog-facing DownloadClient Protocol, on its own.
 
 Split out of interfaces/download_protocols.py so that annotating a download
 handle does not import the download ENGINE.  download_protocols pulls yt_dlp,
-moviepy (via utils/audio), boto3 (via integrations/s3) and the whole worker
-machinery — none of which a process that only SUBMITS downloads has any use for.
+boto3 (via integrations/s3) and the whole worker machinery — none of which a
+process that only SUBMITS downloads has any use for.
 The bot is exactly that process since the download dual path was collapsed
 (projects/discord-bot-ha-only).
 

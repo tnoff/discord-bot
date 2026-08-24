@@ -26,8 +26,9 @@ RUN groupadd -g 1000 discord && \
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY pyproject.toml VERSION "${APPDIR}/"
 
-# Single layer: install build + runtime apt packages, pip install the [bot]
-# extra (no git — dappertable is a release-tarball URL), install deno, then purge
+# Single layer: install build + runtime apt packages, pip install the
+# [downloader] extra (yt-dlp + boto3; no git, and no dappertable/SQLAlchemy/
+# search clients — it used to install [bot] and carry all of them), deno, then purge
 # build-only packages plus the mesa/LLVM stack
 # that ffmpeg pulls in transitively through libGL's lazy GLX provider chain
 # (libGL -> libglx-mesa0 -> libgl1-mesa-dri -> libllvm15).  Audio-only ffmpeg
@@ -40,7 +41,7 @@ RUN apt-get update && \
     if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
       apt-get install -y --no-install-recommends heaptrack; \
     fi && \
-    pip install --no-cache-dir "${APPDIR}[bot]" && \
+    pip install --no-cache-dir "${APPDIR}[downloader]" && \
     curl -fsSL https://deno.land/install.sh \
       | DENO_INSTALL="${DENO_INSTALL_ROOT}" sh && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \

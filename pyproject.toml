@@ -10,11 +10,22 @@ authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
 requires-python = ">=3.11"
+# THE CORE SET. Not an extra, and it cannot be one: an extra is optional by
+# definition, and pip has no name for "always installed" other than this list.
+# Everything here is imported by all five entrypoints — the aiohttp/redis
+# transport, the pydantic config models, the OTel stack and the CLI plumbing.
+#
+# discord.py is deliberately NOT here any more. It sat in the core set because
+# utils/otel imported Context at module scope for a runtime isinstance, so every
+# image pulled it; discord-bot!248 closed that and the three worker images
+# stopped importing it. It is now paid for by [gateway], i.e. by the two images
+# that actually talk to Discord.
+#
+# Adding something here puts it on all five images. Prefer a capability group.
 dependencies = [
     "aiohttp>=3.9",
     "redis==8.1.0",
     "async-timeout==5.0.1",
-    "discord.py==2.7.1",
     "pydantic==2.13.4",
     "pydantic-yaml==1.7.0",
     "opentelemetry-sdk==1.44.0",
@@ -32,41 +43,119 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-bot = [
-    "dappertable @ https://gitlab.com/tnoff-projects/dappertable/-/archive/v1.0.0/dappertable-v1.0.0.tar.gz",
-    "alembic==1.19.1",
-    "beautifulsoup4==4.15.0",
-    "boto3==1.43.72",
-    "google-api-python-client==2.198.0",
-    "moviepy==2.2.1",
-    "davey==0.1.6",
+# ---------------------------------------------------------------------------
+# CAPABILITY GROUPS — what a thing can DO. One pin per package, here and nowhere
+# else.
+#
+# The per-image extras below are built from these by self-reference rather than
+# by listing packages again. That is deliberate: the first cut of this split
+# repeated the pins in each image extra, and within a single renovate bump the
+# copies had already drifted — [bot] moved to yt-dlp 2026.8.19 while the
+# downloader, the image that actually runs yt-dlp, was left pinned to 2026.7.4.
+# Two lists describing one fact stay correct only while somebody keeps them in
+# step, which is the same failure this project already found in the console-script
+# list, the per-image forbidden tuples and the dashboard panel scoping.
+#
+# Add a package to exactly one group. If two images need it, they compose the
+# same group; they do not each name the package.
+#
+# Group names are HYPHENATED, not underscored, and that is load-bearing. PEP 685
+# normalises extra names, so an extra declared as search_providers is published
+# in the metadata as search-providers -- and a self-reference written with the
+# underscore then resolves to nothing, SILENTLY. It installs no packages and
+# raises no error. That is exactly how ytmusicapi and the search providers went
+# missing from the tox environment while every hyphen-free group resolved fine.
+# ---------------------------------------------------------------------------
+gateway = [
+    # Talking to Discord at all. Only the bot and the dispatcher do.
+    "discord.py==2.7.1",
+]
+voice = [
+    # Playing audio into a voice channel. The gateway needs this; the dispatcher
+    # does NOT, which is why it is separate from [gateway] rather than folded in.
+    # Neither package has an import site — discord.py loads them itself, and says
+    # so on startup when they are missing ("PyNaCl is not installed, voice will
+    # NOT be supported"), which is the log line the dispatcher has always carried.
+    "discord_bot[gateway]",
     "PyNaCl==1.6.2",
+    "davey==0.1.6",
+]
+database = [
+    # The postgres schema: markov, playlists, the video cache.
     "SQLAlchemy==2.0.52",
-    "spotipy==2.26.0",
+    # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
+    # builds ("postgresql+asyncpg"); absent, nothing can open the database.
+    "asyncpg==0.31.0",
+    # No import site. The migration CLI. Every image that COPYs alembic/ and
+    # alembic.ini needs it to be able to run `alembic upgrade head`.
+    "alembic==1.19.1",
+]
+storage = [
+    # S3 object storage for finished media.
+    "boto3==1.43.72",
+]
+rendering = [
+    # Table/bundle rendering for what gets posted back to Discord.
+    "dappertable @ https://gitlab.com/tnoff-projects/dappertable/-/archive/v1.0.0/dappertable-v1.0.0.tar.gz",
+]
+downloading = [
+    # yt-dlp and its JS runtime helper. The downloader pod only.
     "yt-dlp==2026.8.19",
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
-    "asyncpg==0.31.0",
 ]
-# Slim extra for the standalone search pod (cli/search.py, Dockerfile.search):
-# the search tier is thin HTTP clients only — no yt-dlp/ffmpeg/deno, no boto3, no
-# sqlalchemy — so the image installs this instead of [bot].
-#
-# ytmusicapi lives HERE ONLY, as of the dual-path collapse. It used to be in both
-# extras, because the cog built a real YoutubeMusicClient whenever
-# music.youtube_music_search_client was absent — single-process, local dev, and
-# the whole test suite — so [bot] had to be able to run the search worker even
-# though the HA bot never imported it. That fallback is gone: the cog is a client
-# only, so the bot image no longer needs the package installed either. This is the
-# drop discord-bot!209 tried to make and could not (projects/discord-bot-ha-only).
-#
-# The test suite still exercises the worker and the integration wrapper directly,
-# so tox installs bot,search,test rather than bot,test.
-#
-# media_search's spotipy + google-api-python-client join this extra when those
-# providers fold into the pod.
-search = [
+search-providers = [
+    # Metadata providers the cog expands sources with.
+    "spotipy==2.26.0",
+    "google-api-python-client==2.198.0",
+    "beautifulsoup4==4.15.0",
+]
+youtube-music = [
+    # The search pod's only tier-defining dependency.
+    #
+    # It lives HERE ONLY, as of the dual-path collapse. It used to be in the bot
+    # set too, because the cog built a real YoutubeMusicClient whenever
+    # music.youtube_music_search_client was absent — single-process, local dev and
+    # the whole test suite — so the bot image had to be able to run the search
+    # worker even though the HA bot never imported it. That fallback is gone: the
+    # cog is a client only. This is the drop discord-bot!209 tried to make and
+    # could not (projects/discord-bot-ha-only).
     "ytmusicapi==1.12.2",
+]
+
+# ---------------------------------------------------------------------------
+# PER-IMAGE EXTRAS — what each deployed image installs. Exactly one per image,
+# named after the image, composed from the capability groups above.
+#
+# These are derived from each entrypoint's MEASURED import set, not from reading
+# the code, and docs/image-dependencies.md is generated from the same
+# measurement. tests/cli/test_import_boundaries.py asserts the two agree in both
+# directions: a package an image imports but does not install is an ImportError
+# at pod start, and a package it installs but no longer imports is dead weight.
+# ---------------------------------------------------------------------------
+bot = [
+    "discord_bot[gateway,voice,database,storage,rendering,search-providers]",
+]
+dispatcher = [
+    # The strictest image: the core set plus discord.py and nothing else. It sends
+    # and edits real messages (workers/message_dispatcher imports Message, Bot and
+    # NotFound), which is why it is the one non-gateway image that genuinely needs
+    # discord.py. It ran on the core dependencies alone until now, so its boundary
+    # was discipline; naming an extra makes it a declaration.
+    "discord_bot[gateway]",
+]
+broker = [
+    # Owns the video cache and the S3 checkout, and renders bundles.
+    "discord_bot[database,storage,rendering]",
+]
+downloader = [
+    # Downloads media and uploads the result. No database, no rendering, no
+    # search — it used to install the bot's whole set and carry all three.
+    "discord_bot[downloading,storage]",
+]
+search = [
+    # Thin HTTP clients. search_providers joins when media_search folds in.
+    "discord_bot[youtube-music]",
 ]
 test = [
     "bandit==1.9.4",

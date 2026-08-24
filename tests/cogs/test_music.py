@@ -1676,7 +1676,7 @@ def test_cog_builds_no_in_process_download_stack(fake_context):  #pylint:disable
 
     Same contract as the search tier, and the same reason for checking the module
     and not just the instance: re-importing AsyncioDownloadWorker here would put
-    yt_dlp and moviepy back on the bot image, which
+    yt_dlp back on the bot image, which
     tests/cli/test_import_boundaries.py would then fail — but only if someone runs
     it, whereas this fails on the construction itself.
     """

@@ -1,13 +1,13 @@
 '''
 Per-image import boundaries — what each published image is allowed to import.
 
-Each entry below is a contract: importing that image's entrypoint must not pull
-the listed packages into ``sys.modules``. The check is the enforcement mechanism
-for the per-image dependency split (projects/discord-bot-ha-only) — a folder
-layout cannot prevent ``from discord_bot.utils.integrations.youtube_music import
-...``, but this can, and this is what caught the ytmusicapi leak during the
-search-pod work before it could CrashLoop a pod
-(see reference_slim_pod_import_chain_leak).
+Each entry in ``IMAGE_IMPORTS`` (tests/cli/_image_deps.py) is a contract: importing
+that image's entrypoint must pull EXACTLY those tier-defining packages into
+``sys.modules``. The check is the enforcement mechanism for the per-image
+dependency split (projects/discord-bot-ha-only) — a folder layout cannot prevent
+``from discord_bot.utils.integrations.youtube_music import ...``, but this can,
+and this is what caught the ytmusicapi leak during the search-pod work before it
+could CrashLoop a pod (see reference_slim_pod_import_chain_leak).
 
 Two things make these tests worth their weight:
 
@@ -17,115 +17,102 @@ Two things make these tests worth their weight:
 - **They are the discovery tool for the extras split.** The gap between what an
   image *imports* and what its extra *installs* is what the split acts on.
 
-Each runs in a subprocess: the rest of the suite has already imported the cog, so
-with the module cache pre-poisoned nothing here would be observable in-process.
+The assertion is EQUALITY, not absence, and that is deliberate. A forbidden-list
+catches a leak — a package arriving where it should not be. It cannot catch the
+opposite, an extra that has gone over-broad because the code that needed it was
+deleted. That failure is silent, it costs image size rather than uptime, and it
+is exactly how yt_dlp stayed in [bot] after the download dual path was collapsed
+and how moviepy stayed installed while nothing imported it at all. Declaring what
+each image DOES import catches both directions from one list.
 
-The lists are deliberately what is TRUE TODAY, not the eventual goal. Where an
-image still imports something it arguably should not, that is recorded as a
-comment rather than a skipped assertion — a guard that does not run is worse than
-an honest gap.
+There is deliberately no separate "forbidden packages" test. Equality already
+implies it: if what an image imports equals what it declares, it cannot have
+imported anything in ``VOCABULARY`` that it did not declare. A second test
+asserting that would be tautological, and a tautological test is worse than no
+test — it reads as coverage while checking nothing.
 '''
-import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
-import sys
-import tomllib
-from pathlib import Path
+import os
+import re
 
 import pytest
 
-# Packages no image should import unless it genuinely uses them. Kept as one
-# vocabulary so a new image starts from "forbid everything" and opts in.
-YT_DLP = 'yt_dlp'
-MOVIEPY = 'moviepy'
-YTMUSICAPI = 'ytmusicapi'
-SPOTIPY = 'spotipy'
-GOOGLEAPI = 'googleapiclient'
-SQLALCHEMY = 'sqlalchemy'
-BOTO3 = 'boto3'
-BS4 = 'bs4'
-DAPPERTABLE = 'dappertable'
-DISCORD = 'discord'
-
-SEARCH_CLIENTS = (YTMUSICAPI, SPOTIPY, GOOGLEAPI)
-MEDIA = (YT_DLP, MOVIEPY)
-
-IMAGE_BOUNDARIES = [
-    pytest.param(
-        'discord_bot.cli.bot',
-        (YTMUSICAPI,) + MEDIA,
-        # yt_dlp and moviepy joined the list when the download dual path was
-        # collapsed: the cog no longer builds an in-process worker, and the
-        # DownloadClient Protocol + HttpDownloadClient moved to modules that do
-        # not import the engine. spotipy, googleapiclient and bs4 are still here
-        # — the cog builds the SearchClient source-expansion member at module
-        # scope, and that is media_search's to move.
-        #
-        # The broker collapse added nothing to this list, and that is the answer
-        # to the open question in projects/discord-bot-ha-only: the bot keeps
-        # boto3 and sqlalchemy on their own merits, not the broker's. boto3
-        # reaches it through music_player's integrations.s3 get_file — under HA
-        # the broker's checkout returns an s3_key and the BOT fetches the file
-        # before playback — and sqlalchemy through delete_messages, markov and
-        # the playlist tables. What the collapse did drop is three heavy modules:
-        # workers/asyncio_broker, servers/broker_server and clients/broker_client
-        # are no longer imported by the bot process at all.
-        id='bot',
-    ),
-    pytest.param(
-        'discord_bot.cli.dispatcher',
-        (SQLALCHEMY, BOTO3, BS4, DAPPERTABLE) + MEDIA + SEARCH_CLIENTS,
-        # The strictest image: it installs no extras at all, only the base
-        # dependencies. That has been true by discipline; this makes it a contract.
-        #
-        # discord is NOT forbidden here, and that is deliberate: unlike the
-        # broker, downloader and search pods, the dispatcher sends and edits real
-        # messages (workers/message_dispatcher imports Message, Bot and NotFound).
-        # It is the one non-gateway image that genuinely needs discord.py, which
-        # is why its startup log has always carried the PyNaCl/davey warnings.
-        id='dispatcher',
-    ),
-    pytest.param(
-        'discord_bot.cli.broker',
-        (BS4, DISCORD) + MEDIA + SEARCH_CLIENTS,
-        # Keeps sqlalchemy + boto3: it owns the video cache and S3 checkout.
-        # discord joined the list when command_wrapper moved to
-        # utils/otel_command — utils/otel used to import Context at module scope
-        # for a runtime isinstance, which put discord.py in every image.
-        id='broker',
-    ),
-    pytest.param(
-        'discord_bot.cli.downloader',
-        (SQLALCHEMY, BS4, DAPPERTABLE, MOVIEPY, DISCORD) + SEARCH_CLIENTS,
-        # Keeps yt_dlp (it downloads) and boto3 (it uploads finished media).
-        # sqlalchemy was reaching it until this change, twice over — see the
-        # module docstring on interfaces/broker_client_protocol.
-        id='downloader',
-    ),
-    pytest.param(
-        'discord_bot.cli.search',
-        (SQLALCHEMY, BOTO3, BS4, DAPPERTABLE, SPOTIPY, GOOGLEAPI, DISCORD) + MEDIA,
-        # Keeps ytmusicapi. spotipy + googleapiclient move OUT of this list when
-        # media_search folds its providers into this pod.
-        id='search',
-    ),
-]
+from tests.cli._image_deps import (
+    IMAGE_IMPORTS, OWNERSHIP_DOC, REPO_ROOT, VOCABULARY, measure, render_table,
+)
 
 
-@pytest.mark.parametrize('entrypoint,forbidden', IMAGE_BOUNDARIES)
-def test_image_import_boundary(entrypoint, forbidden):
-    '''Importing an image entrypoint must not pull its forbidden packages.'''
-    probe = (
-        f'import importlib, sys; importlib.import_module({entrypoint!r}); '
-        f'print(",".join(sorted(m for m in {list(forbidden)!r} if m in sys.modules)))'
-    )
-    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
-                            capture_output=True, text=True, check=True)
-    leaked = [m for m in result.stdout.strip().split(',') if m]
+@pytest.mark.parametrize('entrypoint', sorted(IMAGE_IMPORTS))
+def test_image_imports_exactly_its_declared_packages(entrypoint):
+    '''An image imports its declared packages — no more, and no fewer.'''
+    declared = IMAGE_IMPORTS[entrypoint]
+    imported = set(measure(entrypoint)['packages'])
+    leaked = imported - declared
+    unused = declared - imported
     assert not leaked, (
-        f'{entrypoint} imported {leaked}, which its image does not install. '
-        f'On a slim image this is an ImportError at pod start, not a test failure. '
-        f'Find the chain with: python -c "import {entrypoint}" under a tracing '
-        f'__import__ hook, then split the light type out of the heavy module — '
-        f'the same move as CheckoutResult, ClearGuildResult and BrokerClient.'
+        f'{entrypoint} imported {sorted(leaked)}, which it does not declare and its '
+        f'image may not install. On a slim image this is an ImportError at pod start, '
+        f'not a test failure. Find the chain with: python -c "import {entrypoint}" '
+        f'under a tracing __import__ hook, then split the light type out of the heavy '
+        f'module — the same move as CheckoutResult, ClearGuildResult and BrokerClient.'
+    )
+    assert not unused, (
+        f'{entrypoint} no longer imports {sorted(unused)}, which it still declares. '
+        f'Nothing is broken, but its extra in pyproject is now shipping a package '
+        f'nothing reaches — drop it from both, the way yt_dlp and moviepy should have '
+        f'been dropped when the code that used them went away.'
+    )
+
+
+def test_vocabulary_covers_every_declaration():
+    '''Nothing is declared that the vocabulary does not know about.'''
+    declared = set().union(*IMAGE_IMPORTS.values())
+    unknown = declared - set(VOCABULARY)
+    assert not unknown, (
+        f'{sorted(unknown)} declared but missing from VOCABULARY, so the derived '
+        f'forbidden set would silently ignore them on every other image.'
+    )
+
+
+def test_extra_names_are_normalised_and_self_references_resolve():
+    '''
+    Every extra name is PEP 685 normalised, and every self-reference names a real one.
+
+    This is a silence guard, not a style check. PEP 685 normalises extra names, so
+    an extra declared as ``search_providers`` is published in the metadata as
+    ``search-providers``. A self-reference written with the underscore then
+    resolves to NOTHING — it installs no packages, and raises no error.
+
+    That is not hypothetical: ``[bot]`` and ``[search]`` composed
+    ``search_providers`` and ``youtube_music``, and the tox environment came up
+    with no spotipy, no google-api-python-client, no beautifulsoup4 and no
+    ytmusicapi while every hyphen-free group resolved correctly. The suite failed
+    at collection, several layers away from the cause.
+    '''
+    import tomllib  # pylint: disable=import-outside-toplevel
+    pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
+    extras = pyproject['project']['optional-dependencies']
+
+    unnormalised = sorted(name for name in extras
+                          if name != re.sub(r'[-_.]+', '-', name).lower())
+    assert not unnormalised, (
+        f'extras {unnormalised} are not PEP 685 normalised. Publishing normalises '
+        f'them anyway, so any self-reference using this spelling silently resolves '
+        f'to nothing. Rename them with hyphens.'
+    )
+
+    dangling = []
+    for name, specs in extras.items():
+        for spec in specs:
+            match = re.match(r'^discord_bot\[([^\]]+)\]$', spec.strip())
+            if not match:
+                continue
+            for referenced in match.group(1).split(','):
+                if referenced.strip() not in extras:
+                    dangling.append(f'[{name}] -> [{referenced.strip()}]')
+    assert not dangling, (
+        f'self-references naming extras that do not exist: {dangling}. These install '
+        f'nothing and fail silently — the package only goes missing wherever that '
+        f'extra was the sole route to it.'
     )
 
 
@@ -146,13 +133,8 @@ BOT_FORBIDDEN_MODULES = (
 
 def test_bot_imports_no_in_process_tier_modules():
     '''The bot process imports none of the in-process engine modules.'''
-    probe = (
-        'import importlib, sys; importlib.import_module("discord_bot.cli.bot"); '
-        f'print(",".join(sorted(m for m in {list(BOT_FORBIDDEN_MODULES)!r} if m in sys.modules)))'
-    )
-    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
-                            capture_output=True, text=True, check=True)
-    leaked = [m for m in result.stdout.strip().split(',') if m]
+    imported = set(measure('discord_bot.cli.bot')['modules'])
+    leaked = sorted(imported & set(BOT_FORBIDDEN_MODULES))
     assert not leaked, (
         f'the bot process imported {leaked} — these are test doubles, not deployable '
         f'code. Something re-introduced an in-process tier, or annotated against an '
@@ -171,18 +153,31 @@ def test_every_published_image_has_a_boundary():
     The published set is read from pyproject rather than restated here. It used
     to be a hardcoded literal, which meant it agreed with ``[project.scripts]``
     only for as long as someone kept both in step by hand — and a stale copy
-    passes just as green as a correct one. Dropping the ``discord-bot-min``
-    alias is exactly the event this test claims to notice, and the literal
-    version would not have.
+    passes just as green as a correct one.
     '''
-    pyproject = tomllib.loads(
-        (Path(__file__).resolve().parents[2] / 'pyproject.toml').read_text(encoding='utf-8')
-    )
+    import tomllib  # pylint: disable=import-outside-toplevel
+    pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
     published = {target.split(':', 1)[0]
                  for target in pyproject['project']['scripts'].values()}
-    covered = {p.values[0] for p in IMAGE_BOUNDARIES}
-    assert covered == published, (
+    assert set(IMAGE_IMPORTS) == published, (
         f'console scripts and image boundaries disagree: '
-        f'{published ^ covered}. Every published script ships as an image, so '
-        f'every one needs a boundary above.'
+        f'{published ^ set(IMAGE_IMPORTS)}. Every published script ships as an image, '
+        f'so every one needs a boundary above.'
+    )
+
+
+def test_ownership_doc_is_current():
+    '''
+    docs/image-dependencies.md matches a live measurement.
+
+    The doc is the human-readable answer to "what is used strictly by what". It is
+    generated rather than written so it cannot drift into being confidently wrong,
+    which is the failure mode this project keeps finding in restated facts.
+    '''
+    rendered = render_table()
+    if os.environ.get('UPDATE_IMAGE_DEPS'):
+        OWNERSHIP_DOC.write_text(rendered, encoding='utf-8')
+    assert OWNERSHIP_DOC.read_text(encoding='utf-8') == rendered, (
+        'docs/image-dependencies.md is out of date. Regenerate with:\n'
+        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
     )

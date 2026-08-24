@@ -22,9 +22,12 @@ COPY alembic/ "${APPDIR}/alembic/"
 COPY alembic.ini "${APPDIR}/"
 COPY pyproject.toml VERSION "${APPDIR}/"
 
-# Broker needs the full [bot] dependency set: SQLAlchemy/asyncpg for the
-# VideoCacheClient + boto3 for S3 checkout (unlike the dispatcher, which runs
-# on the slim base deps).
+# Installs [broker], not [bot]: SQLAlchemy/asyncpg for the VideoCacheClient,
+# boto3 for the S3 checkout, dappertable for bundle rendering, alembic because
+# this image COPYs the migrations above. It used to install [bot], which meant
+# carrying yt-dlp and all three search clients into a pod that neither downloads
+# nor searches. The extra now matches the measured import set; the import
+# boundary in tests/cli/test_import_boundaries.py asserts the other direction.
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
 # (default off) — see docker/entrypoint.sh + the :heaptrack CI job.
 ARG INSTALL_HEAPTRACK=false
@@ -34,7 +37,7 @@ RUN apt-get update && \
         apt-get install -y --no-install-recommends heaptrack; \
     fi && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install "${APPDIR}[bot]" && \
+    pip install "${APPDIR}[broker]" && \
     apt-get remove -y git && apt-get autoremove -y
 
 # Set ownership of directories that need to be writable by the discord user

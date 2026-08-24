@@ -4,7 +4,7 @@ HttpDownloadClient on its own — the client half, without the engine.
 Split out of clients/download_client.py for the same reason HttpBrokerClient was
 split out of clients/broker_client.py (discord-bot!213): that module also defines
 InMemoryDownloadClient and re-exports the whole of interfaces/download_protocols,
-so importing it pulls yt_dlp, moviepy and boto3 into any process that only wanted
+so importing it pulls yt_dlp and boto3 into any process that only wanted
 to submit a download over HTTP.  The bot is that process since the download dual
 path was collapsed (projects/discord-bot-ha-only), and the downloader image's
 import boundary is what would catch a regression here.
