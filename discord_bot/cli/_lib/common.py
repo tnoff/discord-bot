@@ -5,11 +5,9 @@ from contextlib import asynccontextmanager
 import logging
 import signal
 import sys
-from typing import Callable, Iterator
+from typing import Callable, Iterator, TYPE_CHECKING
 
 from pyaml_env import parse_config
-from discord import Intents
-from discord.ext.commands import Bot, when_mentioned_or
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry._logs import set_logger_provider
@@ -38,6 +36,9 @@ from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.memory_profiler import MemoryProfiler
 from discord_bot.utils.process_metrics import ProcessMetricsProfiler
 from discord_bot.utils.gc_census import GcCensusProfiler
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from discord.ext.commands import Bot
 
 
 def read_config(config_file: str) -> dict:
@@ -154,7 +155,7 @@ class ShutdownState:
 
 
 @contextlib.contextmanager
-def handle_shutdown_signals(bot: Bot) -> Iterator[ShutdownState]:
+def handle_shutdown_signals(bot: 'Bot') -> Iterator[ShutdownState]:
     '''
     Register SIGTERM/SIGINT handlers for the duration of the with-block.
 
@@ -192,7 +193,7 @@ async def unload_cogs(cog_list: list) -> None:
 
 
 @asynccontextmanager
-async def bot_lifecycle(bot: Bot, cog_list: list, health_server=None,
+async def bot_lifecycle(bot: 'Bot', cog_list: list, health_server=None,
                         on_shutdown: Callable | None = None):
     '''
     Async context manager encapsulating the shared bot try/except/finally pattern.
@@ -295,7 +296,7 @@ def setup_observability(general_config: GeneralConfig) -> logging.Logger:
     return logger
 
 
-def register_on_ready(bot: Bot, general_config: GeneralConfig, logger) -> None:
+def register_on_ready(bot: 'Bot', general_config: GeneralConfig, logger) -> None:
     '''Register an on_ready event that logs guild membership and enforces the rejectlist.'''
     rejectlist_guilds = list(general_config.rejectlist_guilds)
     logger.info(f'Main :: Gathered guild reject list {rejectlist_guilds}')
@@ -312,23 +313,8 @@ def register_on_ready(bot: Bot, general_config: GeneralConfig, logger) -> None:
             logger.info(f'Main :: Bot associated with guild {guild.id} with name "{guild.name}"')
 
 
-def build_bot(general_config: GeneralConfig) -> Bot:
-    '''Construct and return the Bot instance.'''
-    logger = logging.getLogger('main')
-    logger.debug('Main :: Generating Intents')
-    intents = Intents.default()
-    for intent in list(general_config.intents):
-        logger.debug(f'Main :: Adding extra intents: {intent}')
-        setattr(intents, intent, True)
 
-    return Bot(
-        command_prefix=when_mentioned_or('!'),
-        description='Discord bot',
-        intents=intents,
-    )
-
-
-def load_cogs(bot: Bot, cog_classes: list, settings: dict, db_engine,
+def load_cogs(bot: 'Bot', cog_classes: list, settings: dict, db_engine,
               dispatcher: DispatchClientBase, redis_manager=None) -> list:
     '''Attempt to instantiate each cog class; skip those missing required args.'''
     logger = logging.getLogger('main')

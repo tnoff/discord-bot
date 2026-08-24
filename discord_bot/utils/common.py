@@ -3,9 +3,8 @@ from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sys import stdout
-from typing import Callable, Optional, Literal
+from typing import Callable, Optional, Literal, TYPE_CHECKING
 
-from discord.ext.commands import Bot
 from opentelemetry.trace import get_current_span
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
@@ -15,6 +14,9 @@ from pydantic import BaseModel, Field, model_validator
 from discord_bot.cogs.schema import StorageConfig
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from discord.ext.commands import Bot
 
 OTEL_SPAN_PREFIX = 'utils'
 
@@ -199,7 +201,7 @@ def rm_tree(pth: Path) -> bool:
     pth.rmdir()
     return True
 
-def return_loop_runner(function: Callable, bot: Bot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
+def return_loop_runner(function: Callable, bot: 'Bot', logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
                        health: Optional[LoopHealth] = None):
     '''
     Return a basic standard bot loop

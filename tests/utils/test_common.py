@@ -187,7 +187,7 @@ async def test_retry_command_async(mocker):
             self.reason = 'Cat unplugged the machines'
     async def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
         await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError)
     assert mock_time.call_count == 3
@@ -202,7 +202,7 @@ async def test_retry_discord_message_command_server_error(mocker):
             self.reason = 'Service Unavailable'
     async def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -211,7 +211,7 @@ async def test_retry_discord_message_command_server_error(mocker):
 async def test_retry_command_async_429(mocker):
     async def test_send_message():
         raise RateLimited(2)
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     with pytest.raises(RateLimited):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -225,7 +225,7 @@ async def test_retry_command_async_http_429(mocker):
             self.reason = 'Service resource is being rate limited'
     async def test_send_message():
         raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     with pytest.raises(HTTPException):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -239,7 +239,7 @@ async def test_retry_command_async_http_non_429(mocker):
             self.reason = 'Missing Permissions'
     async def test_send_message():
         raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     with pytest.raises(HTTPException):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 0
@@ -252,7 +252,7 @@ async def test_retry_command_async_404(mocker):
             self.reason = 'Cat ate the message'
     async def test_send_message():
         raise NotFound(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.utils.discord_retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_bot.utils.retry.async_sleep', return_value=False)
     await async_retry_discord_message_command(partial(test_send_message), allow_404=True)
     assert mock_time.call_count == 0
 

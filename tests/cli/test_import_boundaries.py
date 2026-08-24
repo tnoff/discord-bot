@@ -41,6 +41,7 @@ SQLALCHEMY = 'sqlalchemy'
 BOTO3 = 'boto3'
 BS4 = 'bs4'
 DAPPERTABLE = 'dappertable'
+DISCORD = 'discord'
 
 SEARCH_CLIENTS = (YTMUSICAPI, SPOTIPY, GOOGLEAPI)
 MEDIA = (YT_DLP, MOVIEPY)
@@ -72,17 +73,26 @@ IMAGE_BOUNDARIES = [
         (SQLALCHEMY, BOTO3, BS4, DAPPERTABLE) + MEDIA + SEARCH_CLIENTS,
         # The strictest image: it installs no extras at all, only the base
         # dependencies. That has been true by discipline; this makes it a contract.
+        #
+        # discord is NOT forbidden here, and that is deliberate: unlike the
+        # broker, downloader and search pods, the dispatcher sends and edits real
+        # messages (workers/message_dispatcher imports Message, Bot and NotFound).
+        # It is the one non-gateway image that genuinely needs discord.py, which
+        # is why its startup log has always carried the PyNaCl/davey warnings.
         id='dispatcher',
     ),
     pytest.param(
         'discord_bot.cli.broker',
-        (BS4,) + MEDIA + SEARCH_CLIENTS,
+        (BS4, DISCORD) + MEDIA + SEARCH_CLIENTS,
         # Keeps sqlalchemy + boto3: it owns the video cache and S3 checkout.
+        # discord joined the list when command_wrapper moved to
+        # utils/otel_command — utils/otel used to import Context at module scope
+        # for a runtime isinstance, which put discord.py in every image.
         id='broker',
     ),
     pytest.param(
         'discord_bot.cli.downloader',
-        (SQLALCHEMY, BS4, DAPPERTABLE, MOVIEPY) + SEARCH_CLIENTS,
+        (SQLALCHEMY, BS4, DAPPERTABLE, MOVIEPY, DISCORD) + SEARCH_CLIENTS,
         # Keeps yt_dlp (it downloads) and boto3 (it uploads finished media).
         # sqlalchemy was reaching it until this change, twice over — see the
         # module docstring on interfaces/broker_client_protocol.
@@ -90,7 +100,7 @@ IMAGE_BOUNDARIES = [
     ),
     pytest.param(
         'discord_bot.cli.search',
-        (SQLALCHEMY, BOTO3, BS4, DAPPERTABLE, SPOTIPY, GOOGLEAPI) + MEDIA,
+        (SQLALCHEMY, BOTO3, BS4, DAPPERTABLE, SPOTIPY, GOOGLEAPI, DISCORD) + MEDIA,
         # Keeps ytmusicapi. spotipy + googleapiclient move OUT of this list when
         # media_search folds its providers into this pod.
         id='search',

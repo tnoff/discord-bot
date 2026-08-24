@@ -10,7 +10,7 @@ from opentelemetry.trace.status import StatusCode
 
 from discord_bot.utils.otel import (
     async_otel_span_wrapper, async_untraced_span, capture_span_context,
-    command_wrapper, otel_span_wrapper, span_links_from_context,
+    otel_span_wrapper, span_links_from_context,
 )
 
 
@@ -51,30 +51,6 @@ async def test_async_otel_span_wrapper_with_ctx():
     ctx = _make_ctx()
     async with async_otel_span_wrapper('test.async_span', ctx=ctx) as span:
         assert span is not None
-
-
-@pytest.mark.asyncio
-async def test_command_wrapper_finds_ctx_and_builds_span_name():
-    '''command_wrapper locates the Context arg and derives span_name from it'''
-    ctx = _make_ctx()
-
-    async def _dummy(_self, _ctx):
-        return 'ok'
-
-    wrapped = command_wrapper(_dummy)
-    result = await wrapped(None, ctx)
-    assert result == 'ok'
-
-
-@pytest.mark.asyncio
-async def test_command_wrapper_no_ctx_uses_default_span_name():
-    '''command_wrapper uses fallback span name when no Context arg is present'''
-    async def _dummy(_self):
-        return 'ok'
-
-    wrapped = command_wrapper(_dummy)
-    result = await wrapped(None)
-    assert result == 'ok'
 
 
 @pytest.mark.asyncio

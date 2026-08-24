@@ -7,7 +7,7 @@ from sqlalchemy.engine.base import Engine
 
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.cogs.cog_helper import CogHelper
-from discord_bot.utils.otel import command_wrapper
+from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 ROLL_REGEX = r'^(?P<rolls>\d+)?([dD])?(?P<sides>\d+)'

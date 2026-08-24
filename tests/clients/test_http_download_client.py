@@ -468,7 +468,7 @@ async def test_status_poll_failure_emits_no_spans():
     tracer, exporter = _recording_tracer()
     client = HttpDownloadClient('http://127.0.0.1:1')
     with patch('discord_bot.utils.otel.TRACER', tracer):
-        with patch('discord_bot.utils.discord_retry.async_sleep', new_callable=AsyncMock):
+        with patch('discord_bot.utils.retry.async_sleep', new_callable=AsyncMock):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     await client.close()
     assert _span_names(exporter) == []

@@ -23,7 +23,8 @@ from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisR
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.otel import async_otel_span_wrapper, command_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 # Default for how many days to keep messages around

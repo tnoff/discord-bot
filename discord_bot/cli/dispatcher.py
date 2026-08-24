@@ -18,9 +18,10 @@ from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.utils.common import GeneralConfig
 
 from discord_bot.cli._lib.common import (
-    build_bot, bot_lifecycle, run_loop,
+    bot_lifecycle, run_loop,
     setup_observability, parse_and_validate_config, require_discord_token,
 )
+from discord_bot.cli._lib.gateway import build_bot
 
 
 @click.command()

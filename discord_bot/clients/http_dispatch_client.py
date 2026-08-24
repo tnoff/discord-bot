@@ -12,7 +12,7 @@ from discord_bot.types.dispatch_request import (
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.utils.dispatch_queue import dispatch_request_id
-from discord_bot.utils.discord_retry import async_retry_broker_command
+from discord_bot.utils.retry import async_retry_broker_command
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.utils.otel import DispatchNaming, METER_PROVIDER
 

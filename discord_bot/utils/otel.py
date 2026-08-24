@@ -1,13 +1,15 @@
 from enum import Enum
-import functools
 from contextlib import asynccontextmanager, contextmanager
+from typing import TYPE_CHECKING
 
-from discord.ext.commands import Context
 from opentelemetry import trace
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import get_meter_provider, Observation
 
 from discord_bot.utils.loop_health import heartbeat_observation_value
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from discord.ext.commands import Context
 
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
@@ -142,24 +144,6 @@ class DispatchNaming(Enum):
     REQUEST_ID = 'dispatch.request_id'
     PROCESS_ID = 'dispatch.process_id'
 
-def command_wrapper(function):
-    '''
-    Wrap a discord command function
-    '''
-    @functools.wraps(function)
-    async def _wrapper(*args, **kwargs):
-        ctx = None
-        for arg in args:
-            if isinstance(arg, Context):
-                ctx = arg
-                break
-        span_name = 'unamed_command_wrapper'
-        if ctx:
-            span_name = f'{ctx.command.cog.qualified_name.lower()}.{ctx.command.name}'
-        async with async_otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
-            return await function(*args, **kwargs)
-    return _wrapper
-
 def _set_ok_unless_already_set(span) -> None:
     '''
     Stamp OK on a span only when its body left the status UNSET.
@@ -181,7 +165,7 @@ def _set_ok_unless_already_set(span) -> None:
 
 
 @contextmanager
-def otel_span_wrapper(span_name: str, ctx: Context = None,
+def otel_span_wrapper(span_name: str, ctx: 'Context' = None,
                       kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                       attributes: dict = None,
                       context=None,
@@ -234,7 +218,7 @@ async def async_untraced_span():
 
 
 @asynccontextmanager
-async def async_otel_span_wrapper(span_name: str, ctx: Context = None,
+async def async_otel_span_wrapper(span_name: str, ctx: 'Context' = None,
                                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                                    attributes: dict = None,
                                    context=None,

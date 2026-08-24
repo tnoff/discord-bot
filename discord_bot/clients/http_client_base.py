@@ -2,7 +2,7 @@
 import aiohttp
 from opentelemetry.propagate import inject
 
-from discord_bot.utils.discord_retry import async_retry_broker_command
+from discord_bot.utils.retry import async_retry_broker_command
 
 
 class HttpClientMixin:

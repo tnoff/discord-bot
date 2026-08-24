@@ -8,7 +8,7 @@ from requests import get as requests_get
 
 from discord_bot.cogs.cog_helper import CogHelper
 from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.utils.otel import command_wrapper
+from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
 BASE_URL = 'https://www.urbandictionary.com/'

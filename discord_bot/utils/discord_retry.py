@@ -1,45 +1,28 @@
-from asyncio import sleep as async_sleep
+'''
+Retry helpers for calls that go through discord.py.
+
+The transport-level helpers that used to live here moved to utils/retry when the
+worker images dropped discord.py — see that module. They are re-exported below so
+existing imports keep working, the same courtesy CheckoutResult, ClearGuildResult
+and the BrokerClient Protocol got when they moved.
+
+Importing this module pulls discord.py. Only the gateway and dispatcher should.
+'''
 from typing import Awaitable, Callable
 
-from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError, ServerDisconnectedError
+from aiohttp.client_exceptions import ServerDisconnectedError
 from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimited
 from opentelemetry.trace import SpanKind
-from opentelemetry.trace.status import StatusCode
 
-from discord_bot.utils.otel import async_otel_span_wrapper, async_untraced_span, AttributeNaming
+from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.utils.retry import (
+    ACCEPTED, PROPAGATE, async_retry_broker_command, async_retry_command, run_retry_loop,
+)
+
+__all__ = ['async_retry_command', 'async_retry_broker_command',
+           'async_retry_discord_message_command']
 
 OTEL_SPAN_PREFIX = 'utils'
-
-
-async def async_retry_command(func: Callable[[], Awaitable], max_retries: int = 3,
-                              retry_exceptions=None, accepted_exceptions=None):
-    '''
-    Retry func up to max_retries times with exponential backoff.
-
-    func: Callable to run
-    max_retries: Max retries before re-raising
-    retry_exceptions: Retry on these exceptions
-    accepted_exceptions: Exceptions that are swallowed (returns False)
-    '''
-    retry_exceptions = retry_exceptions or ()
-    accepted_exceptions = accepted_exceptions or ()
-    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_command_async', kind=SpanKind.CLIENT) as span:
-        for retry in range(max_retries + 1):
-            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
-            try:
-                result = await func()
-                span.set_status(StatusCode.OK)
-                return result
-            except accepted_exceptions as ex:
-                span.record_exception(ex)
-                span.set_status(StatusCode.OK)
-                return False
-            except retry_exceptions as ex:
-                if retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(2 ** retry)
 
 
 async def async_retry_discord_message_command(func: Callable[[], Awaitable], max_retries: int = 3, allow_404: bool = False):
@@ -52,71 +35,25 @@ async def async_retry_discord_message_command(func: Callable[[], Awaitable], max
       - NotFound (404) with allow_404=True: swallowed, returns False
     '''
     accepted = (NotFound,) if allow_404 else ()
-    async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT) as span:
-        for retry in range(max_retries + 1):
-            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
-            try:
-                result = await func()
-                span.set_status(StatusCode.OK)
-                return result
-            except accepted as ex:
-                span.record_exception(ex)
-                span.set_status(StatusCode.OK)
-                return False
-            except RateLimited as ex:
-                if retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(ex.retry_after)
-            except (DiscordServerError, TimeoutError, ServerDisconnectedError) as ex:
-                if retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(2 ** retry)
-            except HTTPException as ex:
-                # Only retry 429s (e.g. error code 40062 "Service resource is being rate limited")
-                if ex.status != 429 or retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(2 ** retry)
 
+    def _handle(ex, retry):
+        # Order matters and is load-bearing: NotFound and DiscordServerError both
+        # subclass HTTPException, so the specific cases must be tested first —
+        # exactly the ordering a chain of except clauses used to give for free.
+        if accepted and isinstance(ex, accepted):
+            return ACCEPTED
+        if isinstance(ex, RateLimited):
+            return ex.retry_after
+        if isinstance(ex, (DiscordServerError, TimeoutError, ServerDisconnectedError)):
+            return 2 ** retry
+        # Only retry 429s (e.g. error code 40062 "Service resource is being rate limited")
+        if isinstance(ex, HTTPException) and ex.status != 429:
+            return PROPAGATE
+        return 2 ** retry
 
-async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries: int = 3,
-                                    traced: bool = True):
-    '''
-    Retry broker HTTP calls with per-exception handling:
-      - ClientConnectionError (includes ServerDisconnectedError, ServerTimeoutError): exponential backoff retry
-      - ClientResponseError 5xx: exponential backoff retry
-      - ClientResponseError 4xx: propagate immediately (client error, won't change on retry)
-
-    traced=False starts no span.  Reserved for fixed-interval background pollers,
-    whose ticks are emitted at the poll rate rather than per unit of work: at 1Hz
-    per client this span was ~99% of the bot's total span volume, and every tick
-    against a restarting worker pod also landed as an ERROR span for a failure
-    the poller already tolerates.  Callers that lose work when the call fails
-    stay traced.
-    '''
-    span_cm = (async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_broker_command', kind=SpanKind.CLIENT)
-               if traced else async_untraced_span())
-    async with span_cm as span:
-        for retry in range(max_retries + 1):
-            span.set_attributes({AttributeNaming.RETRY_COUNT.value: retry})
-            try:
-                result = await func()
-                span.set_status(StatusCode.OK)
-                return result
-            except ClientConnectionError as ex:
-                if retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(2 ** retry)
-            except ClientResponseError as ex:
-                if ex.status < 500 or retry == max_retries:
-                    span.set_status(StatusCode.ERROR)
-                    span.record_exception(ex)
-                    raise
-                await async_sleep(2 ** retry)
+    caught = accepted + (RateLimited, DiscordServerError, TimeoutError,
+                         ServerDisconnectedError, HTTPException)
+    return await run_retry_loop(
+        async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.message_send_async', kind=SpanKind.CLIENT),
+        func, max_retries, caught, _handle,
+    )
