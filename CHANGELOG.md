@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.100] - 2026-08-24
+
+### Changed
+
+- The deprecated `discord-bot-min` console script is gone; `discord-bot` is the only name for the gateway entrypoint. The alias was kept transitionally because the bot Deployment set `DISCORD_BOT_CMD=discord-bot-min`, so removing the name first would have CrashLooped the pod on exec. docker-apps!1288 dropped that override and the pod has been running on the image default since, which closes the three-step sequence started in !233. `test_every_published_image_has_a_boundary` now reads `[project.scripts]` from pyproject instead of restating the list — it was a hardcoded literal that agreed with the real script list only as long as someone kept both in step by hand, and removing a script is precisely the event it claims to notice.
+
 ## [2.5.99] - 2026-08-24
 
 ### Changed
