@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.101] - 2026-08-24
+
+### Changed
+
+- Bumped yt-dlp to v2026.8.19
+
 ## [2.5.100] - 2026-08-24
 
 ### Changed
