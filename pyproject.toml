@@ -43,7 +43,7 @@ bot = [
     "PyNaCl==1.6.2",
     "SQLAlchemy==2.0.52",
     "spotipy==2.26.0",
-    "yt-dlp==2026.7.4",
+    "yt-dlp==2026.8.19",
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
     "asyncpg==0.31.0",
