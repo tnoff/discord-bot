@@ -105,9 +105,18 @@ downloading = [
     "yt-dlp-ejs",
 ]
 search-providers = [
-    # Metadata providers the cog expands sources with.
+    # Metadata providers the cog expands sources with. These two, and only these
+    # two, are what leaves [bot] when media_search folds into the search pod --
+    # which is why beautifulsoup4 is NOT here. It was, and it does not belong: its
+    # only import site is cogs/urban.py, which cli/_lib/cog_registry imports
+    # unconditionally, so the bot needs it no matter what media_search does. A
+    # group named for a capability has to hold only packages that serve it, or the
+    # next person to move the group by its name takes an unrelated package with it.
     "spotipy==2.26.0",
     "google-api-python-client==2.198.0",
+]
+scraping = [
+    # Parsing HTML out of a page the API does not cover. The urban cog only.
     "beautifulsoup4==4.15.0",
 ]
 youtube-music = [
@@ -134,7 +143,7 @@ youtube-music = [
 # at pod start, and a package it installs but no longer imports is dead weight.
 # ---------------------------------------------------------------------------
 bot = [
-    "discord_bot[gateway,voice,database,storage,rendering,search-providers]",
+    "discord_bot[gateway,voice,database,storage,rendering,search-providers,scraping]",
 ]
 dispatcher = [
     # The strictest image: the core set plus discord.py and nothing else. It sends
@@ -154,7 +163,9 @@ downloader = [
     "discord_bot[downloading,storage]",
 ]
 search = [
-    # Thin HTTP clients. search_providers joins when media_search folds in.
+    # Thin HTTP clients. search-providers joins when media_search folds in --
+    # hyphens, per the PEP 685 note above: a self-reference spelled
+    # search_providers resolves to nothing and says so nowhere.
     "discord_bot[youtube-music]",
 ]
 test = [
