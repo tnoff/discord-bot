@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.104] - 2026-08-25
+
+### Changed
+
+- The player loop now waits for a voice client to appear instead of destroying the player and dropping the queue. `Music.get_player` starts the player loop *before* it awaits `join_voice`, so a resumed session — which re-queues its whole backlog the moment the player exists — can reach `voice_client.play()` while the voice handshake is still in flight. That raised `AttributeError` on `None`, and the handler tore the player down: prod lost a 15-track queue this way during a rollout, with the voice client arriving 29 seconds later and nothing left to play. The loop now waits up to 60s (sized against the ~45s handshake measured in that incident), polling for the client; a player that genuinely never gets voice still gets torn down, so the give-up path is unchanged. Tests in `test_music_player.py` shrink the wait through an autouse fixture — at the real value, any test reaching `play()` without a voice client becomes a one-minute test, which two existing ones silently became when the wait was first added.
+
 ## [2.5.103] - 2026-08-24
 
 ### Changed
