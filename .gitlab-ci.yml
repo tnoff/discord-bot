@@ -308,7 +308,8 @@ bump-version:
 # Producer side of the docker-apps image-pin bump flow. One trigger job
 # per pushed image that has a consumer pin in docker-apps — each fires a
 # downstream pipeline that rewrites the matching pin and opens an MR.
-# bot-min/broker are not yet consumed by docker-apps.
+# All five deployed images have one; the other four are defined below, each
+# with its own note on when docker-apps started consuming that pin.
 # See github-workflows/gitlab/trigger-bump.yml for the template details.
 trigger-bump-docker-apps:
   extends: .trigger-bump
