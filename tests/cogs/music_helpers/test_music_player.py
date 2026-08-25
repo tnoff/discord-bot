@@ -26,6 +26,22 @@ def with_music_player(fake_context): #pylint:disable=redefined-outer-name
         player = MusicPlayer(fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir), dispatcher, None, history_queue)
         yield player
 
+@pytest.fixture(autouse=True)
+def _fast_voice_client_wait():
+    '''
+    Shrink the voice-client wait for every test in this module.
+
+    The production default is 60s, sized against a measured ~45s handshake. Left
+    at that, any test that reaches play() without a voice client becomes a
+    one-minute test -- two existing ones did exactly that the moment the wait was
+    introduced, and nothing failed to say so. Scoping this to the module rather
+    than patching per test means the next such test is fast by default.
+    '''
+    with patch('discord_bot.cogs.music_helpers.music_player.VOICE_CLIENT_WAIT_SECONDS', 0.05), \
+         patch('discord_bot.cogs.music_helpers.music_player.VOICE_CLIENT_POLL_SECONDS', 0.01):
+        yield
+
+
 def test_music_player_basic(fake_context): #pylint:disable=redefined-outer-name
     with with_music_player(fake_context) as player:
         assert player is not None
@@ -39,6 +55,7 @@ async def test_music_player_loop_exit_with_async_timeout(fake_context): #pylint:
 
 @pytest.mark.asyncio
 async def test_music_player_loop_exiting_voice_client(fake_context): #pylint:disable=redefined-outer-name
+    '''A voice client that never arrives still tears the player down'''
     fake_context['guild'].voice_client = None
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
@@ -46,6 +63,55 @@ async def test_music_player_loop_exiting_voice_client(fake_context): #pylint:dis
             with pytest.raises(ExitEarlyException) as exc:
                 await player.player_loop()
             assert 'No voice client in guild, ending loop' in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_music_player_loop_waits_for_a_late_voice_client(fake_context): #pylint:disable=redefined-outer-name
+    '''
+    A voice client that arrives mid-wait plays the track instead of dropping the queue.
+
+    This is the regression: Music.get_player starts the player loop before it
+    awaits join_voice, so a resumed session can fill the queue and reach play()
+    while the handshake is still in flight. Prod measured ~45s between the two,
+    and the player was destroyed with 15 tracks still queued.
+    '''
+    fake_context['guild'].voice_client = None
+    voice_client = FakeVoiceClient()
+
+    async def _connect_on_poll(_seconds):
+        fake_context['guild'].voice_client = voice_client
+
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.add_to_play_queue(media_download)
+            with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_connect_on_poll):
+                await player.player_loop()
+    assert player.shutdown_called is False
+    assert player._play_queue.empty() #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_music_player_wait_for_voice_client_returns_none_on_shutdown(fake_context): #pylint:disable=redefined-outer-name
+    '''Shutting the player down while it waits ends the wait immediately'''
+    fake_context['guild'].voice_client = None
+
+    with with_music_player(fake_context) as player:
+        async def _shutdown_on_poll(_seconds):
+            player.shutdown_called = True
+
+        with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_shutdown_on_poll):
+            assert await player._wait_for_voice_client() is None #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_music_player_wait_for_voice_client_returns_existing(fake_context): #pylint:disable=redefined-outer-name
+    '''The common case does not wait at all'''
+    voice_client = FakeVoiceClient()
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep') as mock_sleep:
+            assert await player._wait_for_voice_client() is voice_client #pylint:disable=protected-access
+        mock_sleep.assert_not_called()
 
 
 @pytest.mark.asyncio

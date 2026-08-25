@@ -34,6 +34,13 @@ from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming
 # WARNING so a stall is visible in prod without DEBUG logging enabled.
 PLAY_STAGING_SLOW_SECONDS = 5.0
 
+# How long the player loop will wait for a voice client to appear before giving up
+# on a track. Sized against the real handshake, not a guess: the incident this was
+# written for measured ~45s between a resumed session filling the queue and the
+# voice connection completing, during a rollout.
+VOICE_CLIENT_WAIT_SECONDS = 60.0
+VOICE_CLIENT_POLL_SECONDS = 0.5
+
 
 
 def cleanup_source(audio_source: PCMAudio):
@@ -114,6 +121,47 @@ class MusicPlayer:
         '''
         if not self._player_task:
             self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
+
+    async def _wait_for_voice_client(self):
+        '''
+        Return the guild's voice client, waiting for it to appear if it has not yet.
+
+        Music.get_player starts this loop (start_tasks) BEFORE it awaits
+        join_voice, so there is a real window where the loop is live and the guild
+        has no voice client. A resumed session walks straight into it: the resume
+        re-queues its whole backlog the moment the player exists, so the loop can
+        reach play() while the voice handshake is still in flight.
+
+        That used to be treated as fatal. play() raised AttributeError on None, and
+        the handler destroyed the player and dropped every queued track — 15 of
+        them in the incident this was written for, with the voice client arriving
+        29 seconds later and nothing left to play. Waiting costs nothing when the
+        client is already connected, which is the overwhelmingly common case, and
+        preserves the queue when it is not.
+
+        Returns None if the wait times out or the player is shut down while
+        waiting; the caller's existing AttributeError path then handles it, so a
+        genuinely voice-less player still gets torn down rather than looping.
+        '''
+        if self.guild.voice_client:
+            return self.guild.voice_client
+        self.logger.info(
+            f'No voice client yet for guild {self.guild.id}, waiting up to '
+            f'{VOICE_CLIENT_WAIT_SECONDS:.0f}s for the connection to complete'
+        )
+        deadline = monotonic() + VOICE_CLIENT_WAIT_SECONDS
+        while monotonic() < deadline:
+            await asyncio.sleep(VOICE_CLIENT_POLL_SECONDS)
+            if self.shutdown_called:
+                return None
+            if self.guild.voice_client:
+                self.logger.info(f'Voice client became available for guild {self.guild.id}')
+                return self.guild.voice_client
+        self.logger.warning(
+            f'Voice client never appeared for guild {self.guild.id} after '
+            f'{VOICE_CLIENT_WAIT_SECONDS:.0f}s'
+        )
+        return None
 
     async def player_loop(self):
         '''
@@ -197,8 +245,9 @@ class MusicPlayer:
             audio_source = PCMAudio(audio_data)
             self.current_audio_source = audio_source
             self.video_skipped = False
+            voice_client = await self._wait_for_voice_client()
             try:
-                self.guild.voice_client.play(audio_source, after=self.set_next)
+                voice_client.play(audio_source, after=self.set_next)
             except (AttributeError, ClientException) as e:
                 self.logger.warning(
                     f'Voice client unavailable for guild {self.guild.id} ({type(e).__name__}: {e}), '
