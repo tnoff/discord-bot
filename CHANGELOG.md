@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.105] - 2026-08-25
+
+### Changed
+
+- `beautifulsoup4` moves out of the `search-providers` capability group into its own `[scraping]` group. It was never a search provider: its only import site is `cogs/urban.py`, which `cli/_lib/cog_registry` imports unconditionally, so the bot image needs it whatever the search providers do. The grouping mattered because the media_search extraction plans to move `search-providers` to `[search]` — moving it by name would have carried `beautifulsoup4` out of `[bot]` and broken the bot at import. That would have failed loudly rather than silently, since `test_import_boundaries` asserts declared and measured imports agree in both directions, but only after somebody spent the MR finding out. `search-providers` is now exactly the two packages that leave `[bot]` at the fold-in, `spotipy` and `google-api-python-client`. This is a pure regrouping: all five images resolve to identical package sets before and after, so no image changes and `docs/image-dependencies.md` is untouched. The `[search]` comment that described the pending move also spelled the group `search_providers` with an underscore — the PEP 685 silent-resolution trap documented thirty lines above it in the same file, in the one line a fold-in MR would most likely copy.
+
 ## [2.5.104] - 2026-08-25
 
 ### Changed
