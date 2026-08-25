@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.106] - 2026-08-25
+
+### Changed
+
+- Source expansion moves behind a `MediaSearchClient` Protocol. `SearchClient` took a `SpotifyClient` and a `YoutubeClient` and called them directly; it now takes one client with two methods — `spotify_source` and `youtube_source`, both returning a `CatalogResponse` — and `InMemoryMediaSearchClient` supplies the in-process implementation the bot runs today. This is the seam the media_search extraction needs, placed around the two provider calls rather than around `check_source` as a whole: only two of `check_source`'s six input shapes reach a provider at all, and the other four, including the plain-text search that is the common `!play`, are `re.match` and nothing more. Two consequences make the later cutover possible. The executor offload moved into the client, so the Protocol takes no event loop and `check_source` no longer has a `loop` parameter — the HTTP implementation does no offloading and would have carried a dead argument forever. And the provider SDKs are now absorbed rather than passed through: `spotipy` and `googleapiclient` failures become a `MediaSearchError` carrying `(provider, reason, http_status)`, and the cog renders that into the user-facing message. Keeping the Discord copy in the cog is deliberate — when these calls move to the search pod, the pod returns the reason and the bot still writes what a user reads. `SearchException`, `ThirdPartyException` and `InvalidSearchURL` move to `discord_bot/exceptions.py` (which imports nothing) so that `clients/` can raise them without importing a cogs module, and re-export from their old home. One user-visible fix rode along: the non-404 Spotify failure message was a plain string containing a literal `{search}` with no `f` prefix, so it told users the problem was with a url called `{search}`. The existing test asserted only the message prefix, which is how a one-character bug survived in user-facing copy; the new tests assert the interpolation.
+
 ## [2.5.105] - 2026-08-25
 
 ### Changed
