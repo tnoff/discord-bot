@@ -1,19 +1,16 @@
-from asyncio import AbstractEventLoop
-from functools import partial
 from itertools import islice
 from re import match
 import random
 from time import time
 
-from googleapiclient.errors import HttpError
 from opentelemetry.trace import SpanKind
-from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.exceptions import (
+    InvalidSearchURL, MediaSearchError, SearchException, ThirdPartyException,
+)
+from discord_bot.interfaces.media_search_protocols import MediaSearchClient
 from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.utils.integrations.spotify import SpotifyClient
-from discord_bot.utils.integrations.youtube import YoutubeClient
-from discord_bot.types.catalog import CatalogResponse
 from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.utils.otel import async_otel_span_wrapper, MediaRequestNaming
 
@@ -25,24 +22,14 @@ YOUTUBE_PLAYLIST_REGEX = r'^https://(www\.)?youtube\.com/playlist\?list=(?P<play
 YOUTUBE_VIDEO_REGEX = r'^https://(www\.)?youtu(\.)?be(\.com)?/(watch\?v=)?(?P<video_id>[a-zA-Z0-9_-]{11})'
 YOUTUBE_SHORT_REGEX = r'^https://(www\.)?youtube\.com/shorts/(?P<video_id>[a-zA-Z0-9_-]{11})'
 
-class SearchException(Exception):
-    '''
-    For issues with Search
-    '''
-    def __init__(self, message, user_message=None):
-        self.message = message
-        super().__init__(self.message)
-        self.user_message = user_message
-
-
-class ThirdPartyException(SearchException):
-    '''
-    Issue with 3rd Party Library
-    '''
-class InvalidSearchURL(SearchException):
-    '''
-    Invalid URL to give bot
-    '''
+# SearchException / ThirdPartyException / InvalidSearchURL are defined in
+# discord_bot.exceptions and imported above. They are re-exported from here
+# because this is where they were defined and cogs/music.py and the tests still
+# import them from this path.
+__all__ = [
+    'SearchClient', 'SearchException', 'ThirdPartyException', 'InvalidSearchURL',
+    'check_youtube_video',
+]
 
 OTEL_SPAN_PREFIX = 'music.search_client'
 
@@ -59,49 +46,56 @@ class SearchClient():
     '''
     Wraps search functions
     '''
-    def __init__(self, spotify_client: SpotifyClient = None, youtube_client: YoutubeClient = None):
+    def __init__(self, media_search_client: MediaSearchClient):
         '''
-        Init download client
+        Init search client
 
-        spotify_client : Spotify Client
-        youtube_client : Youtube Client
+        media_search_client : Expands third-party URLs into a CatalogResponse.
+            In-process today, the search pod later; this class does not care
+            which, which is the point of taking it as one argument instead of a
+            SpotifyClient and a YoutubeClient.
         '''
-        self.spotify_client: SpotifyClient | None = spotify_client
-        self.youtube_client: YoutubeClient | None = youtube_client
+        self.media_search_client: MediaSearchClient = media_search_client
 
-    def __check_spotify_source(self, playlist_id: str = None, album_id: str = None, track_id: str = None) -> CatalogResponse:
+    @staticmethod
+    def __render_provider_error(error: MediaSearchError, search: str) -> SearchException:
         '''
-        Get search strings from spotify
+        Turn a provider failure into the exception the user will read.
 
-        playlist_id : Playlist id
-        album_id : Album id
-        track_id : Track ID
+        The provider clients report what went wrong (provider, reason, status);
+        this decides what a Discord user is told about it. Keeping the two apart
+        is what lets the providers move to the search pod without the pod owning
+        any Discord-facing copy.
+
+        error : Raised by the media search client
+        search : The original search string, for the messages that quote it
         '''
-        if not (playlist_id or album_id or track_id):
-            raise ValueError('Playlist, album, or track id must be passed')
+        if error.reason == MediaSearchError.MISSING_CREDENTIALS:
+            if error.provider == MediaSearchError.SPOTIFY:
+                return InvalidSearchURL('Missing spotify creds',
+                                        user_message='Spotify URLs invalid, no spotify credentials available to bot')
+            return InvalidSearchURL('Missing youtube creds',
+                                    user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
+        if error.provider == MediaSearchError.YOUTUBE:
+            return ThirdPartyException('Issue fetching youtube info',
+                                       user_message=f'Issue gathering info from youtube url "{search}"')
+        if error.reason == MediaSearchError.AUTH_ERROR:
+            return ThirdPartyException('Issue fetching spotify info',
+                                       user_message='Issue gathering info from spotify, credentials seem invalid')
+        if error.reason == MediaSearchError.NOT_FOUND:
+            return ThirdPartyException('Issue fetching spotify info',
+                                       user_message=f'Unable to find url "{search}" via Spotify API\n'
+                                                    'If this is an official Spotify playlist, '
+                                                    '[it might not be available via the api]'
+                                                    '(https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)')
+        return ThirdPartyException('Issue fetching spotify info',
+                                   user_message=f'Issue gathering info from spotify url "{search}"')
 
-        if playlist_id:
-            return self.spotify_client.playlist_get(playlist_id)
-        if album_id:
-            return self.spotify_client.album_get(album_id)
-        if track_id:
-            return self.spotify_client.track_get(track_id)
-        return None
-
-    def __check_youtube_source(self, playlist_id: str) -> CatalogResponse:
-        '''
-        Generate youtube sources
-
-        playlist_id : ID of youtube playlist
-        '''
-        return self.youtube_client.playlist_get(playlist_id)
-
-    async def __check_source_types(self, search: str, loop: AbstractEventLoop) -> SearchCollection:
+    async def __check_source_types(self, search: str) -> SearchCollection:
         '''
         Create source types
 
         search : Original search string
-        loop: Bot event loop
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.check_source', kind=SpanKind.CLIENT, attributes={MediaRequestNaming.SEARCH_STRING.value: search}):
             spotify_playlist_matcher = match(SPOTIFY_PLAYLIST_REGEX, search)
@@ -112,8 +106,6 @@ class SearchClient():
             youtube_video_match = match(YOUTUBE_VIDEO_REGEX, search)
 
             if spotify_playlist_matcher or spotify_album_matcher or spotify_track_matcher:
-                if not self.spotify_client:
-                    raise InvalidSearchURL('Missing spotify creds', user_message='Spotify URLs invalid, no spotify credentials available to bot')
                 spotify_args = {}
                 should_shuffle = False
                 if spotify_album_matcher:
@@ -125,17 +117,10 @@ class SearchClient():
                 if spotify_track_matcher:
                     spotify_args['track_id'] = spotify_track_matcher.group('track_id')
 
-                to_run = partial(self.__check_spotify_source, **spotify_args)
                 try:
-                    catalog_result = await loop.run_in_executor(None, to_run)
-                except SpotifyOauthError as e:
-                    message = 'Issue gathering info from spotify, credentials seem invalid'
-                    raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
-                except SpotifyException as e:
-                    message = 'Issue gathering info from spotify url "{search}"'
-                    if e.http_status == 404:
-                        message = f'Unable to find url "{search}" via Spotify API\nIf this is an official Spotify playlist, [it might not be available via the api](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)'
-                    raise ThirdPartyException('Issue fetching spotify info', user_message=message) from e
+                    catalog_result = await self.media_search_client.spotify_source(**spotify_args)
+                except MediaSearchError as e:
+                    raise self.__render_provider_error(e, search) from e
                 if should_shuffle:
                     # https://stackoverflow.com/a/51295230
                     random.seed(time())
@@ -147,15 +132,12 @@ class SearchClient():
                 return SearchCollection(search_results=results, collection_name=collection_name)
 
             if youtube_playlist_matcher:
-                if not self.youtube_client:
-                    raise InvalidSearchURL('Missing youtube creds', user_message='Youtube Playlist URLs invalid, no youtube api credentials given to bot')
-
                 should_shuffle = youtube_playlist_matcher.group('shuffle') != ''
-                to_run = partial(self.__check_youtube_source, youtube_playlist_matcher.group('playlist_id'))
                 try:
-                    catalog_result = await loop.run_in_executor(None, to_run)
-                except HttpError as e:
-                    raise ThirdPartyException('Issue fetching youtube info', user_message=f'Issue gathering info from youtube url "{search}"') from e
+                    catalog_result = await self.media_search_client.youtube_source(
+                        youtube_playlist_matcher.group('playlist_id'))
+                except MediaSearchError as e:
+                    raise self.__render_provider_error(e, search) from e
                 if should_shuffle:
                     # https://stackoverflow.com/a/51295230
                     random.seed(time())
@@ -178,15 +160,19 @@ class SearchClient():
             # Else assume this was a search message to put into youtube music
             return SearchCollection(search_results=[SearchResult(search_type=SearchType.SEARCH, raw_search_string=search)])
 
-    async def check_source(self, search: str, loop: AbstractEventLoop,
-                           max_results: int) -> SearchCollection:
+    async def check_source(self, search: str, max_results: int) -> SearchCollection:
         '''
         Generate sources from input
 
         search : Search string
         max_results : Max results of items
+
+        No event loop argument: the only thing it was ever used for was the
+        executor offload, which now belongs to the media search client -- and the
+        HTTP client, which does no offloading at all, would have carried a dead
+        parameter forever.
         '''
-        collection = await self.__check_source_types(search, loop)
+        collection = await self.__check_source_types(search)
         if max_results is not None:
             collection.search_results = list(islice(collection.search_results, max_results))
 

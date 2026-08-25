@@ -52,6 +52,7 @@ from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
+from discord_bot.clients.media_search_client import InMemoryMediaSearchClient
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
@@ -310,7 +311,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name)
 
-        self.search_client = SearchClient(spotify_client=self.spotify_client, youtube_client=self.youtube_client)
+        self.search_client = SearchClient(InMemoryMediaSearchClient(
+            spotify_client=self.spotify_client, youtube_client=self.youtube_client))
         # Downloads run in the standalone downloader pod: the cog submits, clears
         # and blocks over HTTP and never builds an in-process worker or queue.
         # Results still return through the broker's download-result queue, which
@@ -1297,8 +1299,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         )
 
         try:
-            collection = await self.search_client.check_source(search, self.bot.loop,
-                                                                   self.config.player.queue_max_size)
+            collection = await self.search_client.check_source(
+                search, self.config.player.queue_max_size)
         except SearchException as exc:
             self.logger.info(f'Received download client exception for search "{search}", {str(exc)}')
             await self.delete_bundle(ctx.guild.id, bundle_uuid)
