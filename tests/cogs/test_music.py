@@ -7,6 +7,8 @@ import asyncio
 
 import pytest
 
+from aiohttp import ClientConnectionError
+
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.cogs import music as music_module
 from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
@@ -202,6 +204,24 @@ def yield_search_client_check_source_raises():
 
         async def check_source(self, *_args, **_kwargs):
             raise SearchException('foo', user_message='woopsie')
+
+    return FakeSearchClient
+
+def yield_search_client_check_source_raises_transport():
+    '''
+    check_source failing the way the search pod failing looks.
+
+    Not a SearchException: since the media_search cutover check_source is an HTTP
+    round trip, so a pod that is rolling, draining or gone raises out of aiohttp
+    instead, which is the exact class of failure the SearchException clause was
+    never written to catch.
+    '''
+    class FakeSearchClient():
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def check_source(self, *_args, **_kwargs):
+            raise ClientConnectionError('search pod is not accepting connections')
 
     return FakeSearchClient
 
@@ -545,6 +565,104 @@ async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disa
 
     # Bundle is immediately torn down on the broker when the search fails
     assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
+
+@pytest.mark.asyncio()
+async def test_play_tears_down_the_bundle_when_the_search_pod_is_unreachable(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    A transport failure out of check_source must not strand the bundle.
+
+    create_bundle runs before check_source, so the placeholder row is already
+    rendered when the call fails. Before the media_search cutover check_source
+    could only raise SearchException and the one clause covered everything; now
+    it can raise out of aiohttp, and an uncaught one leaves a row that never
+    resolves and never errors -- it just sits there.
+    '''
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises_transport())
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
+    cog.dispatcher = Mock()
+
+    # Re-raised, not swallowed: the command span stays ERROR and the failure is
+    # still visible as one rather than being downgraded to a user message.
+    with pytest.raises(ClientConnectionError):
+        await cog.play_(cog, fake_context['context'], search='foo bar')
+
+    cog.dispatcher.send_message.assert_called()
+    assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", the search backend is unavailable'
+    assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
+
+@pytest.mark.asyncio()
+async def test_process_search_results_requeues_when_the_downloader_is_unreachable(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    next_search_result is a destructive pop, so a failed submit must put it back.
+
+    The downloader deploys under Recreate -- one Mullvad key means no rolling
+    overlap is possible -- so a hard gap on its Service is routine, not exotic.
+    Every resolution popped during that gap used to be destroyed outright.
+    '''
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    s = fake_source_dict(fake_context)
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s]))
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
+    attach_in_process_download(cog)
+    search_driver = attach_in_process_search(cog)
+    cog.dispatcher = Mock()
+    await cog.play_(cog, fake_context['context'], search='foo bar')
+    await search_driver.run_once(cog.bot_shutdown_event)
+
+    mocker.patch.object(cog.download_client, 'submit',
+                        side_effect=ClientConnectionError('downloader is not accepting connections'))
+    with pytest.raises(ClientConnectionError):
+        await cog.process_search_results()
+
+    # Still on the queue: a later pass, once the new downloader pod is up, finds
+    # it and can hand it off. This is the assertion the whole fix exists for.
+    requeued = await cog.broker_client.next_search_result()
+    assert requeued is not None
+    assert requeued.media_request.search_result.raw_search_string == s.search_result.raw_search_string
+
+@pytest.mark.asyncio()
+async def test_process_search_results_requeue_failure_does_not_mask_the_original(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    When the requeue also fails the request really is lost -- report why honestly.
+
+    The broker being down too is the one case with nowhere to put the resolution.
+    It is logged as a loss, and the *submit* failure is what propagates, because
+    a traceback naming the requeue would point at the second-order symptom.
+    '''
+    fake_context['author'].voice = FakeVoiceClient()
+    fake_context['author'].voice.channel = fake_context['channel']
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    s = fake_source_dict(fake_context)
+    mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s]))
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
+    attach_in_process_download(cog)
+    search_driver = attach_in_process_search(cog)
+    cog.dispatcher = Mock()
+    await cog.play_(cog, fake_context['context'], search='foo bar')
+    await search_driver.run_once(cog.bot_shutdown_event)
+
+    mocker.patch.object(cog.download_client, 'submit',
+                        side_effect=ClientConnectionError('downloader is not accepting connections'))
+    requeue = mocker.patch.object(cog.broker_client, 'register_search_result',
+                                  side_effect=ClientConnectionError('broker is not accepting connections'))
+    with pytest.raises(ClientConnectionError) as exc_info:
+        await cog.process_search_results()
+
+    # Asserted, not implied: without it this test passes on the unfixed code,
+    # where submit's exception propagates because nothing tried to requeue at all.
+    requeue.assert_called_once()
+    assert 'downloader is not accepting connections' in str(exc_info.value)
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name

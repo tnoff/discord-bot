@@ -37,6 +37,7 @@ from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.types.search import SearchResult
+from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -739,6 +740,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return True
         return False
 
+    async def _requeue_search_result(self, resolution: SearchResolution) -> None:
+        '''
+        Put a resolution back on the broker's search-result queue.
+
+        next_search_result is a destructive pop: the resolution exists nowhere
+        else once this loop holds it, so any failure between that pop and a
+        successful submit destroys the request outright -- the media request is
+        never downloaded and its bundle row strands on QUEUED forever, with no
+        error the user can see.  The downloader deploys under Recreate (one
+        Mullvad key, so no rolling overlap is possible), which makes a hard gap
+        on its Service a routine event rather than an exotic one.
+
+        A failure to requeue is the one case where the request really is lost,
+        so it is logged as such rather than folded into the caller's traceback.
+        '''
+        try:
+            await self.broker_client.register_search_result(resolution)
+        except Exception:
+            self.logger.exception(
+                f'Failed to requeue search result for media_request '
+                f'{resolution.media_request.uuid}; the request is lost')
+
     async def process_search_results(self):
         '''
         Search-result consumer: routes resolved searches into the download
@@ -785,6 +808,21 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             except QueueFull:
                 self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
                 await self._push_state(media_request, LifecycleEvent.DISCARDED)
+            except Exception:
+                # PutsBlocked and QueueFull are the downloader *answering*; anything
+                # else means it never got the request. Most often that is a
+                # ClientConnectorError against a downloader pod that is mid-Recreate,
+                # which downloader-app.yaml calls harmless on the grounds that
+                # "downloads queue in Redis and resume when the new pod's tunnel is
+                # up". That holds for work already on the downloader's queue and not
+                # for work in this handoff, which is why the resolution goes back
+                # before the exception propagates.
+                #
+                # Re-raised rather than swallowed so the loop runner's capped backoff
+                # applies. Returning normally here would re-pop the same resolution
+                # immediately and spin against a Service that is still down.
+                await self._requeue_search_result(resolution)
+                raise
             span.set_status(StatusCode.OK)
 
     async def process_download_results(self):
@@ -1328,6 +1366,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'Error searching input "{search}", message: {str(exc.user_message)}',
                 delete_after=self.config.general.message_delete_after)
             return
+        except Exception:
+            # check_source stopped being an in-process call at the media_search
+            # cutover: it is a round trip to the search pod now, so it can fail with
+            # a transport error that is not a SearchException and that the clause
+            # above was never written to see. The bundle above is already created
+            # and rendered, so letting one through leaves a placeholder row that
+            # never resolves -- the same stranded-row failure as a dropped search
+            # resolution, reached from the other end of the pipeline.
+            await self.delete_bundle(ctx.guild.id, bundle_uuid)
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Error searching input "{search}", the search backend is unavailable',
+                delete_after=self.config.general.message_delete_after)
+            raise
 
         # Multi-item collection — drop the single-search bundle and create a
         # multi-track bundle whose banner persists across renders.
