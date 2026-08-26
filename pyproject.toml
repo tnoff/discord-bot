@@ -163,10 +163,14 @@ downloader = [
     "discord_bot[downloading,storage]",
 ]
 search = [
-    # Thin HTTP clients. search-providers joins when media_search folds in --
-    # hyphens, per the PEP 685 note above: a self-reference spelled
+    # Thin HTTP clients. search-providers joined here when media_search folded in
+    # -- hyphens, per the PEP 685 note above: a self-reference spelled
     # search_providers resolves to nothing and says so nowhere.
-    "discord_bot[youtube-music]",
+    #
+    # It is still installed in [bot] as well, and stays there until the cog stops
+    # building an in-process client at the cutover. That is the one item this
+    # split could not close on its own.
+    "discord_bot[youtube-music,search-providers]",
 ]
 test = [
     "bandit==1.9.4",

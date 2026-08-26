@@ -57,7 +57,7 @@ IMAGE_IMPORTS = {
     # Downloads (yt_dlp) and uploads finished media (boto3).
     'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients. spotipy + googleapiclient join when media_search folds in.
-    'discord_bot.cli.search': frozenset({'ytmusicapi'}),
+    'discord_bot.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
 }
 
 IMAGE_NAMES = {

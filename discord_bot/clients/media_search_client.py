@@ -108,3 +108,29 @@ class InMemoryMediaSearchClient:
             # YouTube status the way the Spotify 404 message does.
             raise MediaSearchError(YOUTUBE, MediaSearchError.API_ERROR,
                                    'Youtube API call failed') from exc
+
+
+def build_media_search_client(spotify_client_id: str = None, spotify_client_secret: str = None,
+                              youtube_api_key: str = None) -> InMemoryMediaSearchClient:
+    '''
+    Build an in-process media search client from raw credential values.
+
+    Shared by the bot cog and the search pod, which read the same three settings
+    out of differently-shaped config objects -- a pydantic model on one side, a
+    plain dict on the other. The extraction stays with each caller; the
+    construction, and the "absent credential means a None client, not a crash"
+    rule, live here once. Two copies of an eight-line constructor is also exactly
+    what pylint's duplicate-code check exists to catch.
+
+    spotify_client_id : Spotify app client id, or None
+    spotify_client_secret : Spotify app client secret, or None
+    youtube_api_key : YouTube Data API key, or None
+    '''
+    spotify_client = None
+    if spotify_client_id and spotify_client_secret:
+        spotify_client = SpotifyClient(spotify_client_id, spotify_client_secret)
+    youtube_client = None
+    if youtube_api_key:
+        youtube_client = YoutubeClient(youtube_api_key)
+    return InMemoryMediaSearchClient(spotify_client=spotify_client,
+                                     youtube_client=youtube_client)

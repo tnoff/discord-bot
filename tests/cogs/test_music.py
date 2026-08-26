@@ -603,10 +603,14 @@ def test_music_init_with_spotify_credentials(fake_context):  #pylint:disable=red
         }
     })
 
-    with patch('discord_bot.cogs.music.SpotifyClient') as mock_spotify:
-        cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-        mock_spotify.assert_called_once_with('test_client_id', 'test_client_secret')
-        assert cog.spotify_client is not None
+    with patch('discord_bot.cogs.music.build_media_search_client') as mock_build:
+        Music(fake_context['bot'], config, fake_context['dispatcher'])
+    # The cog no longer holds provider clients; it hands the credentials to the
+    # shared factory and keeps only the MediaSearchClient it gets back. That is
+    # what lets the same three settings configure the search pod unchanged.
+    mock_build.assert_called_once_with(spotify_client_id='test_client_id',
+                                       spotify_client_secret='test_client_secret',
+                                       youtube_api_key=None)
 
 def test_music_init_with_youtube_api_key(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with YouTube API key configured"""
@@ -618,10 +622,10 @@ def test_music_init_with_youtube_api_key(fake_context):  #pylint:disable=redefin
         }
     })
 
-    with patch('discord_bot.cogs.music.YoutubeClient') as mock_youtube:
-        cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-        mock_youtube.assert_called_once_with('test_api_key')
-        assert cog.youtube_client is not None
+    with patch('discord_bot.cogs.music.build_media_search_client') as mock_build:
+        Music(fake_context['bot'], config, fake_context['dispatcher'])
+    mock_build.assert_called_once_with(spotify_client_id=None, spotify_client_secret=None,
+                                       youtube_api_key='test_api_key')
 
 def test_music_init_server_queue_priority(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with server queue priority configuration"""

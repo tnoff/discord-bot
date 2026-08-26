@@ -59,6 +59,20 @@ class AiohttpServerBase:
                 self._active_requests -= 1
         return drain_middleware
 
+    def set_serving(self, value: bool) -> None:
+        '''
+        Record whether this server's routes are currently being served.
+
+        serve() calls it for a server that owns its own TCP site. A composite
+        server calls it on each child it fronts: the children's routes are merged
+        into one Application on one bind, so their own serve() never runs and
+        their _serving would otherwise stay False forever -- while their heartbeat
+        gauges, built on is_serving, reported a permanent 0 for a listener that
+        was up. Public rather than a direct attribute write so a composite does
+        not have to reach into another object's protected state.
+        '''
+        self._serving = value
+
     @property
     def is_serving(self) -> bool:
         '''True while the TCP site is up and accepting requests (False before
@@ -77,7 +91,7 @@ class AiohttpServerBase:
         '''Begin refusing new requests without waiting for in-flight ones to finish.
         Use drain_and_stop() to also wait and shut down.'''
         self._draining = True
-        self._serving = False
+        self.set_serving(False)
 
     async def drain_and_stop(self, timeout: float = 30.0) -> None:
         '''
@@ -108,10 +122,10 @@ class AiohttpServerBase:
         await runner.setup()
         site = web.TCPSite(runner, self._host, self._port)
         await site.start()
-        self._serving = True
+        self.set_serving(True)
         logger.info('%s listening on %s:%s', self.__class__.__name__, self._host, self._port)
         try:
             await self._shutdown_event.wait()
         finally:
-            self._serving = False
+            self.set_serving(False)
             await runner.cleanup()

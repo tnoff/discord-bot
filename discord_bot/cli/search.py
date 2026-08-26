@@ -31,6 +31,11 @@ Configure with:
     music.broker_client.url            — Broker pod URL (required; the pod pushes
                                          RETRY_SEARCH / FAILED lifecycle updates
                                          and registers search results)
+    music.download.spotify_credentials — {client_id, client_secret} for
+                                         /search/spotify (optional; absent means
+                                         that route answers MISSING_CREDENTIALS)
+    music.download.youtube_api_key     — YouTube Data API key for /search/youtube
+                                         (optional, same rule)
     music.download.youtube_wait_period_minimum / _max_variance — 429 backoff shape
     music.download.max_youtube_music_search_retries — per-request retry budget
     music.download.failure_tracking_max_size / _max_age_seconds — failure queue
@@ -43,7 +48,11 @@ import logging
 import click
 
 from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.clients.media_search_client import build_media_search_client
 from discord_bot.clients.redis_client import RedisManager
+from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.servers.composite_server import CompositeHttpServer
+from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 from discord_bot.utils.common import GeneralConfig
 from discord_bot.utils.failure_queue import FailureQueue
@@ -101,7 +110,7 @@ async def _drive_search(driver: YoutubeMusicSearchDriver, stop_event: asyncio.Ev
 
 
 async def main_loop(driver: YoutubeMusicSearchDriver,
-                    search_http_server: YoutubeMusicSearchHttpServer,
+                    search_http_server: AiohttpServerBase,
                     health_server, redis_manager: RedisManager,
                     search_metrics: SearchMetrics, broker_client=None,
                     worker: RedisYoutubeMusicSearchWorker | None = None):
@@ -127,7 +136,7 @@ async def main_loop(driver: YoutubeMusicSearchDriver,
 
 
 def run_search(driver: YoutubeMusicSearchDriver,
-               search_http_server: YoutubeMusicSearchHttpServer,
+               search_http_server: AiohttpServerBase,
                health_server, redis_manager: RedisManager, search_metrics: SearchMetrics,
                broker_client=None, worker: RedisYoutubeMusicSearchWorker | None = None):
     '''Schedule main_loop on an event loop.'''
@@ -179,10 +188,31 @@ def run(settings: dict, general_config: GeneralConfig):
 
     server_cfg = settings.get('general', {}).get('search_server', {})
     # bandit B104: '0.0.0.0' default is intentional — bot pods reach the search pod across the docker/k8s network; override via general.search_server.host
-    search_http_server = YoutubeMusicSearchHttpServer(
-        worker,
-        host=server_cfg.get('host', '0.0.0.0'),  # nosec B104
-        port=int(server_cfg.get('port', DEFAULT_SEARCH_SERVER_PORT)),
+    host = server_cfg.get('host', '0.0.0.0')  # nosec B104
+    port = int(server_cfg.get('port', DEFAULT_SEARCH_SERVER_PORT))
+
+    # The 2nd provider family: source expansion for Spotify and YouTube-playlist
+    # URLs. Credentials are optional here on purpose — an absent one yields a None
+    # provider client, whose route then answers MISSING_CREDENTIALS, which the cog
+    # renders into the same message a bot without credentials shows today. The pod
+    # serving the route either way is what keeps "are credentials configured" a
+    # question the pod answers rather than one the bot has to guess about.
+    spotify_cfg = download_cfg.get('spotify_credentials') or {}
+    media_search_client = build_media_search_client(
+        spotify_client_id=spotify_cfg.get('client_id'),
+        spotify_client_secret=spotify_cfg.get('client_secret'),
+        youtube_api_key=download_cfg.get('youtube_api_key'),
+    )
+
+    # One bind, two route families. See servers/composite_server.py for why the
+    # children's serving state has to be driven from here.
+    search_http_server = CompositeHttpServer(
+        [
+            YoutubeMusicSearchHttpServer(worker, host=host, port=port),
+            MediaSearchHttpServer(media_search_client, host=host, port=port),
+        ],
+        host=host,
+        port=port,
     )
 
     health_server = build_redis_health_server(general_config, redis_manager)

@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from discord_bot.cli import search as search_cli
+from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.cli._lib import common as cli_common
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.
@@ -47,6 +48,7 @@ def _patch_collaborators(mocker):
             search_cli, 'RedisYoutubeMusicSearchWorker'),
         'YoutubeMusicSearchHttpServer': mocker.patch.object(
             search_cli, 'YoutubeMusicSearchHttpServer'),
+        'MediaSearchHttpServer': mocker.patch.object(search_cli, 'MediaSearchHttpServer'),
         'RedisPingHealthServer': mocker.patch.object(worker_pod, 'RedisPingHealthServer'),
         'SearchMetrics': mocker.patch.object(search_cli, 'SearchMetrics'),
         'YoutubeMusicSearchDriver': mocker.patch.object(search_cli, 'YoutubeMusicSearchDriver'),
@@ -95,11 +97,56 @@ def test_run_wires_collaborators(mocker):
     mocks['SearchMetrics'].assert_called_once_with(worker)
     # No monitoring -> no health server.
     mocks['RedisPingHealthServer'].assert_not_called()
+    # What run_search receives is the composite, not the ytmusic server: the pod
+    # binds once and fronts both route families from it.
+    run_args, run_kwargs = mocks['run_search'].call_args
+    assert run_args[0] is driver
+    composite = run_args[1]
+    assert isinstance(composite, CompositeHttpServer)
+    assert run_args[2] is None
+    assert run_args[3] is redis_manager
+    assert run_args[4] is mocks['SearchMetrics'].return_value
     # broker_client is forwarded so the drain path can close its session, and the
     # worker so the pod can sweep stale guild blocks before it serves.
-    mocks['run_search'].assert_called_once_with(
-        driver, server, None, redis_manager, mocks['SearchMetrics'].return_value,
-        broker_client=broker_client, worker=worker)
+    assert run_kwargs == {'broker_client': broker_client, 'worker': worker}
+
+    # Both families are fronted on the one bind, and marking the composite up
+    # marks each child up with it -- otherwise their heartbeats read 0 on a
+    # healthy pod, which is the whole reason CompositeHttpServer exists.
+    media_args, media_kwargs = mocks['MediaSearchHttpServer'].call_args
+    assert media_args[0] is not None
+    assert media_kwargs == {'host': '0.0.0.0', 'port': 8084}
+    composite.set_serving(True)
+    server.set_serving.assert_called_with(True)
+    mocks['MediaSearchHttpServer'].return_value.set_serving.assert_called_with(True)
+
+
+def test_media_search_routes_get_the_configured_credentials(mocker):
+    '''Provider credentials off music.download reach the media-search client.'''
+    mocks = _patch_collaborators(mocker)
+    build = mocker.patch.object(search_cli, 'build_media_search_client')
+    search_cli.run(_settings(extra_download={
+        'spotify_credentials': {'client_id': 'cid', 'client_secret': 'secret'},
+        'youtube_api_key': 'ytkey',
+    }), _GeneralConfig())
+    build.assert_called_once_with(spotify_client_id='cid', spotify_client_secret='secret',
+                                  youtube_api_key='ytkey')
+    assert mocks['run_search'].called
+
+
+def test_media_search_credentials_are_optional(mocker):
+    '''
+    A pod with no provider credentials still serves the routes.
+
+    The route then answers MISSING_CREDENTIALS, which the cog renders into the
+    same message a credential-less bot shows today -- so "are credentials
+    configured" stays a question the pod answers rather than one the bot guesses.
+    '''
+    _patch_collaborators(mocker)
+    build = mocker.patch.object(search_cli, 'build_media_search_client')
+    search_cli.run(_settings(), _GeneralConfig())
+    build.assert_called_once_with(spotify_client_id=None, spotify_client_secret=None,
+                                  youtube_api_key=None)
 
 
 def test_run_forwards_backoff_and_retry_config(mocker):

@@ -50,9 +50,7 @@ from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
-from discord_bot.utils.integrations.spotify import SpotifyClient
-from discord_bot.utils.integrations.youtube import YoutubeClient
-from discord_bot.clients.media_search_client import InMemoryMediaSearchClient
+from discord_bot.clients.media_search_client import build_media_search_client
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
@@ -261,16 +259,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.db_engine:
             self.history_playlist_queue = Queue()
 
-        self.spotify_client = None
-        if self.config.download.spotify_credentials:
-            self.spotify_client = SpotifyClient(
-                self.config.download.spotify_credentials.client_id,
-                self.config.download.spotify_credentials.client_secret
-            )
-
-        self.youtube_client = None
-        if self.config.download.youtube_api_key:
-            self.youtube_client = YoutubeClient(self.config.download.youtube_api_key)
+        spotify_credentials = self.config.download.spotify_credentials
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -311,8 +300,10 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name)
 
-        self.search_client = SearchClient(InMemoryMediaSearchClient(
-            spotify_client=self.spotify_client, youtube_client=self.youtube_client))
+        self.search_client = SearchClient(build_media_search_client(
+            spotify_client_id=spotify_credentials.client_id if spotify_credentials else None,
+            spotify_client_secret=spotify_credentials.client_secret if spotify_credentials else None,
+            youtube_api_key=self.config.download.youtube_api_key))
         # Downloads run in the standalone downloader pod: the cog submits, clears
         # and blocks over HTTP and never builds an in-process worker or queue.
         # Results still return through the broker's download-result queue, which
