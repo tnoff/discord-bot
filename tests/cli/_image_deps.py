@@ -45,8 +45,11 @@ VOCABULARY = (
 # over-broad, where the image installs something nothing reaches any more. That
 # is how yt_dlp sat in [bot] after the download dual path was collapsed.
 IMAGE_IMPORTS = {
+    # bs4 is the urban cog's and stays; spotipy and googleapiclient left with the
+    # media_search cutover, and the forbidden set derived from VOCABULARY is now
+    # what stops them coming back through an import chain.
     'discord_bot.cli.bot': frozenset({
-        'discord', 'spotipy', 'googleapiclient', 'sqlalchemy', 'boto3', 'bs4', 'dappertable',
+        'discord', 'sqlalchemy', 'boto3', 'bs4', 'dappertable',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
@@ -56,7 +59,7 @@ IMAGE_IMPORTS = {
     'discord_bot.cli.broker': frozenset({'sqlalchemy', 'boto3', 'dappertable'}),
     # Downloads (yt_dlp) and uploads finished media (boto3).
     'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
-    # Thin HTTP clients. spotipy + googleapiclient join when media_search folds in.
+    # Thin HTTP clients, plus the two provider SDKs it now owns outright.
     'discord_bot.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
 }
 

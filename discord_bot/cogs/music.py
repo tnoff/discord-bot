@@ -50,7 +50,7 @@ from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
-from discord_bot.clients.media_search_client import build_media_search_client
+from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
@@ -84,11 +84,6 @@ class MusicPlaylistConfig(BaseModel):
     '''Music playlist configuration'''
     server_playlist_max_size: int = Field(default=64, ge=1)
 
-class SpotifyCredentialsConfig(BaseModel):
-    '''Spotify API credentials configuration'''
-    client_id: str
-    client_secret: str
-
 class ServerQueuePriorityConfig(BaseModel):
     '''Server queue priority configuration'''
     server_id: int
@@ -117,8 +112,13 @@ class MusicDownloadConfig(BaseModel):
     # Per-egress bucket for the shared YouTube backoff/failure keys. Pods behind
     # distinct egress IPs should use distinct keys so their rate-limits don't couple.
     youtube_egress_key: str = 'default'
-    spotify_credentials: Optional[SpotifyCredentialsConfig] = None
-    youtube_api_key: Optional[str] = None
+    # No spotify_credentials / youtube_api_key. The cog does not hold provider
+    # credentials any more -- source expansion is a round trip to the search pod,
+    # which reads both out of music.download in ITS config (cli/search.py). Left
+    # here they would be a config surface nothing reads: pydantic's default
+    # extra='ignore' means discord.bot.conf can keep carrying them through the
+    # cutover either way, so the only thing declaring them would buy is the
+    # implication that the bot still uses them.
     server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
     cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
     storage: Optional[MusicStorageConfig] = None
@@ -183,6 +183,28 @@ class YoutubeMusicSearchClientConfig(BaseModel):
     are unrelated.'''
     url: str
 
+class MediaSearchClientConfig(BaseModel):
+    '''Config for connecting to the search pod's source-expansion routes.
+
+    Required, and required from the first release that reads it — unlike the three
+    seams above, this one never had an optional phase.  Those each spent a release
+    selecting an in-process worker when the url was absent, and each had to be
+    un-defaulted later (projects/discord-bot-ha-only); there is no reason to
+    repeat that here when the pod has been serving these routes since !264.
+
+    A missing url is therefore a startup error.  That is deliberate: the
+    alternative is an in-process fallback, which would mean importing
+    clients/media_search_client — and with it spotipy and googleapiclient, the two
+    packages this whole extraction exists to get off the bot image.  A fallback
+    nothing can reach without undoing the point of the change is not a fallback.
+
+    The same pod and port as youtube_music_search_client: one bind fronts both
+    route families (servers/composite_server.py).  They stay separate keys anyway,
+    because sharing a pod today is not a promise to share one forever, and a
+    single key would make splitting them a config break rather than a config
+    edit.'''
+    url: str
+
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
@@ -192,6 +214,7 @@ class MusicConfig(BaseModel):
     broker_client: BrokerClientConfig
     download_client: DownloadClientConfig
     youtube_music_search_client: YoutubeMusicSearchClientConfig
+    media_search_client: MediaSearchClientConfig
 
 #
 # Exceptions
@@ -259,8 +282,6 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if self.db_engine:
             self.history_playlist_queue = Queue()
 
-        spotify_credentials = self.config.download.spotify_credentials
-
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
             for item in self.config.download.server_queue_priority:
@@ -300,10 +321,18 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name)
 
-        self.search_client = SearchClient(build_media_search_client(
-            spotify_client_id=spotify_credentials.client_id if spotify_credentials else None,
-            spotify_client_secret=spotify_credentials.client_secret if spotify_credentials else None,
-            youtube_api_key=self.config.download.youtube_api_key))
+        # Source expansion runs in the search pod: the cog posts a Spotify or
+        # YouTube-playlist id over HTTP and gets a CatalogResponse back, and never
+        # builds a provider client of its own.  SearchClient is unchanged either
+        # side of this line — it takes a MediaSearchClient, and both
+        # implementations satisfy that Protocol, which is the entire reason MR 1
+        # put the Protocol in first.
+        #
+        # A provider failure still arrives as MediaSearchError, raised by the
+        # remote client out of the pod's typed error body, so the rendering below
+        # it does not know the difference.
+        self.search_client = SearchClient(
+            HttpMediaSearchClient(self.config.media_search_client.url))
         # Downloads run in the standalone downloader pod: the cog submits, clears
         # and blocks over HTTP and never builds an in-process worker or queue.
         # Results still return through the broker's download-result queue, which

@@ -51,9 +51,11 @@ class SearchClient():
         Init search client
 
         media_search_client : Expands third-party URLs into a CatalogResponse.
-            In-process today, the search pod later; this class does not care
-            which, which is the point of taking it as one argument instead of a
-            SpotifyClient and a YoutubeClient.
+            The bot passes the HTTP one and the search pod builds the in-process
+            one; this class has never had to know which, which is the point of
+            taking it as one argument instead of a SpotifyClient and a
+            YoutubeClient. It is also why the cutover changed one line in the cog
+            and nothing at all in here.
         '''
         self.media_search_client: MediaSearchClient = media_search_client
 

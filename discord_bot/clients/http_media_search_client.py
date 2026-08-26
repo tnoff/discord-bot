@@ -14,7 +14,9 @@ the bot, the exact process the media_search extraction exists to get them out of
 Same split, and the same reason, as HttpBrokerClient moving out of
 clients/broker_client.py (see reference: slim pod import-chain leaks).
 
-Nothing constructs this yet; the cog picks it up at the cutover.
+The cog constructs this and nothing else -- there is no in-process branch left
+on the bot side, which is what took spotipy and google-api-python-client out
+of [bot].
 '''
 import logging
 

@@ -22,6 +22,7 @@ from discord_bot.types.download import DownloadErrorType, DownloadResult, Downlo
 from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
+from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, InMemoryYoutubeMusicSearchClient,
 )
@@ -41,6 +42,11 @@ from tests.helpers import attach_in_process_download
 # youtube_music_search_client is required config since the dual-path collapse —
 # the cog is an HTTP client only, and tests that need the in-process search stack
 # rebuild it with tests.helpers.attach_in_process_search.
+#
+# media_search_client is required for the same reason and has never been anything
+# else: source expansion is a round trip to the search pod, and there is no
+# in-process fallback to rebuild. It points at the same host and port as
+# youtube_music_search_client because one bind fronts both route families.
 # The search loop's heartbeat name. The cog used to define this constant and
 # register the loop; since the dual-path collapse the search pod owns both
 # (cli/search.py's LOOP_SEARCH_WORKER). Kept here so the assertions that the BOT
@@ -61,6 +67,7 @@ BASE_MUSIC_CONFIG = {
         'broker_client': {'url': 'http://broker-host:8081'},
         'download_client': {'url': 'http://downloader-host:8083'},
         'youtube_music_search_client': {'url': 'http://search-host:8084'},
+        'media_search_client': {'url': 'http://search-host:8084'},
     },
 }
 
@@ -590,42 +597,82 @@ async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=
     assert call_args.kwargs['is_history'] is True
 
 
-def test_music_init_with_spotify_credentials(fake_context):  #pylint:disable=redefined-outer-name
-    """Test Music initialization with Spotify credentials configured"""
+def test_music_init_builds_the_http_media_search_client(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    Source expansion is a remote call, and the url it targets is the config's.
+
+    The cog holds no provider client of its own -- SearchClient takes whatever
+    satisfies the MediaSearchClient Protocol, and what it is handed here is the
+    HTTP one. Asserting the base_url as well as the type is what catches the
+    plausible-looking regression where the client is built off some other seam's
+    url; they happen to point at the same pod, so a mix-up would pass a type check
+    and every test that does not name the port.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.search_client.media_search_client, HttpMediaSearchClient)
+    assert cog.search_client.media_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
+
+
+def test_music_init_media_search_url_is_read_independently(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    media_search_client.url and youtube_music_search_client.url are separate keys.
+
+    They point at one pod today because one bind fronts both route families, which
+    is exactly why this needs asserting: with both set to the same value in the
+    base config, reading the wrong one is invisible. Give them different values
+    and each client has to land on its own.
+    """
     config = music_config({
         'music': {
-            'download': {
-                'spotify_credentials': {
-                    'client_id': 'test_client_id',
-                    'client_secret': 'test_client_secret'
-                }
-            }
+            'media_search_client': {'url': 'http://expansion-host:9099'},
         }
     })
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    assert cog.search_client.media_search_client._base_url == 'http://expansion-host:9099'  # pylint: disable=protected-access
+    assert cog.youtube_music_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
 
-    with patch('discord_bot.cogs.music.build_media_search_client') as mock_build:
+
+def test_music_config_requires_a_media_search_url(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    A config without media_search_client fails at startup, not at the first !play.
+
+    This is the one seam that never had an optional phase, so there is no
+    in-process fallback for a missing url to select -- and none can be added
+    without importing the provider SDKs back onto the bot image. Failing loudly at
+    construction is the whole design; a pod that starts and then cannot expand a
+    Spotify link would be the worse outcome, because it looks healthy.
+
+    The pydantic ValidationError is deliberately re-raised as DiscordBotException
+    rather than allowed to surface as CogMissingRequiredArg, which load_cogs would
+    read as "this cog opts out" and skip. The message is asserted too: naming the
+    key is the difference between a fatal error an operator can act on and one
+    that just says the music config is bad.
+    """
+    config = music_config()
+    del config['music']['media_search_client']
+    with pytest.raises(DiscordBotException) as exc_info:
         Music(fake_context['bot'], config, fake_context['dispatcher'])
-    # The cog no longer holds provider clients; it hands the credentials to the
-    # shared factory and keeps only the MediaSearchClient it gets back. That is
-    # what lets the same three settings configure the search pod unchanged.
-    mock_build.assert_called_once_with(spotify_client_id='test_client_id',
-                                       spotify_client_secret='test_client_secret',
-                                       youtube_api_key=None)
+    assert 'media_search_client' in str(exc_info.value)
 
-def test_music_init_with_youtube_api_key(fake_context):  #pylint:disable=redefined-outer-name
-    """Test Music initialization with YouTube API key configured"""
-    config = music_config({
-        'music': {
-            'download': {
-                'youtube_api_key': 'test_api_key'
-            }
-        }
-    })
 
-    with patch('discord_bot.cogs.music.build_media_search_client') as mock_build:
-        Music(fake_context['bot'], config, fake_context['dispatcher'])
-    mock_build.assert_called_once_with(spotify_client_id=None, spotify_client_secret=None,
-                                       youtube_api_key='test_api_key')
+def test_cog_builds_no_in_process_media_search_stack(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    A deployment-shaped config never constructs the in-process provider clients.
+
+    Same contract as the search and download tiers, and the module check is again
+    the load-bearing half. Here it guards an import chain rather than a fallback
+    branch: clients/media_search_client imports spotipy and googleapiclient at
+    module scope to name their exception types, so re-importing anything from it
+    into this module puts both SDKs back on the bot image.
+
+    tests/cli/test_import_boundaries.py measures that same fact at the entrypoint
+    and is the real gate. This fails first and points at the file that did it.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert isinstance(cog.search_client.media_search_client, HttpMediaSearchClient)
+    for symbol in ('build_media_search_client', 'InMemoryMediaSearchClient',
+                   'SpotifyClient', 'YoutubeClient'):
+        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
 def test_music_init_server_queue_priority(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with server queue priority configuration"""

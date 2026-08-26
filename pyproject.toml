@@ -105,13 +105,18 @@ downloading = [
     "yt-dlp-ejs",
 ]
 search-providers = [
-    # Metadata providers the cog expands sources with. These two, and only these
-    # two, are what leaves [bot] when media_search folds into the search pod --
-    # which is why beautifulsoup4 is NOT here. It was, and it does not belong: its
-    # only import site is cogs/urban.py, which cli/_lib/cog_registry imports
-    # unconditionally, so the bot needs it no matter what media_search does. A
-    # group named for a capability has to hold only packages that serve it, or the
-    # next person to move the group by its name takes an unrelated package with it.
+    # Metadata providers source expansion runs against.
+    #
+    # The search pod's, and ONLY the search pod's, as of the media_search cutover
+    # -- the cog reaches these through HttpMediaSearchClient now and imports
+    # neither SDK. That is what this group was carved out of [bot] to make
+    # possible, and it is why beautifulsoup4 is NOT here. bs4 was in this group
+    # once and it did not belong: its only import site is cogs/urban.py, which
+    # cli/_lib/cog_registry imports unconditionally, so the bot needs it no matter
+    # what media_search does. It rode this group's name to the edge of leaving the
+    # bot image with it. A group named for a capability has to hold only packages
+    # that serve it, or the next person to move the group by its name takes an
+    # unrelated package along.
     "spotipy==2.26.0",
     "google-api-python-client==2.198.0",
 ]
@@ -143,7 +148,11 @@ youtube-music = [
 # at pod start, and a package it installs but no longer imports is dead weight.
 # ---------------------------------------------------------------------------
 bot = [
-    "discord_bot[gateway,voice,database,storage,rendering,search-providers,scraping]",
+    # No search-providers: source expansion is a round trip to the search pod, so
+    # spotipy and google-api-python-client are the pod's and not this image's.
+    # scraping stays -- bs4 is the urban cog's, which has nothing to do with
+    # media_search and is imported unconditionally by the cog registry.
+    "discord_bot[gateway,voice,database,storage,rendering,scraping]",
 ]
 dispatcher = [
     # The strictest image: the core set plus discord.py and nothing else. It sends
