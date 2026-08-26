@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.110] - 2026-08-26
+
+### Changed
+
+- A resolved search is no longer destroyed when the downloader is unreachable. `broker_client.next_search_result()` is a destructive pop, and `process_search_results` caught only `PutsBlocked` and `QueueFull` around the download submit — both of which are the downloader *answering*. Anything else, in practice a `ClientConnectorError` against a downloader pod mid-`Recreate`, escaped with the resolution already popped and gone: the media request was never downloaded, and its bundle row stranded on `QUEUED` with no error the user could see. The resolution now goes back on the broker's queue before the exception propagates, so the loop runner's capped backoff applies and the request is picked up once the new pod is serving. When the requeue itself fails the request really is lost, so that branch says so in the log and lets the original submit failure propagate rather than masking it. `downloader-app.yaml` calls the `Recreate` gap harmless because "downloads queue in Redis and resume when the new pod's tunnel is up" — true for work already on the downloader's queue, and this is what makes it true for work still in the handoff. The same shape is fixed at the other end of the pipeline: `_generate_media_requests_from_search` creates its bundle before calling `check_source`, and caught only `SearchException` — airtight while `check_source` was in-process, but since the media_search cutover it is an HTTP round trip that can raise out of aiohttp. An uncaught one left a rendered placeholder row that never resolved; the bundle is now torn down and the user told the search backend is unavailable.
+
 ## [2.5.109] - 2026-08-26
 
 ### Changed
