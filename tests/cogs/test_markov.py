@@ -263,25 +263,28 @@ async def test_turn_on_and_sync_too_long_words(mocker, fake_engine, fake_context
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 4
 
-def mock_random(input_list):
-    '''Return the first element of the list (deterministic for tests).'''
-    return input_list[0]
-
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_and_speak(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''After syncing, speak generates a predictable markov sentence'''
-    fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human',
+    '''After syncing, speak generates a predictable markov sentence
+
+    Determinism comes from the corpus, not from patching the selection. Every
+    word here has exactly one follower and the corpus loops back to the start,
+    so the chain is a fixed cycle whichever row postgres' random() picks -- and
+    first_word pins where it starts. The old version patched
+    markov.choice to always take element zero, which meant the assertion
+    described the mock rather than the query.
+    '''
+    fake_message = FakeMessage(content='alpha bravo charlie delta',
                                author=fake_context['author'],
                                created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
     await _run_markov_request_and_result(cog, mocker)
-    result = await cog.speak(cog, fake_context['context'])
-    assert result == 'this is an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message, an example message,'
+    result = await cog.speak(cog, fake_context['context'], 'alpha')
+    assert result == ' '.join(['alpha', 'bravo', 'charlie', 'delta'] * 8)
     assert len(result.split(' ')) == 32
 
 
@@ -296,7 +299,6 @@ async def test_turn_on_sync_speak_invalid_first_word(mocker, fake_engine, fake_c
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
     await _run_markov_request_and_result(cog, mocker)
     result = await cog.speak(cog, fake_context['context'], 'non-existing')
     assert result == 'No markov word matching "non-existing"'
@@ -312,7 +314,6 @@ async def test_turn_on_sync_speak_multi_first_word(mocker, fake_engine, fake_con
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
     await _run_markov_request_and_result(cog, mocker)
     result = await cog.speak(cog, fake_context['context'], 'funny you want an example')
     assert len(result.split(' ')) == 32
@@ -328,7 +329,6 @@ async def test_turn_on_sync_speak_sentence_length(mocker, fake_engine, fake_cont
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     cog.register_result_queue()
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    mocker.patch('discord_bot.cogs.markov.choice', side_effect=mock_random)
     await _run_markov_request_and_result(cog, mocker)
     result = await cog.speak(cog, fake_context['context'], sentence_length=5)
     assert len(result.split(' ')) == 5
@@ -341,6 +341,31 @@ async def test_speak_no_words(fake_engine, fake_context):  #pylint:disable=redef
     await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
     result = await cog.speak(cog, fake_context['context'], sentence_length=5)
     assert result == 'No markov words to pick from'
+
+@pytest.mark.asyncio
+@freeze_time('2024-12-01 12:00:00', tz_offset=0)
+async def test_speak_stops_at_a_dead_end_instead_of_raising(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A word that leads nowhere ends the sentence rather than raising.
+
+    Reachable in production: retention deletes relations by created_at, so it
+    can remove every relation in which a word leads while keeping one where it
+    follows. The old implementation handed the resulting empty id list to
+    choice(), which raises IndexError.
+    '''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
+
+    async with async_mock_session(fake_engine) as session:
+        channel = (await session.execute(select(MarkovChannel))).scalars().first()
+        # alpha -> omega, and nothing leads on from omega.
+        session.add(MarkovRelation(channel_id=channel.id,
+                                   leader_word='alpha',
+                                   follower_word='omega',
+                                   created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)))
+        await session.commit()
+
+    result = await cog.speak(cog, fake_context['context'], 'alpha', 10)
+    assert result == 'alpha omega'
 
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)

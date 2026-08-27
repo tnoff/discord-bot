@@ -1,7 +1,6 @@
 from asyncio import sleep
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from random import choice
 from re import match, sub, MULTILINE
 from typing import Optional, List
 
@@ -14,6 +13,7 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.sql.functions import random as sql_random
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.cog_helper import CogHelper
@@ -112,6 +112,40 @@ async def get_markov_channel_by_ids(db_session: AsyncSession, guild_id: int, cha
         .where(MarkovChannel.channel_id == channel_id)
         .where(MarkovChannel.server_id == guild_id)
     )).scalars().first()
+
+def _guild_relations(guild_id: int):
+    '''Select over one guild's markov relations, joined through its channels.'''
+    return (
+        select(MarkovRelation)
+        .join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id)
+        .where(MarkovChannel.server_id == guild_id)
+    )
+
+async def random_leader_word(db_session: AsyncSession, guild_id: int, first_word: str = None):
+    '''
+    Pick one random leader word for the guild, optionally constrained to first_word.
+
+    Returns None when the guild has no relations at all (or none matching
+    first_word), which is the caller's "nothing to say" signal.
+    '''
+    stmt = _guild_relations(guild_id).with_only_columns(MarkovRelation.leader_word)
+    if first_word:
+        stmt = stmt.where(MarkovRelation.leader_word == first_word)
+    # bandit B311 does not apply: the randomness is postgres' random(), and word
+    # selection is not security-sensitive either way.
+    return (await db_session.execute(stmt.order_by(sql_random()).limit(1))).scalar_one_or_none()
+
+async def random_follower_word(db_session: AsyncSession, guild_id: int, leader_word: str):
+    '''
+    Pick one random word that follows leader_word in this guild, or None.
+
+    None means the chain dead-ends: retention can delete every relation in which
+    a word leads while leaving one where it follows.
+    '''
+    stmt = (_guild_relations(guild_id)
+            .with_only_columns(MarkovRelation.follower_word)
+            .where(MarkovRelation.leader_word == leader_word))
+    return (await db_session.execute(stmt.order_by(sql_random()).limit(1))).scalar_one_or_none()
 
 class Markov(CogHelper):
     '''
@@ -518,38 +552,33 @@ class Markov(CogHelper):
                 all_words.append(start_words.lower())
             first = starting_words[-1].lower()
 
+        # One row per word, chosen by postgres. This used to select EVERY
+        # relation id for the guild into python, choice() one, then fetch that
+        # row by id -- and then repeat the whole select once per word of the
+        # sentence. A 32-word sentence was ~64 queries, half of them returning
+        # the guild's entire relation-id set, which grows without bound as
+        # channels are gathered.
         async with self.with_db_session() as db_session:
-            async def get_possible_words(first=None):
-                stmt = (
-                    select(MarkovRelation.id)
-                    .join(MarkovChannel, MarkovChannel.id == MarkovRelation.channel_id)
-                    .where(MarkovChannel.server_id == ctx.guild.id)
-                )
-                if first:
-                    stmt = stmt.where(MarkovRelation.leader_word == first)
-                return (await db_session.execute(stmt)).scalars().all()
+            word = await async_retry_database_commands(
+                db_session, lambda: random_leader_word(db_session, ctx.guild.id, first))
 
-            possible_words = await async_retry_database_commands(db_session, lambda: get_possible_words(first))
-
-            if len(possible_words) == 0:
+            if word is None:
                 if first_word:
                     return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'No markov word matching "{first_word}"')
                 return await self.dispatch_message(ctx.guild.id, ctx.channel.id,'No markov words to pick from')
 
-            async def get_leader_word():
-                # bandit B311: Markov chain word selection, not security-sensitive
-                return (await db_session.get(MarkovRelation, choice(possible_words))).leader_word  # nosec B311
-
-            async def get_follower_word(word_ids):
-                # bandit B311: Markov chain word selection, not security-sensitive
-                return (await db_session.get(MarkovRelation, choice(word_ids))).follower_word  # nosec B311
-
-            word = await async_retry_database_commands(db_session, get_leader_word)
             all_words.append(word)
 
             remaining_word_num = sentence_length - len(all_words)
             for _ in range(remaining_word_num):
-                relation_ids = await async_retry_database_commands(db_session, lambda w=word: get_possible_words(w))
-                word = await async_retry_database_commands(db_session, lambda r=relation_ids: get_follower_word(r))
+                word = await async_retry_database_commands(
+                    db_session, lambda w=word: random_follower_word(db_session, ctx.guild.id, w))
+                if word is None:
+                    # Dead end rather than a crash. The old code passed the empty
+                    # id list straight to choice(), which raises IndexError -- and
+                    # retention makes that reachable, since it can delete every
+                    # relation in which a word leads while keeping one where it
+                    # follows. A short sentence beats a traceback.
+                    break
                 all_words.append(word)
             return await self.dispatch_message(ctx.guild.id, ctx.channel.id,' '.join(markov_word for markov_word in all_words))
