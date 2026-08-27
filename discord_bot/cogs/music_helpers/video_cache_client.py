@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 from discord_bot.database import VideoCache
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
+from discord_bot.types.video_cache import VideoCacheEntry
 from discord_bot.cogs.music_helpers import database_functions
 from discord_bot.utils.sql_retry import async_retry_database_commands
-from discord_bot.utils.otel import async_otel_span_wrapper, MusicVideoCacheNaming
+from discord_bot.utils.otel import async_otel_span_wrapper
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 
@@ -30,12 +31,17 @@ class MusicCacheConfig(BaseModel):
 
 class VideoCacheClient():
     '''
-    DB catalog for the video cache.
+    DB catalog for the video cache -- the in-process VideoCacheStore.
 
     Stores and queries VideoCache records (metadata, play counts, eviction
     policy). VideoCache.base_path holds either a local file path or an S3
     object key depending on storage_type. All file operations are handled
     by MediaBroker.
+
+    Satisfies interfaces.database_protocols.VideoCacheStore, which is what
+    MediaBrokerBase annotates against. The name stays `VideoCacheClient` until
+    an HTTP sibling exists to be distinguished from -- renaming it to
+    InMemoryVideoCacheStore now would touch three repos and change nothing.
     '''
     def __init__(self, max_cache_files: int, session_generator: Callable,
                  max_cache_size_bytes: int | None = None, storage_type: str = 'local'):
@@ -114,14 +120,6 @@ class VideoCacheClient():
                     return None
                 return self.__generate_source_download(video_cache, media_request)
 
-    def generate_download_from_existing(self, media_request: MediaRequest, video_cache: VideoCache) -> MediaDownload:
-        '''
-        Generate a source download from an existing VideoCache record.
-        '''
-        attributes = media_request_attributes(media_request)
-        attributes[MusicVideoCacheNaming.ID.value] = video_cache.id
-        return self.__generate_source_download(video_cache, media_request)
-
     async def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
         '''
         Delete VideoCache DB records for the given IDs.
@@ -135,7 +133,7 @@ class VideoCacheClient():
                     await async_retry_database_commands(db_session, lambda vid=video_cache_id: database_functions.delete_video_cache(db_session, vid))
             return True
 
-    async def ready_remove(self):
+    async def ready_remove(self) -> bool:
         '''
         Mark the oldest excess cache entries ready_for_deletion.
         '''
@@ -150,12 +148,18 @@ class VideoCacheClient():
                     await async_retry_database_commands(db_session, lambda: database_functions.video_cache_mark_deletion_for_size(db_session, self.max_cache_size_bytes))
             return True
 
-    async def get_deletable_entries(self) -> list:
+    async def get_deletable_entries(self) -> List[VideoCacheEntry]:
         '''
         Return VideoCache entries marked ready_for_deletion.
+
+        Converted to VideoCacheEntry inside the session block. The caller reads
+        base_path and id after this returns, by which point the session has
+        closed and the ORM rows are detached -- and once this store is remote
+        there are no rows to hand back at all.
         '''
         async with self.session_generator() as db_session:
-            return await async_retry_database_commands(db_session, lambda: database_functions.list_video_cache_where_delete_ready(db_session))
+            rows = await async_retry_database_commands(db_session, lambda: database_functions.list_video_cache_where_delete_ready(db_session))
+            return [VideoCacheEntry.from_row(row) for row in rows]
 
     async def get_cache_count(self) -> int:
         '''Return the current number of VideoCache records.'''

@@ -20,6 +20,7 @@ from discord_bot.interfaces.broker_protocols import (
 )
 from discord_bot.workers.media_bundle import BundleRenderer
 
+from tests.cli._image_deps import measure
 from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
 
 
@@ -486,3 +487,24 @@ async def test_finished_summary_dispatched_only_once(fake_context):  # pylint: d
     await broker._render_and_dispatch_bundle(bundle_uuid)  # pylint: disable=protected-access
     dispatcher.update_mutable.assert_not_called()
     dispatcher.remove_mutable.assert_not_called()
+
+
+def test_broker_protocols_does_not_import_sqlalchemy():
+    '''Annotating video_cache must not drag the ORM in.
+
+    This module is imported by things that have no database at all -- it is the
+    reason CheckoutResult, DownloadResultQueue and BrokerClient were each moved
+    out to their own module, and the docstring at the top of broker_protocols
+    still tells that story.  Depending on VideoCacheStore rather than
+    VideoCacheClient is what removed sqlalchemy from the chain; measuring it
+    here is what stops a future annotation putting it back by hand.
+
+    boto3 is deliberately not asserted absent: delete_file keeps it, and this
+    test would then be asserting a fix that has not happened.
+    '''
+    packages = set(measure('discord_bot.interfaces.broker_protocols')['packages'])
+    assert 'sqlalchemy' not in packages, (
+        'broker_protocols pulled sqlalchemy back into its import chain. Something '
+        'in it now names a module under discord_bot.database or a client that does '
+        '-- annotate against the Protocol in interfaces/database_protocols instead.'
+    )

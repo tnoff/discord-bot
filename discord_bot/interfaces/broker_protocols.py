@@ -20,7 +20,7 @@ from typing import Any, List, Protocol
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.interfaces.database_protocols import VideoCacheStore
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.interfaces.player_session_store import PlayerSessionStore
@@ -36,16 +36,20 @@ logger = logging.getLogger(__name__)
 
 # Re-exported so callers that already import DownloadResultQueue from
 # broker_protocols keep working.  The canonical home is interfaces/result_queue.py
-# — kept separate to avoid dragging the broker engine's deps (sqlalchemy via
-# VideoCacheClient) into the dispatcher pod, which only needs the Redis
-# WorkQueue/BundleStore from workers/redis_queues.
+# — kept separate to avoid dragging the broker engine's deps into the dispatcher
+# pod, which only needs the Redis WorkQueue/BundleStore from workers/redis_queues.
 # CheckoutResult is re-exported for the same reason, and moved for a stronger one:
 # it is a plain dataclass that HttpBrokerClient needs, and leaving it here forced
-# the HTTP client to import this module — and with it VideoCacheClient's
-# sqlalchemy and s3's boto3, neither of which the slim search image installs.
-# BrokerClient is re-exported for the same reason: it moved to
-# interfaces/broker_client_protocol so annotating a broker handle does not
-# import this module's engine deps (sqlalchemy via VideoCacheClient, boto3 via s3).
+# the HTTP client to import this module — and with it s3's boto3, which the slim
+# search image does not install.  BrokerClient moved to
+# interfaces/broker_client_protocol on the same argument.
+#
+# Those three moves were all made to escape *this* module's imports.  As of the
+# VideoCacheStore seam one of the two deps they were escaping is gone: annotating
+# video_cache against the Protocol instead of VideoCacheClient drops sqlalchemy
+# out of this import chain, leaving only boto3 via delete_file.  The escapes stay
+# — boto3 alone is still disqualifying for the slim images, and re-homing a type
+# that other modules now import from its canonical location would be churn.
 __all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult', 'BrokerClient']
 
 
@@ -98,7 +102,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     Concrete subclasses must set video_cache and bucket_name in __init__.
     '''
 
-    video_cache: VideoCacheClient | None
+    video_cache: VideoCacheStore | None
     bucket_name: str | None
 
     # ------------------------------------------------------------------
@@ -215,7 +219,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     # and RedisBroker.
     # ------------------------------------------------------------------
 
-    def __init__(self, video_cache: VideoCacheClient | None = None,
+    def __init__(self, video_cache: VideoCacheStore | None = None,
                  bucket_name: str | None = None,
                  dispatcher: 'BundleDispatchSink | None' = None,
                  download_max_retries: int = 3,

@@ -96,12 +96,6 @@ class MusicMediaDownloadNaming(Enum):
     VIDEO_ID = 'music.media_download.video_id'
     EXTRACTOR = 'music.media_download.extractor'
 
-class MusicVideoCacheNaming(Enum):
-    '''
-    Music Video Cache Naming
-    '''
-    ID = 'music.video_cache.id'
-
 def capture_span_context() -> dict | None:
     '''
     Capture the currently-active span context as a JSON-serialisable dict.

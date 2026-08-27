@@ -7,6 +7,8 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import VideoCache
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.interfaces.database_protocols import VideoCacheStore
+from discord_bot.types.video_cache import VideoCacheEntry
 
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download, generate_fake_context
 from tests.helpers import fake_engine #pylint:disable=unused-import
@@ -186,15 +188,51 @@ async def test_get_cache_count(fake_engine):  #pylint:disable=redefined-outer-na
 
 
 @pytest.mark.asyncio
-async def test_generate_download_from_existing(fake_engine):  #pylint:disable=redefined-outer-name
+async def test_get_deletable_entries_returns_detached_entries(fake_engine):  #pylint:disable=redefined-outer-name
+    '''The entries outlive the session that loaded them.
+
+    Reading base_path after the session generator closes is what cache_cleanup
+    does -- it holds the list across a delete_file loop.  On live ORM rows that
+    is a DetachedInstanceError waiting on lazy-load timing; the assertion here
+    is that the values are already materialized.
+    '''
     with TemporaryDirectory() as tmp_dir:
         fake_context = generate_fake_context()
-        x = VideoCacheClient(10, partial(async_mock_session, fake_engine))
-        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as s:
+        x = VideoCacheClient(1, partial(async_mock_session, fake_engine))
+        with fake_media_download(tmp_dir, fake_context=fake_context) as s:
+            s.file_size_bytes = 4096
             await x.iterate_file(s)
-            async with async_mock_session(fake_engine) as session:
-                video_cache = (await session.execute(select(VideoCache))).scalars().first()
-            result = x.generate_download_from_existing(s.media_request, video_cache)
-            assert result is not None
-            assert result.webpage_url == s.webpage_url
-            assert result.cache_hit is True
+        async with async_mock_session(fake_engine) as session:
+            row = (await session.execute(select(VideoCache))).scalars().first()
+            row.ready_for_deletion = True
+            await session.commit()
+            row_id = row.id
+
+        entries = await x.get_deletable_entries()
+
+        assert [e.id for e in entries] == [row_id]
+        entry = entries[0]
+        assert isinstance(entry, VideoCacheEntry)
+        assert entry.video_url == s.webpage_url
+        assert entry.base_path
+        assert entry.file_size_bytes == 4096
+        assert entry.ready_for_deletion is True
+        # Round-trips as JSON, which the ORM row it replaced does not.
+        assert VideoCacheEntry.model_validate(entry.model_dump(mode='json')) == entry
+
+
+@pytest.mark.asyncio
+async def test_get_deletable_entries_empty_when_nothing_flagged(fake_engine):  #pylint:disable=redefined-outer-name
+    '''Nothing flagged is an empty list, not an error.'''
+    x = VideoCacheClient(10, partial(async_mock_session, fake_engine))
+    assert await x.get_deletable_entries() == []
+
+
+def test_video_cache_client_satisfies_the_store_protocol():
+    '''VideoCacheClient is the in-memory VideoCacheStore.
+
+    runtime_checkable only checks method names, so this catches a rename or a
+    dropped method -- the failure mode when the Protocol and its only
+    implementation drift while the HTTP sibling does not exist yet to notice.
+    '''
+    assert isinstance(VideoCacheClient(10, partial(async_mock_session, None)), VideoCacheStore)

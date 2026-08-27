@@ -15,6 +15,7 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
+from discord_bot.types.video_cache import VideoCacheEntry
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
 
@@ -689,10 +690,11 @@ async def test_check_cache_returns_none_without_video_cache():
 async def test_cache_cleanup_evicts_via_batch_fetch():
     '''cache_cleanup evicts entries not referenced by any in-use registry entry.'''
     video_cache = MagicMock()
-    deletable = MagicMock()
-    deletable.video_url = 'https://example.com/other'
-    deletable.base_path = '/s3/other.mp3'
-    deletable.id = 99
+    # A real VideoCacheEntry, not a MagicMock: a mock answers any attribute, so
+    # it would keep passing if the store started handing back a shape
+    # cache_cleanup cannot read.
+    deletable = VideoCacheEntry(id=99, video_url='https://example.com/other',
+                                base_path='/s3/other.mp3')
     video_cache.ready_remove = AsyncMock()
     video_cache.get_deletable_entries = AsyncMock(return_value=[deletable])
     video_cache.remove_video_cache = AsyncMock()
