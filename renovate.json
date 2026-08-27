@@ -4,5 +4,16 @@
     "github>tnoff/github-workflows//renovate/default-github",
     "github>tnoff/github-workflows//renovate/python"
   ],
-  "enabledManagers": ["github-actions", "pep621", "dockerfile", "custom.regex"]
+  "enabledManagers": ["github-actions", "pep621", "dockerfile", "custom.regex"],
+  "customManagers": [
+    {
+      "description": "Track the dappertable tarball pin (pep621 cannot version a plain archive URL)",
+      "customType": "regex",
+      "fileMatch": ["(^|/)pyproject\\.toml$"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>tnoff/dappertable)/archive/refs/tags/(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)\\.tar\\.gz"
+      ],
+      "datasourceTemplate": "github-tags"
+    }
+  ]
 }
