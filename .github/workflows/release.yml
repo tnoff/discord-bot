@@ -1,0 +1,184 @@
+name: Release
+
+# Default-branch pipeline: fold the changelog, tag, push all five images, and
+# ask docker-apps to bump each pin.
+#
+# ---------------------------------------------------------------------------
+# The fold guard
+# ---------------------------------------------------------------------------
+# assemble-changelog pushes a "docs: assemble changelog for X" commit to main,
+# which triggers this workflow a SECOND time. That second pass is what cuts the
+# tag, because tag defers while fragments are still pending.
+#
+# The images must NOT be pushed twice and docker-apps must not be asked to bump
+# twice. GitLab guarded this with .not-on-changelog-fold matching the commit
+# message; this is the same guard. Without it the fold commit is byte-identical
+# in the image context, so the push skips the tag write on a shared digest and
+# trigger-bump pins docker-apps at a tag that was never written.
+#
+# ---------------------------------------------------------------------------
+# Why push and trigger-bump are ten explicit jobs and not two matrices
+# ---------------------------------------------------------------------------
+# A matrix job's outputs are not addressable per leg -- there is no
+# needs.push.outputs[matrix.image]. trigger-bump needs the `image` and
+# `secondary_tag` that ITS OWN push produced, and deriving the tag
+# independently instead is precisely how docker-apps ends up pinned to a tag
+# that was never written. So the pairs stay explicit and wired one to one.
+#
+# The GitLab config needed a before_script per image to shell-export
+# OCI_REPO_NAME_64, because GitLab does not reliably substitute one masked
+# variable into another and every image would otherwise be pushed to the BOT
+# repo. Here repo_name is a plain input, so that is simply gone.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  assemble-changelog:
+    name: Assemble changelog
+    permissions:
+      contents: write
+    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    secrets:
+      push_token: ${{ secrets.GIT_PUSH_TOKEN }}
+
+  tag:
+    name: Tag
+    needs: assemble-changelog
+    permissions:
+      contents: write
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      gate_on_fragments: true
+    secrets:
+      push_token: ${{ secrets.GIT_PUSH_TOKEN }}
+
+  push-bot:
+    name: Push bot image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_BOT }}
+      dockerfile: docker/Dockerfile
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  push-dispatcher:
+    name: Push dispatcher image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_DISPATCHER }}
+      dockerfile: docker/Dockerfile.dispatcher
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  push-broker:
+    name: Push broker image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_BROKER }}
+      dockerfile: docker/Dockerfile.broker
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  push-downloader:
+    name: Push downloader image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_DOWNLOADER }}
+      dockerfile: docker/Dockerfile.downloader
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  push-search:
+    name: Push search image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_SEARCH }}
+      dockerfile: docker/Dockerfile.search
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  trigger-bump-bot:
+    name: Trigger docker-apps bump (bot)
+    needs: push-bot
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_source: discord-bot
+      image: ${{ needs.push-bot.outputs.image }}
+      image_tag: ${{ needs.push-bot.outputs.secondary_tag }}
+      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
+    secrets:
+      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+
+  trigger-bump-dispatcher:
+    name: Trigger docker-apps bump (dispatcher)
+    needs: push-dispatcher
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_source: discord-dispatcher
+      image: ${{ needs.push-dispatcher.outputs.image }}
+      image_tag: ${{ needs.push-dispatcher.outputs.secondary_tag }}
+      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
+    secrets:
+      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+
+  trigger-bump-broker:
+    name: Trigger docker-apps bump (broker)
+    needs: push-broker
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_source: discord-broker
+      image: ${{ needs.push-broker.outputs.image }}
+      image_tag: ${{ needs.push-broker.outputs.secondary_tag }}
+      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
+    secrets:
+      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+
+  trigger-bump-downloader:
+    name: Trigger docker-apps bump (downloader)
+    needs: push-downloader
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_source: discord-downloader
+      image: ${{ needs.push-downloader.outputs.image }}
+      image_tag: ${{ needs.push-downloader.outputs.secondary_tag }}
+      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
+    secrets:
+      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+
+  trigger-bump-search:
+    name: Trigger docker-apps bump (search)
+    needs: push-search
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_source: discord-search
+      image: ${{ needs.push-search.outputs.image }}
+      image_tag: ${{ needs.push-search.outputs.secondary_tag }}
+      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
+    secrets:
+      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}

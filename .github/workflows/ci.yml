@@ -1,0 +1,129 @@
+name: CI
+
+# Pull-request checks, ported from .gitlab-ci.yml's pr-check and test stages.
+# Shared jobs come from tnoff/github-workflows, SHA-pinned the same way the
+# GitLab `include:` refs were; Renovate's github-actions manager keeps the
+# pins current.
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Scan for secrets
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+
+  # The suite has no sqlite fallback. tox.ini sets
+  # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
+  # always set under tox and conftest always takes its `noproc` branch --
+  # meaning it connects to a REAL server at localhost:5432 as postgres/postgres.
+  #
+  # extra_apt alone cannot deliver that: apt gives you a server, not one
+  # reachable over TCP with that password. tests/start_postgres_for_ci.sh does
+  # the cluster start and the ALTER USER, but it guards on `id -u` = 0 and
+  # exits 0 silently otherwise -- which was invisible on GitLab, where the
+  # runner was root inside python:*-slim, and would silently skip here. Hence
+  # pre_commands with sudo (github-workflows#38).
+  tox:
+    name: Tox
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      extra_apt: 'postgresql'
+      pre_commands: 'sudo sh tests/start_postgres_for_ci.sh'
+
+  # Reimplements .image-build-rules' `changes:` block: the image inputs are the
+  # docker/ context, the python source, the migrations, deps and version.
+  # Doc-only, test-only and workflow-pin PRs skip all five builds.
+  #
+  # Done with git rather than a path-filter action to avoid another pinned
+  # dependency for ~10 lines of shell. A workflow-level `paths:` filter would
+  # be wrong: it would gate the secret scan and the tox matrix too.
+  changes:
+    name: Detect image-input changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Filter
+        id: filter
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "${BASE_REF}"
+          MATCH=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              discord_bot/*|alembic/*|alembic.ini|docker/*|pyproject.toml|VERSION)
+                MATCH=true; break ;;
+            esac
+          done <<< "$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          echo "image inputs changed: ${MATCH}"
+          echo "image=${MATCH}" >> "$GITHUB_OUTPUT"
+
+  # Five images, one matrix leg each. GitLab needed TEN jobs for this -- five
+  # buildkit-build-check plus five trufflehog-image, with the built image
+  # shipped between each pair as a tarball through an object-storage bucket.
+  # docker-build-check builds and scans in one job, so the bucket, the uploads
+  # and the downloads are all gone.
+  #
+  # NOTE: conditional, so these must never be added to required_status_checks --
+  # a required check that skips blocks the merge.
+  build:
+    name: Build and scan
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: bot
+            dockerfile: docker/Dockerfile
+          - image: dispatcher
+            dockerfile: docker/Dockerfile.dispatcher
+          - image: broker
+            dockerfile: docker/Dockerfile.broker
+          - image: downloader
+            dockerfile: docker/Dockerfile.downloader
+          - image: search
+            dockerfile: docker/Dockerfile.search
+    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      dockerfile: ${{ matrix.dockerfile }}
+
+  bump-version:
+    name: Bump version
+    if: startsWith(github.head_ref, 'renovate/dev-')
+    permissions:
+      contents: write
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      bump_changelog: true
+    secrets:
+      git_push_token: ${{ secrets.GIT_PUSH_TOKEN }}
+
+  auto-approve:
+    name: Auto-approve
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: tnoff/github-workflows/.github/workflows/renovate-auto-approve.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      branch_pattern: '^renovate/'
+    secrets:
+      approval_token: ${{ secrets.APPROVAL_TOKEN }}
