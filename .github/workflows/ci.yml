@@ -35,7 +35,11 @@ jobs:
     name: Tox
     uses: tnoff/github-workflows/.github/workflows/tox.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
     with:
-      extra_apt: 'postgresql'
+      # ffmpeg is NOT optional here, unlike the other repos ported from the same
+      # ci-base-images base. Two tests shell out to it directly
+      # (FileNotFoundError: 'ffmpeg'), which is what the first run of this
+      # workflow caught: 2 failed, 2184 passed.
+      extra_apt: 'postgresql ffmpeg'
       pre_commands: 'sudo sh tests/start_postgres_for_ci.sh'
 
   # Reimplements .image-build-rules' `changes:` block: the image inputs are the
