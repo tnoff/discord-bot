@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.115] - 2026-08-27
+
+### Changed
+
+- The markov tables move behind a `MarkovStore` protocol, the second group of the persistence seam (`projects/discord-db-tier-extraction`). A new `MarkovClient` owns every session and transaction boundary the cog used to hold open, and the cog reaches persistence only through the protocol: `types/markov.py` adds `MarkovChannelEntry` and `MarkovMessageWrite` so nothing session-bound crosses the boundary, the module-level query helpers in `cogs/markov.py` are gone, and the cog no longer mutates or deletes ORM rows. Two costs went with them - the producer loop held one postgres connection open across the entire Discord dispatch fan-out, and `!markov on` held one across a `fetch_channel` round trip. Methods are sized per unit of work rather than per row (`save_messages` takes a batch, `generate_words` returns a whole sentence), so the eventual HTTP store is one request per call rather than one per message or one per word.
+
 ## [2.5.114] - 2026-08-27
 
 ### Changed
