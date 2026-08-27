@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from freezegun import freeze_time
@@ -6,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.cogs.markov import clean_message, Markov, get_markov_channel_by_ids, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
+from discord_bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.otel import loop_heartbeat_observations
 from discord_bot.clients.dispatch_client_base import DispatchRemoteError
@@ -547,23 +548,30 @@ async def test_process_history_result_saves_relations(fake_engine, fake_context)
 async def test_history_result_opens_one_session_per_channel_not_one_per_word(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
     '''Processing a message opens ONE db session, regardless of how many words it has.
 
-    build_and_save_relations used to open its own session and commit per word
-    pair. The engine uses NullPool, so every session is a fresh connection: a
+    Relation writes used to open their own session and commit per word pair.
+    The engine uses NullPool, so every session is a fresh connection: a
     five-word message cost five of them on top of the caller's own. Counting
     sessions rather than commits is what makes this a connection-cost assertion
     rather than a style one.
+
+    It guards the seam as much as the fix now. `save_messages` takes the whole
+    batch precisely so the per-message commit boundary does not become a session
+    -- or, once the store is remote, a round trip -- per message.
     '''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
 
-    original_session = cog.with_db_session
+    original_session = cog.markov_store.session_generator
     sessions_opened = []
 
     def counting_session():
         sessions_opened.append(1)
         return original_session()
 
-    mocker.patch.object(cog, 'with_db_session', side_effect=counting_session)
+    # Patched on the store, not the cog: MarkovClient captures the generator at
+    # construction, so patching cog.with_db_session here would count zero
+    # sessions and pass no matter what the code did.
+    mocker.patch.object(cog.markov_store, 'session_generator', side_effect=counting_session)
 
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
@@ -579,7 +587,7 @@ async def test_history_result_opens_one_session_per_channel_not_one_per_word(moc
 
     assert len(sessions_opened) == 1, (
         f'expected one session for the whole channel, got {len(sessions_opened)} '
-        f'-- build_and_save_relations is opening its own again'
+        f'-- save_messages is opening one per message again'
     )
 
     async with async_mock_session(fake_engine) as session:
@@ -600,11 +608,27 @@ async def test_history_result_relations_and_last_message_id_commit_together(mock
     relations saved and the channel still pointing at the previous message, so
     the next cycle re-fetched that message and added its relations a second
     time. Staged on one session, the failure rolls the whole message back.
+
+    The failure is injected at the session's own commit rather than at a cog
+    method, because the commit boundary is the store's now. Injecting at
+    async_retry_database_commands instead would pass without proving anything:
+    the relation adds happen inside the callback it wraps, so raising there
+    means nothing was ever staged to roll back.
     '''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
     await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
 
-    mocker.patch.object(cog, 'retry_commit', side_effect=RuntimeError('commit failed'))
+    original_session = cog.markov_store.session_generator
+
+    @asynccontextmanager
+    async def failing_commit_session():
+        async with original_session() as session:
+            async def failing_commit():
+                raise RuntimeError('commit failed')
+            session.commit = failing_commit
+            yield session
+
+    mocker.patch.object(cog.markov_store, 'session_generator', side_effect=failing_commit_session)
 
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
@@ -648,33 +672,6 @@ async def test_markov_result_loop_updates_emoji_cache(fake_engine, fake_context)
         cog._emoji_cache[item.guild_id] = item.emojis  #pylint:disable=protected-access
 
     assert cog._emoji_cache.get(guild_id) == [fake_emoji]  #pylint:disable=protected-access
-
-
-# ---------------------------------------------------------------------------
-# get_markov_channel_by_ids helper
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_get_markov_channel_by_ids_returns_channel(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''get_markov_channel_by_ids returns the matching MarkovChannel'''
-    async with async_mock_session(fake_engine) as session:
-        mc = MarkovChannel(channel_id=fake_context['channel'].id,
-                           server_id=fake_context['guild'].id,
-                           last_message_id=None)
-        session.add(mc)
-        await session.commit()
-
-        result = await get_markov_channel_by_ids(session, fake_context['guild'].id, fake_context['channel'].id)
-        assert result is not None
-        assert result.channel_id == fake_context['channel'].id
-
-
-@pytest.mark.asyncio
-async def test_get_markov_channel_by_ids_returns_none(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    '''get_markov_channel_by_ids returns None when no matching channel exists'''
-    async with async_mock_session(fake_engine) as session:
-        result = await get_markov_channel_by_ids(session, fake_context['guild'].id, 999999)
-        assert result is None
 
 
 # ---------------------------------------------------------------------------

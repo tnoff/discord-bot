@@ -16,7 +16,7 @@ engine writes it, and `MediaBrokerBase.cache_cleanup` evicts from it.
 Groups, in the order they cross the seam:
 
   VideoCacheStore    (here) — the `video_cache` catalog.
-  MarkovStore        — `markov_channel` / `markov_relation`.
+  MarkovStore        (here) — `markov_channel` / `markov_relation`.
   PlaylistStore      — `playlist` / `playlist_item`.
   GuildAnalyticsStore — `guild` / `server_video_analytics`.
 
@@ -42,10 +42,25 @@ Implementations:
   today. It keeps its name until an HTTP sibling exists to be distinguished
   from; renaming it now would churn three repos to no effect.
 
-  HttpVideoCacheStore — not yet written. Forwards to the db pod's routes.
+  MarkovClient (clients/markov_client.py) — in-process, same shape: a session
+  generator over the local engine. What the bot runs today.
+
+  HttpVideoCacheStore / HttpMarkovStore — not yet written. Forward to the db
+  pod's routes.
+
+**A second rule the markov group forced: one call per unit of work the caller
+actually has, not per row.** Each method here is sized so the in-process
+implementation opens one session and the eventual HTTP one makes one request.
+That is not a performance nicety, it is the difference between this seam and the
+two defects that had to be fixed before it could be built -- a commit per word
+pair, and a query per word of a sentence. A protocol written per-row bakes that
+shape back in at a layer where it is much harder to see: `save_messages` takes a
+batch and `generate_words` returns a whole sentence for exactly this reason.
 '''
+from datetime import datetime
 from typing import List, Protocol, runtime_checkable
 
+from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.video_cache import VideoCacheEntry
@@ -111,3 +126,119 @@ class VideoCacheStore(Protocol):
 
     async def get_cache_count(self) -> int:
         '''Return the number of rows in the catalog.'''
+
+
+@runtime_checkable
+class MarkovStore(Protocol):
+    '''
+    The markov chain tables: which channels are tracked, and the word graph.
+
+    Channel rows are values here, never live instances. The cog used to receive
+    `MarkovChannel` objects and both mutate and delete them through the session
+    that loaded them; those are `save_messages`, `remove_channel` and
+    `reset_channel` now, because attribute assignment has no remote equivalent.
+    '''
+
+    async def list_channels(self) -> List[MarkovChannelEntry]:
+        '''
+        Return every tracked channel, across all guilds.
+
+        Entries, not rows: the producer loop iterates these while awaiting
+        Discord dispatches for each one, and a live-row version would hold a
+        postgres connection open for that entire fan-out.
+        '''
+
+    async def list_guild_channel_ids(self, guild_id: int) -> List[int]:
+        '''
+        Return the Discord channel ids tracked in one guild.
+
+        Ids, not one-column Row tuples -- the caller used to index `row[0]`,
+        which is a driver artifact rather than an answer.
+
+        guild_id : Discord guild to list
+        '''
+
+    async def get_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry | None:
+        '''
+        Return the tracked channel, or None when markov is off for it.
+
+        None is the answer, not an error.
+
+        guild_id : Discord guild id
+        channel_id : Discord channel id
+        '''
+
+    async def add_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry:
+        '''
+        Start tracking a channel and return its new row.
+
+        guild_id : Discord guild id
+        channel_id : Discord channel id
+        '''
+
+    async def remove_channel(self, guild_id: int, channel_id: int) -> bool:
+        '''
+        Stop tracking a channel, dropping its relations with it.
+
+        Returns False when the channel was not tracked -- again an answer, and
+        the caller's cue to say so rather than to retry.
+
+        guild_id : Discord guild id
+        channel_id : Discord channel id
+        '''
+
+    async def reset_channel(self, guild_id: int, channel_id: int) -> bool:
+        '''
+        Clear a channel's relations and its `last_message_id` together.
+
+        The recovery path for a `last_message_id` Discord no longer knows: the
+        next producer pass re-requests from the retention cutoff instead of
+        pinning to a message that no longer exists. Both halves in one
+        transaction, because a clear that loses the id but keeps the relations
+        would double every word it re-gathers.
+
+        guild_id : Discord guild id
+        channel_id : Discord channel id
+        '''
+
+    async def save_messages(self, guild_id: int, channel_id: int,
+                            messages: List[MarkovMessageWrite]) -> int | None:
+        '''
+        Persist a batch of gathered messages, committing one message at a time.
+
+        Returns the number of messages written, or None when the channel is not
+        tracked. The commit boundary stays per message so each one's relations
+        and the channel's new `last_message_id` land together; the batch is what
+        keeps that from costing a connection -- or a round trip -- per message.
+
+        guild_id : Discord guild id
+        channel_id : Discord channel id
+        messages : Word pairs and message id, oldest first
+        '''
+
+    async def generate_words(self, guild_id: int, count: int,
+                             first_word: str | None = None) -> List[str]:
+        '''
+        Walk the chain and return up to `count` words.
+
+        The whole walk, not one step: each word is chosen from the previous
+        one, so a per-word method would be a round trip per word -- the shape
+        `!markov speak` was just fixed for having. Postgres picks each word.
+
+        An empty list means the guild has nothing to say, either because it has
+        no relations at all or because none lead with `first_word`. A short list
+        means the chain dead-ended, which retention makes reachable: it can
+        delete every relation in which a word leads while keeping one where it
+        follows.
+
+        guild_id : Discord guild id
+        count : Maximum words to return
+        first_word : Constrain the opening word, if given
+        '''
+
+    async def prune_relations_before(self, cutoff: datetime) -> bool:
+        '''
+        Delete relations older than the retention cutoff.
+
+        cutoff : Relations created before this are dropped
+        '''
