@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.114] - 2026-08-27
+
+### Changed
+
+- The video-cache catalog now has a Protocol, the first of four groups in the persistence-tier extraction. `VideoCacheStore` (`interfaces/database_protocols.py`) declares the six methods `VideoCacheClient` actually provides, and `get_deletable_entries` now returns `VideoCacheEntry` models rather than live SQLAlchemy rows. That is the whole point of the seam: an ORM instance is bound to the session that loaded it, so a signature naming one can only ever be satisfied by the in-process implementation — `cache_cleanup` already reads `base_path` and `id` from those rows *after* the loading session has closed, which works today only by accident of eager loading. The entries are plain pydantic, `model_dump`/`model_validate` clean. `generate_download_from_existing` was deleted instead of being declared: it took a `VideoCache` row as an argument, which nothing remote could ever pass, and it had no caller outside its own test. `MusicVideoCacheNaming` went with it as its only user. Annotating `MediaBrokerBase.video_cache` against the Protocol also drops **sqlalchemy out of `broker_protocols`' import chain** — the dependency that forced `CheckoutResult`, `DownloadResultQueue` and `BrokerClient` each into their own module — leaving only boto3 via `delete_file`. A subprocess import measurement now guards that. No behavior change; the video-cache suite passes unchanged against a real postgres.
+
 ## [2.5.113] - 2026-08-27
 
 ### Changed
