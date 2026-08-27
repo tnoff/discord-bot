@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.111] - 2026-08-27
+
+### Changed
+
+- Markov relation writes are now staged on the caller's session instead of opening a new one per word pair. `build_and_save_relations` used to open its own `with_db_session()` and commit for *every* pair in a message, and the engine is built with `poolclass=NullPool`, so nothing is reused — a twenty-word message opened twenty postgres connections on top of the one its caller was already holding. It now takes the caller's session and only `add()`s, and `_apply_history_result`'s existing per-message commit covers the relations too. The connection cost of a message drops from `len(corpus) + 1` to 1. That also makes a message atomic, which fixes a quieter bug: the old split committed the relations first and the channel's `last_message_id` second, so a failure between the two left the relations saved while the channel still pointed at the previous message — the next cycle re-fetched that message and added its relations a second time, silently doubling them. A failure now rolls the whole message back and the retry is clean. No behavior change to what gets stored: the existing markov suite, which runs against a real postgres, passes unchanged.
+
 ## [2.5.110] - 2026-08-26
 
 ### Changed
