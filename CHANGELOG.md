@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.113] - 2026-08-27
+
+### Changed
+
+- The `video_cache_backup` table and its helpers are gone. The object-storage backup table landed in migration `0f696315a882` and never gained a caller: `VideoCacheBackup`, `list_video_cache_where_no_backup`, `get_video_cache_backup` and `delete_video_cache_backup` had no references anywhere outside their own unit tests, so nothing has ever written a row to it. Two more `database_functions` went with them for the same reason — `list_video_cache` and `get_video_cache_by_id` — taking the module from 29 functions to 24. Their tests are deleted rather than kept: they only ever exercised code that production could not reach, which is how five dead functions held 100% coverage. Migration `c3f1a7d20b45` drops the table, verified in both directions against a real postgres. Applying it stays manual, as every migration in this repo is.
+
 ## [2.5.112] - 2026-08-27
 
 ### Changed
