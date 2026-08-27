@@ -9,7 +9,7 @@ from sqlalchemy.sql.functions import count as sql_count
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from discord_bot.database import (
-    VideoCache, Guild, VideoCacheBackup,
+    VideoCache, Guild,
     Playlist, PlaylistItem, GuildVideoAnalytics
 )
 
@@ -79,10 +79,6 @@ async def ensure_guild(db_session: AsyncSession, guild_id: int):
 # VideoCache Functions
 #
 
-async def list_video_cache(db_session: AsyncSession):
-    """Get all video cache items"""
-    return (await db_session.execute(select(VideoCache))).scalars().all()
-
 async def list_video_cache_where_delete_ready(db_session: AsyncSession):
     """List cache files ready for processing"""
     return (await db_session.execute(
@@ -94,10 +90,6 @@ async def get_video_cache_by_url(db_session: AsyncSession, webpage_url: str):
     return (await db_session.execute(
         select(VideoCache).where(VideoCache.video_url == webpage_url)
     )).scalars().first()
-
-async def get_video_cache_by_id(db_session: AsyncSession, video_cache_id: int):
-    """Get video cache by id"""
-    return await db_session.get(VideoCache, video_cache_id)
 
 async def delete_video_cache(db_session: AsyncSession, video_cache_id: int):
     """Remove video cache with guild associations"""
@@ -141,37 +133,6 @@ async def video_cache_mark_deletion_for_size(db_session: AsyncSession, max_size_
         entry.ready_for_deletion = True
         total -= (entry.file_size_bytes or 0)
     await db_session.commit()
-
-
-#
-# VideoCacheBackup Functions
-#
-
-
-async def list_video_cache_where_no_backup(db_session: AsyncSession):
-    """List cache files that don't have backups"""
-    backup_ids = (await db_session.execute(
-        select(VideoCacheBackup.video_cache_id)
-    )).scalars().all()
-    return (await db_session.execute(
-        select(VideoCache).where(~VideoCache.id.in_(backup_ids))
-    )).scalars().all()
-
-async def get_video_cache_backup(db_session: AsyncSession, video_cache_id: int):
-    """Check if video backup exists for id"""
-    return (await db_session.execute(
-        select(VideoCacheBackup).where(VideoCacheBackup.video_cache_id == video_cache_id)
-    )).scalars().first()
-
-
-async def delete_video_cache_backup(db_session: AsyncSession, backup_item_id: int):
-    """Delete backup item"""
-    item = await db_session.get(VideoCacheBackup, backup_item_id)
-    if not item:
-        return False
-    await db_session.delete(item)
-    await db_session.commit()
-    return True
 
 
 #

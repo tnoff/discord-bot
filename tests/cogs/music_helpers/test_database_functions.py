@@ -4,13 +4,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.database import GuildVideoAnalytics, VideoCache, VideoCacheBackup, Playlist
+from discord_bot.database import GuildVideoAnalytics, VideoCache, Playlist
 from discord_bot.cogs.music_helpers.database_functions import (
     ensure_guild_video_analytics, update_video_guild_analytics,
     video_cache_mark_deletion_for_size,
-    list_video_cache, get_video_cache_by_id, delete_video_cache,
-    list_video_cache_where_no_backup, get_video_cache_backup,
-    delete_video_cache_backup, rename_playlist,
+    delete_video_cache, rename_playlist,
 )
 
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
@@ -227,108 +225,12 @@ async def _make_video_cache(session, url='https://example.com/video', ready_for_
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_list_video_cache(fake_engine):  #pylint:disable=redefined-outer-name
-    '''list_video_cache returns all cache entries'''
-    async with async_mock_session(fake_engine) as session:
-        await _make_video_cache(session, url='https://a.com')
-        await _make_video_cache(session, url='https://b.com')
-
-        result = await list_video_cache(session)
-
-    assert len(result) == 2
-
-
-@pytest.mark.asyncio
-async def test_get_video_cache_by_id(fake_engine):  #pylint:disable=redefined-outer-name
-    '''get_video_cache_by_id returns the correct entry'''
-    async with async_mock_session(fake_engine) as session:
-        item = await _make_video_cache(session)
-
-        result = await get_video_cache_by_id(session, item.id)
-
-    assert result.id == item.id
-
-
-@pytest.mark.asyncio
 async def test_delete_video_cache_returns_false_when_not_found(fake_engine):  #pylint:disable=redefined-outer-name
     '''delete_video_cache returns False when the id does not exist'''
     async with async_mock_session(fake_engine) as session:
         result = await delete_video_cache(session, 99999)
 
     assert result is False
-
-
-# ---------------------------------------------------------------------------
-# VideoCacheBackup functions
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_list_video_cache_where_no_backup(fake_engine):  #pylint:disable=redefined-outer-name
-    '''list_video_cache_where_no_backup excludes entries that have a backup'''
-    async with async_mock_session(fake_engine) as session:
-        with_backup = await _make_video_cache(session, url='https://backed-up.com')
-        without_backup = await _make_video_cache(session, url='https://no-backup.com')
-        with_backup_id = with_backup.id
-        without_backup_id = without_backup.id
-
-        backup = VideoCacheBackup(
-            video_cache_id=with_backup_id,
-            storage='s3', bucket_name='my-bucket', object_path='path/file.mp4',
-        )
-        session.add(backup)
-        await session.commit()
-
-        result = await list_video_cache_where_no_backup(session)
-        ids = [r.id for r in result]
-
-    assert without_backup_id in ids
-    assert with_backup_id not in ids
-
-
-@pytest.mark.asyncio
-async def test_get_video_cache_backup(fake_engine):  #pylint:disable=redefined-outer-name
-    '''get_video_cache_backup returns the backup entry for a given cache id'''
-    async with async_mock_session(fake_engine) as session:
-        item = await _make_video_cache(session)
-        backup = VideoCacheBackup(
-            video_cache_id=item.id,
-            storage='s3', bucket_name='my-bucket', object_path='path/file.mp4',
-        )
-        session.add(backup)
-        await session.commit()
-
-        result = await get_video_cache_backup(session, item.id)
-
-    assert result is not None
-    assert result.video_cache_id == item.id
-
-
-@pytest.mark.asyncio
-async def test_delete_video_cache_backup_returns_false_when_not_found(fake_engine):  #pylint:disable=redefined-outer-name
-    '''delete_video_cache_backup returns False when the id does not exist'''
-    async with async_mock_session(fake_engine) as session:
-        result = await delete_video_cache_backup(session, 99999)
-
-    assert result is False
-
-
-@pytest.mark.asyncio
-async def test_delete_video_cache_backup_removes_entry(fake_engine):  #pylint:disable=redefined-outer-name
-    '''delete_video_cache_backup removes the entry and returns True'''
-    async with async_mock_session(fake_engine) as session:
-        item = await _make_video_cache(session)
-        backup = VideoCacheBackup(
-            video_cache_id=item.id,
-            storage='s3', bucket_name='my-bucket', object_path='path/file.mp4',
-        )
-        session.add(backup)
-        await session.commit()
-
-        result = await delete_video_cache_backup(session, backup.id)
-        remaining = await get_video_cache_backup(session, item.id)
-
-    assert result is True
-    assert remaining is None
 
 
 # ---------------------------------------------------------------------------
