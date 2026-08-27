@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.112] - 2026-08-27
+
+### Changed
+
+- `!markov speak` now asks postgres for one word at a time instead of pulling the guild's whole relation table into the bot. `get_possible_words` selected **every** `MarkovRelation.id` for the guild, `choice()`d one in python, then fetched that row back by id — and repeated the entire select once per word of the sentence. Measured on a 1000-relation guild with 25 followers per word, a 32-word sentence cost **64 SELECTs returning 832 rows**; it is now **32 SELECTs returning 32 rows**, and the row count no longer grows with the size of the guild's history. The selection moved into `ORDER BY random() LIMIT 1` behind two helpers, `random_leader_word` and `random_follower_word`. A dead end is also no longer a crash: retention deletes relations by age, so it can remove every relation in which a word leads while keeping one where it follows, and the old code handed that empty id list straight to `choice()` and raised `IndexError`. The sentence now simply ends there. The four speak tests stopped patching `markov.choice` to force determinism — the first one gets it from a corpus where every word has exactly one follower, so the assertion describes the query rather than the mock.
+
 ## [2.5.111] - 2026-08-27
 
 ### Changed
