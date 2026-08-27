@@ -518,6 +518,86 @@ async def test_process_history_result_saves_relations(fake_engine, fake_context)
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() > 0
 
 
+@pytest.mark.asyncio
+async def test_history_result_opens_one_session_per_channel_not_one_per_word(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''Processing a message opens ONE db session, regardless of how many words it has.
+
+    build_and_save_relations used to open its own session and commit per word
+    pair. The engine uses NullPool, so every session is a fresh connection: a
+    five-word message cost five of them on top of the caller's own. Counting
+    sessions rather than commits is what makes this a connection-cost assertion
+    rather than a style one.
+    '''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
+
+    original_session = cog.with_db_session
+    sessions_opened = []
+
+    def counting_session():
+        sessions_opened.append(1)
+        return original_session()
+
+    mocker.patch.object(cog, 'with_db_session', side_effect=counting_session)
+
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[FetchedMessage(
+            id=1234,
+            content='this is a basic test',
+            created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc),
+            author_bot=False,
+        )],
+    )
+    await cog._process_history_result(result)  #pylint:disable=protected-access
+
+    assert len(sessions_opened) == 1, (
+        f'expected one session for the whole channel, got {len(sessions_opened)} '
+        f'-- build_and_save_relations is opening its own again'
+    )
+
+    async with async_mock_session(fake_engine) as session:
+        relations = (await session.execute(select(MarkovRelation))).scalars().all()
+    # Five words, and the last pair loops back to the first.
+    assert sorted((r.leader_word, r.follower_word) for r in relations) == [
+        ('a', 'basic'), ('basic', 'test'), ('is', 'a'),
+        ('test', 'this'), ('this', 'is'),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_history_result_relations_and_last_message_id_commit_together(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    '''A failed commit leaves NO relations behind, so the retry cannot double them.
+
+    The old split committed each word pair on its own session and the channel's
+    last_message_id afterwards on another. A failure between the two left the
+    relations saved and the channel still pointing at the previous message, so
+    the next cycle re-fetched that message and added its relations a second
+    time. Staged on one session, the failure rolls the whole message back.
+    '''
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
+
+    mocker.patch.object(cog, 'retry_commit', side_effect=RuntimeError('commit failed'))
+
+    result = ChannelHistoryResult(
+        guild_id=fake_context['guild'].id,
+        channel_id=fake_context['channel'].id,
+        messages=[FetchedMessage(
+            id=5678,
+            content='this is a basic test',
+            created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc),
+            author_bot=False,
+        )],
+    )
+    with pytest.raises(RuntimeError):
+        await cog._process_history_result(result)  #pylint:disable=protected-access
+
+    async with async_mock_session(fake_engine) as session:
+        count = (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar()
+    assert count == 0, f'{count} relations survived a failed commit; a retry would duplicate them'
+
 # ---------------------------------------------------------------------------
 # _markov_result_loop: emoji cache update
 # ---------------------------------------------------------------------------

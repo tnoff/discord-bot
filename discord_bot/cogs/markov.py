@@ -187,12 +187,27 @@ class Markov(CogHelper):
             self._result_task.cancel()
 
     # https://srome.github.io/Making-A-Markov-Chain-Twitter-Bot-In-Python/
-    async def build_and_save_relations(self, corpus: List[str], markov_channel_id: str, message_timestamp: datetime):
+    async def build_and_save_relations(self, db_session: AsyncSession, corpus: List[str],
+                                       markov_channel_id: str, message_timestamp: datetime):
         '''
-        Build and save relations to db
+        Stage relations for one message on the caller's session.
+
+        db_session : Sqlalchemy async db session, owned and committed by the caller
         corpus : List of strings from message, after cleaning
         markov_channel_id : Markov Channel ID (ID from DB)
         message_timestamp: Timestamp for db
+
+        Does NOT commit. This used to open its own session and commit once per
+        word pair, which cost a fresh connection per pair -- the engine is built
+        with NullPool, so nothing is reused and a twenty-word message opened
+        twenty connections.
+
+        Staging on the caller's session also makes a message atomic. The caller
+        commits the relations and the channel's last_message_id together, so a
+        failure part-way through re-fetches the whole message next cycle. Under
+        the old split the relations committed first and last_message_id second,
+        and a failure between them re-fetched a message whose relations were
+        already saved -- silently doubling them.
         '''
         def ensure_word(word):
             if len(word) >= 255:
@@ -211,13 +226,10 @@ class Markov(CogHelper):
             follower_word = ensure_word(next_word)
             if follower_word is None:
                 continue
-            new_relation = MarkovRelation(channel_id=markov_channel_id,
+            db_session.add(MarkovRelation(channel_id=markov_channel_id,
                                           leader_word=leader_word,
                                           follower_word=follower_word,
-                                          created_at=message_timestamp)
-            async with self.with_db_session() as db_session:
-                db_session.add(new_relation)
-                await async_retry_database_commands(db_session, db_session.commit)
+                                          created_at=message_timestamp))
 
     async def delete_channel_relations(self, db_session: AsyncSession, channel_id: str):
         '''
@@ -392,7 +404,7 @@ class Markov(CogHelper):
                 if corpus:
                     self.logger.info(f'Attempting to add corpus "{corpus}" '
                                      f'to channel {channel_id}')
-                    await self.build_and_save_relations(corpus, markov_channel.id, message.created_at)
+                    await self.build_and_save_relations(db_session, corpus, markov_channel.id, message.created_at)
                 markov_channel.last_message_id = message.id
                 await self.retry_commit(db_session)
             self.logger.debug(f'Done with channel {channel_id}')
