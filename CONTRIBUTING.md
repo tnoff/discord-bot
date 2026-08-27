@@ -1,5 +1,10 @@
 # Contributing
 
-This GitHub repository is a mirror. Please open merge requests and file issues through the GitLab project:
+This repository is canonical on GitHub. Please open pull requests and file
+issues here:
 
-**https://gitlab.com/tnoff-projects/discord-bot**
+**https://github.com/tnoff/discord-bot**
+
+The GitLab project at `tnoff-projects/discord-bot`
+is frozen and kept for history only. Merge requests opened there will not
+be seen.

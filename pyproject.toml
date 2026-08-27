@@ -96,7 +96,10 @@ storage = [
 ]
 rendering = [
     # Table/bundle rendering for what gets posted back to Discord.
-    "dappertable @ https://gitlab.com/tnoff-projects/dappertable/-/archive/v1.0.0/dappertable-v1.0.0.tar.gz",
+    # dappertable is GitHub-canonical; the GitLab copy is frozen. Both URLs
+    # still resolve, but only the GitHub one can ever be bumped past the
+    # freeze. Verified installable at 1.0.0 from this URL.
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.0.0.tar.gz",
 ]
 downloading = [
     # yt-dlp and its JS runtime helper. The downloader pod only.

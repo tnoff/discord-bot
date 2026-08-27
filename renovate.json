@@ -1,8 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "gitlab>tnoff-projects/github-workflows//renovate/default",
-    "gitlab>tnoff-projects/github-workflows//renovate/python"
+    "github>tnoff/github-workflows//renovate/default-github",
+    "github>tnoff/github-workflows//renovate/python"
   ],
-  "enabledManagers": ["gitlabci", "gitlabci-include", "pep621", "dockerfile", "custom.regex"]
+  "enabledManagers": ["github-actions", "pep621", "dockerfile", "custom.regex"]
 }

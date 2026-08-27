@@ -1,0 +1,81 @@
+name: Heaptrack images
+
+# Manual-only native-heap-profiler builds, ported from the three
+# `push:image-*-heaptrack` jobs in .gitlab-ci.yml.
+#
+# Those jobs were `when: manual` on the default-branch pipeline. Actions has no
+# manual job inside a push-triggered workflow, so they move to their own
+# workflow_dispatch entry point. Same intent, and the two properties that make
+# them safe are preserved exactly:
+#
+#   * tag_override: heaptrack -- published under the :heaptrack channel tag, so
+#     a diagnostic build can NEVER displace :latest or the :<sha> pin.
+#   * no trigger-bump -- docker-apps must not be auto-pinned to a profiler
+#     image. Deploy it by hand (HEAPTRACK_ENABLE=true, a writable output dir
+#     and a temporary memory bump) for a bounded window, pull the .zst, revert.
+#
+# There is no downloader or search variant, matching GitLab. The downloader's
+# Dockerfile is heaptrack-ready but it had no OCIR push repo when these were
+# written; that has since landed, so adding it is a one-line change if the leak
+# hunt ever moves to that tier.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Which image to build with heaptrack baked in'
+        required: true
+        type: choice
+        options:
+          - bot
+          - dispatcher
+          - broker
+
+permissions:
+  contents: read
+
+jobs:
+  bot:
+    name: Push bot heaptrack image
+    if: inputs.image == 'bot'
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_BOT }}
+      dockerfile: docker/Dockerfile
+      build_args: 'INSTALL_HEAPTRACK=true'
+      tag_override: 'heaptrack'
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  dispatcher:
+    name: Push dispatcher heaptrack image
+    if: inputs.image == 'dispatcher'
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_DISPATCHER }}
+      dockerfile: docker/Dockerfile.dispatcher
+      build_args: 'INSTALL_HEAPTRACK=true'
+      tag_override: 'heaptrack'
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  broker:
+    name: Push broker heaptrack image
+    if: inputs.image == 'broker'
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_BROKER }}
+      dockerfile: docker/Dockerfile.broker
+      build_args: 'INSTALL_HEAPTRACK=true'
+      tag_override: 'heaptrack'
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
