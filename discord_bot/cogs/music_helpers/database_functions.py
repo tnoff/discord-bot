@@ -154,12 +154,29 @@ async def get_history_playlist(db_session: AsyncSession, guild_id: int):
 # Regular Playlist Functions
 
 async def list_playlist_non_history(db_session: AsyncSession, guild_id: int, offset: int):
-    """List non-history playlists for guild with offset"""
+    """List non-history playlists for guild, oldest first.
+
+    The order defines the public index users type (`!playlist 1`), so it is
+    part of the interface rather than a detail.
+
+    This said `created_at.desc()` and had done since the query was written, but
+    it never took effect: nothing ever populated `created_at`, so every row tied
+    on NULL and postgres returned heap order -- which happens to be insertion
+    order for a table that has not been rewritten. Giving the column a default
+    would therefore have flipped every server's playlist numbering the first
+    time this ran, silently repointing every index anyone had memorised.
+
+    `asc` is what users have actually experienced, and what
+    test_get_playlist_public_view_multiple_playlists_correct_ordering asserts as
+    the intent ("First Playlist" is index 1). The id tiebreak is what makes it a
+    promise: rows written before the default exist, and rows added in one commit
+    can share a timestamp.
+    """
     return (await db_session.execute(
         select(Playlist)
         .where(Playlist.server_id == guild_id)
         .where(Playlist.is_history == False)  # noqa: E712
-        .order_by(Playlist.created_at.desc())
+        .order_by(Playlist.created_at.asc(), Playlist.id.asc())
         .offset(offset)
     )).scalars().all()
 
@@ -216,10 +233,17 @@ async def get_playlist_name(db_session: AsyncSession, playlist_id: int):
 
 
 async def update_playlist_queued_at(db_session: AsyncSession, playlist_id: int):
-    """Update playlist as queued"""
+    """Mark a playlist as queued.
+
+    Writes `last_queued`, the mapped column. It used to assign
+    `last_queued_at`, a name that exists nowhere in the schema -- SQLAlchemy
+    accepts an assignment to an unmapped attribute silently, so the commit
+    emitted no UPDATE and the column stayed NULL for every playlist ever
+    queued. `!playlist list` reads it back and has therefore always shown N/A.
+    """
     playlist = await db_session.get(Playlist, playlist_id)
     if playlist:
-        playlist.last_queued_at = datetime.now(timezone.utc)
+        playlist.last_queued = datetime.now(timezone.utc)
         await db_session.commit()
 
 #
@@ -244,7 +268,7 @@ async def delete_playlist_item_limit(db_session: AsyncSession, playlist_id: int,
     items = (await db_session.execute(
         select(PlaylistItem)
         .where(PlaylistItem.playlist_id == playlist_id)
-        .order_by(PlaylistItem.created_at.asc())
+        .order_by(PlaylistItem.created_at.asc(), PlaylistItem.id.asc())
         .limit(delta)
     )).scalars().all()
     for item in items:
@@ -256,7 +280,7 @@ async def list_playlist_items(db_session: AsyncSession, playlist_id: int):
     return (await db_session.execute(
         select(PlaylistItem)
         .where(PlaylistItem.playlist_id == playlist_id)
-        .order_by(PlaylistItem.created_at.asc())
+        .order_by(PlaylistItem.created_at.asc(), PlaylistItem.id.asc())
     )).scalars().all()
 
 async def get_playlist_item_by_url(db_session: AsyncSession, playlist_id: int, video_url: str):
@@ -272,7 +296,7 @@ async def delete_playlist_item_by_index(db_session: AsyncSession, playlist_id: i
     items = (await db_session.execute(
         select(PlaylistItem)
         .where(PlaylistItem.playlist_id == playlist_id)
-        .order_by(PlaylistItem.created_at.asc())
+        .order_by(PlaylistItem.created_at.asc(), PlaylistItem.id.asc())
     )).scalars().all()
     if 0 <= index_id < len(items):
         item_to_delete = items[index_id]

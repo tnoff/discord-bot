@@ -1043,7 +1043,19 @@ async def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_
 
 @pytest.mark.asyncio
 async def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test that playlists are ordered by creation_at timestamp (DESC - newest first)"""
+    """Playlists are ordered by created_at ASC -- oldest first, which is index 1.
+
+    This test used to assert DESC, and it passed: it supplies explicit
+    created_at values, so the ordering it was asserting genuinely applied here.
+    The neighbouring test asserted the opposite and also passed, because it
+    supplies no timestamps -- and with created_at NULL on every row the ORDER BY
+    did nothing and postgres returned heap order. The suite has been asserting
+    both directions at once for as long as both tests have existed.
+
+    Real rows are the ones with no explicit timestamp, so heap order is the
+    behaviour every server actually has. ASC preserves it; making DESC work
+    would have renumbered every playlist on deploy. See list_playlist_non_history.
+    """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
 
     async with cog.with_db_session() as db_session:  #pylint:disable=no-member
@@ -1079,14 +1091,15 @@ async def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, f
         await db_session.refresh(playlist_oldest)
         await db_session.refresh(playlist_middle)
 
-        # Test that ordering is by creation_at DESC (newest first), not insert order
+        # Ordering is by created_at ASC, not by insert order: these were added
+        # newest-first above and still come back oldest-first.
         oldest_result = await cog._Music__get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id)  #pylint:disable=protected-access
         middle_result = await cog._Music__get_playlist_public_view(playlist_middle.id, fake_context['guild'].id)  #pylint:disable=protected-access
         newest_result = await cog._Music__get_playlist_public_view(playlist_newest.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
-        assert newest_result == 1   # Newest created = index 1
-        assert middle_result == 2   # Second newest = index 2
-        assert oldest_result == 3   # Oldest created = index 3
+        assert oldest_result == 1   # Oldest created = index 1
+        assert middle_result == 2   # Second oldest = index 2
+        assert newest_result == 3   # Newest created = index 3
 
 
 @pytest.mark.asyncio
@@ -1129,11 +1142,11 @@ async def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_e
             results.append(result)
 
         # History playlists should return 0
-        # Regular playlists should be ordered by creation time DESC (newest first)
-        # Regular 1 (oldest): created at base_time -> index 3
+        # Regular playlists are ordered by creation time ASC (oldest first)
+        # Regular 1 (oldest): created at base_time -> index 1
         # Regular 2 (middle): created at base_time+20min -> index 2
-        # Regular 3 (newest): created at base_time+40min -> index 1
-        expected = [3, 0, 2, 0, 1]  # Regular 1=3, History 1=0, Regular 2=2, History 2=0, Regular 3=1
+        # Regular 3 (newest): created at base_time+40min -> index 3
+        expected = [1, 0, 2, 0, 3]  # Regular 1=1, History 1=0, Regular 2=2, History 2=0, Regular 3=3
 
         assert results == expected
 
