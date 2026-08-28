@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.117] - 2026-08-28
+
+### Changed
+
+- The playlist tables move behind a `PlaylistStore` protocol, the third and largest group of the persistence seam (`projects/discord-db-tier-extraction`). A new `PlaylistClient` owns every session and transaction boundary, `types/playlist.py` adds the entries and write types that cross it, and `cogs/music.py` no longer opens a session for anything but guild analytics. Three compound operations collapse into single calls rather than becoming round trips per row: `add_items` takes a batch and reports per item whether it was added, was a duplicate or hit the ceiling; `record_history_item` replaces the post-play sequence of a delete-by-url, a count, a conditional bulk delete and an insert; and `ensure_history_playlist` is one get-or-create where a read plus a conditional write would race two players starting at once. The item-count ceiling is now enforced inside the same transaction as the insert instead of being a check-then-act around it. Two paths also stop holding a postgres connection across network I/O: `!playlist queue` held one open while dispatching searches and enqueuing downloads, and `!playlist merge` held one open while sending a Discord message per copied item.
+
 ## [2.5.116] - 2026-08-28
 
 ### Changed
