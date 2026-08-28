@@ -14,6 +14,7 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import LifecycleEvent
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
+from discord_bot.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
@@ -25,6 +26,42 @@ from tests.helpers import FakeVoiceClient
 from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_search
 from tests.helpers import attach_in_process_download
+
+
+def attach_playlist_store(cog, playlist=None, items=None):
+    '''Give a database-less cog a playlist store with fixed answers.
+
+    These paths used to be driven by patching async_retry_database_commands and
+    feeding it a positional list of canned return values, on a cog built with no
+    engine at all. That asserted the order of calls into a helper rather than any
+    behaviour, and it broke the moment the calls moved -- which is what a seam
+    is for. Here the double answers the store's own methods, and it answers with
+    real entries: a MagicMock would satisfy any attribute the code asked for and
+    keep passing against a shape that no longer exists.
+
+    cog : Music cog to attach to
+    playlist : PlaylistEntry get_playlist should return, or None
+    items : PlaylistItemEntry list list_items should return
+    '''
+    store = AsyncMock()
+    store.get_playlist.return_value = playlist
+    store.list_items.return_value = items if items is not None else []
+    store.mark_queued.return_value = True
+    cog.playlist_store = store
+    return store
+
+
+def fake_playlist_items(count, start=0):
+    '''Build detached playlist items the way the store hands them back.
+
+    count : How many items to build
+    start : First id/url suffix
+    '''
+    return [
+        PlaylistItemEntry(id=index, video_url=f'https://ex.com/{index}',
+                          title=f't{index}', uploader='up', playlist_id=1)
+        for index in range(start, start + count)
+    ]
 
 @pytest.mark.asyncio
 async def test_create_playlist(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -413,39 +450,31 @@ async def test_playlist_merge_history(mocker, fake_engine, fake_context):  #pyli
 
 @pytest.mark.asyncio
 async def test_playlist_insert_item_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    """Test __playlist_insert_item private method"""
+    """The cog's store writes an item row.
+
+    This drove `__playlist_insert_item`, a private cog method that took the
+    caller's session. That method is gone: counting the items, comparing to the
+    ceiling and inserting are one transaction in the store now, because split
+    across a caller they are a check-then-act two players can both pass. The
+    behaviour it covered is the same, reached through the seam.
+    """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
 
+    playlist = await cog.playlist_store.create_playlist(fake_context['guild'].id, 'test-playlist')
+    outcomes = await cog.playlist_store.add_items(
+        playlist.id,
+        [PlaylistItemWrite(video_url='https://example.com/video',
+                           title='Test Video Title', uploader='Test Uploader')],
+        cog.config.playlist.server_playlist_max_size)
+
+    assert [outcome.status.value for outcome in outcomes] == ['added']
     async with async_mock_session(fake_engine) as session:
-        # Create a playlist first
-        playlist = Playlist(
-            server_id=fake_context['guild'].id,
-            name='test-playlist',
-            created_at=datetime.now(),
-            is_history=False
-        )
-        session.add(playlist)
-        await session.commit()
-        await session.refresh(playlist)
-        playlist_id = playlist.id
-
-        # Insert an item
-        await cog._Music__playlist_insert_item(  # pylint: disable=protected-access
-            session,
-            playlist_id,
-            'https://example.com/video',
-            'Test Video Title',
-            'Test Uploader'
-        )
-        await session.commit()
-
-        # Verify item was inserted
         items = (await session.execute(select(PlaylistItem))).scalars().all()
-        assert len(items) == 1
-        assert items[0].playlist_id == playlist_id
-        assert items[0].video_url == 'https://example.com/video'
-        assert items[0].title == 'Test Video Title'
-        assert items[0].uploader == 'Test Uploader'
+    assert len(items) == 1
+    assert items[0].playlist_id == playlist.id
+    assert items[0].title == 'Test Video Title'
+    assert items[0].video_url == 'https://example.com/video'
+    assert items[0].uploader == 'Test Uploader'
 
 @pytest.mark.asyncio
 async def test_get_history_playlist_method(fake_engine, fake_context):  #pylint:disable=redefined-outer-name
@@ -1156,41 +1185,35 @@ async def test_playlist_queue_adds_history_playlist_item_id(fake_engine, fake_co
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     attach_in_process_broker(cog)
 
-    # Mock database operations
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        # Setup mock database responses
-        playlist_name = "Test Playlist"
-        mock_playlist_items = [
-            MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456, title="Video 1"),
-            MagicMock(id=2, video_url="https://youtube.com/watch?v=456",
-                     requester_name="user2", requester_id=789, title="Video 2"),
-        ]
+    # The store answers with real entries, so a request built from one carries
+    # the item id the history path depends on.
+    attach_playlist_store(
+        cog,
+        playlist=PlaylistEntry(id=123, name='Test Playlist'),
+        items=[
+            PlaylistItemEntry(id=1, video_url='https://youtube.com/watch?v=123',
+                              title='Video 1', uploader='up', playlist_id=123),
+            PlaylistItemEntry(id=2, video_url='https://youtube.com/watch?v=456',
+                              title='Video 2', uploader='up', playlist_id=123),
+        ])
 
-        # Mock database calls in order they appear in playlist_queue method
-        mock_db.side_effect = [
-            playlist_name,  # get_playlist_name
-            mock_playlist_items,  # list_playlist_items
-            None,  # playlist_update_queued
-        ]
+    # Mock the enqueue_media_requests method
+    captured_requests = []
+    async def mock_enqueue(ctx, entries, bundle_uuid, player=None):  #pylint:disable=unused-argument
+        captured_requests.extend(entries)
+        return True
 
-        # Mock the enqueue_media_requests method
-        captured_requests = []
-        async def mock_enqueue(ctx, entries, bundle_uuid, player=None):  #pylint:disable=unused-argument
-            captured_requests.extend(entries)
-            return True
+    with patch.object(cog, 'enqueue_media_requests', side_effect=mock_enqueue):
+        with patch.object(cog, 'get_player', return_value=MagicMock()):
+            # Call the private playlist queue method directly
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
 
-        with patch.object(cog, 'enqueue_media_requests', side_effect=mock_enqueue):
-            with patch.object(cog, 'get_player', return_value=MagicMock()):
-                # Call the private playlist queue method directly
-                # pylint: disable=protected-access
-                await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
+            # Verify media requests were created with history_playlist_item_id
+            assert len(captured_requests) == 2
 
-                # Verify media requests were created with history_playlist_item_id
-                assert len(captured_requests) == 2
-
-                for req in captured_requests:
-                    assert req.history_playlist_item_id in [1, 2]
+            for req in captured_requests:
+                assert req.history_playlist_item_id in [1, 2]
 
 
 @pytest.mark.asyncio
@@ -1199,31 +1222,25 @@ async def test_playlist_queue_completion_messaging_simplified(fake_engine, fake_
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     attach_in_process_broker(cog)
 
-    # Mock database operations
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        playlist_name = "Test Playlist"
-        mock_playlist_items = [
-            MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456, title="Video 1"),
-        ]
+    attach_playlist_store(
+        cog,
+        playlist=PlaylistEntry(id=1, name='Test Playlist'),
+        items=[
+            PlaylistItemEntry(id=1, video_url='https://youtube.com/watch?v=123',
+                              title='Video 1', uploader='up', playlist_id=1),
+        ])
 
-        mock_db.side_effect = [
-            playlist_name,  # get_playlist_name
-            mock_playlist_items,  # list_playlist_items
-            None,  # playlist_update_queued
-        ]
+    cog.dispatcher = MagicMock()
+    with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
+        with patch.object(cog, 'get_player', return_value=MagicMock()):
+            # Call the private playlist queue method directly
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
 
-        cog.dispatcher = MagicMock()
-        with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
-            with patch.object(cog, 'get_player', return_value=MagicMock()):
-                # Call the private playlist queue method directly
-                # pylint: disable=protected-access
-                await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
-
-                # Verify only failure message is sent (hit limit case)
-                cog.dispatcher.send_message.assert_called_once()
-                # The message should contain the playlist name and indicate limit hit
-                # We can't easily test the exact message without executing the partial function
+            # Verify only failure message is sent (hit limit case)
+            cog.dispatcher.send_message.assert_called_once()
+            # The message should contain the playlist name and indicate limit hit
+            # We can't easily test the exact message without executing the partial function
 
 
 @pytest.mark.asyncio
@@ -1266,31 +1283,28 @@ async def test_history_playlist_queue_behavior(fake_engine, fake_context):  #pyl
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
     attach_in_process_broker(cog)
 
-    # Mock database operations for history playlist
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        mock_playlist_items = [
-            MagicMock(id=1, video_url="https://youtube.com/watch?v=123",
-                     requester_name="user1", requester_id=456, title="Video 1"),
-        ]
+    # The stored name is overridden by the is_history branch, so it is set to
+    # something recognisably different here.
+    attach_playlist_store(
+        cog,
+        playlist=PlaylistEntry(id=1, name='Auto-generated History', is_history=True),
+        items=[
+            PlaylistItemEntry(id=1, video_url='https://youtube.com/watch?v=123',
+                              title='Video 1', uploader='up', playlist_id=1),
+        ])
 
-        mock_db.side_effect = [
-            "Auto-generated History",  # get_playlist_name (this gets overridden)
-            mock_playlist_items,  # list_playlist_items
-            None,  # playlist_update_queued
-        ]
+    cog.dispatcher = MagicMock()
+    with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
+        with patch.object(cog, 'get_player', return_value=MagicMock()):
+            # Call history playlist queue (playlist_id = guild_id for history)
+            # pylint: disable=protected-access
+            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), fake_context['guild'].id, False, 0, True)
 
-        cog.dispatcher = MagicMock()
-        with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
-            with patch.object(cog, 'get_player', return_value=MagicMock()):
-                # Call history playlist queue (playlist_id = guild_id for history)
-                # pylint: disable=protected-access
-                await cog._Music__playlist_queue(fake_context['context'], MagicMock(), fake_context['guild'].id, False, 0, True)
+            # For history playlists, should still send completion message
+            cog.dispatcher.send_message.assert_called_once()
 
-                # For history playlists, should still send completion message
-                cog.dispatcher.send_message.assert_called_once()
-
-                # Message should mention "Channel History" not the database playlist name
-                # This is set by the special is_history logic
+            # Message should mention "Channel History" not the database playlist name
+            # This is set by the special is_history logic
 
 
 # ---------------------------------------------------------------------------
@@ -1586,15 +1600,11 @@ async def test_playlist_queue_internal_shuffle(fake_context):  #pylint:disable=r
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mock_items = [
-        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
-        for i in range(3)
-    ]
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        mock_db.side_effect = ['Playlist', mock_items, None]
-        with patch.object(cog, 'enqueue_media_requests', return_value=True):
-            # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, True, 0, False)
+    attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
+                          items=fake_playlist_items(3))
+    with patch.object(cog, 'enqueue_media_requests', return_value=True):
+        # pylint: disable=protected-access
+        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, True, 0, False)
     # No exception means shuffle path executed
     assert cog.dispatcher.send_message.call_count == 0
 
@@ -1604,12 +1614,11 @@ async def test_playlist_queue_internal_max_num_negative(fake_context):  #pylint:
     """__playlist_queue sends error and returns when max_num < 0"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
-    mock_items = [MagicMock(id=1, video_url='https://ex.com/1', title='t1')]
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        mock_db.side_effect = ['Playlist', mock_items]
-        with patch.object(cog, 'enqueue_media_requests', return_value=True):
-            # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, -1, False)
+    attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
+                          items=fake_playlist_items(1, start=1))
+    with patch.object(cog, 'enqueue_media_requests', return_value=True):
+        # pylint: disable=protected-access
+        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, -1, False)
     assert any('Invalid number of videos' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
 
 
@@ -1619,21 +1628,17 @@ async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mock_items = [
-        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
-        for i in range(5)
-    ]
+    attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
+                          items=fake_playlist_items(5))
     captured = []
 
     async def capture_enqueue(_ctx, items, *_args, **_kwargs):
         captured.extend(items)
         return True
 
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        mock_db.side_effect = ['Playlist', mock_items, None]
-        with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
-            # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 2, False)
+    with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+        # pylint: disable=protected-access
+        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 2, False)
     assert len(captured) == 2
 
 
@@ -1643,21 +1648,17 @@ async def test_playlist_queue_internal_max_num_larger_than_list(fake_context):  
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mock_items = [
-        MagicMock(id=i, video_url=f'https://ex.com/{i}', title=f't{i}')
-        for i in range(2)
-    ]
+    attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
+                          items=fake_playlist_items(2))
     captured = []
 
     async def capture_enqueue(_ctx, items, *_args, **_kwargs):
         captured.extend(items)
         return True
 
-    with patch('discord_bot.cogs.music.async_retry_database_commands', new_callable=AsyncMock) as mock_db:
-        mock_db.side_effect = ['Playlist', mock_items, None]
-        with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
-            # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 5, False)
+    with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+        # pylint: disable=protected-access
+        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 5, False)
     assert len(captured) == 2
 
 
@@ -1752,12 +1753,12 @@ async def test_playlist_merge_max_length(fake_engine, fake_context):  #pylint:di
     await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
     async with async_mock_session(fake_engine) as db_session:
         playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
-        p1_id = playlists[0].id
-        p2_id = playlists[1].id
-        # pylint: disable=protected-access
-        await cog._Music__playlist_insert_item(db_session, p1_id, 'https://ex.com/a', 'A', 'up')
-        await cog._Music__playlist_insert_item(db_session, p2_id, 'https://ex.com/b', 'B', 'up')
-        await db_session.commit()
+    p1_id = playlists[0].id
+    p2_id = playlists[1].id
+    await cog.playlist_store.add_items(
+        p1_id, [PlaylistItemWrite(video_url='https://ex.com/a', title='A', uploader='up')], 1)
+    await cog.playlist_store.add_items(
+        p2_id, [PlaylistItemWrite(video_url='https://ex.com/b', title='B', uploader='up')], 1)
     cog.dispatcher.reset_mock()
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
@@ -1773,10 +1774,13 @@ async def test_playlist_merge_duplicate(fake_engine, fake_context):  #pylint:dis
     await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
     async with async_mock_session(fake_engine) as db_session:
         playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
-        # pylint: disable=protected-access
-        await cog._Music__playlist_insert_item(db_session, playlists[0].id, 'https://ex.com/same', 'Same', 'up')
-        await cog._Music__playlist_insert_item(db_session, playlists[1].id, 'https://ex.com/same', 'Same', 'up')
-        await db_session.commit()
+    first_id = playlists[0].id
+    second_id = playlists[1].id
+    max_size = cog.config.playlist.server_playlist_max_size
+    await cog.playlist_store.add_items(
+        first_id, [PlaylistItemWrite(video_url='https://ex.com/same', title='Same', uploader='up')], max_size)
+    await cog.playlist_store.add_items(
+        second_id, [PlaylistItemWrite(video_url='https://ex.com/same', title='Same', uploader='up')], max_size)
     cog.dispatcher.reset_mock()
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
@@ -1939,3 +1943,51 @@ async def test_add_playlist_item_marks_failed_when_item_already_exists(fake_engi
     assert args[0] is request
     assert args[1] is LifecycleEvent.FAILED
     assert 'already exists' in kwargs['failure_reason']
+
+
+@pytest.mark.asyncio
+async def test_post_play_processing_survives_a_deleted_history_playlist(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+    """A history playlist deleted mid-play drops the item instead of crashing.
+
+    Reachable rather than defensive: the post-play queue carries a playlist id
+    across the play, and `!playlist delete` can land in between. The store says
+    False and the loop keeps going -- an exception here would take the whole
+    post-play consumer down with it.
+    """
+    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch.object(MusicPlayer, 'start_tasks')
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
+            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            attach_in_process_broker(cog)
+            cog.dispatcher = MagicMock()
+            await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
+            history_playlist_id = cog.players[fake_context['guild'].id].history_playlist_id
+
+            await cog.playlist_store.delete_playlist(history_playlist_id)
+            cog.history_playlist_queue.put_nowait(HistoryPlaylistItem(history_playlist_id, sd))
+
+            await cog.post_play_processing()
+
+            async with async_mock_session(fake_engine) as session:
+                items = (await session.execute(select(sql_count()).select_from(PlaylistItem))).scalar()
+            assert items == 0
+
+
+@pytest.mark.asyncio
+async def test_public_view_is_none_when_the_playlist_vanishes_mid_lookup(fake_context):  #pylint:disable=redefined-outer-name
+    """A playlist deleted between the two store calls resolves to no index.
+
+    The lookup is a fetch followed by a list, and those are two round trips
+    once the store is remote -- so a `!playlist delete` landing between them is
+    a real interleaving, not a hypothetical. None is the answer; the caller
+    prints it as the ID and carries on.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    store = attach_playlist_store(
+        cog, playlist=PlaylistEntry(id=7, name='vanishing',
+                                    server_id=fake_context['guild'].id, is_history=False))
+    store.list_playlists.return_value = []
+
+    # pylint: disable=protected-access
+    assert await cog._Music__get_playlist_public_view(7, fake_context['guild'].id) is None
