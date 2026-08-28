@@ -18,7 +18,7 @@ permissions:
 jobs:
   secrets:
     name: Scan for secrets
-    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@7211258c07503e00971c91988027b4f907ffe5b4
 
   # The suite has no sqlite fallback. tox.ini sets
   # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
@@ -33,7 +33,7 @@ jobs:
   # pre_commands with sudo (github-workflows#38).
   tox:
     name: Tox
-    uses: tnoff/github-workflows/.github/workflows/tox.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@7211258c07503e00971c91988027b4f907ffe5b4
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
       # ci-base-images base. Two tests shell out to it directly
@@ -106,7 +106,7 @@ jobs:
             dockerfile: docker/Dockerfile.downloader
           - image: search
             dockerfile: docker/Dockerfile.search
-    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@7211258c07503e00971c91988027b4f907ffe5b4
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
@@ -115,7 +115,7 @@ jobs:
     if: startsWith(github.head_ref, 'renovate/dev-')
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@7211258c07503e00971c91988027b4f907ffe5b4
     with:
       bump_changelog: true
     secrets:
@@ -126,7 +126,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: tnoff/github-workflows/.github/workflows/renovate-auto-approve.yml@e1c3630ae900fc420520f27f8b2481cc42f81b3a
+    uses: tnoff/github-workflows/.github/workflows/renovate-auto-approve.yml@7211258c07503e00971c91988027b4f907ffe5b4
     with:
       branch_pattern: '^renovate/'
     secrets:
