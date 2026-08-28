@@ -92,7 +92,7 @@ database = [
 ]
 storage = [
     # S3 object storage for finished media.
-    "boto3==1.43.77",
+    "boto3==1.43.78",
 ]
 rendering = [
     # Table/bundle rendering for what gets posted back to Discord.
