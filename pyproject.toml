@@ -92,7 +92,7 @@ database = [
 ]
 storage = [
     # S3 object storage for finished media.
-    "boto3==1.43.72",
+    "boto3==1.43.77",
 ]
 rendering = [
     # Table/bundle rendering for what gets posted back to Discord.
@@ -121,7 +121,7 @@ search-providers = [
     # that serve it, or the next person to move the group by its name takes an
     # unrelated package along.
     "spotipy==2.26.0",
-    "google-api-python-client==2.198.0",
+    "google-api-python-client==2.199.0",
 ]
 scraping = [
     # Parsing HTML out of a page the API does not cover. The urban cog only.
