@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.116] - 2026-08-28
+
+### Changed
+
+- Two playlist defects found while scoping the persistence seam, both confirmed against a real postgres rather than by reading. `!playlist queue` never recorded a time: `update_playlist_queued_at` assigned `last_queued_at`, which is not a mapped attribute and not a column, so SQLAlchemy accepted it silently, the commit emitted no UPDATE, and the "Last Queued" column of `!playlist list` has always shown N/A. And `created_at` was NULL on every `playlist` and `playlist_item` row, because no construction site passed it and the column carried no default - so the playlist index order, `!playlist show`'s item order and the history playlist's delete-the-oldest eviction were all returning postgres heap order, which drifts as rows are deleted and reinserted. The column is defaulted at the model now, every ordering carries an `id` tiebreak so a tie stops meaning heap order, and a migration backfills existing rows from their id so they keep insertion order. Playlist indexes stay oldest-first, which is what servers see today.
+
 ## [2.5.115] - 2026-08-27
 
 ### Changed
