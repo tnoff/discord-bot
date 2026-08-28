@@ -4,11 +4,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.database import GuildVideoAnalytics, VideoCache, Playlist
+from discord_bot.database import GuildVideoAnalytics, VideoCache, Playlist, PlaylistItem
 from discord_bot.cogs.music_helpers.database_functions import (
     ensure_guild_video_analytics, update_video_guild_analytics,
     video_cache_mark_deletion_for_size,
     delete_video_cache, rename_playlist,
+    update_playlist_queued_at, list_playlist_non_history, delete_playlist_item_limit,
 )
 
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
@@ -259,3 +260,108 @@ async def test_rename_playlist_returns_true_and_updates(fake_engine):  #pylint:d
 
     assert result is True
     assert updated.name == 'new name'
+
+
+@pytest.mark.asyncio
+async def test_update_playlist_queued_at_persists_last_queued(fake_engine):  #pylint:disable=redefined-outer-name
+    '''!playlist queue records the time, in the column !playlist list reads back.
+
+    It used to assign `last_queued_at`, which is not a mapped attribute and not
+    a column in the schema. SQLAlchemy accepts that assignment silently, the
+    commit emits no UPDATE, and `last_queued` stays NULL forever -- so the
+    "Last Queued" column of `!playlist list` has always shown N/A.
+
+    Read back on a second session so the assertion is about postgres and not
+    about an attribute living on an instance.
+    '''
+    async with async_mock_session(fake_engine) as session:
+        playlist = Playlist(name='queued-probe', server_id=1, is_history=False)
+        session.add(playlist)
+        await session.commit()
+        playlist_id = playlist.id
+
+    async with async_mock_session(fake_engine) as session:
+        await update_playlist_queued_at(session, playlist_id)
+
+    async with async_mock_session(fake_engine) as session:
+        stored = (await session.execute(
+            select(Playlist).where(Playlist.id == playlist_id))).scalars().first()
+    assert stored.last_queued is not None, (
+        'last_queued is still NULL after update_playlist_queued_at; the write '
+        'went to an attribute that is not a column again'
+    )
+    assert stored.last_queued.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_playlist_rows_get_a_created_at_without_being_given_one(fake_engine):  #pylint:disable=redefined-outer-name
+    '''Inserting a Playlist or PlaylistItem stamps created_at.
+
+    No construction site ever passed it and the column carried no default, so
+    every row in both tables had NULL here -- which is what made every
+    `ORDER BY created_at` over them return heap order.
+    '''
+    async with async_mock_session(fake_engine) as session:
+        playlist = Playlist(name='stamped', server_id=1, is_history=False)
+        session.add(playlist)
+        await session.commit()
+        item = PlaylistItem(title='t', video_url='u', uploader='up', playlist_id=playlist.id)
+        session.add(item)
+        await session.commit()
+
+    async with async_mock_session(fake_engine) as session:
+        stored_playlist = (await session.execute(select(Playlist))).scalars().first()
+        stored_item = (await session.execute(select(PlaylistItem))).scalars().first()
+    assert stored_playlist.created_at is not None
+    assert stored_item.created_at is not None
+
+
+@pytest.mark.asyncio
+async def test_playlist_ordering_is_deterministic_when_created_at_ties(fake_engine):  #pylint:disable=redefined-outer-name
+    '''Rows sharing a created_at still come back in a defined order.
+
+    Ties are not hypothetical: every row written before the default existed has
+    NULL here, and rows inserted in one commit can share a timestamp. A tie in
+    postgres means heap order, which changes as rows are deleted and reinserted
+    -- exactly what the history playlist does on every play. The id tiebreak is
+    what makes the order a promise rather than an observation.
+    '''
+    shared = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    async with async_mock_session(fake_engine) as session:
+        for name in ('alpha', 'beta', 'gamma'):
+            session.add(Playlist(name=name, server_id=1, is_history=False, created_at=shared))
+        await session.commit()
+
+    async with async_mock_session(fake_engine) as session:
+        listed = await list_playlist_non_history(session, 1, 0)
+    # created_at asc, then id asc: insertion order, which is the order the
+    # public playlist index has always had.
+    assert [p.name for p in listed] == ['alpha', 'beta', 'gamma']
+
+
+@pytest.mark.asyncio
+async def test_history_eviction_deletes_the_oldest_items(fake_engine):  #pylint:disable=redefined-outer-name
+    '''delete_playlist_item_limit drops the oldest, not whatever the heap offers.
+
+    This is the eviction the history playlist runs on every play once it is at
+    max size. With created_at NULL on every row the ordering did nothing, so
+    which items it dropped was down to physical row order.
+    '''
+    base = datetime(2024, 6, 1, tzinfo=timezone.utc)
+    async with async_mock_session(fake_engine) as session:
+        playlist = Playlist(name='history-ish', server_id=1, is_history=True)
+        session.add(playlist)
+        await session.commit()
+        for offset, url in enumerate(('oldest', 'middle', 'newest')):
+            session.add(PlaylistItem(title=url, video_url=url, uploader='up',
+                                     playlist_id=playlist.id,
+                                     created_at=base + timedelta(hours=offset)))
+        await session.commit()
+        playlist_id = playlist.id
+
+    async with async_mock_session(fake_engine) as session:
+        await delete_playlist_item_limit(session, playlist_id, 2)
+
+    async with async_mock_session(fake_engine) as session:
+        remaining = (await session.execute(select(PlaylistItem))).scalars().all()
+    assert [item.video_url for item in remaining] == ['newest']

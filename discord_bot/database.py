@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Boolean
 from sqlalchemy import ForeignKey, UniqueConstraint
@@ -37,6 +39,17 @@ class MarkovRelation(BASE):
 # Music Tables
 #
 
+def utcnow() -> datetime:
+    '''
+    Current UTC time, used as the insert-time default for created_at columns.
+
+    A callable, not a value: SQLAlchemy evaluates `default=` once per INSERT.
+    Passing `datetime.now(timezone.utc)` directly would freeze the import-time
+    clock into every row for the life of the process.
+    '''
+    return datetime.now(timezone.utc)
+
+
 class Playlist(BASE):
     '''
     Playlist
@@ -50,7 +63,10 @@ class Playlist(BASE):
     name = Column(String(256))
     server_id = Column(BigInteger)
     last_queued = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True))
+    # Defaulted at the model rather than at each construction site: nothing that
+    # built a Playlist ever passed it, so every row in the table has a NULL here
+    # and every `ORDER BY created_at` over them is unordered.
+    created_at = Column(DateTime(timezone=True), default=utcnow)
     is_history = Column(Boolean)
 
 
@@ -68,7 +84,9 @@ class PlaylistItem(BASE):
     video_url = Column(String(256))
     uploader = Column(String(256))
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
-    created_at = Column(DateTime(timezone=True))
+    # Same as Playlist.created_at, and it matters more here: the history
+    # playlist's eviction deletes "the oldest" items by this column.
+    created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
 class VideoCache(BASE):
