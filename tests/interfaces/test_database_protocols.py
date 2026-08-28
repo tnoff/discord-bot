@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from discord_bot.interfaces.database_protocols import MarkovStore, VideoCacheStore
+from discord_bot.interfaces.database_protocols import MarkovStore, PlaylistStore, VideoCacheStore
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from tests.cli._image_deps import measure
@@ -42,7 +42,7 @@ def test_stores_are_runtime_checkable():
     `@runtime_checkable` is easy to drop in a refactor and its absence surfaces
     as a TypeError inside another test rather than as a failure here.
     '''
-    for protocol in (VideoCacheStore, MarkovStore):
+    for protocol in (VideoCacheStore, MarkovStore, PlaylistStore):
         assert isinstance(object(), protocol) is False
 
 

@@ -4,7 +4,6 @@
 import asyncio
 from asyncio import sleep
 from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
-from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 import random
@@ -44,14 +43,16 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig
 from discord_bot.cogs.music_helpers import database_functions
 
-from discord_bot.database import PlaylistItem, Playlist
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
+from discord_bot.clients.playlist_client import PlaylistClient
+from discord_bot.interfaces.database_protocols import PlaylistStore
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
@@ -221,11 +222,6 @@ class MusicConfig(BaseModel):
 # Exceptions
 #
 
-class PlaylistMaxLength(Exception):
-    '''
-    Playlist hit max length
-    '''
-
 OTEL_SPAN_PREFIX = 'music'
 # Idle backoff for process_download_results when the broker has no finished
 # result ready — in HA this paces the remote GET /results/next poll.
@@ -282,6 +278,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
         if self.db_engine:
             self.history_playlist_queue = Queue()
+
+        # Every playlist read and write goes through this. Annotated against the
+        # Protocol rather than PlaylistClient so the eventual HTTP store drops in
+        # without touching a call site -- and so nothing below can reach for a
+        # session, a live row, or a transaction boundary it does not own.
+        self.playlist_store: PlaylistStore | None = None
+        if self.db_engine:
+            self.playlist_store = PlaylistClient(self.with_db_session)
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -537,30 +541,33 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.post_play_processing', kind=SpanKind.CONSUMER):
+            # Analytics is the guild-analytics group and has not crossed the seam
+            # yet, so it still runs against a session here.
             async with self.with_db_session() as db_session:
-
-                # Update analytics table
                 await async_retry_database_commands(db_session, lambda: database_functions.update_video_guild_analytics(
                     db_session,
                     history_item.media_download.media_request.guild_id,
                     history_item.media_download.duration,
                     history_item.media_download.cache_hit))
 
-                # Skip if added from history
-                if history_item.media_download.media_request.added_from_history:
-                    self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
-                    return
-                self.logger.info(f'Attempting to add url "{history_item.media_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.media_download.media_request.guild_id}')
-                await async_retry_database_commands(db_session, lambda: database_functions.delete_playlist_item_by_url(db_session, history_item.media_download.webpage_url, history_item.playlist_id))
+            # Skip if added from history
+            if history_item.media_download.media_request.added_from_history:
+                self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
+                return
 
-                # Delete number of rows necessary to add list
-                existing_items = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist_size(db_session, history_item.playlist_id))
-                delta = (existing_items + 1) - self.config.playlist.server_playlist_max_size
-                if delta > 0:
-                    self.logger.info(f'Need to delete {delta} items from history playlist {history_item.playlist_id}')
-                    await async_retry_database_commands(db_session, lambda: database_functions.delete_playlist_item_limit(db_session, history_item.playlist_id, delta))
-                self.logger.info(f'Adding new history item "{history_item.media_download.webpage_url}" to playlist {history_item.playlist_id}')
-                await self.__playlist_insert_item(db_session, history_item.playlist_id, history_item.media_download.webpage_url, history_item.media_download.title, history_item.media_download.uploader)
+            self.logger.info(f'Attempting to add url "{history_item.media_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.media_download.media_request.guild_id}')
+            # One call for what was a delete-by-url, a count, a conditional bulk
+            # delete and an insert -- plus the insert's own count and duplicate
+            # check. Six statements the loop happened to run in sequence, and six
+            # round trips once this store is remote.
+            recorded = await self.playlist_store.record_history_item(
+                history_item.playlist_id,
+                PlaylistItemWrite(video_url=history_item.media_download.webpage_url,
+                                  title=history_item.media_download.title,
+                                  uploader=history_item.media_download.uploader),
+                self.config.playlist.server_playlist_max_size)
+            if not recorded:
+                self.logger.warning(f'History playlist {history_item.playlist_id} no longer exists, dropping history item')
 
     def _get_play_order_content(self, guild_id: int) -> list:
         '''
@@ -907,18 +914,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         if not self.db_engine:
             return None
-        async with self.with_db_session() as db_session:
-            history_playlist = await async_retry_database_commands(db_session, lambda: database_functions.get_history_playlist(db_session, guild_id))
-            if history_playlist:
-                return history_playlist.id
-            history_playlist = Playlist(
-                server_id=guild_id,
-                name=f'{PLAYHISTORY_PREFIX}{guild_id}_{datetime.now(timezone.utc).timestamp()}',
-                is_history=True,
-            )
-            db_session.add(history_playlist)
-            await async_retry_database_commands(db_session, db_session.commit)
-            return history_playlist.id
+        # Get-or-create in one call. Split across a read and a conditional write
+        # it is a race between any two players starting at once, and the table's
+        # unique constraint on (name, server_id) would surface that as an error
+        # on a path with nowhere to report one.
+        return await self.playlist_store.ensure_history_playlist(guild_id)
 
     async def _save_player_session(self, guild, player: MusicPlayer) -> None:
         '''
@@ -1659,19 +1659,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Get playlist by db id, and view which public index servers see it as
         '''
-        async with self.with_db_session() as db_session:
-            playlist = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist(db_session, playlist_id))
-            if not playlist:
-                return None
-            if playlist.server_id != guild_id:
-                return None
-            if playlist.is_history:
-                return 0
-
-            for (count, playlist_obj) in enumerate(await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_non_history(db_session, guild_id, 0))):
-                if playlist_id == playlist_obj.id:
-                    return count + 1
+        playlist = await self.playlist_store.get_playlist(playlist_id)
+        if not playlist:
             return None
+        if playlist.server_id != guild_id:
+            return None
+        if playlist.is_history:
+            return 0
+
+        # The index IS the position in list order, which is why that order is
+        # part of the store's contract rather than a detail of this loop.
+        for (count, playlist_obj) in enumerate(await self.playlist_store.list_playlists(guild_id)):
+            if playlist_id == playlist_obj.id:
+                return count + 1
+        return None
 
     async def __get_playlist(self, playlist_index: int, ctx: Context):
         '''
@@ -1689,26 +1690,29 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return None, False
 
-        async with self.with_db_session() as db_session:
-            if index > 0:
-                if not await async_retry_database_commands(db_session, lambda: database_functions.playlist_count(db_session, ctx.guild.id)):
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        'No playlists in database',
-                        delete_after=self.config.general.message_delete_after)
-                    return None, False
-
-            is_history = False
-            if index == 0:
-                playlist = await async_retry_database_commands(db_session, lambda: database_functions.get_history_playlist(db_session, ctx.guild.id))
-                is_history = True
-            else:
-                playlist = (await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_non_history(db_session, ctx.guild.id, (index - 1))))[0]
-            if not playlist:
+        if index > 0:
+            if not await self.playlist_store.count_playlists(ctx.guild.id):
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Invalid playlist index {playlist_index}',
+                    'No playlists in database',
                     delete_after=self.config.general.message_delete_after)
                 return None, False
-            return playlist.id, is_history
+
+        is_history = False
+        if index == 0:
+            playlist = await self.playlist_store.get_history_playlist(ctx.guild.id)
+            is_history = True
+        else:
+            # The offset-and-take-first was an IndexError waiting on an index
+            # past the end; the count check above only rules out zero playlists,
+            # not `!playlist show 9` against three of them.
+            playlists = await self.playlist_store.list_playlists(ctx.guild.id)
+            playlist = playlists[index - 1] if index <= len(playlists) else None
+        if not playlist:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Invalid playlist index {playlist_index}',
+                delete_after=self.config.general.message_delete_after)
+            return None, False
+        return playlist.id, is_history
 
     async def __check_database_session(self, ctx: Context):
         '''
@@ -1741,26 +1745,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 f'Unable to create playlist "{name}", name cannot contain {PLAYHISTORY_PREFIX}')
             return None
-        async with self.with_db_session() as db_session:
-            existing_playlist = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist_by_name_and_guild(db_session, playlist_name, ctx.guild.id))
-            if existing_playlist:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Unable to create playlist "{name}", a playlist with that name already exists')
-                return None
-
-            playlist = Playlist(
-                name=name,
-                server_id=ctx.guild.id,
-                is_history=False,
-            )
-            db_session.add(playlist)
-            await async_retry_database_commands(db_session, db_session.commit)
-            self.logger.info(f'Playlist created "{playlist_name}" with id {playlist.id} in guild {ctx.guild.id}')
-            public_playlist_id = await self.__get_playlist_public_view(playlist.id, ctx.guild.id)
+        existing_playlist = await self.playlist_store.get_playlist_by_name(ctx.guild.id, playlist_name)
+        if existing_playlist:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Created playlist "{playlist_name}" with ID {public_playlist_id}',
-                delete_after=self.config.general.message_delete_after)
-            return playlist.id
+                f'Unable to create playlist "{name}", a playlist with that name already exists')
+            return None
+
+        playlist = await self.playlist_store.create_playlist(ctx.guild.id, name)
+        self.logger.info(f'Playlist created "{playlist_name}" with id {playlist.id} in guild {ctx.guild.id}')
+        public_playlist_id = await self.__get_playlist_public_view(playlist.id, ctx.guild.id)
+        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+            f'Created playlist "{playlist_name}" with ID {public_playlist_id}',
+            delete_after=self.config.general.message_delete_after)
+        return playlist.id
 
     @playlist.command(name='create')
     @command_wrapper
@@ -1783,63 +1780,41 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         if not await self.__check_database_session(ctx):
             return
-        async with self.with_db_session() as db_session:
-            history_playlist = await async_retry_database_commands(db_session, lambda: database_functions.get_history_playlist(db_session, ctx.guild.id))
-            playlist_items = await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_non_history(db_session, ctx.guild.id, 0))
+        history_playlist = await self.playlist_store.get_history_playlist(ctx.guild.id)
+        playlist_items = await self.playlist_store.list_playlists(ctx.guild.id)
 
-            if not playlist_items and not history_playlist:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    'No playlists in database',
-                    delete_after=self.config.general.message_delete_after)
-                return
+        if not playlist_items and not history_playlist:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                'No playlists in database',
+                delete_after=self.config.general.message_delete_after)
+            return
 
-            if history_playlist:
-                playlist_items = [history_playlist] + [i for i in playlist_items]
+        if history_playlist:
+            playlist_items = [history_playlist] + [i for i in playlist_items]
 
-            headers = [
-                Column('ID', 3),
-                Column('Playlist Name', 64),
-                Column('Last Queued', 20),
-            ]
-            table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
-                                enclosure_start='```', enclosure_end='```', prefix='Playlist List\n')
-            for (count, item) in enumerate(playlist_items):
-                last_queued = 'N/A'
-                if item.last_queued:
-                    last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
-                name = item.name
-                if item.is_history:
-                    name = PLAYHISTORY_NAME
-                table.add_row([
-                    f'{count}',
-                    name,
-                    last_queued,
-                ])
-            messages = table.render()
-            for mess in messages:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id, mess,
-                    delete_after=self.config.general.message_delete_after)
-
-    async def __playlist_insert_item(self, db_session, playlist_id: int, video_url: str, video_title: str, video_uploader: str):
-        self.logger.info(f'Adding video "{video_url}" to playlist {playlist_id}')
-        item_count = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist_size(db_session, playlist_id))
-        if item_count >= self.config.playlist.server_playlist_max_size:
-            raise PlaylistMaxLength(f'Playlist {playlist_id} greater to or equal to max length {self.config.playlist.server_playlist_max_size}')
-
-        existing_item = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist_item_by_url(db_session, playlist_id, video_url))
-        if existing_item:
-            return None
-
-        # Truncate strings to fit database varchar(256) constraints
-        playlist_item = PlaylistItem(
-            title=shorten_string(video_title, 256) if video_title else None,
-            video_url=shorten_string(video_url, 256) if video_url else None,
-            uploader=shorten_string(video_uploader, 256) if video_uploader else None,
-            playlist_id=playlist_id,
-        )
-        db_session.add(playlist_item)
-        await async_retry_database_commands(db_session, db_session.commit)
-        return playlist_item.id
+        headers = [
+            Column('ID', 3),
+            Column('Playlist Name', 64),
+            Column('Last Queued', 20),
+        ]
+        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```', prefix='Playlist List\n')
+        for (count, item) in enumerate(playlist_items):
+            last_queued = 'N/A'
+            if item.last_queued:
+                last_queued = item.last_queued.strftime('%Y-%m-%d %H:%M:%S')
+            name = item.name
+            if item.is_history:
+                name = PLAYHISTORY_NAME
+            table.add_row([
+                f'{count}',
+                name,
+                last_queued,
+            ])
+        messages = table.render()
+        for mess in messages:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id, mess,
+                delete_after=self.config.general.message_delete_after)
 
     async def __add_playlist_item(self, request: PlaylistAddRequest, result: PlaylistAddResult):
         '''
@@ -1850,16 +1825,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         self.logger.info(f'Adding video_url "{result.webpage_url}" to playlist "{request.playlist_id}"'
                          f' in guild {request.guild_id}')
-        try:
-            async with self.with_db_session() as db_session:
-                playlist_item_id = await self.__playlist_insert_item(db_session, request.playlist_id, result.webpage_url, result.title, result.uploader)
-        except PlaylistMaxLength:
+        # A batch of one. The store reports why rather than raising, so the
+        # full-playlist case is an outcome to branch on instead of an exception
+        # whose type cannot survive a network hop.
+        outcomes = await self.playlist_store.add_items(
+            request.playlist_id,
+            [PlaylistItemWrite(video_url=result.webpage_url, title=result.title,
+                               uploader=result.uploader)],
+            self.config.playlist.server_playlist_max_size)
+        outcome = outcomes[0]
+        if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
             await self._push_state(request, LifecycleEvent.FAILED,
                                    failure_reason='Unable to add item to playlist, playlist too long',
                                    rejected=True)
             return
         playlist_public_view_id = await self.__get_playlist_public_view(request.playlist_id, request.guild_id)
-        if playlist_item_id:
+        if outcome.status == PlaylistItemAddStatus.ADDED:
             await self._push_state(request, LifecycleEvent.COMPLETED)
             return
         await self._push_state(request, LifecycleEvent.FAILED,
@@ -1924,18 +1905,19 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
 
-        async with self.with_db_session() as db_session:
-            item = await async_retry_database_commands(db_session, lambda: database_functions.delete_playlist_item_by_index(db_session, playlist_id, (video_index - 1)))
-            public_playlist_id = await self.__get_playlist_public_view(playlist_id, ctx.guild.id)
-            if item:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Removed item "{item.title}" from playlist {public_playlist_id}',
-                    delete_after=self.config.general.message_delete_after)
-                return
+        # The entry comes back built, because the caller wants the deleted
+        # item's title for its message and the row is gone by then.
+        item = await self.playlist_store.delete_item_by_index(playlist_id, video_index - 1)
+        public_playlist_id = await self.__get_playlist_public_view(playlist_id, ctx.guild.id)
+        if item:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Unable to find item {video_index}',
+                f'Removed item "{item.title}" from playlist {public_playlist_id}',
                 delete_after=self.config.general.message_delete_after)
             return
+        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+            f'Unable to find item {video_index}',
+            delete_after=self.config.general.message_delete_after)
+        return
 
     @playlist.command(name='show')
     @command_wrapper
@@ -1954,32 +1936,33 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not playlist_id:
             return None
 
-        async with self.with_db_session() as db_session:
-            headers = [
-                Column('Pos', 3, zero_pad=True),
-                Column('Title', 32),
-                Column('Uploader', 32),
-            ]
-            table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
-                                enclosure_start='```', enclosure_end='```', prefix=f'Playlist {playlist_index} Items\n')
-            total = 0
-            for (count, item) in enumerate(await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_items(db_session, playlist_id))):
-                uploader = item.uploader or ''
-                table.add_row([
-                    f'{count + 1}',
-                    f'{item.title}',
-                    f'{uploader}',
-                ])
-                total += 1
-            if not total:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'No items in playlist {playlist_id}',
-                    delete_after=self.config.general.message_delete_after)
-                return
-            messages = table.render()
-            for mess in messages:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id, mess,
-                    delete_after=self.config.general.message_delete_after)
+        headers = [
+            Column('Pos', 3, zero_pad=True),
+            Column('Title', 32),
+            Column('Uploader', 32),
+        ]
+        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
+                            enclosure_start='```', enclosure_end='```', prefix=f'Playlist {playlist_index} Items\n')
+        total = 0
+        # The position shown here is the index `!playlist item-remove` takes, so
+        # it has to be the same order the store deletes by.
+        for (count, item) in enumerate(await self.playlist_store.list_items(playlist_id)):
+            uploader = item.uploader or ''
+            table.add_row([
+                f'{count + 1}',
+                f'{item.title}',
+                f'{uploader}',
+            ])
+            total += 1
+        if not total:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'No items in playlist {playlist_id}',
+                delete_after=self.config.general.message_delete_after)
+            return
+        messages = table.render()
+        for mess in messages:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id, mess,
+                delete_after=self.config.general.message_delete_after)
 
     @playlist.command(name='delete')
     @command_wrapper
@@ -2012,9 +1995,8 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
     async def __playlist_delete(self, playlist_id: int):
         self.logger.info(f'Deleting playlist items "{playlist_id}"')
-        async with self.with_db_session() as db_session:
-            await async_retry_database_commands(db_session, lambda: database_functions.delete_playlist(db_session, playlist_id))
-            return
+        await self.playlist_store.delete_playlist(playlist_id)
+        return
 
     @playlist.command(name='rename')
     @command_wrapper
@@ -2047,12 +2029,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return None
 
         self.logger.info(f'Renaming playlist {playlist_id} to name "{playlist_name}"')
-        async with self.with_db_session() as db_session:
-            await async_retry_database_commands(db_session, lambda: database_functions.rename_playlist(db_session, playlist_id, playlist_name))
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Renamed playlist {playlist_index} to name "{playlist_name}"',
-                delete_after=self.config.general.message_delete_after)
-            return
+        await self.playlist_store.rename_playlist(playlist_id, playlist_name)
+        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+            f'Renamed playlist {playlist_index} to name "{playlist_name}"',
+            delete_after=self.config.general.message_delete_after)
+        return
 
     @playlist.command(name='save-queue')
     @command_wrapper
@@ -2102,23 +2083,27 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
 
-        async with self.with_db_session() as db_session:
-            for data in queue_copy:
-                try:
-                    playlist_item_id = await self.__playlist_insert_item(db_session, playlist_id, data.webpage_url, data.title, data.uploader)
-                except PlaylistMaxLength:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        'Cannot add more items to playlist, already max size',
-                        delete_after=self.config.general.message_delete_after)
-                    break
-                if playlist_item_id:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        f'Added item "{data.title}" to playlist',
-                        delete_after=self.config.general.message_delete_after)
-                    continue
+        # One call for the batch, then a message per outcome. The loop used to
+        # hold a session open while awaiting a Discord send per item.
+        outcomes = await self.playlist_store.add_items(
+            playlist_id,
+            [PlaylistItemWrite(video_url=data.webpage_url, title=data.title, uploader=data.uploader)
+             for data in queue_copy],
+            self.config.playlist.server_playlist_max_size)
+        for outcome in outcomes:
+            if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Unable to add playlist item "{data.title}", likely already exists',
+                    'Cannot add more items to playlist, already max size',
                     delete_after=self.config.general.message_delete_after)
+                break
+            if outcome.status == PlaylistItemAddStatus.ADDED:
+                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                    f'Added item "{outcome.title}" to playlist',
+                    delete_after=self.config.general.message_delete_after)
+                continue
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Unable to add playlist item "{outcome.title}", likely already exists',
+                delete_after=self.config.general.message_delete_after)
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Finished adding items to playlist "{name}"',
             delete_after=self.config.general.message_delete_after)
@@ -2126,10 +2111,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
     async def __delete_non_existing_item(self, item_id: int):
         self.logger.info(f'Unable to find playlist item {item_id} from history playlist, deleting')
-        async with self.with_db_session() as db_session:
-            item = await db_session.get(PlaylistItem, item_id)
-            await db_session.delete(item)
-            await db_session.commit()
+        await self.playlist_store.delete_item(item_id)
 
     async def __playlist_queue(self, ctx: Context, player: MusicPlayer, playlist_id: int, shuffle: bool, max_num: int, is_history: bool = False):
 
@@ -2137,59 +2119,63 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         self.logger.info(f'Playlist queue called for playlist {playlist_id} in server "{ctx.guild.id}"')
 
-        async with self.with_db_session() as db_session:
-            playlist_name = await async_retry_database_commands(db_session, lambda: database_functions.get_playlist_name(db_session, playlist_id))
-            if is_history:
-                playlist_name = PLAYHISTORY_NAME
-            playlist_items = []
-            for item in await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_items(db_session, playlist_id)):
-                search_result = SearchResult(search_type=SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                             raw_search_string=item.video_url, proper_name=item.title)
-                media_request = MediaRequest(guild_id=ctx.guild.id,
-                                             channel_id=ctx.channel.id,
-                                             requester_name=ctx.author.display_name,
-                                             requester_id=ctx.author.id,
-                                             search_result=search_result,
-                                             added_from_history=is_history,
-                                             history_playlist_item_id=item.id)
-                playlist_items.append(media_request)
+        # Both reads happen up front and the connection is released before the
+        # enqueue below, which dispatches searches and downloads. The session
+        # used to stay open for that entire stretch because these rows were live.
+        playlist = await self.playlist_store.get_playlist(playlist_id)
+        playlist_name = playlist.name if playlist else None
+        items = await self.playlist_store.list_items(playlist_id)
+        if is_history:
+            playlist_name = PLAYHISTORY_NAME
+        playlist_items = []
+        for item in items:
+            search_result = SearchResult(search_type=SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
+                                         raw_search_string=item.video_url, proper_name=item.title)
+            media_request = MediaRequest(guild_id=ctx.guild.id,
+                                         channel_id=ctx.channel.id,
+                                         requester_name=ctx.author.display_name,
+                                         requester_id=ctx.author.id,
+                                         search_result=search_result,
+                                         added_from_history=is_history,
+                                         history_playlist_item_id=item.id)
+            playlist_items.append(media_request)
 
-            # Check if playlist is empty and provide user feedback
-            if not playlist_items:
+        # Check if playlist is empty and provide user feedback
+        if not playlist_items:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Playlist "{playlist_name}" contains no items to queue',
+                delete_after=self.config.general.message_delete_after)
+            return
+
+        if shuffle:
+            # https://stackoverflow.com/a/51295230
+            random.seed(time())
+            random.shuffle(playlist_items)
+
+        if max_num:
+            if max_num < 0:
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Playlist "{playlist_name}" contains no items to queue',
+                    f'Invalid number of videos {max_num}',
                     delete_after=self.config.general.message_delete_after)
                 return
-
-            if shuffle:
-                # https://stackoverflow.com/a/51295230
-                random.seed(time())
-                random.shuffle(playlist_items)
-
-            if max_num:
-                if max_num < 0:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        f'Invalid number of videos {max_num}',
-                        delete_after=self.config.general.message_delete_after)
-                    return
-                if max_num < len(playlist_items):
-                    playlist_items = playlist_items[:max_num]
-                else:
-                    max_num = 0
+            if max_num < len(playlist_items):
+                playlist_items = playlist_items[:max_num]
+            else:
+                max_num = 0
 
 
-            bundle_uuid = await self.create_bundle(
-                ctx.guild.id, ctx.channel.id,
-                input_string=playlist_name, has_search_banner=True,
-            )
-            finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle_uuid, player=player)
+        bundle_uuid = await self.create_bundle(
+            ctx.guild.id, ctx.channel.id,
+            input_string=playlist_name, has_search_banner=True,
+        )
+        finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle_uuid, player=player)
 
-            if not finished_all:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
-                    delete_after=self.config.general.message_delete_after)
+        if not finished_all:
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
+                delete_after=self.config.general.message_delete_after)
 
-            await async_retry_database_commands(db_session, lambda: database_functions.update_playlist_queued_at(db_session, playlist_id))
+        await self.playlist_store.mark_queued(playlist_id)
 
     @playlist.command(name='queue')
     @command_wrapper
@@ -2269,23 +2255,28 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
                 f'Cannot find playlist {playlist_index_two}',
                 delete_after=self.config.general.message_delete_after)
             return
-        async with self.with_db_session() as db_session:
-            for item in await async_retry_database_commands(db_session, lambda: database_functions.list_playlist_items(db_session, playlist_two_id)):
-                try:
-                    playlist_item_id = await self.__playlist_insert_item(db_session, playlist_one_id, item.video_url, item.title, item.uploader)
-                except PlaylistMaxLength:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        f'Cannot add more items to playlist "{playlist_one_id}", already max size',
-                        delete_after=self.config.general.message_delete_after)
-                    return
-                if playlist_item_id:
-                    self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                        f'Added item "{item.title}" to playlist {playlist_index_one}',
-                        delete_after=self.config.general.message_delete_after)
-                    continue
+        source_items = await self.playlist_store.list_items(playlist_two_id)
+        outcomes = await self.playlist_store.add_items(
+            playlist_one_id,
+            [PlaylistItemWrite(video_url=item.video_url, title=item.title, uploader=item.uploader)
+             for item in source_items],
+            self.config.playlist.server_playlist_max_size)
+        for outcome in outcomes:
+            if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
                 self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Unable to add playlist item "{item.title}", likely already exists',
+                    f'Cannot add more items to playlist "{playlist_one_id}", already max size',
                     delete_after=self.config.general.message_delete_after)
+                # Returning rather than breaking, same as before: a merge that
+                # could not take every item must not then delete the source.
+                return
+            if outcome.status == PlaylistItemAddStatus.ADDED:
+                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                    f'Added item "{outcome.title}" to playlist {playlist_index_one}',
+                    delete_after=self.config.general.message_delete_after)
+                continue
+            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+                f'Unable to add playlist item "{outcome.title}", likely already exists',
+                delete_after=self.config.general.message_delete_after)
         await self.__playlist_delete(playlist_two_id)
 
     @command(name='random-play')

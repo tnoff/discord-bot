@@ -17,7 +17,7 @@ Groups, in the order they cross the seam:
 
   VideoCacheStore    (here) — the `video_cache` catalog.
   MarkovStore        (here) — `markov_channel` / `markov_relation`.
-  PlaylistStore      — `playlist` / `playlist_item`.
+  PlaylistStore      (here) — `playlist` / `playlist_item`.
   GuildAnalyticsStore — `guild` / `server_video_analytics`.
 
 **Every method here returns a value that survives a network hop.** That is the
@@ -45,6 +45,8 @@ Implementations:
   MarkovClient (clients/markov_client.py) — in-process, same shape: a session
   generator over the local engine. What the bot runs today.
 
+  PlaylistClient (clients/playlist_client.py) — in-process, same shape.
+
   HttpVideoCacheStore / HttpMarkovStore — not yet written. Forward to the db
   pod's routes.
 
@@ -61,6 +63,12 @@ from datetime import datetime
 from typing import List, Protocol, runtime_checkable
 
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_bot.types.playlist import (
+    PlaylistEntry,
+    PlaylistItemAddOutcome,
+    PlaylistItemEntry,
+    PlaylistItemWrite,
+)
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.video_cache import VideoCacheEntry
@@ -241,4 +249,183 @@ class MarkovStore(Protocol):
         Delete relations older than the retention cutoff.
 
         cutoff : Relations created before this are dropped
+        '''
+
+
+@runtime_checkable
+class PlaylistStore(Protocol):
+    '''
+    The `playlist` and `playlist_item` tables.
+
+    The largest group, and the one where the per-unit-of-work rule earns the
+    most: three separate loops in the music cog add items one at a time, and
+    the post-play history write is six queries the caller happens to run in
+    sequence. Those are `add_items` and `record_history_item` here.
+
+    Ordering is part of this interface, not an implementation detail. The public
+    playlist index users type (`!playlist 1`) is a position in `list_playlists`,
+    and the history playlist evicts the oldest item by the order `list_items`
+    promises. Both are `created_at` ascending with an id tiebreak; both were
+    unordered until the defaults landed, because nothing populated `created_at`
+    and a tie in postgres means heap order.
+    '''
+
+    async def list_playlists(self, guild_id: int) -> List[PlaylistEntry]:
+        '''
+        Return a guild's non-history playlists, oldest first.
+
+        The order defines the public index, so it is a promise rather than an
+        observation.
+
+        guild_id : Discord guild id
+        '''
+
+    async def count_playlists(self, guild_id: int) -> int:
+        '''
+        Return how many non-history playlists a guild has.
+
+        guild_id : Discord guild id
+        '''
+
+    async def get_playlist(self, playlist_id: int) -> PlaylistEntry | None:
+        '''
+        Return one playlist by row id, or None.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def get_playlist_by_name(self, guild_id: int, name: str) -> PlaylistEntry | None:
+        '''
+        Return a guild's playlist with this name, or None.
+
+        guild_id : Discord guild id
+        name : Playlist name to look for
+        '''
+
+    async def get_history_playlist(self, guild_id: int) -> PlaylistEntry | None:
+        '''
+        Return a guild's history playlist, or None when it has none yet.
+
+        guild_id : Discord guild id
+        '''
+
+    async def ensure_history_playlist(self, guild_id: int) -> int:
+        '''
+        Return the guild's history playlist id, creating it if absent.
+
+        One call rather than a read followed by a conditional write: over HTTP
+        the two-step version is a race between any two players starting at once,
+        and the table's unique constraint would turn that into an error on a
+        path that has no way to report one.
+
+        guild_id : Discord guild id
+        '''
+
+    async def create_playlist(self, guild_id: int, name: str) -> PlaylistEntry:
+        '''
+        Create a playlist and return it.
+
+        guild_id : Discord guild id
+        name : Playlist name
+        '''
+
+    async def delete_playlist(self, playlist_id: int) -> bool:
+        '''
+        Delete a playlist and every item in it.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def rename_playlist(self, playlist_id: int, name: str) -> bool:
+        '''
+        Rename a playlist. False when there is no such playlist.
+
+        playlist_id : Playlist row id
+        name : New name
+        '''
+
+    async def mark_queued(self, playlist_id: int) -> bool:
+        '''
+        Record that a playlist was just queued.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def get_playlist_size(self, playlist_id: int) -> int:
+        '''
+        Return how many items a playlist holds.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def list_items(self, playlist_id: int) -> List[PlaylistItemEntry]:
+        '''
+        Return a playlist's items, oldest first.
+
+        Entries, not rows: `!playlist queue` reads these while dispatching
+        searches and enqueuing downloads, which is a long network-bound stretch
+        the loading session has no business staying open for.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def add_items(self, playlist_id: int, items: List[PlaylistItemWrite],
+                        max_size: int) -> List[PlaylistItemAddOutcome]:
+        '''
+        Add items to a playlist, stopping when it is full.
+
+        One outcome per item attempted, in order, so the caller can say
+        something different for added, duplicate and full -- which all three of
+        its loops do. Items after a full playlist are not attempted and get no
+        outcome, matching the loops this replaces.
+
+        Enforcing max_size inside the store rather than around it is what makes
+        the ceiling hold: the check and the insert are one transaction, where
+        the caller's version was a count, then a decision, then a write.
+
+        playlist_id : Playlist row id
+        items : Items to add, in order
+        max_size : Ceiling on the playlist's item count
+        '''
+
+    async def delete_item(self, item_id: int) -> bool:
+        '''
+        Delete one item by row id. False when it is already gone.
+
+        playlist_id is not needed: the id identifies the row. False rather than
+        an error because the caller reaching for this has already found the
+        item missing from somewhere else.
+
+        item_id : PlaylistItem row id
+        '''
+
+    async def delete_item_by_index(self, playlist_id: int,
+                                   index: int) -> PlaylistItemEntry | None:
+        '''
+        Delete the item at a zero-based position, returning what was deleted.
+
+        Position is defined by `list_items`, which is what the user saw when
+        they read the index off `!playlist show`. None when the index is out of
+        range.
+
+        playlist_id : Playlist row id
+        index : Zero-based position in list order
+        '''
+
+    async def record_history_item(self, playlist_id: int, item: PlaylistItemWrite,
+                                  max_size: int) -> bool:
+        '''
+        Write one played track to the history playlist, evicting to make room.
+
+        Deduplicate by url, drop as many of the oldest items as the new one
+        needs, then insert -- one call for what was six queries the post-play
+        loop ran in sequence. Returns False when the playlist no longer exists.
+
+        The eviction is why `list_items`' order is a promise: this deletes "the
+        oldest", and until `created_at` was populated that meant whichever rows
+        postgres happened to return first.
+
+        playlist_id : History playlist row id
+        item : The track that just played
+        max_size : Ceiling on the playlist's item count
         '''

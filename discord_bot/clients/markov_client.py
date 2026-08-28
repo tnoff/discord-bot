@@ -21,12 +21,13 @@ eventual HTTP implementation is one request per call with nothing session-bound
 in the answer.
 '''
 from datetime import datetime
-from typing import Callable, List
+from typing import List
 
 from opentelemetry.trace import SpanKind
 from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.sql.functions import random as sql_random
 
+from discord_bot.clients.session_store import SessionStoreBase
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming
@@ -62,7 +63,7 @@ def _channel_by_ids(guild_id: int, channel_id: int):
     )
 
 
-class MarkovClient():
+class MarkovClient(SessionStoreBase):
     '''
     The markov chain tables -- the in-process MarkovStore.
 
@@ -70,19 +71,13 @@ class MarkovClient():
     from their messages.
     '''
 
-    def __init__(self, session_generator: Callable):
-        self.session_generator: Callable = session_generator
-
     async def list_channels(self) -> List[MarkovChannelEntry]:
         '''
         Return every tracked channel, across all guilds.
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.list_channels', kind=SpanKind.INTERNAL):
-            async with self.session_generator() as db_session:
-                rows = await async_retry_database_commands(
-                    db_session,
-                    lambda: db_session.execute(select(MarkovChannel)))
-                return [MarkovChannelEntry.from_row(row) for row in rows.scalars().all()]
+            return await self._select_all(select(MarkovChannel),
+                                          MarkovChannelEntry.from_row)
 
     async def list_guild_channel_ids(self, guild_id: int) -> List[int]:
         '''
@@ -93,12 +88,11 @@ class MarkovClient():
         attributes = {DiscordContextNaming.GUILD.value: guild_id}
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.list_guild_channel_ids',
                                            kind=SpanKind.INTERNAL, attributes=attributes):
-            async with self.session_generator() as db_session:
-                rows = await async_retry_database_commands(
-                    db_session,
-                    lambda: db_session.execute(
-                        select(MarkovChannel.channel_id).where(MarkovChannel.server_id == guild_id)))
-                return list(rows.scalars().all())
+            # Identity build: this select is one column, so the rows are
+            # already the ints the caller wants.
+            return await self._select_all(
+                select(MarkovChannel.channel_id).where(MarkovChannel.server_id == guild_id),
+                lambda channel_id: channel_id)
 
     async def get_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry | None:
         '''

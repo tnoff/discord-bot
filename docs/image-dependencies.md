@@ -22,9 +22,9 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 | image | `discord_bot` modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 88 | 25 |
+| `discord-bot` | 91 | 27 |
 | `discord-dispatcher` | 45 | 5 |
-| `discord-broker` | 67 | 9 |
+| `discord-broker` | 68 | 9 |
 | `discord-downloader` | 61 | 8 |
 | `discord-search` | 66 | 12 |
 
@@ -34,13 +34,13 @@ Modules by how many of the five entrypoints import them:
 
 | imported by | modules |
 |---|---|
-| 1 of 5 | 59 |
-| 2 of 5 | 25 |
+| 1 of 5 | 61 |
+| 2 of 5 | 26 |
 | 3 of 5 | 9 |
 | 4 of 5 | 9 |
 | 5 of 5 | 31 |
 
-74 of 133 modules (55%) are imported by two or more entrypoints but not all five. Splitting the tree into one
+75 of 136 modules (55%) are imported by two or more entrypoints but not all five. Splitting the tree into one
 installable distribution per tier would force every one of those into a shared
 `core` distribution — and dependencies follow modules, so `sqlalchemy` (bot +
 broker), `boto3` (bot + broker + downloader) and `dappertable` (bot + broker)
