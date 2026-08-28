@@ -94,7 +94,13 @@ class PlaylistClient(SessionStoreBase):
 
     async def list_playlists(self, guild_id: int) -> List[PlaylistEntry]:
         '''
-        Return a guild's non-history playlists, oldest first.
+        Return a guild's non-history playlists, newest first.
+
+        The order is the public index users type (`!playlist 1`). It shipped
+        briefly as oldest-first on the theory that `created_at` was NULL
+        everywhere and the DESC had never applied -- true of `playlist_item`,
+        false of `playlist`, where every production row already carried a
+        distinct timestamp. Restored; see list_playlist_non_history.
 
         guild_id : Discord guild id
         '''
@@ -105,7 +111,7 @@ class PlaylistClient(SessionStoreBase):
                 select(Playlist)
                 .where(Playlist.server_id == guild_id)
                 .where(Playlist.is_history == False)  # noqa: E712  pylint:disable=singleton-comparison
-                .order_by(Playlist.created_at.asc(), Playlist.id.asc()),
+                .order_by(Playlist.created_at.desc(), Playlist.id.desc()),
                 PlaylistEntry.from_row)
 
     async def count_playlists(self, guild_id: int) -> int:

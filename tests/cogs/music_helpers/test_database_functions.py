@@ -334,9 +334,9 @@ async def test_playlist_ordering_is_deterministic_when_created_at_ties(fake_engi
 
     async with async_mock_session(fake_engine) as session:
         listed = await list_playlist_non_history(session, 1, 0)
-    # created_at asc, then id asc: insertion order, which is the order the
-    # public playlist index has always had.
-    assert [p.name for p in listed] == ['alpha', 'beta', 'gamma']
+    # created_at desc, then id desc: newest first, which is the order the
+    # public playlist index has always had in production.
+    assert [p.name for p in listed] == ['gamma', 'beta', 'alpha']
 
 
 @pytest.mark.asyncio
