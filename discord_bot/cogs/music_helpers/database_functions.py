@@ -154,29 +154,26 @@ async def get_history_playlist(db_session: AsyncSession, guild_id: int):
 # Regular Playlist Functions
 
 async def list_playlist_non_history(db_session: AsyncSession, guild_id: int, offset: int):
-    """List non-history playlists for guild, oldest first.
+    """List non-history playlists for guild, newest first.
 
     The order defines the public index users type (`!playlist 1`), so it is
     part of the interface rather than a detail.
 
-    This said `created_at.desc()` and had done since the query was written, but
-    it never took effect: nothing ever populated `created_at`, so every row tied
-    on NULL and postgres returned heap order -- which happens to be insertion
-    order for a table that has not been rewritten. Giving the column a default
-    would therefore have flipped every server's playlist numbering the first
-    time this ran, silently repointing every index anyone had memorised.
-
-    `asc` is what users have actually experienced, and what
-    test_get_playlist_public_view_multiple_playlists_correct_ordering asserts as
-    the intent ("First Playlist" is index 1). The id tiebreak is what makes it a
-    promise: rows written before the default exist, and rows added in one commit
-    can share a timestamp.
+    It briefly shipped as `asc`, on the theory that `created_at` was NULL on
+    every row and the DESC had therefore never taken effect. That was measured
+    against a fresh database and was true of `playlist_item` -- 1463 rows with
+    no timestamp -- but NOT of `playlist`, where all 32 production rows carried
+    distinct timestamps. So the DESC had been working all along, the public
+    index has always been newest-first, and shipping `asc` reversed the
+    numbering for every guild with more than one playlist (one has sixteen).
+    Restored, and the id tiebreak kept: rows added in one commit can share a
+    timestamp, and a tie in postgres means heap order.
     """
     return (await db_session.execute(
         select(Playlist)
         .where(Playlist.server_id == guild_id)
         .where(Playlist.is_history == False)  # noqa: E712
-        .order_by(Playlist.created_at.asc(), Playlist.id.asc())
+        .order_by(Playlist.created_at.desc(), Playlist.id.desc())
         .offset(offset)
     )).scalars().all()
 

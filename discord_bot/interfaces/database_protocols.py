@@ -265,17 +265,25 @@ class PlaylistStore(Protocol):
     Ordering is part of this interface, not an implementation detail. The public
     playlist index users type (`!playlist 1`) is a position in `list_playlists`,
     and the history playlist evicts the oldest item by the order `list_items`
-    promises. Both are `created_at` ascending with an id tiebreak; both were
-    unordered until the defaults landed, because nothing populated `created_at`
-    and a tie in postgres means heap order.
+    promises.
+
+    The two orders differ, and the difference is evidence rather than taste.
+    `playlist_item` really did have `created_at` NULL on every row -- 1463 of
+    them in production -- so its order was heap order and `asc` with an id
+    tiebreak is a fix with no prior behaviour to preserve. `playlist` did not:
+    all 32 rows carried distinct timestamps, so `desc` had been in effect all
+    along and the index has always been newest-first. Assuming the second table
+    matched the first, on one measurement of an empty database, reversed the
+    numbering for every guild with more than one playlist.
     '''
 
     async def list_playlists(self, guild_id: int) -> List[PlaylistEntry]:
         '''
-        Return a guild's non-history playlists, oldest first.
+        Return a guild's non-history playlists, newest first.
 
         The order defines the public index, so it is a promise rather than an
-        observation.
+        observation -- and one that was broken once by assuming what production
+        held rather than reading it.
 
         guild_id : Discord guild id
         '''

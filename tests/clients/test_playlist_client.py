@@ -73,12 +73,15 @@ async def test_missing_playlists_are_none_not_errors(fake_engine):  #pylint:disa
 
 
 @pytest.mark.asyncio
-async def test_list_playlists_is_oldest_first_and_excludes_history(fake_engine):  #pylint:disable=redefined-outer-name
+async def test_list_playlists_is_newest_first_and_excludes_history(fake_engine):  #pylint:disable=redefined-outer-name
     '''List order is the public index users type, and history is not in it.
 
-    Oldest first is what servers have always seen: `ORDER BY created_at` did
-    nothing while the column was NULL on every row, so postgres returned heap
-    order. The order is a promise now, and this is where it is written down.
+    Newest first is what servers have always seen. Unlike `playlist_item`,
+    whose `created_at` really was NULL on every row, every production
+    `playlist` row already carried a distinct timestamp -- so this DESC has
+    been in effect the whole time. Shipping `asc` on the assumption that the
+    two tables matched reversed the numbering for every guild with more than
+    one playlist. The order is a promise, and this is where it is written down.
     '''
     store = build_store(fake_engine)
     for name in ('first', 'second', 'third'):
@@ -87,7 +90,7 @@ async def test_list_playlists_is_oldest_first_and_excludes_history(fake_engine):
 
     listed = await store.list_playlists(GUILD_ID)
 
-    assert [entry.name for entry in listed] == ['first', 'second', 'third']
+    assert [entry.name for entry in listed] == ['third', 'second', 'first']
     assert await store.count_playlists(GUILD_ID) == 3
 
 
@@ -105,7 +108,7 @@ async def test_list_playlists_is_deterministic_when_created_at_ties(fake_engine)
         await session.commit()
 
     listed = await build_store(fake_engine).list_playlists(GUILD_ID)
-    assert [entry.name for entry in listed] == ['alpha', 'beta', 'gamma']
+    assert [entry.name for entry in listed] == ['gamma', 'beta', 'alpha']
 
 
 @pytest.mark.asyncio
