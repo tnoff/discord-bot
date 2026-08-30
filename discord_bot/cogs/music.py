@@ -45,18 +45,17 @@ from discord_bot.types.media_download import MediaDownload, media_download_attri
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig
-from discord_bot.cogs.music_helpers import database_functions
 
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
+from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.clients.playlist_client import PlaylistClient
-from discord_bot.interfaces.database_protocols import PlaylistStore
+from discord_bot.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
-from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
 from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
@@ -284,8 +283,12 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # without touching a call site -- and so nothing below can reach for a
         # session, a live row, or a transaction boundary it does not own.
         self.playlist_store: PlaylistStore | None = None
+        # Same rule for the analytics tables, and with this one the cog holds no
+        # session of its own at all.
+        self.guild_analytics_store: GuildAnalyticsStore | None = None
         if self.db_engine:
             self.playlist_store = PlaylistClient(self.with_db_session)
+            self.guild_analytics_store = GuildAnalyticsClient(self.with_db_session)
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -541,14 +544,13 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
             return
 
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.post_play_processing', kind=SpanKind.CONSUMER):
-            # Analytics is the guild-analytics group and has not crossed the seam
-            # yet, so it still runs against a session here.
-            async with self.with_db_session() as db_session:
-                await async_retry_database_commands(db_session, lambda: database_functions.update_video_guild_analytics(
-                    db_session,
-                    history_item.media_download.media_request.guild_id,
-                    history_item.media_download.duration,
-                    history_item.media_download.cache_hit))
+            # One call, one transaction, one row lock. This was a
+            # read-modify-write over four counters, run inside a session the
+            # loop held open across the Discord dispatch below.
+            await self.guild_analytics_store.record_play(
+                history_item.media_download.media_request.guild_id,
+                history_item.media_download.duration,
+                history_item.media_download.cache_hit)
 
             # Skip if added from history
             if history_item.media_download.media_request.added_from_history:
@@ -2314,13 +2316,14 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         if not await self.__check_database_session(ctx):
             return
 
-        async with self.with_db_session() as db_session:
-            guild_analytics = await async_retry_database_commands(db_session, lambda: database_functions.ensure_guild_video_analytics(db_session, ctx.guild.id))
-            hours = guild_analytics.total_duration_seconds // 3600
-            minutes = (guild_analytics.total_duration_seconds % 3600) // 60
-            seconds = guild_analytics.total_duration_seconds % 60
-            message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
-                    f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, {minutes} minutes, and {seconds} seconds\n' \
-                    f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                message, delete_after=self.config.general.message_delete_after)
+        # An entry, not a row: every read below happened inside the session
+        # block that loaded it, which is exactly what could not survive the seam.
+        guild_analytics = await self.guild_analytics_store.get_analytics(ctx.guild.id)
+        hours = guild_analytics.total_duration_seconds // 3600
+        minutes = (guild_analytics.total_duration_seconds % 3600) // 60
+        seconds = guild_analytics.total_duration_seconds % 60
+        message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
+                f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, {minutes} minutes, and {seconds} seconds\n' \
+                f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
+        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
+            message, delete_after=self.config.general.message_delete_after)
