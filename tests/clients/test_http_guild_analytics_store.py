@@ -222,3 +222,41 @@ async def test_the_server_refuses_while_draining():
         response = await tc.post('/database/guild_analytics/get_analytics',
                                  json={'guild_id': GUILD_ID})
     assert response.status == 503
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_null_is_rejected_too():
+    '''A field present but null is as unusable as a field that is absent.
+
+    Not the same code path as the missing-key case, and worth its own test
+    because it is the one a real caller hits: a body built as
+    `{'guild_id': guild_id}` from a variable that turned out None serialises to
+    JSON null and arrives as a key that exists. Rejecting it here is what stops
+    it reaching the store as `int(None)`.
+    '''
+    store = _RecordingStore()
+    async with TestClient(TestServer(DatabaseHttpServer(store).build_app())) as tc:
+        assert (await tc.post('/database/guild_analytics/get_analytics',
+                              json={'guild_id': None})).status == 422
+        assert (await tc.post('/database/guild_analytics/record_play',
+                              json={'guild_id': 5, 'duration_seconds': 10,
+                                    'cache_hit': None})).status == 422
+
+    assert not store.get_calls
+    assert not store.play_calls
+
+
+@pytest.mark.asyncio
+async def test_falsy_values_are_not_treated_as_absent():
+    '''Zero and False are values, and the null check must not swallow them.
+
+    The trap the check above invites: `if not value` would reject a cache miss
+    and a zero-length track, both of which are ordinary. `is None` is the whole
+    difference, and this is the test that holds it there.
+    '''
+    store = _RecordingStore()
+    async with TestClient(TestServer(DatabaseHttpServer(store).build_app())) as tc:
+        client = HttpGuildAnalyticsStore(str(tc.make_url('')), session=tc.session)
+        assert await client.record_play(0, 0, False) is True
+
+    assert store.play_calls == [(0, 0, False)]
