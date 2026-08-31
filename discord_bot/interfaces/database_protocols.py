@@ -18,7 +18,12 @@ Groups, in the order they cross the seam:
   VideoCacheStore    (here) — the `video_cache` catalog.
   MarkovStore        (here) — `markov_channel` / `markov_relation`.
   PlaylistStore      (here) — `playlist` / `playlist_item`.
-  GuildAnalyticsStore — `guild` / `server_video_analytics`.
+  GuildAnalyticsStore (here) — `guild` / `server_video_analytics`.
+
+All four groups have crossed. `cogs/music.py` and `cogs/markov.py` no
+longer open a database session at all, which is the property MR 2 needs:
+swapping in an HTTP implementation is a constructor change in the cog and
+nothing else.
 
 **Every method here returns a value that survives a network hop.** That is the
 single rule the Protocol exists to enforce, and it is why `VideoCacheEntry`
@@ -47,6 +52,9 @@ Implementations:
 
   PlaylistClient (clients/playlist_client.py) — in-process, same shape.
 
+  GuildAnalyticsClient (clients/guild_analytics_client.py) — in-process,
+  same shape.
+
   HttpVideoCacheStore / HttpMarkovStore — not yet written. Forward to the db
   pod's routes.
 
@@ -62,6 +70,7 @@ batch and `generate_words` returns a whole sentence for exactly this reason.
 from datetime import datetime
 from typing import List, Protocol, runtime_checkable
 
+from discord_bot.types.guild_analytics import GuildAnalyticsEntry
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.types.playlist import (
     PlaylistEntry,
@@ -436,4 +445,54 @@ class PlaylistStore(Protocol):
         playlist_id : History playlist row id
         item : The track that just played
         max_size : Ceiling on the playlist's item count
+        '''
+
+
+@runtime_checkable
+class GuildAnalyticsStore(Protocol):
+    '''
+    Per-guild play totals: `guild` and `server_video_analytics`.
+
+    Two rows, two methods, and both of them ensure the rows exist before doing
+    anything else. That was already true -- `update_video_guild_analytics`
+    called `ensure_guild_video_analytics`, which called `ensure_guild` -- but
+    the ensure ran in the caller's session, so a first play in a new guild was
+    three statements plus the update, interleaved with whatever else that
+    session held open.
+
+    The pair also shows the two rules above in their plainest form. `record_play`
+    is a read-modify-write -- load the row, increment four fields, write them
+    back -- and the old code ran it inside a session the post-play loop was
+    holding open across a Discord dispatch. One call, one transaction, and the
+    implementation takes a row lock, because the whole point of a db pod is that
+    a second caller can exist and READ COMMITTED will happily let two of them
+    write back the same increment.
+
+    And `get_analytics` returns an entry rather than the row, because
+    `!music-stats` reads six columns off the result and formats `created_at`.
+    Every one of those reads was legal only inside the session block.
+    '''
+
+    async def get_analytics(self, guild_id: int) -> GuildAnalyticsEntry:
+        '''
+        Return a guild's play totals, creating the rows on first call.
+
+        Never None: a guild with no plays has zeroes, not a missing row, and
+        that is what `!music-stats` prints for a quiet server.
+
+        guild_id : Discord guild id (the `server_id` column, not `guild.id`)
+        '''
+
+    async def record_play(self, guild_id: int, duration_seconds: int,
+                          cache_hit: bool) -> bool:
+        '''
+        Add one play to a guild's totals.
+
+        Increments the play count, adds the duration (carrying whole days into
+        `total_duration_days`), and counts the play as cached when it was
+        served from the video cache.
+
+        guild_id : Discord guild id (the `server_id` column, not `guild.id`)
+        duration_seconds : Length of the track that just played
+        cache_hit : True when the download was served from cache
         '''

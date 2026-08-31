@@ -32,7 +32,6 @@ from discord_bot.interfaces.download_protocols import ClearGuildResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.cogs.music_helpers.database_functions import update_video_guild_analytics
 
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
@@ -1531,12 +1530,9 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
-    # Pre-populate analytics data
-    async with async_mock_session(fake_engine) as session:
-        # Add some analytics data
-        await update_video_guild_analytics(session, fake_context['guild'].id, 7200, False)  # 2 hours
-        await update_video_guild_analytics(session, fake_context['guild'].id, 3600, True)  # 1 hour, cached
-        await session.commit()
+    # Pre-populate analytics data through the store the cog reads back through
+    await cog.guild_analytics_store.record_play(fake_context['guild'].id, 7200, False)  # 2 hours
+    await cog.guild_analytics_store.record_play(fake_context['guild'].id, 3600, True)  # 1 hour, cached
 
     # Set dispatcher mock
     cog.dispatcher = Mock()
@@ -1568,11 +1564,9 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Pre-populate analytics data with more than one day
-    async with async_mock_session(fake_engine) as session:
-        one_day = 60 * 60 * 24
-        # Add 2 days and 5 hours worth of content
-        await update_video_guild_analytics(session, fake_context['guild'].id, one_day * 2 + 18000, False)
-        await session.commit()
+    one_day = 60 * 60 * 24
+    # Add 2 days and 5 hours worth of content
+    await cog.guild_analytics_store.record_play(fake_context['guild'].id, one_day * 2 + 18000, False)
 
     # Set dispatcher mock
     cog.dispatcher = Mock()
@@ -1602,9 +1596,7 @@ async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, f
     # Pre-populate analytics data: 1 day, 7 hours, 45 minutes, 30 seconds
     # 1 day = 86400, 7 hours = 25200, 45 min = 2700, 30 sec = 30
     # Total = 86400 + 25200 + 2700 + 30 = 114330 seconds
-    async with async_mock_session(fake_engine) as session:
-        await update_video_guild_analytics(session, fake_context['guild'].id, 114330, False)
-        await session.commit()
+    await cog.guild_analytics_store.record_play(fake_context['guild'].id, 114330, False)
 
     # Set dispatcher mock
     cog.dispatcher = Mock()
