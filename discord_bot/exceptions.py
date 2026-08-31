@@ -85,3 +85,29 @@ class MediaSearchError(Exception):
         self.reason = reason
         self.http_status = http_status
         super().__init__(message)
+
+
+class DatabaseUnavailable(Exception):
+    '''
+    The persistence tier could not answer -- not that the answer was "nothing".
+
+    The seam's error type, and the line it draws is the whole retry story. "No
+    such playlist" is an **answer**: it comes back as a normal return value, and
+    nothing retries it, because re-running the query cannot change it. This
+    exception is for the other case, where the database itself would not serve
+    the request.
+
+    It is raised only after the db pod has already exhausted
+    `async_retry_database_commands` against its local engine. The pod is the
+    layer nearest that failure and the only one that can roll back a session and
+    try again, so it owns retrying it; by the time this crosses the wire the
+    retrying is done. The HTTP client re-raises it rather than retrying, which is
+    what keeps the two ladders from multiplying into the 1+2+4-inside-a-retry
+    shape from the 2026-08-26 incident.
+
+    detail : What the pod reported, for logs -- not user-facing copy
+    '''
+
+    def __init__(self, detail: str):
+        self.detail = detail
+        super().__init__(f'database tier unavailable: {detail}')
