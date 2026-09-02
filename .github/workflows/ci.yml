@@ -121,13 +121,47 @@ jobs:
     secrets:
       git_push_token: ${{ secrets.GIT_PUSH_TOKEN }}
 
-  auto-approve:
-    name: Auto-approve
+  result:
+    name: CI result
+    # The stable name for the branch ruleset to require.
+    #
+    # Requiring the individual jobs by name does not gate anything: GitHub
+    # scores a `skipped` required check as SUCCESS, and every shared workflow
+    # here carries an `allow_fork_prs` gate that can skip its only job.
+    #
+    # Tox is the sharp case: its matrix legs come from `tox -l` at runtime,
+    # so naming `tox (3.13)` couples this ruleset to a file in another repo,
+    # and a required check that never reports blocks merging with no failing
+    # job to point at.
+    #
+    # The image build is conditional on `changes`, so it is `skipped` on a
+    # PR that touches no image input -- correct, and why skipped passes below.
+    # It is also why the build legs must never be required by name: they
+    # would pass vacuously.
+    #
+    # This job always runs and its name never changes, so the ruleset requires
+    # exactly one context and the jobs underneath stay free to change.
+    if: always()
+    needs: [secrets, tox, changes, build]
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      pull-requests: write
-    uses: tnoff/github-workflows/.github/workflows/renovate-auto-approve.yml@3326ac29c672f67bce33272b3a09fe06c9947080
-    with:
-      branch_pattern: '^renovate/'
-    secrets:
-      approval_token: ${{ secrets.APPROVAL_TOKEN }}
+      contents: read
+    steps:
+      - name: Summarise
+        run: |
+          echo "secrets: ${{ needs.secrets.result }}"
+          echo "tox:     ${{ needs.tox.result }}"
+          echo "changes: ${{ needs.changes.result }}"
+          echo "build:   ${{ needs.build.result }}"
+
+      - name: Fail if any job failed
+        # `skipped` is deliberately allowed: with allow_fork_prs false a fork
+        # PR skips the cascade, which is the intended outcome, not a failure.
+        if: >-
+          needs.secrets.result == 'failure' || needs.secrets.result == 'cancelled' ||
+          needs.tox.result == 'failure' || needs.tox.result == 'cancelled' ||
+          needs.changes.result == 'failure' || needs.changes.result == 'cancelled' ||
+          needs.build.result == 'failure' || needs.build.result == 'cancelled'
+        run: |
+          echo "::error::One or more CI jobs did not pass."
+          exit 1
