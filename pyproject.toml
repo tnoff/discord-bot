@@ -99,7 +99,7 @@ rendering = [
     # dappertable is GitHub-canonical; the GitLab copy is frozen. Both URLs
     # still resolve, but only the GitHub one can ever be bumped past the
     # freeze. Verified installable at 1.0.0 from this URL.
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.0.0.tar.gz",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.7.tar.gz",
 ]
 downloading = [
     # yt-dlp and its JS runtime helper. The downloader pod only.
