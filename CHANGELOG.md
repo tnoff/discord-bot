@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.122] - 2026-09-02
+
+### Changed
+
+- Add `HttpMarkovStore` and the db pod's markov routes -- the second of the four store groups to get an HTTP implementation, still inert. The server's stores are now optional and its routes are registered per store given, so each remaining group stays an additive change rather than rewriting every existing test with another required constructor argument; a group with no store answers 404, which the client's retry wrapper propagates immediately instead of laddering. `save_messages` crosses as one request for the whole batch, which is what `MarkovMessageWrite` was shaped for a layer down and is only observable now that there is a wire to count requests on.
+
 ## [2.5.121] - 2026-09-01
 
 ### Changed
