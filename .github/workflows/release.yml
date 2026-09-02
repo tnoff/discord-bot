@@ -43,7 +43,7 @@ jobs:
     name: Assemble changelog
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     secrets:
       push_token: ${{ secrets.GIT_PUSH_TOKEN }}
 
@@ -52,7 +52,7 @@ jobs:
     needs: assemble-changelog
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/tag.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/tag.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       gate_on_fragments: true
     secrets:
@@ -61,7 +61,7 @@ jobs:
   push-bot:
     name: Push bot image
     if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -74,7 +74,7 @@ jobs:
   push-dispatcher:
     name: Push dispatcher image
     if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -87,7 +87,7 @@ jobs:
   push-broker:
     name: Push broker image
     if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -100,7 +100,7 @@ jobs:
   push-downloader:
     name: Push downloader image
     if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -113,7 +113,7 @@ jobs:
   push-search:
     name: Push search image
     if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -126,7 +126,7 @@ jobs:
   trigger-bump-bot:
     name: Trigger docker-apps bump (bot)
     needs: push-bot
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       bump_source: discord-bot
       image: ${{ needs.push-bot.outputs.image }}
@@ -138,7 +138,7 @@ jobs:
   trigger-bump-dispatcher:
     name: Trigger docker-apps bump (dispatcher)
     needs: push-dispatcher
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       bump_source: discord-dispatcher
       image: ${{ needs.push-dispatcher.outputs.image }}
@@ -150,7 +150,7 @@ jobs:
   trigger-bump-broker:
     name: Trigger docker-apps bump (broker)
     needs: push-broker
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       bump_source: discord-broker
       image: ${{ needs.push-broker.outputs.image }}
@@ -162,7 +162,7 @@ jobs:
   trigger-bump-downloader:
     name: Trigger docker-apps bump (downloader)
     needs: push-downloader
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       bump_source: discord-downloader
       image: ${{ needs.push-downloader.outputs.image }}
@@ -174,7 +174,7 @@ jobs:
   trigger-bump-search:
     name: Trigger docker-apps bump (search)
     needs: push-search
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       bump_source: discord-search
       image: ${{ needs.push-search.outputs.image }}
