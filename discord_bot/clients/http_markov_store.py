@@ -25,43 +25,18 @@ import logging
 from datetime import datetime
 from typing import List
 
-from opentelemetry.trace import SpanKind
-
-from discord_bot.clients.http_client_base import HttpClientMixin
-from discord_bot.types.database_wire import DatabaseResponse
+from discord_bot.clients.http_store_base import HttpStoreBase
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
-from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming
+from discord_bot.utils.otel import DiscordContextNaming
 
 logger = logging.getLogger(__name__)
 
-SPAN_PREFIX = 'markov_store'
-ROUTE_PREFIX = '/database/markov'
 
-
-class HttpMarkovStore(HttpClientMixin):
+class HttpMarkovStore(HttpStoreBase):
     '''Forwards the markov store's nine calls to a remote db pod.'''
 
-    def __init__(self, base_url: str, session=None):
-        '''
-        base_url : Root URL of the db pod, e.g. http://discord-db:8085
-        session : Pre-built aiohttp session; the mixin makes one lazily otherwise
-        '''
-        self._base_url = base_url.rstrip('/')
-        self._session = session
-
-    async def _call(self, route: str, body: dict = None):
-        '''
-        POST one store route and return its result, or raise its failure.
-
-        route : Route name under the markov prefix
-        body : Request body; {} for the routes that take no arguments
-        '''
-        payload = await self._http('POST', f'{self._base_url}{ROUTE_PREFIX}/{route}',
-                                   body if body is not None else {})
-        response = DatabaseResponse.model_validate(payload)
-        if response.error is not None:
-            raise response.error.to_exception()
-        return response.result
+    SPAN_PREFIX = 'markov_store'
+    ROUTE_PREFIX = '/database/markov'
 
     async def _channel_call(self, route: str, guild_id: int, channel_id: int):
         '''
@@ -71,16 +46,13 @@ class HttpMarkovStore(HttpClientMixin):
         guild_id : Discord guild id
         channel_id : Discord channel id
         '''
-        attributes = {DiscordContextNaming.GUILD.value: guild_id,
-                      DiscordContextNaming.CHANNEL.value: channel_id}
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.{route}',
-                                           kind=SpanKind.CLIENT, attributes=attributes):
+        async with self._span(route, {DiscordContextNaming.GUILD.value: guild_id,
+                              DiscordContextNaming.CHANNEL.value: channel_id}):
             return await self._call(route, {'guild_id': guild_id, 'channel_id': channel_id})
 
     async def list_channels(self) -> List[MarkovChannelEntry]:
         '''Return every tracked channel.'''
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.list_channels',
-                                           kind=SpanKind.CLIENT):
+        async with self._span('list_channels'):
             result = await self._call('list_channels')
             return [MarkovChannelEntry.model_validate(entry) for entry in result]
 
@@ -90,9 +62,7 @@ class HttpMarkovStore(HttpClientMixin):
 
         guild_id : Discord guild id
         '''
-        attributes = {DiscordContextNaming.GUILD.value: guild_id}
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.list_guild_channel_ids',
-                                           kind=SpanKind.CLIENT, attributes=attributes):
+        async with self._span('list_guild_channel_ids', {DiscordContextNaming.GUILD.value: guild_id}):
             return await self._call('list_guild_channel_ids', {'guild_id': guild_id})
 
     async def get_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry | None:
@@ -144,10 +114,9 @@ class HttpMarkovStore(HttpClientMixin):
         channel_id : Discord channel id
         messages : The cycle's messages, in the order they were read
         '''
-        attributes = {DiscordContextNaming.GUILD.value: guild_id,
-                      DiscordContextNaming.CHANNEL.value: channel_id}
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.save_messages',
-                                           kind=SpanKind.CLIENT, attributes=attributes):
+        async with self._span('save_messages',
+                              {DiscordContextNaming.GUILD.value: guild_id,
+                               DiscordContextNaming.CHANNEL.value: channel_id}):
             return await self._call('save_messages', {
                 'guild_id': guild_id,
                 'channel_id': channel_id,
@@ -163,9 +132,7 @@ class HttpMarkovStore(HttpClientMixin):
         count : How many words to walk
         first_word : Seed word, or None to start anywhere
         '''
-        attributes = {DiscordContextNaming.GUILD.value: guild_id}
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.generate_words',
-                                           kind=SpanKind.CLIENT, attributes=attributes):
+        async with self._span('generate_words', {DiscordContextNaming.GUILD.value: guild_id}):
             return await self._call('generate_words', {
                 'guild_id': guild_id, 'count': count, 'first_word': first_word})
 
@@ -175,7 +142,6 @@ class HttpMarkovStore(HttpClientMixin):
 
         cutoff : Relations created before this are removed
         '''
-        async with async_otel_span_wrapper(f'{SPAN_PREFIX}.prune_relations_before',
-                                           kind=SpanKind.CLIENT):
+        async with self._span('prune_relations_before'):
             return await self._call('prune_relations_before',
                                     {'cutoff': cutoff.isoformat()})
