@@ -38,7 +38,7 @@ jobs:
   bot:
     name: Push bot heaptrack image
     if: inputs.image == 'bot'
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -53,7 +53,7 @@ jobs:
   dispatcher:
     name: Push dispatcher heaptrack image
     if: inputs.image == 'dispatcher'
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
@@ -68,7 +68,7 @@ jobs:
   broker:
     name: Push broker heaptrack image
     if: inputs.image == 'broker'
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@6313d32d823bf153eef354f2bf29f8499d539a61
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@3326ac29c672f67bce33272b3a09fe06c9947080
     with:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
