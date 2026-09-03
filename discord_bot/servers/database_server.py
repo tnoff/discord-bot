@@ -41,6 +41,13 @@ this yet. The entrypoint that does is MR 3.
     POST /database/playlist/delete_item_by_index  {playlist_id, index}
                                                   -> PlaylistItemEntry | null
     POST /database/playlist/record_history_item   {playlist_id, item, max_size} -> bool
+    POST /database/video_cache/iterate_file        {media_download} -> bool
+    POST /database/video_cache/get_webpage_url_item {media_request}
+                                                  -> MediaDownload | null
+    POST /database/video_cache/remove_video_cache  {video_cache_ids} -> bool
+    POST /database/video_cache/ready_remove        {} -> bool
+    POST /database/video_cache/get_deletable_entries {} -> [VideoCacheEntry]
+    POST /database/video_cache/get_cache_count     {} -> int
 
 **Stores are optional and routes are registered per store given.** The groups
 cross the seam one at a time, and a constructor that grew one required
@@ -80,10 +87,14 @@ from discord_bot.interfaces.database_protocols import (
     GuildAnalyticsStore,
     MarkovStore,
     PlaylistStore,
+    VideoCacheStore,
 )
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.database_wire import DatabaseErrorBody, DatabaseResponse
 from discord_bot.types.markov import MarkovMessageWrite
+from discord_bot.types.media_download import (media_download_from_dict,
+                                              media_download_to_dict)
+from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist import PlaylistItemWrite
 from discord_bot.utils.otel import otel_span_wrapper
 
@@ -100,12 +111,14 @@ class DatabaseHttpServer(AiohttpServerBase):
     def __init__(self, guild_analytics_store: GuildAnalyticsStore | None = None,
                  markov_store: MarkovStore | None = None,
                  playlist_store: PlaylistStore | None = None,
+                 video_cache_store: VideoCacheStore | None = None,
                  host: str = '0.0.0.0',  # nosec B104
                  port: int = DEFAULT_PORT):
         '''
         guild_analytics_store : Serves the guild-analytics routes, or None to omit them
         markov_store : Serves the markov routes, or None to omit them
         playlist_store : Serves the playlist routes, or None to omit them
+        video_cache_store : Serves the video-cache routes, or None to omit them
         host : Bind address; 0.0.0.0 because bot and broker pods reach this
                across the network
         port : Bind port
@@ -114,6 +127,7 @@ class DatabaseHttpServer(AiohttpServerBase):
         self._guild_analytics_store = guild_analytics_store
         self._markov_store = markov_store
         self._playlist_store = playlist_store
+        self._video_cache_store = video_cache_store
         self._host = host
         self._port = port
 
@@ -156,6 +170,15 @@ class DatabaseHttpServer(AiohttpServerBase):
                 'delete_item': self._handle_delete_item,
                 'delete_item_by_index': self._handle_delete_item_by_index,
                 'record_history_item': self._handle_record_history_item,
+            }
+        if self._video_cache_store is not None:
+            routes['video_cache'] = {
+                'iterate_file': self._handle_iterate_file,
+                'get_webpage_url_item': self._handle_get_webpage_url_item,
+                'remove_video_cache': self._handle_remove_video_cache,
+                'ready_remove': self._handle_ready_remove,
+                'get_deletable_entries': self._handle_get_deletable_entries,
+                'get_cache_count': self._handle_get_cache_count,
             }
         for group, handlers in routes.items():
             for name, handler in handlers.items():
@@ -541,3 +564,87 @@ class DatabaseHttpServer(AiohttpServerBase):
                 int(playlist_id), write, int(max_size))
 
         return await self._respond('playlist.record_history_item', ctx, call)
+
+    @staticmethod
+    def _media_request(payload) -> MediaRequest:
+        """
+        Parse a MediaRequest out of a request body, 422 if it is not one.
+
+        Same reasoning as the batch validators: a body that is not
+        request-shaped never reached the database, and re-sending the same bytes
+        cannot make it valid.
+
+        payload : A MediaRequest-shaped dict
+        """
+        try:
+            return MediaRequest.model_validate(payload)
+        except (ValidationError, TypeError) as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+
+    async def _handle_iterate_file(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/iterate_file — catalog a finished download.'''
+        ctx, body = await self._read_body(request)
+        (payload,) = self._required(body, 'media_download')
+        # The download's own request rides inside the payload here, unlike
+        # get_webpage_url_item where the caller supplies it: this row is being
+        # written *from* that download, so the far side has no other copy.
+        media_request = self._media_request((payload or {}).get('request'))
+        media_download = media_download_from_dict(payload, media_request)
+
+        async def call():
+            return await self._video_cache_store.iterate_file(media_download)
+
+        return await self._respond('video_cache.iterate_file', ctx, call)
+
+    async def _handle_get_webpage_url_item(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/get_webpage_url_item — look up a cache hit.'''
+        ctx, body = await self._read_body(request)
+        (payload,) = self._required(body, 'media_request')
+        media_request = self._media_request(payload)
+
+        async def call():
+            media_download = await self._video_cache_store.get_webpage_url_item(media_request)
+            # A miss is null in the result, not an error body: the caller's next
+            # move is to download the track, not to retry the lookup.
+            return media_download_to_dict(media_download) if media_download else None
+
+        return await self._respond('video_cache.get_webpage_url_item', ctx, call)
+
+    async def _handle_remove_video_cache(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/remove_video_cache — drop rows by id.'''
+        ctx, body = await self._read_body(request)
+        (video_cache_ids,) = self._required(body, 'video_cache_ids')
+
+        async def call():
+            return await self._video_cache_store.remove_video_cache(
+                [int(video_cache_id) for video_cache_id in video_cache_ids])
+
+        return await self._respond('video_cache.remove_video_cache', ctx, call)
+
+    async def _handle_ready_remove(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/ready_remove — apply the eviction policy.'''
+        ctx, _body = await self._read_body(request)
+
+        async def call():
+            return await self._video_cache_store.ready_remove()
+
+        return await self._respond('video_cache.ready_remove', ctx, call)
+
+    async def _handle_get_deletable_entries(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/get_deletable_entries — rows flagged for deletion.'''
+        ctx, _body = await self._read_body(request)
+
+        async def call():
+            entries = await self._video_cache_store.get_deletable_entries()
+            return [entry.model_dump(mode='json') for entry in entries]
+
+        return await self._respond('video_cache.get_deletable_entries', ctx, call)
+
+    async def _handle_get_cache_count(self, request: web.Request) -> web.Response:
+        '''POST /database/video_cache/get_cache_count — how many rows the catalog holds.'''
+        ctx, _body = await self._read_body(request)
+
+        async def call():
+            return await self._video_cache_store.get_cache_count()
+
+        return await self._respond('video_cache.get_cache_count', ctx, call)

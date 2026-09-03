@@ -55,14 +55,19 @@ Implementations:
   GuildAnalyticsClient (clients/guild_analytics_client.py) — in-process,
   same shape.
 
-  HttpMarkovStore (clients/http_markov_store.py) and HttpPlaylistStore
-  (clients/http_playlist_store.py) — forward to the db pod's routes. Inert
-  until MR 4's cutover; each is a constructor change in the cog and nothing
-  else, which is the whole point of the Protocol.
+  HttpGuildAnalyticsStore, HttpMarkovStore, HttpPlaylistStore and
+  HttpVideoCacheStore (clients/http_*_store.py) — forward to the db pod's
+  routes. All four groups are implemented; each is inert until MR 4's cutover,
+  where it is a constructor change in the caller and nothing else, which is the
+  whole point of the Protocol.
 
-  HttpVideoCacheStore — not yet written. The one group whose signatures name
-  MediaDownload rather than a view type, so what crosses the wire is an open
-  question rather than a repeat of the two above.
+  VideoCacheStore was the group expected to need a new wire type, being the only
+  one whose signatures name MediaDownload rather than a view type. It did not.
+  MediaDownload keeps no raw yt-dlp dict — `ytdl_data` is an InitVar reduced to
+  six scalars in __post_init__ — and clients/http_broker_client.py had been
+  sending precisely that shape since the broker split. The encoding now lives
+  beside the type as media_download_to_dict / media_download_from_dict, and the
+  signatures below are unchanged.
 
 **A second rule the markov group forced: one call per unit of work the caller
 actually has, not per row.** Each method here is sized so the in-process

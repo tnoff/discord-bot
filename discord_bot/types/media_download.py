@@ -52,6 +52,53 @@ class MediaDownload():
         '''
         return f'{self.webpage_url}' #pylint:disable=no-member
 
+def media_download_to_dict(media_download: MediaDownload) -> dict:
+    '''
+    Serialise a MediaDownload and its MediaRequest to a wire-friendly dict.
+
+    Lives beside the type rather than in any one client because two of them now
+    send this shape: the broker client and the video-cache store. The six
+    ytdl_data keys are exactly the ones __post_init__ reads back out -- the raw
+    yt-dlp dict is an InitVar and was never stored, so there is nothing else of
+    it to lose.
+
+    media_download : The download to serialise
+    '''
+    return {
+        'request': media_download.media_request.model_dump(mode='json'),
+        'file_path': str(media_download.file_path) if media_download.file_path else None,
+        'file_size_bytes': media_download.file_size_bytes,
+        'cache_hit': media_download.cache_hit,
+        'ytdl_data': {
+            'id': media_download.id,
+            'title': media_download.title,
+            'webpage_url': media_download.webpage_url,
+            'uploader': media_download.uploader,
+            'duration': media_download.duration,
+            'extractor': media_download.extractor,
+        },
+    }
+
+
+def media_download_from_dict(data: dict, media_request: MediaRequest) -> MediaDownload:
+    '''
+    Rebuild a MediaDownload from the dict media_download_to_dict produced.
+
+    The MediaRequest is passed in rather than parsed from *data*: the caller
+    already holds the request it asked about, and rebuilding a second equal-but-
+    distinct instance would give the returned download a different `uuid` than
+    the one the caller is tracking.
+
+    data : The dict shape produced by media_download_to_dict
+    media_request : The caller's own request, attached to the result
+    '''
+    file_path = Path(data['file_path']) if data.get('file_path') else None
+    media_download = MediaDownload(file_path, data.get('ytdl_data', {}), media_request,
+                                   cache_hit=bool(data.get('cache_hit', False)))
+    media_download.file_size_bytes = data.get('file_size_bytes')
+    return media_download
+
+
 def media_download_attributes(media_download: MediaDownload) -> dict:
     '''
     Get span attributes for a source download
