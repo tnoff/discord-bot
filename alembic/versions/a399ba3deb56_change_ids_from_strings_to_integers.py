@@ -55,27 +55,40 @@ def upgrade() -> None:
                                   type_=sa.Integer(),
                                   existing_nullable=True)
     else:
-        # PostgreSQL and other databases can use ALTER COLUMN directly
+        # PostgreSQL and other databases can use ALTER COLUMN directly.
+        #
+        # postgresql_using is not optional here. Postgres refuses to cast
+        # VARCHAR to INTEGER implicitly ("column ... cannot be cast
+        # automatically to type integer") and alembic runs the whole upgrade in
+        # one transaction, so without these the chain does not merely stop at
+        # this revision -- it rolls back to zero relations. This branch was
+        # authored against sqlite, where the batch_alter_table above recreates
+        # the table and the cast never comes up.
         op.alter_column('guild', 'server_id',
                    existing_type=sa.VARCHAR(length=128),
                    type_=sa.Integer(),
-                   existing_nullable=True)
+                   existing_nullable=True,
+                   postgresql_using='server_id::integer')
         op.alter_column('markov_channel', 'channel_id',
                    existing_type=sa.VARCHAR(length=128),
                    type_=sa.Integer(),
-                   existing_nullable=True)
+                   existing_nullable=True,
+                   postgresql_using='channel_id::integer')
         op.alter_column('markov_channel', 'server_id',
                    existing_type=sa.VARCHAR(length=128),
                    type_=sa.Integer(),
-                   existing_nullable=True)
+                   existing_nullable=True,
+                   postgresql_using='server_id::integer')
         op.alter_column('markov_channel', 'last_message_id',
                    existing_type=sa.VARCHAR(length=128),
                    type_=sa.Integer(),
-                   existing_nullable=True)
+                   existing_nullable=True,
+                   postgresql_using='last_message_id::integer')
         op.alter_column('playlist', 'server_id',
                    existing_type=sa.VARCHAR(length=128),
                    type_=sa.Integer(),
-                   existing_nullable=True)
+                   existing_nullable=True,
+                   postgresql_using='server_id::integer')
 
 
 def downgrade() -> None:
