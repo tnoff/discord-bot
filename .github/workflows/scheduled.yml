@@ -14,7 +14,7 @@ permissions:
 jobs:
   renovate:
     name: Renovate
-    uses: tnoff/github-workflows/.github/workflows/renovate.yml@3326ac29c672f67bce33272b3a09fe06c9947080
+    uses: tnoff/github-workflows/.github/workflows/renovate.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
     secrets:
       renovate_token: ${{ secrets.RENOVATE_TOKEN }}
 
@@ -23,7 +23,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
-    uses: tnoff/github-workflows/.github/workflows/branch-cleanup.yml@3326ac29c672f67bce33272b3a09fe06c9947080
+    uses: tnoff/github-workflows/.github/workflows/branch-cleanup.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
     with:
       age_days: 30
       dry_run: false
