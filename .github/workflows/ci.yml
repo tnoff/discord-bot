@@ -18,7 +18,7 @@ permissions:
 jobs:
   secrets:
     name: Scan for secrets
-    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@362a5f0d06fec04588c60863ccf0bf2ce709917f
 
   # The suite has no sqlite fallback. tox.ini sets
   # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
@@ -33,7 +33,7 @@ jobs:
   # pre_commands with sudo (github-workflows#38).
   tox:
     name: Tox
-    uses: tnoff/github-workflows/.github/workflows/tox.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@362a5f0d06fec04588c60863ccf0bf2ce709917f
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
       # ci-base-images base. Two tests shell out to it directly
@@ -106,7 +106,7 @@ jobs:
             dockerfile: docker/Dockerfile.downloader
           - image: search
             dockerfile: docker/Dockerfile.search
-    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@362a5f0d06fec04588c60863ccf0bf2ce709917f
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
@@ -115,7 +115,7 @@ jobs:
     if: startsWith(github.head_ref, 'renovate/dev-')
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@362a5f0d06fec04588c60863ccf0bf2ce709917f
     with:
       bump_changelog: true
     secrets:
