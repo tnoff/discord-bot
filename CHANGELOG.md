@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.124] - 2026-09-03
+
+### Changed
+
+- Fixed the queue-worker status poller logging its most important warning as an empty string. The poller swallows refresh errors and keeps the cached values, so the warning is the only signal a worker pod stopped answering — but it interpolated the exception with a bare `%s`, and `str(asyncio.TimeoutError())` is `''`. A timeout is not an incidental failure here: it is the one `STATUS_REQUEST_TIMEOUT_SECONDS` exists to produce, and so the first thing raised when a pod hangs rather than refuses, which made the opening line of a downloader roll read `downloader status poller error: ` and nothing more. Exceptions that carry a message, including aiohttp's connector errors, are logged exactly as before; only the message-less ones now fall back to their type name.
+
 ## [2.5.123] - 2026-09-03
 
 ### Changed
