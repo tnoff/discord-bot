@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.123] - 2026-09-03
+
+### Changed
+
+- Added `HttpPlaylistStore` and the persistence tier's sixteen playlist routes, the third of MR 2's four store groups to cross the seam. Still inert: nothing constructs it, and `docs/image-dependencies.md` is unchanged. The compound calls stay compound over the wire — `add_items` sends a whole batch and gets one outcome per item back, `record_history_item` is one request for what the post-play loop ran as six queries, and `ensure_history_playlist` stays a single call rather than a read and a conditional write that any two players starting at once would race. The envelope handling the three HTTP stores had each been carrying is now shared in `HttpStoreBase`.
+
 ## [2.5.122] - 2026-09-02
 
 ### Changed
