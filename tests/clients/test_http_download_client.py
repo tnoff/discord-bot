@@ -6,6 +6,7 @@ TestServer + TestClient; the RedisDownloadWorker is replaced by a small fake tha
 records calls + returns canned responses.  RedisDownloadWorker.status_snapshot
 itself is covered against fakeredis in tests/workers/test_redis_download_worker.py.
 '''
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 
 from discord_bot.clients.download_client import HttpDownloadClient
+from discord_bot.clients.http_queue_worker_client import _exception_detail
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest
@@ -504,3 +506,53 @@ async def test_status_poll_still_updates_the_cache_without_spans():
         assert client.failure_summary == '2 failures in queue'
         assert client.backoff_seconds_remaining == 11
         assert await client.queue_size(7) == 5
+
+
+# ---------------------------------------------------------------------------
+# Message-less exceptions in the poller warning
+#
+# The poller swallows status-refresh errors and keeps the cached values, so the
+# warning it logs is the only signal that a worker pod stopped answering. On
+# 2026-09-03 20:07 UTC the first line of a downloader roll read
+# "downloader status poller error: " with nothing after it: the request had hit
+# STATUS_REQUEST_TIMEOUT_SECONDS, and str(asyncio.TimeoutError()) is ''.
+#
+# caplog is not usable here -- the package sets propagate=False, so records
+# never reach pytest's handler and the assertions pass vacuously in isolation
+# then fail in the full suite. Patch the module logger and assert the args.
+# ---------------------------------------------------------------------------
+
+
+def test_message_less_exception_logs_its_type():
+    '''str() on a timeout is empty; the type name is the only detail it has.'''
+    assert _exception_detail(asyncio.TimeoutError()) == 'TimeoutError'
+    assert _exception_detail(ConnectionResetError()) == 'ConnectionResetError'
+
+
+def test_a_described_exception_is_passed_through():
+    '''The informative case must stay byte-identical -- no type-name prefix.'''
+    detail = _exception_detail(RuntimeError('Cannot connect to host x:8083'))
+    assert detail == 'Cannot connect to host x:8083'
+
+
+@pytest.mark.asyncio
+async def test_poller_timeout_warns_with_detail(mocker):
+    '''A timed-out status refresh names TimeoutError instead of trailing off.'''
+    client = HttpDownloadClient('http://localhost:9999')
+    mocker.patch.object(client, '_http', side_effect=asyncio.TimeoutError())
+    warn = mocker.patch('discord_bot.clients.http_queue_worker_client.logger.warning')
+    await client._poll_status_loop_once()  # pylint: disable=protected-access
+    warn.assert_called_once_with('%s status poller error: %s', 'downloader', 'TimeoutError')
+    # Still swallowed: the cached values survive the outage.
+    assert client.failure_summary == '0 failures in queue'
+
+
+@pytest.mark.asyncio
+async def test_poller_keeps_a_useful_message(mocker):
+    '''An aiohttp-style connector message is passed through unchanged.'''
+    client = HttpDownloadClient('http://localhost:9999')
+    mocker.patch.object(client, '_http', side_effect=RuntimeError('Cannot connect to host'))
+    warn = mocker.patch('discord_bot.clients.http_queue_worker_client.logger.warning')
+    await client._poll_status_loop_once()  # pylint: disable=protected-access
+    warn.assert_called_once_with('%s status poller error: %s', 'downloader',
+                                 'Cannot connect to host')

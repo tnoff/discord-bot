@@ -41,6 +41,24 @@ logger = logging.getLogger(__name__)
 _DEFAULT_FAILURE_SUMMARY = '0 failures in queue'
 
 
+def _exception_detail(exc: BaseException) -> str:
+    '''Describe *exc* for a log line, including the ones that describe themselves
+    as nothing at all.
+
+    str(asyncio.TimeoutError()) is the empty string.  That matters here because a
+    timeout is not an incidental failure mode for this poller -- it is the one the
+    STATUS_REQUEST_TIMEOUT_SECONDS cap exists to produce, and so the first thing
+    raised when a worker pod stops answering rather than refusing.  Interpolated
+    with a bare %s it rendered the opening line of an outage as
+    "downloader status poller error: " and nothing more (2026-09-03 20:07 UTC).
+
+    Falling back to the type name keeps the informative case byte-identical --
+    aiohttp's connector errors carry a good message and it is used as-is -- while
+    giving the message-less ones the only detail they have.
+    '''
+    return str(exc) or type(exc).__name__
+
+
 class HttpQueueWorkerClient(HttpClientMixin):
     '''
     Forwards the cog-facing queue-client surface to a remote worker pod.
@@ -191,7 +209,8 @@ class HttpQueueWorkerClient(HttpClientMixin):
                 self._http('GET', f'{self._submit_url}/status', traced=False),
                 timeout=self.STATUS_REQUEST_TIMEOUT_SECONDS)
         except Exception as exc:
-            logger.warning('%s status poller error: %s', self.SPAN_PREFIX, exc)
+            logger.warning('%s status poller error: %s', self.SPAN_PREFIX,
+                           _exception_detail(exc))
             return
         if not status:
             return
