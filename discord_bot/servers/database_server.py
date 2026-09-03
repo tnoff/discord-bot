@@ -22,6 +22,25 @@ this yet. The entrypoint that does is MR 3.
     POST /database/markov/generate_words          {guild_id, count, first_word?}
                                                   -> [str]
     POST /database/markov/prune_relations_before  {cutoff} -> bool
+    POST /database/playlist/list_playlists        {guild_id} -> [PlaylistEntry]
+    POST /database/playlist/count_playlists       {guild_id} -> int
+    POST /database/playlist/get_playlist          {playlist_id} -> PlaylistEntry | null
+    POST /database/playlist/get_playlist_by_name  {guild_id, name}
+                                                  -> PlaylistEntry | null
+    POST /database/playlist/get_history_playlist  {guild_id} -> PlaylistEntry | null
+    POST /database/playlist/ensure_history_playlist {guild_id} -> int
+    POST /database/playlist/create_playlist       {guild_id, name} -> PlaylistEntry
+    POST /database/playlist/delete_playlist       {playlist_id} -> bool
+    POST /database/playlist/rename_playlist       {playlist_id, name} -> bool
+    POST /database/playlist/mark_queued           {playlist_id} -> bool
+    POST /database/playlist/get_playlist_size     {playlist_id} -> int
+    POST /database/playlist/list_items            {playlist_id} -> [PlaylistItemEntry]
+    POST /database/playlist/add_items             {playlist_id, items, max_size}
+                                                  -> [PlaylistItemAddOutcome]
+    POST /database/playlist/delete_item           {item_id} -> bool
+    POST /database/playlist/delete_item_by_index  {playlist_id, index}
+                                                  -> PlaylistItemEntry | null
+    POST /database/playlist/record_history_item   {playlist_id, item, max_size} -> bool
 
 **Stores are optional and routes are registered per store given.** The groups
 cross the seam one at a time, and a constructor that grew one required
@@ -57,10 +76,15 @@ from aiohttp import web
 from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 
-from discord_bot.interfaces.database_protocols import GuildAnalyticsStore, MarkovStore
+from discord_bot.interfaces.database_protocols import (
+    GuildAnalyticsStore,
+    MarkovStore,
+    PlaylistStore,
+)
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.database_wire import DatabaseErrorBody, DatabaseResponse
 from discord_bot.types.markov import MarkovMessageWrite
+from discord_bot.types.playlist import PlaylistItemWrite
 from discord_bot.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
@@ -75,11 +99,13 @@ class DatabaseHttpServer(AiohttpServerBase):
 
     def __init__(self, guild_analytics_store: GuildAnalyticsStore | None = None,
                  markov_store: MarkovStore | None = None,
+                 playlist_store: PlaylistStore | None = None,
                  host: str = '0.0.0.0',  # nosec B104
                  port: int = DEFAULT_PORT):
         '''
         guild_analytics_store : Serves the guild-analytics routes, or None to omit them
         markov_store : Serves the markov routes, or None to omit them
+        playlist_store : Serves the playlist routes, or None to omit them
         host : Bind address; 0.0.0.0 because bot and broker pods reach this
                across the network
         port : Bind port
@@ -87,6 +113,7 @@ class DatabaseHttpServer(AiohttpServerBase):
         super().__init__()
         self._guild_analytics_store = guild_analytics_store
         self._markov_store = markov_store
+        self._playlist_store = playlist_store
         self._host = host
         self._port = port
 
@@ -110,6 +137,25 @@ class DatabaseHttpServer(AiohttpServerBase):
                 'save_messages': self._handle_save_messages,
                 'generate_words': self._handle_generate_words,
                 'prune_relations_before': self._handle_prune_relations_before,
+            }
+        if self._playlist_store is not None:
+            routes['playlist'] = {
+                'list_playlists': self._handle_list_playlists,
+                'count_playlists': self._handle_count_playlists,
+                'get_playlist': self._handle_get_playlist,
+                'get_playlist_by_name': self._handle_get_playlist_by_name,
+                'get_history_playlist': self._handle_get_history_playlist,
+                'ensure_history_playlist': self._handle_ensure_history_playlist,
+                'create_playlist': self._handle_create_playlist,
+                'delete_playlist': self._handle_delete_playlist,
+                'rename_playlist': self._handle_rename_playlist,
+                'mark_queued': self._handle_mark_queued,
+                'get_playlist_size': self._handle_get_playlist_size,
+                'list_items': self._handle_list_items,
+                'add_items': self._handle_add_items,
+                'delete_item': self._handle_delete_item,
+                'delete_item_by_index': self._handle_delete_item_by_index,
+                'record_history_item': self._handle_record_history_item,
             }
         for group, handlers in routes.items():
             for name, handler in handlers.items():
@@ -139,6 +185,23 @@ class DatabaseHttpServer(AiohttpServerBase):
         if any(value is None for value in values):
             raise web.HTTPUnprocessableEntity()
         return values
+
+    @staticmethod
+    def _item_writes(items) -> list:
+        """
+        Parse a batch of playlist items, 422 if any is not item-shaped.
+
+        Same reasoning as save_messages' batch: a malformed item never reached
+        the database, and re-sending the same bytes cannot make it valid. Done
+        before the store call rather than inside it so a bad item in a batch of
+        twenty fails the request rather than half-writing it.
+
+        items : List of PlaylistItemWrite-shaped dicts
+        """
+        try:
+            return [PlaylistItemWrite.model_validate(item) for item in items]
+        except (ValidationError, TypeError) as exc:
+            raise web.HTTPUnprocessableEntity() from exc
 
     async def _respond(self, span_name: str, ctx, call: Callable) -> web.Response:
         '''
@@ -300,3 +363,181 @@ class DatabaseHttpServer(AiohttpServerBase):
             return await self._markov_store.prune_relations_before(parsed)
 
         return await self._respond('markov.prune_relations_before', ctx, call)
+
+    async def _handle_list_playlists(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/list_playlists — a guild's playlists, newest first.'''
+        ctx, body = await self._read_body(request)
+        (guild_id,) = self._required(body, 'guild_id')
+
+        async def call():
+            return [entry.model_dump(mode='json')
+                    for entry in await self._playlist_store.list_playlists(int(guild_id))]
+
+        return await self._respond('playlist.list_playlists', ctx, call)
+
+    async def _handle_count_playlists(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/count_playlists — how many a guild has.'''
+        ctx, body = await self._read_body(request)
+        (guild_id,) = self._required(body, 'guild_id')
+
+        async def call():
+            return await self._playlist_store.count_playlists(int(guild_id))
+
+        return await self._respond('playlist.count_playlists', ctx, call)
+
+    async def _handle_get_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/get_playlist — one playlist by id, or null.'''
+        ctx, body = await self._read_body(request)
+        (playlist_id,) = self._required(body, 'playlist_id')
+
+        async def call():
+            entry = await self._playlist_store.get_playlist(int(playlist_id))
+            return entry.model_dump(mode='json') if entry else None
+
+        return await self._respond('playlist.get_playlist', ctx, call)
+
+    async def _handle_get_playlist_by_name(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/get_playlist_by_name — one playlist by name, or null.'''
+        ctx, body = await self._read_body(request)
+        guild_id, name = self._required(body, 'guild_id', 'name')
+
+        async def call():
+            entry = await self._playlist_store.get_playlist_by_name(int(guild_id), str(name))
+            return entry.model_dump(mode='json') if entry else None
+
+        return await self._respond('playlist.get_playlist_by_name', ctx, call)
+
+    async def _handle_get_history_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/get_history_playlist — a guild's history row, or null.'''
+        ctx, body = await self._read_body(request)
+        (guild_id,) = self._required(body, 'guild_id')
+
+        async def call():
+            entry = await self._playlist_store.get_history_playlist(int(guild_id))
+            return entry.model_dump(mode='json') if entry else None
+
+        return await self._respond('playlist.get_history_playlist', ctx, call)
+
+    async def _handle_ensure_history_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/ensure_history_playlist — id, creating if absent.'''
+        ctx, body = await self._read_body(request)
+        (guild_id,) = self._required(body, 'guild_id')
+
+        async def call():
+            return await self._playlist_store.ensure_history_playlist(int(guild_id))
+
+        return await self._respond('playlist.ensure_history_playlist', ctx, call)
+
+    async def _handle_create_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/create_playlist — make one and return it.'''
+        ctx, body = await self._read_body(request)
+        guild_id, name = self._required(body, 'guild_id', 'name')
+
+        async def call():
+            entry = await self._playlist_store.create_playlist(int(guild_id), str(name))
+            return entry.model_dump(mode='json')
+
+        return await self._respond('playlist.create_playlist', ctx, call)
+
+    async def _handle_delete_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/delete_playlist — drop a playlist and its items.'''
+        ctx, body = await self._read_body(request)
+        (playlist_id,) = self._required(body, 'playlist_id')
+
+        async def call():
+            return await self._playlist_store.delete_playlist(int(playlist_id))
+
+        return await self._respond('playlist.delete_playlist', ctx, call)
+
+    async def _handle_rename_playlist(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/rename_playlist — rename one.'''
+        ctx, body = await self._read_body(request)
+        playlist_id, name = self._required(body, 'playlist_id', 'name')
+
+        async def call():
+            return await self._playlist_store.rename_playlist(int(playlist_id), str(name))
+
+        return await self._respond('playlist.rename_playlist', ctx, call)
+
+    async def _handle_mark_queued(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/mark_queued — stamp last_queued.'''
+        ctx, body = await self._read_body(request)
+        (playlist_id,) = self._required(body, 'playlist_id')
+
+        async def call():
+            return await self._playlist_store.mark_queued(int(playlist_id))
+
+        return await self._respond('playlist.mark_queued', ctx, call)
+
+    async def _handle_get_playlist_size(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/get_playlist_size — how many items it holds.'''
+        ctx, body = await self._read_body(request)
+        (playlist_id,) = self._required(body, 'playlist_id')
+
+        async def call():
+            return await self._playlist_store.get_playlist_size(int(playlist_id))
+
+        return await self._respond('playlist.get_playlist_size', ctx, call)
+
+    async def _handle_list_items(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/list_items — a playlist's items, oldest first.'''
+        ctx, body = await self._read_body(request)
+        (playlist_id,) = self._required(body, 'playlist_id')
+
+        async def call():
+            return [entry.model_dump(mode='json')
+                    for entry in await self._playlist_store.list_items(int(playlist_id))]
+
+        return await self._respond('playlist.list_items', ctx, call)
+
+    async def _handle_add_items(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/add_items — add a batch, stopping when full.'''
+        ctx, body = await self._read_body(request)
+        playlist_id, items, max_size = self._required(
+            body, 'playlist_id', 'items', 'max_size')
+        writes = self._item_writes(items)
+
+        async def call():
+            return [outcome.model_dump(mode='json') for outcome in
+                    await self._playlist_store.add_items(
+                        int(playlist_id), writes, int(max_size))]
+
+        return await self._respond('playlist.add_items', ctx, call)
+
+    async def _handle_delete_item(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/delete_item — drop one item by row id.'''
+        ctx, body = await self._read_body(request)
+        (item_id,) = self._required(body, 'item_id')
+
+        async def call():
+            return await self._playlist_store.delete_item(int(item_id))
+
+        return await self._respond('playlist.delete_item', ctx, call)
+
+    async def _handle_delete_item_by_index(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/delete_item_by_index — drop the item at a position.'''
+        ctx, body = await self._read_body(request)
+        # index 0 is the first item, not a missing argument -- _required tests
+        # `is None` rather than truthiness, and this is the route where the
+        # difference is a user deleting the wrong track.
+        playlist_id, index = self._required(body, 'playlist_id', 'index')
+
+        async def call():
+            entry = await self._playlist_store.delete_item_by_index(
+                int(playlist_id), int(index))
+            return entry.model_dump(mode='json') if entry else None
+
+        return await self._respond('playlist.delete_item_by_index', ctx, call)
+
+    async def _handle_record_history_item(self, request: web.Request) -> web.Response:
+        '''POST /database/playlist/record_history_item — write one played track.'''
+        ctx, body = await self._read_body(request)
+        playlist_id, item, max_size = self._required(
+            body, 'playlist_id', 'item', 'max_size')
+        (write,) = self._item_writes([item])
+
+        async def call():
+            return await self._playlist_store.record_history_item(
+                int(playlist_id), write, int(max_size))
+
+        return await self._respond('playlist.record_history_item', ctx, call)

@@ -55,8 +55,14 @@ Implementations:
   GuildAnalyticsClient (clients/guild_analytics_client.py) — in-process,
   same shape.
 
-  HttpVideoCacheStore / HttpMarkovStore — not yet written. Forward to the db
-  pod's routes.
+  HttpMarkovStore (clients/http_markov_store.py) and HttpPlaylistStore
+  (clients/http_playlist_store.py) — forward to the db pod's routes. Inert
+  until MR 4's cutover; each is a constructor change in the cog and nothing
+  else, which is the whole point of the Protocol.
+
+  HttpVideoCacheStore — not yet written. The one group whose signatures name
+  MediaDownload rather than a view type, so what crosses the wire is an open
+  question rather than a repeat of the two above.
 
 **A second rule the markov group forced: one call per unit of work the caller
 actually has, not per row.** Each method here is sized so the in-process
