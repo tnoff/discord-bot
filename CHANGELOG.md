@@ -5,6 +5,13 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.133] - 2026-09-04
+
+### Changed
+
+- Pooled the database engine. It was `poolclass=NullPool`, so every session opened and closed a physical connection: prod span metrics show one `connect` per statement on all three pods, ~23,000 a day, at a mean 33.9ms against a 4.0ms `SELECT` on the bot. The `create_all` bootstrap now disposes before its throwaway event loop dies, which is what made NullPool load-bearing rather than arbitrary, and `pool_pre_ping` keeps a single-instance postgres restart from invalidating the pool.
+- The database liveness probe no longer emits spans. The kubelet reruns it on a fixed interval, so auto-instrumentation turned it into ~23k traces/day across the bot and the db pod — and 100% of the db pod's trace volume. The outcome still lands on the `database.ready_check` counter.
+
 ## [2.5.132] - 2026-09-04
 
 ### Changed
