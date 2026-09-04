@@ -17,9 +17,14 @@ RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
 RUN groupadd -g 1000 discord && \
     useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
 
+# No alembic/ or alembic.ini, unlike the bot and broker images. [dispatcher]
+# is discord_bot[gateway] -- the core set plus discord.py, with neither alembic
+# nor sqlalchemy -- so this image could never have run a migration. It carried
+# the files anyway, and because they were also installed into site-packages as
+# a namespace package, `import alembic` SUCCEEDED here while the library was
+# absent. That is a worse failure than not shipping them: it answers "is
+# alembic available?" with yes.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY alembic/ "${APPDIR}/alembic/"
-COPY alembic.ini "${APPDIR}/"
 COPY pyproject.toml VERSION "${APPDIR}/"
 
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build

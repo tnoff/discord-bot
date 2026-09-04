@@ -214,7 +214,15 @@ discord-search = "discord_bot.cli.search:main"
 version = {file = "VERSION"}
 
 [tool.setuptools.packages.find]
-exclude = ["tests*", "docs*"]
+# alembic* is excluded for a different reason than tests*/docs*. Those are
+# merely unwanted; alembic/ is actively harmful to install. It has no
+# __init__.py, so setuptools discovers it as a NAMESPACE package and writes
+# env.py and versions/ into site-packages/alembic/ -- which on the bot and
+# broker is the installed alembic library's own directory. The migration
+# scripts do not need to be importable: alembic.ini sets
+# script_location = %(here)s/alembic, so the CLI reads them from the COPY at
+# ${APPDIR} and never from site-packages.
+exclude = ["tests*", "docs*", "alembic*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
