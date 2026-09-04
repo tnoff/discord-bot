@@ -10,6 +10,9 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from yt_dlp.utils import DownloadError
 
 from discord_bot.clients.download_client import (
@@ -548,13 +551,23 @@ async def test_prepare_source_errors():
     assert result.status.error_type == DownloadErrorType.PRIVATE_VIDEO
     assert 'Video is private, cannot download' in result.status.user_message
 
-    x = make_download_client(yield_dlp_error("Sign in to confirm you're not a bot"))
-    y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3)
-    assert not result.status.success
-    assert result.status.error_type == DownloadErrorType.BOT_FLAGGED
-    # create_source does not increment retry_count; run() does
-    assert result.media_request.download_retry_information.retry_count == 0
+    # Production emits a TYPOGRAPHIC apostrophe here (U+2019), not ASCII. The ASCII
+    # form alone is what this test used to assert, which meant it passed against a
+    # message yt-dlp never sends. Both forms are pinned now, and the matcher no longer
+    # depends on straddling the apostrophe -- normalize_ytdlp_error folds it first.
+    for bot_error in ("Sign in to confirm you\u2019re not a bot. Use --cookies-from-browser "
+                      "or --cookies for the authentication. See  "
+                      "https://github.com/yt-dlp/yt-dlp/wiki/FAQ  for how to manually pass cookies",
+                      "Sign in to confirm you're not a bot"):
+        x = make_download_client(yield_dlp_error(bot_error))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3)
+        assert not result.status.success
+        assert result.status.error_type == DownloadErrorType.BOT_FLAGGED
+        # create_source does not increment retry_count; run() does
+        assert result.media_request.download_retry_information.retry_count == 0
+        # A bot flag is a failure, not a rejection -- it retries.
+        assert not is_rejection(result.status.error_type)
 
     x = make_download_client(yield_dlp_error('Requested format is not available'))
     y = fake_source_dict(fake_context)
@@ -569,6 +582,91 @@ async def test_prepare_source_errors():
     assert not result.status.success
     assert result.status.error_type == DownloadErrorType.NOT_FOUND
     assert 'No videos found' in result.status.user_message
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_errors_survive_the_appended_tail():
+    '''The three YouTube-supplied rejections classify with yt-dlp's tail attached.
+
+    These messages come from two sources: the leading sentence is YouTube's own
+    playabilityStatus reason, and yt-dlp appends its own text after it -- the login
+    hint whenever the reason contains "sign in" (which the Private-video subreason
+    does), the captcha note, the rate-limit note. Matching the leading sentence is
+    what keeps these branches alive when that tail is rewritten -- reaching into it
+    is what killed the age-gate matcher. Nothing in production exercised these three
+    during the 2026-09-03 audit, so the shapes are pinned here instead of assumed.
+    '''
+    fake_context = generate_fake_context()
+    cookie_hint = ('Use --cookies-from-browser or --cookies for the authentication. See  '
+                   'https://github.com/yt-dlp/yt-dlp/wiki/FAQ  for how to manually pass cookies')
+    cases = (
+        ('Private video. Sign in if you\u2019ve been granted access to this video. ' + cookie_hint,
+         DownloadErrorType.PRIVATE_VIDEO, 'Video is private, cannot download'),
+        ('This video has been removed for violating YouTube\u2019s policy on hate speech.',
+         DownloadErrorType.TERMS_VIOLATION,
+         'Video is unvailable due to violating terms of service, cannot download'),
+        ('Video unavailable. This video contains content from a partner who has blocked it '
+         'in your country on copyright grounds',
+         DownloadErrorType.UNAVAILABLE, 'Video is unavailable, cannot download'),
+    )
+    for message, expected_type, expected_user_message in cases:
+        x = make_download_client(yield_dlp_error(message))
+        result = await x.create_source(fake_source_dict(fake_context), 3)
+        assert not result.status.success
+        assert result.status.error_type == expected_type
+        assert expected_user_message in result.status.user_message
+        # All three are rejections: terminal, no retry consumed, span left OK.
+        assert is_rejection(result.status.error_type)
+        assert result.media_request.download_retry_information.retry_count == 0
+
+
+def _recording_exporter(mocker):
+    '''Swap in a recording tracer so span attributes survive to an assertion.
+
+    The suite runs with no global tracer provider, so spans are non-recording and
+    drop attributes set inside the context manager entirely.
+    '''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    return exporter
+
+
+def _create_source_span(exporter):
+    '''The single create_source span recorded by the exporter.'''
+    spans = [sp for sp in exporter.get_finished_spans() if sp.name.endswith('.create_source')]
+    assert len(spans) == 1
+    return spans[0]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_unrecognised_error_marks_the_span_unclassified(mocker):
+    '''A message no matcher recognises stamps download.error_classified=false.
+
+    This is the tell that separates a genuinely transient failure from a matcher
+    that has gone stale against reworded upstream text. Without it the two are
+    indistinguishable, which is how the dead age-gate matcher stayed invisible
+    while it burned every retry and stamped ERROR spans.
+    '''
+    exporter = _recording_exporter(mocker)
+    x = make_download_client(yield_dlp_error('EOFError: 2 bytes missing; please report this issue'))
+    result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
+    assert _create_source_span(exporter).attributes['download.error_classified'] is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_recognised_error_is_not_marked_unclassified(mocker):
+    '''A classified rejection leaves the attribute off entirely -- absence means
+    recognised, so a Tempo query for error_classified=false returns only the
+    messages no branch matched.'''
+    exporter = _recording_exporter(mocker)
+    x = make_download_client(yield_dlp_error('Sign in to confirm your age. ' + \
+                                             'Use --cookies-from-browser or --cookies'))
+    result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert result.status.error_type == DownloadErrorType.AGE_RESTRICTED
+    assert 'download.error_classified' not in _create_source_span(exporter).attributes
+
 
 def yield_metadata_check_error(exception):
     '''Return a mock yt-dlp client that raises the given exception from extract_info.'''

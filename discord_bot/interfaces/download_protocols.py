@@ -54,6 +54,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
+    normalize_ytdlp_error,
 )
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
@@ -685,15 +686,21 @@ class DownloadWorkerBase(ABC):
                 return self._make_error_result(error_type, media_request, span_context, str(error), user_message=error.user_message)
             except DownloadError as error:
                 error_str = str(error)
-                if 'Private video' in error_str:
+                # Match on a punctuation-folded copy, never the raw string. Production
+                # emits U+2019 in "Sign in to confirm you’re not a bot" and pads its
+                # appended URLs with double spaces; folding both here means no matcher
+                # below has to know that. error_str itself stays raw -- it is what goes
+                # on the span and into error_detail.
+                match_str = normalize_ytdlp_error(error_str)
+                if 'Private video' in match_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.PRIVATE_VIDEO, media_request, span_context, error_str, user_message='Video is private, cannot download')
-                if 'This video has been removed for violating' in error_str:
+                if 'This video has been removed for violating' in match_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.TERMS_VIOLATION, media_request, span_context, error_str, user_message='Video is unvailable due to violating terms of service, cannot download')
-                if 'Video unavailable' in error_str:
+                if 'Video unavailable' in match_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.UNAVAILABLE, media_request, span_context, error_str, user_message='Video is unavailable, cannot download')
@@ -704,22 +711,31 @@ class DownloadWorkerBase(ABC):
                 # every age-gated video into the retryable fallback below. The bot-flag
                 # check further down also opens with "Sign in to confirm you" but requires
                 # "not a bot", so the two stay distinct.
-                if 'Sign in to confirm your age' in error_str:
+                if 'Sign in to confirm your age' in match_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.AGE_RESTRICTED, media_request, span_context, error_str, user_message='Video is age restricted, cannot download')
-                if 'Requested format is not available' in error_str:
+                if 'Requested format is not available' in match_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.INVALID_FORMAT, media_request, span_context, error_str, user_message='Video is not available in requested format')
-                if 'Sign in to confirm you' in error_str and 'not a bot' in error_str:
+                if 'Sign in to confirm you' in match_str and 'not a bot' in match_str:
                     span.record_exception(error)
                     if media_request.download_retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
                         return self._make_error_result(DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str)
                     span.set_status(StatusCode.OK)
                     return self._make_error_result(DownloadErrorType.BOT_FLAGGED, media_request, span_context, error_str)
-                # Fallback
+                # Fallback: nothing above recognised this message. That is either a
+                # genuinely transient failure (a socks/googlevideo connection error, a
+                # yt-dlp EOFError) or a matcher that has gone stale against reworded
+                # upstream text -- and the two are indistinguishable from the outside,
+                # which is precisely why the dead age-gate matcher went unnoticed while
+                # it burned every retry and stamped ERROR spans. Marking the span makes
+                # the second case findable in Tempo instead of silent: a terminal
+                # give-up carrying error_classified=false is a matcher to re-check
+                # against the raw message, not an incident.
+                span.set_attribute(AttributeNaming.DOWNLOAD_ERROR_CLASSIFIED.value, False)
                 span.record_exception(error)
                 if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
