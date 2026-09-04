@@ -641,18 +641,45 @@ def _create_source_span(exporter):
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_unrecognised_error_marks_the_span_unclassified(mocker):
-    '''A message no matcher recognises stamps download.error_classified=false.
+    '''A message nothing recognises stamps download.error_classified=false.
 
-    This is the tell that separates a genuinely transient failure from a matcher
+    This is the tell that separates an understood transient failure from a matcher
     that has gone stale against reworded upstream text. Without it the two are
     indistinguishable, which is how the dead age-gate matcher stayed invisible
     while it burned every retry and stamped ERROR spans.
     '''
     exporter = _recording_exporter(mocker)
-    x = make_download_client(yield_dlp_error('EOFError: 2 bytes missing; please report this issue'))
+    x = make_download_client(yield_dlp_error('Some entirely new failure mode nobody has seen'))
     result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
     assert result.status.error_type == DownloadErrorType.RETRYABLE
     assert _create_source_span(exporter).attributes['download.error_classified'] is False
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_known_transient_errors_are_marked_classified(mocker):
+    '''Understood transient failures reach the same retryable fallback but are NOT
+    reported as unrecognised.
+
+    Both shapes are taken verbatim from production. The EOFError burst alone was 29
+    of the 74 downloader ERROR lines in the week of 2026-09-03 -- more than the bot
+    flag -- so leaving it to read as unclassified would bury the one case the
+    attribute exists to surface.
+    '''
+    messages = (
+        '[requests] Unexpected error: EOFError: 2 bytes missing; please report this issue on  '
+        'https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template',
+        # Carries a bare \r, which normalization folds before the marker is matched.
+        "\r[download] Got error: (<SocksHTTPSConnection(host='rr5---sn-ab5l6nr6.googlevideo.com', "
+        "port=443) at 0xffffa44b1590>, 'Connection to rr5---sn-ab5l6nr6.googlevideo.com timed out. "
+        "(connect timeout=20.0)')",
+    )
+    for message in messages:
+        exporter = _recording_exporter(mocker)
+        x = make_download_client(yield_dlp_error(message))
+        result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+        # Same handling as any other fallback error -- only the reporting differs.
+        assert result.status.error_type == DownloadErrorType.RETRYABLE
+        assert _create_source_span(exporter).attributes['download.error_classified'] is True
 
 
 @pytest.mark.asyncio(loop_scope="session")

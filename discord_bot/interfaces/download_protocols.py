@@ -54,7 +54,7 @@ from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
-    normalize_ytdlp_error,
+    is_known_transient, normalize_ytdlp_error,
 )
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
@@ -726,16 +726,19 @@ class DownloadWorkerBase(ABC):
                         return self._make_error_result(DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str)
                     span.set_status(StatusCode.OK)
                     return self._make_error_result(DownloadErrorType.BOT_FLAGGED, media_request, span_context, error_str)
-                # Fallback: nothing above recognised this message. That is either a
-                # genuinely transient failure (a socks/googlevideo connection error, a
-                # yt-dlp EOFError) or a matcher that has gone stale against reworded
-                # upstream text -- and the two are indistinguishable from the outside,
-                # which is precisely why the dead age-gate matcher went unnoticed while
-                # it burned every retry and stamped ERROR spans. Marking the span makes
-                # the second case findable in Tempo instead of silent: a terminal
-                # give-up carrying error_classified=false is a matcher to re-check
-                # against the raw message, not an incident.
-                span.set_attribute(AttributeNaming.DOWNLOAD_ERROR_CLASSIFIED.value, False)
+                # Fallback: no branch above matched. Retrying is the right answer
+                # either way, so behaviour is identical -- but the two reasons we get
+                # here are not. A socks timeout or a yt-dlp EOFError is understood and
+                # transient; a message we simply do not recognise may be a matcher that
+                # has gone stale against reworded upstream text, which is precisely how
+                # the dead age-gate matcher went unnoticed while it burned every retry
+                # and stamped ERROR spans.
+                #
+                # error_classified separates them, so a Tempo query for false returns
+                # matchers to re-check rather than the EOFError burst that would
+                # otherwise dominate it and train everyone to ignore the signal.
+                span.set_attribute(AttributeNaming.DOWNLOAD_ERROR_CLASSIFIED.value,
+                                   is_known_transient(match_str))
                 span.record_exception(error)
                 if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
