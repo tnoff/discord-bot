@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.134] - 2026-09-04
+
+### Changed
+
+- The `discord_db` image pin in docker-apps now bumps itself. #922 added `push-db` but deliberately left out its `trigger-bump-db` partner, because the docker-apps bump job hard-fails on a missing pin file and no discord-db manifest existed yet. Phase A (docker-apps!1668) supplied both the manifest and the bump job, so the producer half lands here — until now the db pod was the one tier that never picked up a merge to main.
+
 ## [2.5.133] - 2026-09-04
 
 ### Changed
