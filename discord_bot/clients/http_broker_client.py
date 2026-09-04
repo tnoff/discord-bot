@@ -23,7 +23,8 @@ from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.clients.http_player_session import HttpPlayerSessionMixin
 from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
+                                              media_download_to_dict)
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.otel import async_otel_span_wrapper
@@ -34,33 +35,6 @@ logger = logging.getLogger(__name__)
 # existed — the two pods roll independently, so this is an expected (and
 # self-resolving) window during a deploy, not a client error.
 _PEER_ROUTE_MISSING_STATUS = 404
-
-
-def _media_download_to_dict(media_download: MediaDownload) -> dict:
-    '''Serialise a MediaDownload + its MediaRequest to a wire-friendly dict.'''
-    return {
-        'request': media_download.media_request.model_dump(mode='json'),
-        'file_path': str(media_download.file_path) if media_download.file_path else None,
-        'file_size_bytes': media_download.file_size_bytes,
-        'cache_hit': media_download.cache_hit,
-        'ytdl_data': {
-            'id': media_download.id,
-            'title': media_download.title,
-            'webpage_url': media_download.webpage_url,
-            'uploader': media_download.uploader,
-            'duration': media_download.duration,
-            'extractor': media_download.extractor,
-        },
-    }
-
-
-def _media_download_from_dict(data: dict, media_request: MediaRequest) -> MediaDownload:
-    '''Reconstruct a MediaDownload from the dict shape produced by _to_dict.'''
-    file_path = Path(data['file_path']) if data.get('file_path') else None
-    md = MediaDownload(file_path, data.get('ytdl_data', {}), media_request,
-                       cache_hit=bool(data.get('cache_hit', False)))
-    md.file_size_bytes = data.get('file_size_bytes')
-    return md
 
 
 class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
@@ -239,7 +213,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         ):
             await self._http(
                 'POST', f'{self._base_url}/downloads/register',
-                _media_download_to_dict(media_download),
+                media_download_to_dict(media_download),
             )
 
     async def check_cache(self, media_request) -> MediaDownload | None:
@@ -254,7 +228,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             )
         if not payload or not payload.get('hit'):
             return None
-        return _media_download_from_dict(payload['download'], media_request)
+        return media_download_from_dict(payload['download'], media_request)
 
     async def cache_cleanup(self) -> bool:
         '''POST /cache/cleanup — broker evicts stale cache entries.'''
