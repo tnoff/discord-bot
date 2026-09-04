@@ -14,6 +14,7 @@ dispatcher, whose image ships no sqlalchemy at all, and it says so in its own
 docstring. A `from sqlalchemy import text` there would be an ImportError at
 dispatcher pod start -- the exact failure the per-image extras exist to prevent.
 '''
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
 
@@ -21,11 +22,30 @@ async def db_ping(db_engine) -> bool:
     '''
     Return True if the database answers SELECT 1.
 
+    Emits no spans, deliberately. The kubelet runs this on a fixed interval
+    whether or not anything has happened, so SQLAlchemy's auto-instrumentation
+    turned it into a steady trace stream at a rate set by the probe period
+    rather than by real work -- the same problem
+    RedisDownloadWorker._peek_next_request and the egress probe already solved
+    this way. Two spans per probe, on a 10s period on the db pod and a 30s one on
+    the bot: ~23k traces/day between them, and 100% of the db pod's trace volume,
+    on a pod nothing calls yet.
+
+    The outcome is not lost, it just stops being a trace: DatabasePingHealthServer
+    counts every probe by outcome on `database.ready_check`, which is the series
+    an alert should read anyway. Real route traffic keeps its spans -- the
+    suppression is scoped to this call and nothing else runs inside it.
+
+    Unlike a hand-rolled span, auto-instrumentation is exactly what
+    suppress_instrumentation() gates, so this works here where
+    async_untraced_span() was needed for the pollers.
+
     db_engine : AsyncEngine to probe
     '''
     try:
-        async with db_engine.connect() as conn:
-            await conn.execute(text('SELECT 1'))
+        with suppress_instrumentation():
+            async with db_engine.connect() as conn:
+                await conn.execute(text('SELECT 1'))
         return True
     except Exception:
         return False

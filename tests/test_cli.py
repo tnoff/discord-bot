@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, AsyncMock
 
 from click.testing import CliRunner
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 from yaml import dump
 
 from discord_bot.cli.bot import main, main_loop
@@ -835,6 +837,114 @@ def test_run_config_with_postgresql_db(mocker):
     assert 'asyncpg' in str(called_url)
     # asyncio.run disposed the async engine (no running loop in a sync test)
     mock_async_engine.dispose.assert_awaited_once()
+
+
+def test_setup_db_engine_survives_the_bootstrap_loop(pg_test_db_url):
+    """The engine works on the serving loop after the create_all bootstrap.
+
+    This is the regression test for pooling, and it is why NullPool was
+    load-bearing rather than arbitrary. setup_db builds the schema in a throwaway
+    thread with its own event loop:
+
+        pool.submit(asyncio.run, _create_tables(engine)).result()
+
+    Under NullPool the connection that ran create_all was discarded, so nothing
+    crossed loops. Once the engine pools, that connection goes back into the pool
+    still bound to a loop that is now closed; the serving loop then checks it out
+    and dies with "got Future attached to a different loop" -- at pod start, in
+    production, nowhere near this code. _create_tables disposes for exactly that.
+
+    Two queries, because the first can succeed on a freshly-opened connection
+    while the poisoned one waits behind it in the pool. Both run inside ONE
+    asyncio.run: a pooled async engine is bound to the loop that filled it, and
+    production has exactly one serving loop for the life of the process.
+    """
+    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
+    from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
+
+    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
+    engine = setup_db(GeneralConfig(discord_token='foo', sql_connection_statement=plain_url))
+
+    async def _serve():
+        results = []
+        for _ in range(2):
+            async with engine.connect() as conn:
+                results.append((await conn.execute(sql_text('SELECT 42'))).scalar())
+        await engine.dispose()
+        return results
+
+    assert asyncio.run(_serve()) == [42, 42]
+
+
+def test_setup_db_reuses_pooled_connections(pg_test_db_url):
+    """A second session reuses the first one's connection instead of dialling again.
+
+    Under NullPool every session opened and closed a physical connection --
+    measured in prod at a mean 33.9ms connect against a 4.0ms SELECT on the bot
+    over 150,500 samples, so setup was ~8.5x the query it carried. Asserted on
+    the pool's own counters rather than on constructor kwargs so it stays true
+    however the engine comes to be built.
+    """
+    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
+    from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
+
+    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
+    engine = setup_db(GeneralConfig(discord_token='foo', sql_connection_statement=plain_url))
+    assert not isinstance(engine.pool, NullPool)
+
+    async def _serve():
+        async with engine.connect() as conn:
+            await conn.execute(sql_text('SELECT 1'))
+        # Returned to the pool rather than closed. NullPool would report 0.
+        after_first = engine.pool.checkedin()
+        async with engine.connect() as conn:
+            await conn.execute(sql_text('SELECT 1'))
+        after_second = engine.pool.checkedin()
+        await engine.dispose()
+        return after_first, after_second
+
+    assert asyncio.run(_serve()) == (1, 1)
+
+
+def test_setup_db_survives_postgres_dropping_every_connection(pg_test_db_url):
+    """A pooled connection killed server-side is replaced, not raised.
+
+    This is what pool_pre_ping buys and why it is not optional now that
+    connections are held. discord-pg is a single instance, so a restart or a
+    failover invalidates every pooled connection at once; without the ping the
+    next checkout hands the caller a dead socket and the store call fails. The
+    test reproduces that by terminating the backends from a second connection,
+    which is what postgres does to itself on restart.
+    """
+    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
+    from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
+
+    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
+    engine = setup_db(GeneralConfig(discord_token='foo', sql_connection_statement=plain_url))
+
+    async def _serve():
+        async with engine.connect() as conn:
+            await conn.execute(sql_text('SELECT 1'))
+
+        killer = create_async_engine(pg_test_db_url, poolclass=NullPool)
+        try:
+            async with killer.connect() as conn:
+                await conn.execute(sql_text(
+                    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
+                    'WHERE pid <> pg_backend_pid() AND datname = current_database()'
+                ))
+        finally:
+            await killer.dispose()
+
+        async with engine.connect() as conn:
+            value = (await conn.execute(sql_text('SELECT 42'))).scalar()
+        await engine.dispose()
+        return value
+
+    assert asyncio.run(_serve()) == 42
 
 
 def test_setup_db_rejects_non_postgres():

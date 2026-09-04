@@ -7,6 +7,7 @@ does now rather than being asserted through one of its two callers.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from opentelemetry.instrumentation.utils import is_instrumentation_enabled
 from sqlalchemy import text
 
 from discord_bot.servers.db_probe import db_ping
@@ -63,3 +64,34 @@ async def test_ping_issues_a_select_one():
     engine, conn = _engine()
     assert await db_ping(engine) is True
     assert str(conn.execute.await_args.args[0]) == str(text('SELECT 1'))
+
+
+@pytest.mark.asyncio
+async def test_ping_runs_with_auto_instrumentation_suppressed():
+    """The query runs with auto-instrumentation off, so it emits no spans.
+
+    Asserted on `is_instrumentation_enabled()` -- the flag every auto-instrumentor
+    consults -- rather than by counting exported spans. SQLAlchemyInstrumentor is
+    a process-global singleton: a test that instruments it silently no-ops when
+    another test has already done so, and its uninstrument() then tears down that
+    other test's instrumentation. The resulting failure is order-dependent, which
+    is worse than the narrower assertion.
+
+    That the SQLAlchemy instrumentation really does honour this flag was checked
+    directly against a live engine when the wrapper was added: the same
+    connect + SELECT emitted two spans outside suppress_instrumentation() and
+    none inside it.
+    """
+    engine, conn = _engine()
+    seen = {}
+
+    async def _record(*_args, **_kwargs):
+        seen['enabled'] = is_instrumentation_enabled()
+        return MagicMock()
+
+    conn.execute.side_effect = _record
+
+    assert is_instrumentation_enabled() is True, 'control: not suppressed to begin with'
+    assert await db_ping(engine) is True
+    assert seen['enabled'] is False
+    assert is_instrumentation_enabled() is True, 'suppression is scoped to the probe'
