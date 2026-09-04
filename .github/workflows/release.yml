@@ -1,6 +1,6 @@
 name: Release
 
-# Default-branch pipeline: fold the changelog, tag, push all five images, and
+# Default-branch pipeline: fold the changelog, tag, push all six images, and
 # ask docker-apps to bump each pin.
 #
 # ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ name: Release
 # trigger-bump pins docker-apps at a tag that was never written.
 #
 # ---------------------------------------------------------------------------
-# Why push and trigger-bump are ten explicit jobs and not two matrices
+# Why push and trigger-bump are explicit jobs and not two matrices
 # ---------------------------------------------------------------------------
 # A matrix job's outputs are not addressable per leg -- there is no
 # needs.push.outputs[matrix.image]. trigger-bump needs the `image` and
@@ -121,6 +121,32 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_SEARCH }}
       dockerfile: docker/Dockerfile.search
+    secrets:
+      oci_username: ${{ secrets.OCI_USERNAME }}
+      oci_token: ${{ secrets.OCI_TOKEN }}
+
+  # The sixth image. It arrives here a release behind its ci.yml matrix leg:
+  # #919 added `- image: db` to the build matrix and stopped there, so every PR
+  # since has built and scanned this Dockerfile while nothing has ever pushed
+  # it. The two build definitions are separate on purpose (ci.yml is a matrix,
+  # release.yml is explicit pairs, for the outputs reason above), and that is
+  # exactly what makes one of them easy to miss -- a green build matrix reads
+  # as "this image ships".
+  #
+  # Deliberately NOT paired with a trigger-bump-db sibling yet. The bump job on
+  # the docker-apps side hard-fails when the file holding the pin is absent
+  # (`[ -f "$f" ] || exit 1`), and docker-apps has no discord-db manifest until
+  # Phase A lands. So this pushes the image, Phase A pins the tag it produces,
+  # and trigger-bump-db follows once there is something to bump.
+  push-db:
+    name: Push db image
+    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    with:
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_DB }}
+      dockerfile: docker/Dockerfile.db
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
