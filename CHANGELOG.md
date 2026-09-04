@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.126] - 2026-09-04
+
+### Changed
+
+- Stopped installing the migration scripts into `site-packages`, and stopped shipping them to the dispatcher image entirely. `[tool.setuptools.packages.find]` excluded only `tests*` and `docs*`, and `alembic/` has no `__init__.py` — so setuptools discovered it as a *namespace package* and wrote `env.py` and `versions/` into `site-packages/alembic/`, which on the bot and broker is the installed alembic library's own directory. Measured in the built images: the broker carried all twelve revision files inside the library, and on the dispatcher — which installs `[dispatcher]` = `discord_bot[gateway]`, with neither alembic nor sqlalchemy — `import alembic` **succeeded** against an empty namespace package while the library was absent, answering "is alembic available here?" with yes. Nothing depended on the installed copy: `alembic.ini` sets `script_location = %(here)s/alembic`, so the CLI reads the migrations from the `COPY` at `${APPDIR}`. Verified by rebuild that the broker's library is intact at 1.19.1 and unpolluted with the chain still resolvable from `${APPDIR}`, and that the dispatcher now carries neither the files nor the misleading import.
+
 ## [2.5.125] - 2026-09-04
 
 ### Changed
