@@ -39,6 +39,7 @@ class MetricNaming(Enum):
     BROKER_RESULT_FETCH = 'broker.result_fetch'
     BROKER_SEARCH_RESULT_FETCH = 'broker.search_result_fetch'
     BROKER_READY_CHECK = 'broker.ready_check'
+    DATABASE_READY_CHECK = 'database.ready_check'
 
 class AttributeNaming(Enum):
     '''

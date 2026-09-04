@@ -174,6 +174,23 @@ downloader = [
     # search — it used to install the bot's whole set and carry all three.
     "discord_bot[downloading,storage]",
 ]
+db = [
+    # The persistence tier. Owns the schema and the engine so [bot] and [broker]
+    # can stop carrying them at the cutover.
+    #
+    # rendering is NOT a copy-paste from [broker]: it is MEASURED. PlaylistClient
+    # calls dappertable's shorten_string when it builds playlist entries, so the
+    # pod that serves the playlist routes imports it. That is a rendering concern
+    # living inside a store and it is worth knowing about, but moving it is a
+    # behaviour change and this MR is not the place -- the import-boundary test
+    # would have failed the moment the extra disagreed with the measurement
+    # either way.
+    #
+    # No storage: VideoCacheClient is a pure catalog and imports no boto3, which
+    # is what made moving it behind HTTP the same transformation as the others.
+    # No gateway: this pod never touches Discord.
+    "discord_bot[database,rendering]",
+]
 search = [
     # Thin HTTP clients. search-providers joined here when media_search folded in
     # -- hyphens, per the PEP 685 note above: a self-reference spelled
@@ -209,6 +226,7 @@ discord-dispatcher = "discord_bot.cli.dispatcher:main"
 discord-broker = "discord_bot.cli.broker:main"
 discord-downloader = "discord_bot.cli.downloader:main"
 discord-search = "discord_bot.cli.search:main"
+discord-db = "discord_bot.cli.database:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

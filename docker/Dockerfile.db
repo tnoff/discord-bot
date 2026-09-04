@@ -1,0 +1,74 @@
+FROM python:3.14-slim-bookworm
+
+# Standalone persistence pod — the discord-db tier.  Serves the store routes
+# over HTTP so the bot and the broker can drop the `database` extra; runs no
+# gateway connection, no Redis and no consumer loop.
+#
+# Installs `[db]`: the database group plus rendering.  dappertable is here
+# because PlaylistClient measurably imports shorten_string, not because the
+# broker's image lists it — see the note on the extra in pyproject.toml.  No
+# boto3: VideoCacheClient is a pure DB catalog and every file operation stayed
+# with the broker, which is the property that let the catalog move at all.
+#
+# This image ships NO migration files and cannot run `alembic upgrade head`.
+# That is deliberate for now (projects/alembic-migration-ownership): the
+# entrypoint lands inert and the runner follows onto this pod.  When it does,
+# this is the Dockerfile that gains `COPY alembic/ alembic.ini` — and note that
+# `[database]` already installs alembic, so the library side needs nothing.
+
+# Setup venv
+ENV APPDIR="/opt/packages/discord-bot"
+ENV WORKDIR="/opt/discord"
+ENV VENVDIR="/opt/discord-venv"
+ENV LOGFILE="/var/log/discord"
+
+# Setup installs and create directory structure
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" "${WORKDIR}/cnf"
+
+# Create non-root user and group
+# Using UID/GID 1000 which matches the bot/broker images for shared volume perms.
+# Home directory is /opt/discord (the working directory)
+RUN groupadd -g 1000 discord && \
+    useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
+
+COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY pyproject.toml VERSION "${APPDIR}/"
+
+# INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
+# (default off) — see docker/entrypoint.sh + the :heaptrack CI jobs.
+ARG INSTALL_HEAPTRACK=false
+RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends heaptrack && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+RUN pip install --no-cache-dir "${APPDIR}[db]" && \
+    chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
+    rm -rf "${APPDIR}" /root/.cache
+
+# Route through the shared entrypoint so HEAPTRACK_ENABLE=true launches the
+# process under heaptrack (parity with the other images; the INSTALL_HEAPTRACK
+# arg above bakes the binary in). DISCORD_BOT_CMD selects the db console script.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV DISCORD_BOT_CMD=discord-db
+
+EXPOSE 8080 8085
+
+WORKDIR "/opt/discord"
+
+# Switch to non-root user for runtime
+USER discord
+
+# Make sure cache dir exists
+RUN mkdir -p /opt/discord/.cache
+
+# Probe the database HTTP server (port 8085) — the API the bot and broker call.
+# The /health endpoint on port 8080 reflects postgres reachability and starts
+# listening before the store routes do.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD python3 -c "import socket; socket.create_connection(('localhost', 8085), timeout=5).close()"
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/opt/discord/cnf/discord.cnf"]

@@ -17,32 +17,34 @@ stack), which is why the numbers below are smaller than an image manifest.
 | `discord-broker` | `[broker]` | `boto3`, `dappertable`, `sqlalchemy` |
 | `discord-downloader` | `[downloader]` | `boto3`, `yt_dlp` |
 | `discord-search` | `[search]` | `googleapiclient`, `spotipy`, `ytmusicapi` |
+| `discord-db` | `[db]` | `dappertable`, `sqlalchemy` |
 
 ## How much of the tree each image loads
 
 | image | `discord_bot` modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 93 | 28 |
+| `discord-bot` | 94 | 24 |
 | `discord-dispatcher` | 45 | 5 |
 | `discord-broker` | 69 | 9 |
 | `discord-downloader` | 61 | 8 |
 | `discord-search` | 66 | 12 |
+| `discord-db` | 48 | 4 |
 
-## Why this is one package and not five
+## Why this is one package and not one per image
 
-Modules by how many of the five entrypoints import them:
+Modules by how many of the 6 entrypoints import them:
 
 | imported by | modules |
 |---|---|
-| 1 of 5 | 62 |
-| 2 of 5 | 27 |
-| 3 of 5 | 9 |
-| 4 of 5 | 9 |
-| 5 of 5 | 31 |
+| 1 of 6 | 62 |
+| 2 of 6 | 22 |
+| 3 of 6 | 19 |
+| 4 of 6 | 7 |
+| 5 of 6 | 6 |
+| 6 of 6 | 27 |
 
-76 of 138 modules (55%) are imported by two or more entrypoints but not all five. Splitting the tree into one
+81 of 143 modules (56%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
 installable distribution per tier would force every one of those into a shared
-`core` distribution — and dependencies follow modules, so `sqlalchemy` (bot +
-broker), `boto3` (bot + broker + downloader) and `dappertable` (bot + broker)
-would land back on all five images. That is strictly worse than the per-image
-extras, which is why this stays one package with five extras.
+`core` distribution — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db), `discord` (bot + dispatcher) and `sqlalchemy` (bot + broker + db)
+would land back on all 6 images. That is strictly worse than the per-image
+extras, which is why this stays one package with 6 per-image extras.

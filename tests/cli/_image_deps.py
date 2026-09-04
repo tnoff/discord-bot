@@ -61,6 +61,11 @@ IMAGE_IMPORTS = {
     'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
     'discord_bot.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
+    # Owns the schema and the engine. dappertable is not a leak and not a
+    # copy-paste from the broker: PlaylistClient shortens playlist names with
+    # shorten_string, so the pod serving those routes imports it. No boto3 --
+    # VideoCacheClient is a pure catalog, which is what made it movable.
+    'discord_bot.cli.database': frozenset({'sqlalchemy', 'dappertable'}),
 }
 
 IMAGE_NAMES = {
@@ -69,6 +74,7 @@ IMAGE_NAMES = {
     'discord_bot.cli.broker': 'discord-broker',
     'discord_bot.cli.downloader': 'discord-downloader',
     'discord_bot.cli.search': 'discord-search',
+    'discord_bot.cli.database': 'discord-db',
 }
 
 
@@ -144,28 +150,42 @@ def render_table() -> str:
         excl = {m for m in module_sets[ep] if shared_by[m] == 1}
         lines.append(f'| `{name}` | {len(module_sets[ep])} | {len(excl)} |')
 
-    spread = {n: sum(1 for m, c in shared_by.items() if c == n) for n in range(1, 6)}
+    total = len(IMAGE_NAMES)
+    spread = {n: sum(1 for m, c in shared_by.items() if c == n) for n in range(1, total + 1)}
     lines += [
         '',
-        '## Why this is one package and not five',
+        '## Why this is one package and not one per image',
         '',
-        'Modules by how many of the five entrypoints import them:',
+        f'Modules by how many of the {total} entrypoints import them:',
         '',
         '| imported by | modules |',
         '|---|---|',
     ]
-    for n in range(1, 6):
-        lines.append(f'| {n} of 5 | {spread[n]} |')
-    shared_2plus = sum(spread[n] for n in range(2, 6))
+    for n in range(1, total + 1):
+        lines.append(f'| {n} of {total} | {spread[n]} |')
+    shared_2plus = sum(spread[n] for n in range(2, total + 1))
+
+    # Derived, not written down. The prose used to name which images share which
+    # package by hand, and a hand-written list of that shape is wrong the moment
+    # an image is added -- `sqlalchemy` read "(bot + broker)" while the db pod was
+    # being built to hold it. Anything this paragraph asserts now comes out of the
+    # same measurement as the tables above it.
+    shared_pkgs = []
+    for pkg in sorted(VOCABULARY):
+        owners = [name.replace('discord-', '')
+                  for ep, name in IMAGE_NAMES.items() if pkg in measured[ep]['packages']]
+        if len(owners) > 1:
+            shared_pkgs.append(f'`{pkg}` ({" + ".join(owners)})')
+    shared_desc = ', '.join(shared_pkgs[:-1]) + f' and {shared_pkgs[-1]}' if shared_pkgs else 'none'
+
     lines += [
         '',
         f'{shared_2plus} of {len(every)} modules ({shared_2plus * 100 // len(every)}%) are '
-        'imported by two or more entrypoints but not all five. Splitting the tree into one',
+        f'imported by two or more entrypoints but not all {total}. Splitting the tree into one',
         'installable distribution per tier would force every one of those into a shared',
-        '`core` distribution — and dependencies follow modules, so `sqlalchemy` (bot +',
-        'broker), `boto3` (bot + broker + downloader) and `dappertable` (bot + broker)',
-        'would land back on all five images. That is strictly worse than the per-image',
-        'extras, which is why this stays one package with five extras.',
+        f'`core` distribution — and dependencies follow modules, so {shared_desc}',
+        f'would land back on all {total} images. That is strictly worse than the per-image',
+        f'extras, which is why this stays one package with {total} per-image extras.',
         '',
     ]
     return '\n'.join(lines)

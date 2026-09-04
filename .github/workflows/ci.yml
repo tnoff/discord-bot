@@ -106,6 +106,8 @@ jobs:
             dockerfile: docker/Dockerfile.downloader
           - image: search
             dockerfile: docker/Dockerfile.search
+          - image: db
+            dockerfile: docker/Dockerfile.db
     uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@badea054ae56c6ca72252cd22dab3a9f9b65268f
     with:
       dockerfile: ${{ matrix.dockerfile }}

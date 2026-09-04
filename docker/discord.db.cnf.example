@@ -1,0 +1,27 @@
+# Persistence config — for docker/docker-compose.multiprocess.yml (db service).
+# Entrypoint: discord-db. Owns postgres and serves the store routes to the bot
+# and the broker; no Discord gateway (placeholder token only, for config
+# validation) and no Redis — this pod needs neither.
+general:
+  discord_token: placeholder-not-used
+  sql_connection_statement: postgresql://discord:discord@postgres:5432/discord
+  database_server:
+    host: 0.0.0.0
+    port: 8085
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080
+music:
+  download:
+    # The video-cache CATALOG's policy, and this pod's to hold: max_cache_files
+    # and the storage type describe the catalog rather than any one caller, so
+    # they are read here instead of being sent on every request. Omit this block
+    # or set enable_cache_files false and the /database/video_cache routes are
+    # not registered at all — they answer 404, which is the server's designed
+    # behaviour for a group with no store.
+    cache:
+      enable_cache_files: true
+      max_cache_files: 100
