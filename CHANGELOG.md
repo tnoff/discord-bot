@@ -5,6 +5,15 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.130] - 2026-09-04
+
+### Changed
+
+- Hardened the yt-dlp error classifiers against the two ways their input drifts, and made a stale matcher visible instead of silent. These messages have two owners: the leading sentence is YouTube's own `playabilityStatus.reason`, served from their API and free to change with no yt-dlp release, and yt-dlp then appends its own tail after it — the cookies hint whenever the reason contains "sign in", the captcha note, the rate-limit note. Reaching into that tail is what killed the age-gate matcher.
+- Punctuation was the second trap, and a live one. Production emits `Sign in to confirm you’re not a bot` with a typographic apostrophe (U+2019), not ASCII, and pads its appended URLs with double spaces. The bot-flag branch survives that only by accident of being written as two fragments that straddle the apostrophe — spelled as one natural string it would have been silently dead, exactly like the age gate. Its test asserted the ASCII form, so it passed against a message yt-dlp never sends. Matching now runs against a punctuation-folded, whitespace-collapsed copy, so no matcher has to dodge the character; the raw message is untouched and is still what reaches the span and `error_detail`.
+- The fallback branch now stamps `download.error_classified=false` on the span. A message no branch recognises is either genuinely transient — a socks/googlevideo connection error, a yt-dlp `EOFError` — or a matcher that has gone stale, and from the outside those are indistinguishable, which is precisely how the dead age-gate matcher stayed invisible while it burned every retry and stamped ERROR spans. A terminal give-up carrying that attribute is now a matcher to re-check, not an incident.
+- Tests pin the real production wording for the bot flag in both apostrophe forms, and pin `Private video`, `Video unavailable` and `This video has been removed for violating` with yt-dlp's tail attached. Nothing in production exercised those three during the audit, so their shapes are now asserted rather than assumed.
+
 ## [2.5.129] - 2026-09-04
 
 ### Changed
