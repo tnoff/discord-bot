@@ -1,1 +1,0 @@
-- Fixed the release pipeline never pushing the `discord_db` image. #919 added the build-matrix leg in `ci.yml`, which builds and scans on every PR, but `release.yml` pushes through explicit per-image jobs and gained none — so the image existed in CI and nowhere else. Adds `push-db`; its `trigger-bump-db` sibling waits until docker-apps has a pin to bump.

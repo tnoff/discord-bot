@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.132] - 2026-09-04
+
+### Changed
+
+- Fixed the release pipeline never pushing the `discord_db` image. #919 added the build-matrix leg in `ci.yml`, which builds and scans on every PR, but `release.yml` pushes through explicit per-image jobs and gained none — so the image existed in CI and nowhere else. Adds `push-db`; its `trigger-bump-db` sibling waits until docker-apps has a pin to bump.
+
 ## [2.5.131] - 2026-09-04
 
 ### Changed
