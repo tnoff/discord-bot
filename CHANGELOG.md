@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.125] - 2026-09-04
+
+### Changed
+
+- Repaired the alembic chain so it replays from base on postgres, and added a CI guard that keeps it that way. Revision `a399ba3deb56` changed five VARCHAR id columns to INTEGER and its postgres branch issued bare `ALTER COLUMN ... TYPE INTEGER`; postgres refuses that cast, and because alembic wraps the upgrade in one transaction the failure rolled back to **zero relations** rather than leaving a half-migrated database to notice. The branch was authored against sqlite, where the `batch_alter_table` path recreates the table and the cast never arises. Prod never hit it — prod was built by `BASE.metadata.create_all` and is stamped past that revision — so only a *fresh* database ever replayed it, and a fresh database could not be built at all. The fix is five `postgresql_using` arguments in that one revision; nothing in revisions 8–12 breaks behind it. `tests/test_alembic_chain.py` now replays base→head on an empty postgres, asserts the result is stamped at head, asserts a second `upgrade head` re-runs nothing, and diffs the migrated schema against `create_all` across columns, primary keys, foreign keys, unique and check constraints, and indexes — each aspect asserted non-empty first, because a comparison of two empty sets passes while proving nothing.
+
 ## [2.5.124] - 2026-09-03
 
 ### Changed
