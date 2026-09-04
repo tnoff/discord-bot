@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.135] - 2026-09-04
+
+### Changed
+
+- Span suppression is configurable. Four decisions that were welded into the image — the database liveness probe's auto-instrumentation, the egress probe's, the downloader's readiness peek, and the queue-worker status poller's span — are now toggles under `general.monitoring.tracing`. Every default reproduces the behaviour that shipped, so adding the block changes nothing; the point is that restoring a suppressed span during an incident no longer needs an image build and a pod roll. The db probe is the case that prompted it: suppressing it removed 100% of the `discord-db` pod's trace volume, which is also the only per-probe evidence behind the `database.ready_check` alert. Name-pattern span filtering stays in the otel-collector where it moved — this is an enumerated set of named toggles, not a return of `high_volume_span_patterns`.
+
 ## [2.5.134] - 2026-09-04
 
 ### Changed
