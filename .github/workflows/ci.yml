@@ -80,7 +80,7 @@ jobs:
           echo "image inputs changed: ${MATCH}"
           echo "image=${MATCH}" >> "$GITHUB_OUTPUT"
 
-  # Five images, one matrix leg each. GitLab needed TEN jobs for this -- five
+  # Six images, one matrix leg each. GitLab needed TEN jobs for this -- five
   # buildkit-build-check plus five trufflehog-image, with the built image
   # shipped between each pair as a tarball through an object-storage bucket.
   # docker-build-check builds and scans in one job, so the bucket, the uploads
