@@ -5,8 +5,7 @@ Runs as an asyncio task inside the bot's event loop.
 import asyncio
 from urllib.parse import urlsplit
 
-from sqlalchemy import text
-
+from discord_bot.servers.db_probe import db_ping
 from discord_bot.servers.health_server_base import HealthServerBase, close_writer
 from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 
@@ -45,15 +44,6 @@ class HealthServer(HealthServerBase):
         self._db_engine = db_engine
         self._dispatch_http_url = dispatch_http_url
 
-    async def _db_ping(self):
-        """Return True if the database responds to SELECT 1."""
-        try:
-            async with self._db_engine.connect() as conn:
-                await conn.execute(text('SELECT 1'))
-            return True
-        except Exception:
-            return False
-
     async def _dispatch_probe(self):
         """Return True if a TCP connection to dispatch_http_url succeeds within the timeout."""
         parts = urlsplit(self._dispatch_http_url)
@@ -74,7 +64,7 @@ class HealthServer(HealthServerBase):
         bot_ok = self.bot.is_ready() and not self.bot.is_closed()
         if self._db_engine is None:
             return bot_ok, {}
-        db_ok = await self._db_ping()
+        db_ok = await db_ping(self._db_engine)
         return bot_ok and db_ok, {'db': 'ok' if db_ok else 'unavailable'}
 
     async def _readiness_check(self):

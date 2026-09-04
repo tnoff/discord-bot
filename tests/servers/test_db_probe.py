@@ -1,0 +1,65 @@
+'''Tests for db_ping — the database liveness probe both health servers run.
+
+Moved here from tests/servers/test_health_server.py when the eight duplicated
+lines were extracted: the behaviour is unchanged, it just lives where the code
+does now rather than being asserted through one of its two callers.
+'''
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from sqlalchemy import text
+
+from discord_bot.servers.db_probe import db_ping
+
+from tests.helpers import fake_engine  # pylint: disable=unused-import
+
+
+def _engine(*, connect_error=None, execute_error=None):
+    '''Return (engine, conn) where the mock fails at connect, at execute, or not at all.'''
+    engine = MagicMock()
+    if connect_error:
+        engine.connect.return_value = AsyncMock(
+            __aenter__=AsyncMock(side_effect=connect_error),
+            __aexit__=AsyncMock(return_value=False),
+        )
+        return engine, None
+    conn = AsyncMock()
+    if execute_error:
+        conn.execute.side_effect = execute_error
+    engine.connect.return_value = AsyncMock(
+        __aenter__=AsyncMock(return_value=conn),
+        __aexit__=AsyncMock(return_value=False),
+    )
+    return engine, conn
+
+
+@pytest.mark.asyncio
+async def test_ping_true_against_real_postgres(fake_engine):  # pylint: disable=redefined-outer-name
+    '''The success path runs against a real engine, not a mock returning True.'''
+    assert await db_ping(fake_engine) is True
+
+
+@pytest.mark.asyncio
+async def test_ping_false_when_connect_fails():
+    '''A refused connection is False, not an exception.'''
+    engine, _ = _engine(connect_error=Exception('db down'))
+    assert await db_ping(engine) is False
+
+
+@pytest.mark.asyncio
+async def test_ping_false_when_execute_fails():
+    '''A connection that opens and then errors is False too.
+
+    Not the same path as a refused connection: postgres accepting the socket and
+    failing the statement is what a failing-over instance looks like.
+    '''
+    engine, _ = _engine(execute_error=Exception('read-only'))
+    assert await db_ping(engine) is False
+
+
+@pytest.mark.asyncio
+async def test_ping_issues_a_select_one():
+    '''The probe is a SELECT 1 -- cheap enough for the kubelet's interval.'''
+    engine, conn = _engine()
+    assert await db_ping(engine) is True
+    assert str(conn.execute.await_args.args[0]) == str(text('SELECT 1'))

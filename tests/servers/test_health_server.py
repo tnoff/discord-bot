@@ -260,16 +260,6 @@ class TestHealthServerAsync:
             except asyncio.CancelledError:
                 pass
 
-    async def test_db_ping_returns_true_on_success(self):
-        """_db_ping returns True when engine connects successfully."""
-        hs = HealthServer(_make_bot(), db_engine=_make_db_engine(fail=False))
-        assert await hs._db_ping() is True  #pylint:disable=protected-access
-
-    async def test_db_ping_returns_false_on_failure(self):
-        """_db_ping returns False when engine raises."""
-        hs = HealthServer(_make_bot(), db_engine=_make_db_engine(fail=True))
-        assert await hs._db_ping() is False  #pylint:disable=protected-access
-
     async def test_handle_exception_during_request(self):
         """Exception mid-request is caught and writer is still closed cleanly"""
         bot = _make_bot()

@@ -18,6 +18,11 @@ docker/.env
 htmlcov/
 .cache
 *.db
+# ...but the db pod's Dockerfile is not a sqlite file. `*.db` above matches it,
+# and an ignored new file is invisible: `git status` lists nothing, the commit
+# succeeds, and CI then fails on a dockerfile the build matrix points at and the
+# repo does not contain.
+!docker/Dockerfile.db
 CLAUDE.md
 claude-todos.md
 .venv
