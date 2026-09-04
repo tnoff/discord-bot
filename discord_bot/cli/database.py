@@ -49,7 +49,7 @@ from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig, 
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.servers.database_health_server import DatabasePingHealthServer
 from discord_bot.servers.database_server import DEFAULT_PORT, DatabaseHttpServer
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.common import GeneralConfig, resolve_tracing_config
 
 from discord_bot.cli._lib.common import (parse_and_validate_config, run_loop,
                                          setup_observability, shutdown_event_signals)
@@ -177,6 +177,8 @@ def run(settings: dict, general_config: GeneralConfig):
                 db_engine,
                 port=general_config.monitoring.health_server.port,
                 bind_address=general_config.monitoring.health_server.bind_address,
+                suppress_db_probe_auto_instrumentation=resolve_tracing_config(
+                    general_config).suppress_db_probe_auto_instrumentation,
             )
 
         run_database(database_server, health_server)

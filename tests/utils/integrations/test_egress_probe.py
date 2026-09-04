@@ -234,14 +234,15 @@ class _FakeExitClient:
         return _FakeUrlopenResponse(self._body)
 
 
-def _pool_probe(bodies, raise_for=()):
+def _pool_probe(bodies, raise_for=(), suppress_auto_instrumentation=True):
     '''Return (probe, clients) over a {exit_name: json_body} mapping.'''
     clients = {
         name: _FakeExitClient(body,
                               raise_exc=OSError('relay down') if name in raise_for else None)
         for name, body in bodies.items()
     }
-    probe = PoolExitIpProbe(tuple(bodies), clients.__getitem__)
+    probe = PoolExitIpProbe(tuple(bodies), clients.__getitem__,
+                            suppress_auto_instrumentation=suppress_auto_instrumentation)
     return probe, clients
 
 
@@ -382,3 +383,36 @@ async def test_pool_probe_failing_exit_is_still_suppressed():
     await probe.refresh()
     assert clients['us-dal-wg-001'].instrumentation_live == [False]
     assert probe.ip_for('us-dal-wg-001') is None
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_emits_when_suppression_is_turned_off():
+    '''
+    suppress_auto_instrumentation=False re-enables the per-probe requests span.
+
+    The counterpart to the two assertions above, which pin the suppressed
+    default. Without this one, the toggle could be accepted by the config model,
+    forwarded through DownloadWorkerBase, stored on the probe and never consulted
+    -- and every other test here would still pass.
+
+    Worth having live while diagnosing a relay that cannot connect: those spans
+    are stamped ERROR, which is why they were suppressed, but during an actual
+    egress outage they are the per-exit record of which relay is failing.
+    '''
+    probe, clients = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'},
+                                 suppress_auto_instrumentation=False)
+
+    await probe.refresh()
+
+    assert probe.ip_for('us-dal-wg-001') == '1.2.3.4'
+    assert clients['us-dal-wg-001'].instrumentation_live == [True]
+
+
+@pytest.mark.asyncio
+async def test_pool_probe_suppression_defaults_to_on():
+    '''Omitting the argument keeps the behaviour that shipped.'''
+    probe, clients = _pool_probe({'us-dal-wg-001': '{"ip": "1.2.3.4"}'})
+
+    await probe.refresh()
+
+    assert clients['us-dal-wg-001'].instrumentation_live == [False]

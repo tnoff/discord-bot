@@ -95,3 +95,47 @@ async def test_ping_runs_with_auto_instrumentation_suppressed():
     assert await db_ping(engine) is True
     assert seen['enabled'] is False
     assert is_instrumentation_enabled() is True, 'suppression is scoped to the probe'
+
+
+@pytest.mark.asyncio
+async def test_ping_emits_when_suppression_is_turned_off():
+    """The suppression is a toggle, and turning it off really does re-enable spans.
+
+    The mirror of the test above, and the half that matters: it is what stops
+    monitoring.tracing.suppress_db_probe_auto_instrumentation from being a config
+    key that is read, plumbed, and has no effect. Asserting only the default
+    would pass against exactly that bug.
+
+    Turning it off is what an operator does while postgres is flapping -- the
+    per-probe spans are the record of it, and the alert docker-apps raises on
+    database.ready_check has no detail view without them.
+    """
+    engine, conn = _engine()
+    seen = {}
+
+    async def _record(*_args, **_kwargs):
+        seen['enabled'] = is_instrumentation_enabled()
+        return MagicMock()
+
+    conn.execute.side_effect = _record
+
+    assert await db_ping(engine, False) is True
+    assert seen['enabled'] is True, 'auto-instrumentation should be live inside the probe'
+
+
+@pytest.mark.asyncio
+async def test_ping_default_still_suppresses():
+    '''The argument defaults to the shipped behaviour, so callers that predate it
+    are unaffected -- including the two health servers before their own wiring
+    was added.'''
+    engine, conn = _engine()
+    seen = {}
+
+    async def _record(*_args, **_kwargs):
+        seen['enabled'] = is_instrumentation_enabled()
+        return MagicMock()
+
+    conn.execute.side_effect = _record
+
+    assert await db_ping(engine) is True
+    assert seen['enabled'] is False

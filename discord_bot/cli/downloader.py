@@ -40,7 +40,7 @@ from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_bot.servers.download_server import DownloadHttpServer
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.common import GeneralConfig, resolve_tracing_config
 from discord_bot.utils.loop_health import LoopHealth
 from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
 from discord_bot.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
@@ -165,6 +165,12 @@ def run(settings: dict, general_config: GeneralConfig):
 
     egress_mode = download_cfg.get('egress_mode', EGRESS_MODE_HTTP_PROXY)
 
+    # Span-suppression toggles. Resolved here rather than inside the worker so the
+    # cli stays the one place config becomes wiring, and so the omission that would
+    # make them inert -- a base-class default quietly winning over a configured
+    # value -- is visible in one diff instead of spread across the worker hierarchy.
+    tracing_config = resolve_tracing_config(general_config)
+
     # Reuse the already-validated LoggingConfig off general_config — the same
     # object the cog passes as self.logging_config; get_logger tolerates None.
     worker = RedisDownloadWorker(
@@ -185,6 +191,10 @@ def run(settings: dict, general_config: GeneralConfig):
             'retry_backoff_seconds_minimum', RETRY_BACKOFF_SECONDS_MINIMUM)),
         egress_mode=egress_mode,
         egress_exits=download_cfg.get('egress_exits'),
+        suppress_egress_probe_auto_instrumentation=(
+            tracing_config.suppress_egress_probe_auto_instrumentation),
+        suppress_download_readiness_auto_instrumentation=(
+            tracing_config.suppress_download_readiness_auto_instrumentation),
     )
 
     server_cfg = settings.get('general', {}).get('downloader_server', {})

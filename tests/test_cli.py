@@ -702,6 +702,43 @@ async def test_main_with_otlp_retired_filter_keys_ignored(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_with_tracing_block(mocker):
+    '''
+    A ConfigMap carrying the monitoring.tracing block starts clean.
+
+    The counterpart to the retired-keys test above, over the same yaml -> click ->
+    pydantic path the deployed ConfigMap actually takes. tests/cli/test_tracing_wiring.py
+    proves the values reach the objects that read them; this proves the block
+    parses where it is really written, with every toggle in its non-default
+    position so a typo in any field name would fail here.
+    '''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
+                'monitoring': {
+                    'otlp': {'enabled': True},
+                    'tracing': {
+                        'suppress_db_probe_auto_instrumentation': False,
+                        'suppress_egress_probe_auto_instrumentation': False,
+                        'suppress_download_readiness_auto_instrumentation': False,
+                        'trace_queue_worker_status_poll': True,
+                    },
+                },
+            }
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        _patch_otlp(mocker)
+        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+
+
+@pytest.mark.asyncio
 async def test_main_with_memory_profiling(mocker):
     '''Memory profiling block executes when enabled (lines 240-245)'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:

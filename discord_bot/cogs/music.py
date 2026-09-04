@@ -47,7 +47,7 @@ from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig
 
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner
+from discord_bot.utils.common import rm_tree, return_loop_runner, tracing_config_from_settings
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
@@ -345,13 +345,22 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # and blocks over HTTP and never builds an in-process worker or queue.
         # Results still return through the broker's download-result queue, which
         # process_download_results consumes.
-        self.download_client: DownloadClient = HttpDownloadClient(self.config.download_client.url)
+        # Span toggles live in general.monitoring.tracing, alongside the logging
+        # block the base class reads the same way. Read here rather than threaded
+        # from the cli because the cog is where these two clients are built, and a
+        # new constructor argument through load_cogs would be one more hop at
+        # which the value could be dropped and silently replaced by the default.
+        tracing_config = tracing_config_from_settings(self.settings)
+        self.download_client: DownloadClient = HttpDownloadClient(
+            self.config.download_client.url,
+            trace_status_poll=tracing_config.trace_queue_worker_status_poll)
         # The search loop runs in the standalone search pod; the cog submits,
         # clears and blocks over HTTP and never builds a worker, queue or driver.
         # Resolutions come back through the broker's search-result queue, which
         # process_search_results already consumes.
         self.youtube_music_search_client: YoutubeMusicSearchClient = HttpYoutubeMusicSearchClient(
-            self.config.youtube_music_search_client.url)
+            self.config.youtube_music_search_client.url,
+            trace_status_poll=tracing_config.trace_queue_worker_status_poll)
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')

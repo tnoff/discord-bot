@@ -38,7 +38,8 @@ def _manager() -> RedisManager:
     return RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
 
 
-def _worker(manager=None, *, egress='default', wait_min=10, variance=2):
+def _worker(manager=None, *, egress='default', wait_min=10, variance=2,
+            suppress_download_readiness_auto_instrumentation=True):
     worker = RedisDownloadWorker(
         None, Path('/tmp'),
         redis_manager=manager or _manager(),
@@ -46,6 +47,8 @@ def _worker(manager=None, *, egress='default', wait_min=10, variance=2):
         wait_period_minimum=wait_min,
         wait_period_max_variance=variance,
         max_retries=2,
+        suppress_download_readiness_auto_instrumentation=(
+            suppress_download_readiness_auto_instrumentation),
     )
     # Disable the cold-start floor so pops aren't blocked unless a test sets one.
     worker._startup_wait_until = 0.0
@@ -818,6 +821,36 @@ async def test_idle_peek_emits_no_spans():
         with pytest.raises(asyncio.QueueEmpty):
             await w._peek_next_request()
         assert not exporter.get_finished_spans()
+    finally:
+        instrumentor.uninstrument()
+
+
+@pytest.mark.asyncio
+async def test_idle_peek_emits_spans_when_suppression_is_turned_off():
+    '''The mirror of the test above: the peek is traced again when configured to be.
+
+    This is the assertion that makes
+    monitoring.tracing.suppress_download_readiness_auto_instrumentation a real
+    control rather than an accepted-and-ignored key. The suppressed case alone
+    would pass identically if the flag were never consulted, since suppression is
+    the default.
+
+    Same instrument as the test above -- a real RedisInstrumentor against an
+    in-memory exporter -- because the claim is about spans reaching an exporter,
+    not about the value of a flag.
+    '''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    instrumentor = RedisInstrumentor()
+    instrumentor.instrument(tracer_provider=provider)
+    try:
+        w = _worker(suppress_download_readiness_auto_instrumentation=False)
+
+        with pytest.raises(asyncio.QueueEmpty):
+            await w._peek_next_request()
+        assert [s.name for s in exporter.get_finished_spans()], \
+            'the peek should be traced once suppression is off'
     finally:
         instrumentor.uninstrument()
 

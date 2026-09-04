@@ -10,7 +10,7 @@ does not need sqlalchemy) directly instead of going through this module.
 from discord.ext.commands import Bot
 
 from discord_bot.servers.health_server import HealthServer
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.utils.common import GeneralConfig, resolve_tracing_config
 
 
 def setup_health_server(bot: Bot, general_config: GeneralConfig,
@@ -24,5 +24,7 @@ def setup_health_server(bot: Bot, general_config: GeneralConfig,
             bind_address=general_config.monitoring.health_server.bind_address,
             db_engine=db_engine,
             dispatch_http_url=dispatch_http_url,
+            suppress_db_probe_auto_instrumentation=resolve_tracing_config(
+                general_config).suppress_db_probe_auto_instrumentation,
         )
     return None
