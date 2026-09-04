@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.129] - 2026-09-04
+
+### Changed
+
+- Added the `discord-db` persistence pod: `cli/database.py`, its postgres-backed health server, `docker/Dockerfile.db` and the `[db]` extra. The pod serves all four store groups over HTTP so the bot and broker can drop `database` at the cutover. It ships inert — it runs no migrations.
+
 ## [2.5.128] - 2026-09-04
 
 ### Changed

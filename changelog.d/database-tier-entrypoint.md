@@ -1,1 +1,0 @@
-- Added the `discord-db` persistence pod: `cli/database.py`, its postgres-backed health server, `docker/Dockerfile.db` and the `[db]` extra. The pod serves all four store groups over HTTP so the bot and broker can drop `database` at the cutover. It ships inert — it runs no migrations.
