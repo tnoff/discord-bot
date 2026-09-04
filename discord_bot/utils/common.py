@@ -32,16 +32,66 @@ _LOOP_ERROR_BACKOFF_MAX_SECONDS = 30.0
 # Pydantic models for config validation
 
 class MonitoringOtlpConfig(BaseModel):
-    '''
-    OTLP monitoring configuration
+    """
+    OTLP monitoring configuration -- where spans go, not which spans exist.
 
-    Span filtering used to live here as filter_high_volume_spans /
-    high_volume_span_patterns. It moved to the otel-collector
+    Span filtering by NAME PATTERN used to live here as filter_high_volume_spans
+    / high_volume_span_patterns. It moved to the otel-collector
     (filter/drop-ok-high-volume-spans in monitoring/collector/config.yaml in
-    docker-apps), so both keys are gone. Extra keys are ignored, so a config
-    still carrying them is accepted and has no effect.
-    '''
+    docker-apps), so both keys are gone and are not coming back. Extra keys are
+    ignored, so a config still carrying them is accepted and has no effect.
+
+    That is still true, and MonitoringTracingConfig is not a reversal of it. The
+    collector matches span names it did not author, fleet-wide, after the fact;
+    the tracing block below toggles a fixed, enumerated set of suppression
+    decisions this codebase makes at specific call sites, by name of the site
+    rather than by pattern over the span stream. See that class for why the two
+    are different controls.
+    """
     enabled: bool
+
+class MonitoringTracingConfig(BaseModel):
+    """
+    Which spans this process creates at all -- the decisions that were welded in.
+
+    Three call sites wrap themselves in suppress_instrumentation() and one poller
+    passes traced=False, each for a measured reason recorded at the site. Every
+    one of those was a build-time decision with no off-switch: restoring the
+    spans meant editing code, building an image and rolling a pod. That is the
+    wrong lifecycle for a control whose whole purpose is to be flipped during an
+    incident -- the db probe is the sharp case, since suppressing its spans is
+    what left the postgres-reachability alert in docker-apps without a detail
+    view.
+
+    Every default here reproduces the behaviour that shipped before this block
+    existed. Adding the block changes nothing on its own; that is deliberate.
+    Changing a default is a separate change with its own measurement.
+
+    The suppress_* toggles say auto_instrumentation because that is precisely
+    what suppress_instrumentation() gates. Hand-rolled spans created under those
+    same blocks -- start_as_current_span, otel_span_wrapper -- are unaffected,
+    and a reader who expects "suppress the db probe" to silence everything under
+    the probe would otherwise be surprised by what still shows up in Tempo.
+    """
+    # servers/db_probe.py: the kubelet reruns this on a fixed interval, so
+    # SQLAlchemy's auto-instrumentation made it a trace stream at the probe
+    # period rather than at the rate of real work. Turn off to get the per-probe
+    # record back while postgres is misbehaving.
+    suppress_db_probe_auto_instrumentation: bool = True
+    # utils/integrations/egress_probe.py: one requests-backed CLIENT span per
+    # exit per tick, and a relay that cannot connect stamps it ERROR for a
+    # failure refresh() already tolerates.
+    suppress_egress_probe_auto_instrumentation: bool = True
+    # interfaces/download_protocols.py: the readiness peek at the head of the
+    # consumer loop, ~98% of the downloader's span volume at a rate set by the
+    # poll interval rather than by anything happening.
+    suppress_download_readiness_auto_instrumentation: bool = True
+    # clients/http_queue_worker_client.py: the status poller's own span, ~99% of
+    # the bot's span volume at two clients on a 1Hz tick. Unlike the three
+    # above this is a manual span, so it is governed by traced= rather than by
+    # suppress_instrumentation() -- hence a trace_* toggle rather than a
+    # suppress_* one, and hence the inverted default.
+    trace_queue_worker_status_poll: bool = False
 
 class MonitoringMemoryProfilingConfig(BaseModel):
     '''Memory profiling monitoring configuration'''
@@ -82,11 +132,42 @@ class MonitoringLoopHealthConfig(BaseModel):
 class MonitoringConfig(BaseModel):
     '''Monitoring configuration'''
     otlp: MonitoringOtlpConfig
+    tracing: Optional[MonitoringTracingConfig] = None
     memory_profiling: Optional[MonitoringMemoryProfilingConfig] = None
     process_metrics: Optional[MonitoringProcessMetricsConfig] = None
     gc_census: Optional[MonitoringGcCensusConfig] = None
     health_server: Optional[MonitoringHealthServerConfig] = None
     loop_health: Optional[MonitoringLoopHealthConfig] = None
+
+def resolve_tracing_config(general_config) -> MonitoringTracingConfig:
+    """
+    The tracing block for a process, or an all-defaults one when it is absent.
+
+    monitoring and monitoring.tracing are both optional, so every consumer would
+    otherwise repeat the same two-step None-dance -- five times over, which is
+    also how R0801 starts failing the build. Returning a real model rather than
+    None means the call sites read a plain attribute and cannot accidentally
+    treat "no tracing block configured" as "tracing disabled".
+
+    general_config : a GeneralConfig, or None.
+    """
+    monitoring = getattr(general_config, 'monitoring', None)
+    return (monitoring and monitoring.tracing) or MonitoringTracingConfig()
+
+def tracing_config_from_settings(settings: dict) -> MonitoringTracingConfig:
+    """
+    Same, from the raw settings dict rather than a parsed GeneralConfig.
+
+    The cogs are handed the unparsed settings and validate their own slice of it
+    -- see CogHelperBase, which builds LoggingConfig from
+    settings['general']['logging'] the same way. The monitoring block sits
+    alongside that one, so a cog that needs a tracing toggle reads it here
+    instead of growing a new constructor argument threaded from the CLI.
+
+    settings : the raw config dict.
+    """
+    block = (settings or {}).get('general', {}).get('monitoring', {}) or {}
+    return MonitoringTracingConfig.model_validate(block.get('tracing') or {})
 
 class LoggingConfig(BaseModel):
     '''Logging configuration'''

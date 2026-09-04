@@ -140,10 +140,24 @@ def test_pydantic_otlp_config_minimal():
 
 def test_pydantic_otlp_config_ignores_retired_span_filter_keys():
     '''
-    Span filtering moved to the otel-collector, so both keys are gone from the
-    model. A ConfigMap still carrying them must stay loadable and simply ignore
-    them — that is what lets the collector-side filter deploy before the config
-    is cleaned up, rather than needing the two changes to land together.
+    Span filtering BY NAME PATTERN moved to the otel-collector, so both keys are
+    gone from the model. A ConfigMap still carrying them must stay loadable and
+    simply ignore them — that is what lets the collector-side filter deploy
+    before the config is cleaned up, rather than needing the two changes to land
+    together.
+
+    Still true after monitoring.tracing was added, and this assertion is not in
+    tension with it. That block is a fixed, enumerated set of toggles over
+    suppression decisions this codebase makes at four named call sites; these two
+    keys were a per-service regex list applied to the whole span stream. The
+    regex list is what drifted across six ConfigMap blocks and what the collector
+    now owns centrally, and re-introducing it here would reverse that migration.
+    A named toggle does not.
+
+    Note this test would pass whether or not the keys were wired to anything —
+    which is the point: pydantic ignores unknown keys, so absence of an
+    attribute is all it can prove. See tests/cli/test_tracing_wiring.py for the
+    assertions that the NEW keys are actually read.
     '''
     config_input = {
         'discord_token': 'abctoken',

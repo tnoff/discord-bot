@@ -38,11 +38,16 @@ class HealthServer(HealthServerBase):
 
     # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
     def __init__(self, bot, port=8080, bind_address='0.0.0.0', db_engine=None,  # nosec B104
-                 dispatch_http_url=None):
+                 dispatch_http_url=None, suppress_db_probe_auto_instrumentation=True):
         super().__init__(port=port, bind_address=bind_address)
         self.bot = bot
         self._db_engine = db_engine
         self._dispatch_http_url = dispatch_http_url
+        # Passed straight through to db_ping. Kept as a constructor argument
+        # rather than read from config here so the CLI stays the single place
+        # that turns config into wiring, and so a test can drive both positions
+        # without building a config.
+        self._suppress_db_probe_auto_instrumentation = suppress_db_probe_auto_instrumentation
 
     async def _dispatch_probe(self):
         """Return True if a TCP connection to dispatch_http_url succeeds within the timeout."""
@@ -64,7 +69,8 @@ class HealthServer(HealthServerBase):
         bot_ok = self.bot.is_ready() and not self.bot.is_closed()
         if self._db_engine is None:
             return bot_ok, {}
-        db_ok = await db_ping(self._db_engine)
+        db_ok = await db_ping(self._db_engine,
+                              self._suppress_db_probe_auto_instrumentation)
         return bot_ok and db_ok, {'db': 'ok' if db_ok else 'unavailable'}
 
     async def _readiness_check(self):

@@ -37,8 +37,11 @@ class _HealthServerConfig:
 
 
 class _Monitoring:
-    def __init__(self, enabled):
+    def __init__(self, enabled, tracing=None):
         self.health_server = _HealthServerConfig(enabled)
+        # run() resolves the span-suppression toggles off this; None means
+        # "no tracing block configured", which resolves to the defaults.
+        self.tracing = tracing
 
 
 class _GeneralConfig:

@@ -93,6 +93,61 @@ CONSUMER spans regardless of name — the trace error-rate alerts divide errors
 by all spans of that kind, so dropping the successful ones would leave a
 denominator made only of errors.
 
+### Span Suppression (`monitoring.tracing`)
+
+Separate from the above, and not a reversal of it. Four call sites in this
+codebase decline to emit spans for measured reasons, and this block is the
+off-switch for those four decisions. It does **not** re-introduce name-pattern
+matching: it is a fixed, enumerated set of toggles, one per site.
+
+The distinction that makes them different controls is lifecycle:
+
+| control | question | where |
+|---|---|---|
+| `traced=False` at the source | should this span exist at all? | code |
+| `monitoring.tracing` | is this span noise *right now*? | this config |
+| collector OTTL filter | is this class of span noise fleet-wide? | `docker-apps` |
+
+Every default reproduces the behaviour that shipped before the block existed,
+so adding it changes nothing. Omit the block entirely and the defaults apply.
+
+```yaml
+general:
+  monitoring:
+    otlp:
+      enabled: true
+    tracing:
+      # servers/db_probe.py — the kubelet's postgres liveness probe. Was 100%
+      # of the discord-db pod's trace volume. Turn OFF while postgres is
+      # flapping: these spans are the per-probe record of it, and the
+      # database.ready_check alert in docker-apps has no detail view without
+      # them.
+      suppress_db_probe_auto_instrumentation: true
+      # utils/integrations/egress_probe.py — one span per exit per tick, and a
+      # relay that cannot connect stamps it ERROR for a failure refresh()
+      # already tolerates. Turn OFF while diagnosing an egress outage.
+      suppress_egress_probe_auto_instrumentation: true
+      # interfaces/download_protocols.py — the readiness peek at the head of
+      # the consumer loop, ~98% of the downloader's span volume.
+      suppress_download_readiness_auto_instrumentation: true
+      # clients/http_queue_worker_client.py — the status poller's own span,
+      # ~99% of the bot's span volume at two clients on a 1Hz tick. Note the
+      # inverted sense: this one is a manual span, so it is governed by
+      # `traced=` rather than by `suppress_instrumentation()`.
+      trace_queue_worker_status_poll: false
+```
+
+Two things worth knowing before changing a value:
+
+**`suppress_*` gates auto-instrumentation only.** `suppress_instrumentation()`
+stops instrumentors (SQLAlchemy, redis, requests) emitting under the block. It
+does not touch hand-rolled `start_as_current_span` / `otel_span_wrapper` spans,
+so turning a suppression on does not silence everything under that call.
+
+**Do not measure the effect by span count.** The SQLAlchemy instrumentation
+emits one `connect` span per *pool checkout*, not per TCP connect, so counts are
+invariant to pooling and to several other things. Measure duration or presence.
+
 ## Environment Variables
 
 The bot uses standard OpenTelemetry environment variables for endpoint configuration.

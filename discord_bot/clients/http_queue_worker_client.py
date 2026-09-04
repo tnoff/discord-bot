@@ -80,9 +80,18 @@ class HttpQueueWorkerClient(HttpClientMixin):
     # park one poll iteration for far longer than the poll interval.
     STATUS_REQUEST_TIMEOUT_SECONDS: ClassVar[float] = 10.0
 
-    def __init__(self, base_url: str, session=None):
+    def __init__(self, base_url: str, session=None, trace_status_poll: bool = False):
+        '''
+        base_url : the worker pod's base URL.
+        session : optional shared aiohttp session.
+        trace_status_poll : True restores the status poller's span. Default False,
+            which is the behaviour that shipped -- see _poll_status_loop_once for
+            why it was turned off, and monitoring.tracing.trace_queue_worker_status_poll
+            for the toggle that turns it back on without an image build.
+        '''
         self._base_url = base_url.rstrip('/')
         self._session = session
+        self._trace_status_poll = trace_status_poll
         self._cached_failure_summary: str = _DEFAULT_FAILURE_SUMMARY
         self._cached_backoff_seconds: int | None = None
         self._cached_queue_sizes: dict[int, int] = {}
@@ -203,10 +212,17 @@ class HttpQueueWorkerClient(HttpClientMixin):
         per unit of work.  Two clients at 1Hz made this span ~99% of the bot's span
         volume, and while the worker pod was being rescheduled every tick also
         landed an ERROR span for a failure this method already handles by keeping
-        the cached values.  The warning below is the signal; the span was noise.'''
+        the cached values.  The warning below is the signal; the span was noise.
+
+        Untraced by DEFAULT rather than unconditionally: the span is noise while
+        the poller is healthy and is the only per-iteration record of it while it
+        is not, so trace_status_poll re-enables it for the duration of an
+        incident.  Note this is a manual span, so it is governed by traced= --
+        suppress_instrumentation() would not touch it.'''
         try:
             status = await asyncio.wait_for(
-                self._http('GET', f'{self._submit_url}/status', traced=False),
+                self._http('GET', f'{self._submit_url}/status',
+                           traced=self._trace_status_poll),
                 timeout=self.STATUS_REQUEST_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.warning('%s status poller error: %s', self.SPAN_PREFIX,

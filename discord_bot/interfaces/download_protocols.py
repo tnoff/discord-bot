@@ -22,6 +22,7 @@ impl is constructed — mirroring the BrokerClient seam.
 import asyncio
 from abc import ABC, abstractmethod
 from asyncio import QueueEmpty, sleep
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from functools import partial
 import hashlib
@@ -223,6 +224,8 @@ class DownloadWorkerBase(ABC):
         retry_backoff_seconds_minimum: int = RETRY_BACKOFF_SECONDS_MINIMUM,
         egress_mode: str = EGRESS_MODE_HTTP_PROXY,
         egress_exits: List[str] | None = None,
+        suppress_egress_probe_auto_instrumentation: bool = True,
+        suppress_download_readiness_auto_instrumentation: bool = True,
     ):
         '''
         Init download engine
@@ -238,6 +241,18 @@ class DownloadWorkerBase(ABC):
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
         retry_backoff_seconds_minimum : First retry's hold-off; doubles per attempt.
                                         0 restores the pre-existing immediate requeue.
+        suppress_egress_probe_auto_instrumentation : passed to PoolExitIpProbe in pool
+                                        modes; False re-emits its per-exit probe span.
+        suppress_download_readiness_auto_instrumentation : False re-emits the readiness
+                                        peek's spans -- see _peek_next_request. Both
+                                        default True, i.e. unchanged behaviour, and both
+                                        come from the monitoring.tracing config block.
+
+        NOTE both toggles are keyword arguments with defaults on a base class, which
+        is the exact shape that has previously let a value configured in the deployed
+        ConfigMap never reach the pod: the subclass or the entrypoint omits it and the
+        base-class default wins, silently and with the config looking applied. They are
+        asserted at the cli entrypoint for that reason, not just here.
         '''
         ytdlopts = {
             'format': 'bestaudio/best',
@@ -292,9 +307,13 @@ class DownloadWorkerBase(ABC):
         # probe instead; the entrypoint schedules its refresh loop.  Until an exit
         # resolves, attribution falls back to the exit name alone as before.
         self._pool_exit_ip_probe = None
+        self._suppress_download_readiness_auto_instrumentation = \
+            suppress_download_readiness_auto_instrumentation
         if self._egress.is_pool:
-            self._pool_exit_ip_probe = PoolExitIpProbe(self._egress.exit_names,
-                                                       self._egress.client_for_exit)
+            self._pool_exit_ip_probe = PoolExitIpProbe(
+                self._egress.exit_names,
+                self._egress.client_for_exit,
+                suppress_auto_instrumentation=suppress_egress_probe_auto_instrumentation)
 
     @property
     def pool_exit_ip_probe(self):
@@ -537,7 +556,10 @@ class DownloadWorkerBase(ABC):
         branch's _dequeue_direct() peeks stay instrumented — they only run while a
         backoff is active, which is rare and worth seeing.
         '''
-        with suppress_instrumentation():
+        suppressed = (suppress_instrumentation()
+                      if self._suppress_download_readiness_auto_instrumentation
+                      else nullcontext())
+        with suppressed:
             return await self._merged_get_nowait()
 
     # ------------------------------------------------------------------

@@ -14,11 +14,13 @@ dispatcher, whose image ships no sqlalchemy at all, and it says so in its own
 docstring. A `from sqlalchemy import text` there would be an ImportError at
 dispatcher pod start -- the exact failure the per-image extras exist to prevent.
 '''
+from contextlib import nullcontext
+
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 from sqlalchemy import text
 
 
-async def db_ping(db_engine) -> bool:
+async def db_ping(db_engine, suppress_auto_instrumentation: bool = True) -> bool:
     '''
     Return True if the database answers SELECT 1.
 
@@ -40,10 +42,18 @@ async def db_ping(db_engine) -> bool:
     suppress_instrumentation() gates, so this works here where
     async_untraced_span() was needed for the pollers.
 
+    The suppression is now a toggle rather than a build-time decision, because
+    the reason to suppress these spans is volume and the reason to want them
+    back is an incident: they are the per-probe record of postgres flapping, and
+    docker-apps alerts on exactly that condition. Restoring them used to mean an
+    image build and a pod roll. Default True -- unchanged behaviour.
+
     db_engine : AsyncEngine to probe
+    suppress_auto_instrumentation : False re-emits the connect + SELECT spans.
+                                    monitoring.tracing.suppress_db_probe_auto_instrumentation.
     '''
     try:
-        with suppress_instrumentation():
+        with (suppress_instrumentation() if suppress_auto_instrumentation else nullcontext()):
             async with db_engine.connect() as conn:
                 await conn.execute(text('SELECT 1'))
         return True

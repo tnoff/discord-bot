@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 
 import aiohttp
 from opentelemetry.instrumentation.utils import suppress_instrumentation
@@ -187,16 +188,23 @@ class PoolExitIpProbe:
     '''
 
     def __init__(self, exit_names, client_for_exit,
-                 probe_url: str = MULLVAD_JSON_URL, ip_field: str = MULLVAD_IP_FIELD):
+                 probe_url: str = MULLVAD_JSON_URL, ip_field: str = MULLVAD_IP_FIELD,
+                 suppress_auto_instrumentation: bool = True):
         '''
         exit_names : the pool's exit ids to resolve.
         client_for_exit : ``(exit_name) -> yt-dlp client`` pinned to that exit's proxy.
         probe_url / ip_field : IP-reporting endpoint and the field holding the IP.
+        suppress_auto_instrumentation : False re-emits the per-probe requests span.
+            Worth turning on while diagnosing a relay that is failing to connect,
+            which is the case the suppression was added to stop reporting as an
+            error. Default True -- unchanged behaviour. Driven by
+            monitoring.tracing.suppress_egress_probe_auto_instrumentation.
         '''
         self._exit_names = tuple(exit_names)
         self._client_for_exit = client_for_exit
         self._probe_url = probe_url
         self._ip_field = ip_field
+        self._suppress_auto_instrumentation = suppress_auto_instrumentation
         self._by_exit: dict = {}
 
     def ip_for(self, exit_name: str) -> str | None:
@@ -222,7 +230,9 @@ class PoolExitIpProbe:
         stamped onto are created outside it and keep their instrumentation.
         '''
         client = self._client_for_exit(exit_name)
-        with suppress_instrumentation():
+        suppressed = (suppress_instrumentation() if self._suppress_auto_instrumentation
+                      else nullcontext())
+        with suppressed:
             with client.urlopen(self._probe_url) as response:
                 data = json.loads(response.read())
         if not isinstance(data, dict):

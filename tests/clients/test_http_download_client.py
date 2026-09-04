@@ -556,3 +556,47 @@ async def test_poller_keeps_a_useful_message(mocker):
     await client._poll_status_loop_once()  # pylint: disable=protected-access
     warn.assert_called_once_with('%s status poller error: %s', 'downloader',
                                  'Cannot connect to host')
+
+
+# ---------------------------------------------------------------------------
+# Status-poller tracing toggle (monitoring.tracing.trace_queue_worker_status_poll)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_status_poller_is_untraced_by_default():
+    '''The poller starts no span unless asked to.
+
+    This is the behaviour that shipped: two clients on a 1Hz tick made this span
+    ~99% of the bot's span volume, and every tick during a worker-pod reschedule
+    also stamped an ERROR the method already handles by keeping its cached values.
+    '''
+    worker = _FakeWorker(status={'failure_summary': 'ok', 'queue_sizes': {}})
+    _, server = _make_server(worker)
+    tracer, exporter = _recording_tracer()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
+        with patch('discord_bot.utils.otel.TRACER', tracer):
+            await client._poll_status_loop_once()  # pylint: disable=protected-access
+    assert not exporter.get_finished_spans()
+
+
+@pytest.mark.asyncio
+async def test_status_poller_is_traced_when_the_toggle_is_on():
+    '''trace_status_poll=True puts the span back, without an image build.
+
+    The half that proves the toggle is wired rather than merely accepted. It is
+    also the operationally interesting position: while the downloader pod is
+    misbehaving, this span is the per-iteration record of the bot's view of it.
+
+    Asserted on exported spans rather than on the traced= kwarg, so the test
+    fails if the flag is stored and then passed to the wrong place.
+    '''
+    worker = _FakeWorker(status={'failure_summary': 'ok', 'queue_sizes': {}})
+    _, server = _make_server(worker)
+    tracer, exporter = _recording_tracer()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDownloadClient(str(tc.make_url('')), session=tc.session,
+                                    trace_status_poll=True)
+        with patch('discord_bot.utils.otel.TRACER', tracer):
+            await client._poll_status_loop_once()  # pylint: disable=protected-access
+    assert [s.name for s in exporter.get_finished_spans()] == ['utils.retry_broker_command']
