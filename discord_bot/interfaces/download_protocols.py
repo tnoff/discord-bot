@@ -697,7 +697,14 @@ class DownloadWorkerBase(ABC):
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.UNAVAILABLE, media_request, span_context, error_str, user_message='Video is unavailable, cannot download')
-                if 'Sign in to confirm your age. This video may be inappropriate for some users' in error_str:
+                # Match only the stable leading sentence. yt-dlp rewrote the tail of this
+                # message -- it used to end "This video may be inappropriate for some
+                # users" and now ends "Use --cookies-from-browser or --cookies for the
+                # authentication" -- which silently un-matched this branch and dropped
+                # every age-gated video into the retryable fallback below. The bot-flag
+                # check further down also opens with "Sign in to confirm you" but requires
+                # "not a bot", so the two stay distinct.
+                if 'Sign in to confirm your age' in error_str:
                     span.set_status(StatusCode.OK)
                     span.record_exception(error)
                     return self._make_error_result(DownloadErrorType.AGE_RESTRICTED, media_request, span_context, error_str, user_message='Video is age restricted, cannot download')

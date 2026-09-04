@@ -23,7 +23,7 @@ from discord_bot.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
 from discord_bot.utils.audio import AudioProcessingError
 from discord_bot.exceptions import DiscordBotException, ExitEarlyException
-from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus
+from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -511,12 +511,21 @@ async def test_prepare_source_errors():
     '''Various yt-dlp DownloadError messages map to the correct DownloadErrorType.'''
     fake_context = generate_fake_context()
 
-    x = make_download_client(yield_dlp_error('Sign in to confirm your age. This video may be inappropriate for some users'))
-    y = fake_source_dict(fake_context)
-    result = await x.create_source(y, 3)
-    assert not result.status.success
-    assert result.status.error_type == DownloadErrorType.AGE_RESTRICTED
-    assert 'Video is age restricted, cannot download' in result.status.user_message
+    # Both yt-dlp wordings of the age gate, old and current. The tail of this message
+    # is not stable -- matching on it is what let age-gated videos fall through to the
+    # retryable path, burn every retry and stamp the span ERROR -- so pin both.
+    for age_error in ('Sign in to confirm your age. This video may be inappropriate for some users',
+                      'Sign in to confirm your age. Use --cookies-from-browser or --cookies '
+                      'for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ'):
+        x = make_download_client(yield_dlp_error(age_error))
+        y = fake_source_dict(fake_context)
+        result = await x.create_source(y, 3)
+        assert not result.status.success
+        assert result.status.error_type == DownloadErrorType.AGE_RESTRICTED
+        assert 'Video is age restricted, cannot download' in result.status.user_message
+        # A rejection, not a failure: no retry is consumed and the span stays OK.
+        assert is_rejection(result.status.error_type)
+        assert result.media_request.download_retry_information.retry_count == 0
 
     x = make_download_client(yield_dlp_error("This video has been removed for violating YouTube's Terms of Service"))
     y = fake_source_dict(fake_context)
