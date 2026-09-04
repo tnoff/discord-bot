@@ -123,6 +123,40 @@ def normalize_ytdlp_error(error_str: str) -> str:
     return ' '.join(error_str.translate(_PUNCTUATION_FOLD).split())
 
 
+# Messages that reach the retryable fallback but are UNDERSTOOD: transient
+# network and truncated-read failures that no classification branch needs to
+# special-case, because retrying is already the right answer for them.
+#
+# Naming them is what keeps download.error_classified worth reading. Without
+# this the attribute's dominant content would be the EOFError burst -- 29 of the
+# 74 downloader ERROR lines in the week of 2026-09-03, more than the bot flag --
+# and a signal that is mostly known noise stops being checked, which defeats the
+# reason it exists. Matched against the NORMALIZED message, so \r and the double
+# spaces yt-dlp pads its URLs with are already folded away.
+KNOWN_TRANSIENT_ERROR_MARKERS = frozenset({
+    # yt-dlp's requests-impersonate backend on a truncated response:
+    #   "[requests] Unexpected error: EOFError: 2 bytes missing; please report
+    #    this issue on https://github.com/yt-dlp/yt-dlp/issues?q= , filling out"
+    'EOFError',
+    # Socks connect/read timeouts reaching googlevideo through the tunnel:
+    #   "[download] Got error: (<SocksHTTPSConnection(host='rr5---sn-...
+    #    .googlevideo.com', port=443) at 0x...>, 'Connection to rr5---sn-...
+    #    .googlevideo.com timed out. (connect timeout=20.0)')"
+    'timed out',
+})
+
+
+def is_known_transient(match_str: str) -> bool:
+    '''
+    True when a message that matched no classification branch is nonetheless a
+    recognised transient failure.
+
+    Takes an ALREADY-NORMALIZED string -- pass the same value the classification
+    branches matched against, not the raw message.
+    '''
+    return any(marker in match_str for marker in KNOWN_TRANSIENT_ERROR_MARKERS)
+
+
 def is_rejection(error_type: DownloadErrorType | None) -> bool:
     '''True when a terminal download error means the video was declined rather
     than the download failing.'''
