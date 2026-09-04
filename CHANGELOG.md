@@ -5,6 +5,13 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.131] - 2026-09-04
+
+### Changed
+
+- Stopped the new `download.error_classified` span attribute from being drowned by errors it was never meant to flag. The attribute, added alongside the yt-dlp matcher hardening, marks a download error that reached the retryable fallback without matching any classification branch — the signature of a matcher that has gone stale against reworded upstream text. But two failure shapes reach that fallback constantly and are perfectly well understood: yt-dlp's `EOFError: N bytes missing` on a truncated response, and socks connect timeouts to googlevideo through the tunnel. The EOFError burst alone was 29 of the 74 downloader ERROR lines in the week of 2026-09-03, more than the bot flag, so querying for unclassified errors would have returned mostly known noise — and a signal that is mostly noise stops being read, which defeats the point of adding it.
+- Both shapes are now named as known-transient, so the attribute is `true` for them and `false` only for a message nothing recognised. Handling is unchanged: they take the same retryable fallback they always did, with the same retry-limit escalation. Only the reporting differs. The markers are matched against the normalized message, which is what lets the socks shape match despite carrying a bare carriage return, and both are pinned in tests against their verbatim production text.
+
 ## [2.5.130] - 2026-09-04
 
 ### Changed
