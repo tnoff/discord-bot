@@ -164,6 +164,22 @@ def test_video_cache_policy_is_pod_side(mocker, fake_engine):  # pylint: disable
     assert store.storage_type == 's3'
 
 
+def test_build_video_cache_store_defaults_max_cache_files_when_absent(mocker):
+    '''
+    Caching on with max_cache_files omitted falls back to the shared default.
+
+    Migrated from tests/test_cli_broker.py with MR 4a rather than deleted: the
+    broker used to construct this client and carried this guard, and it now
+    constructs an HTTP store that holds no eviction policy at all. The crash it
+    protects against did not move with the caller -- a None here still breaks
+    ready_remove's `cache_count - self.max_cache_files` subtraction, just on this
+    pod now. Deleting a regression test because its subject changed address is
+    how the regression comes back.
+    '''
+    store = database_cli.build_video_cache_store({'enable_cache_files': True}, mocker.MagicMock())
+    assert store.max_cache_files == 2048
+
+
 def test_run_binds_the_configured_host_port(mocker, fake_engine):  # pylint: disable=redefined-outer-name
     '''An explicit general.database_server overrides the 0.0.0.0:8085 default.'''
     run_database = _patch_process_collaborators(mocker, fake_engine)
