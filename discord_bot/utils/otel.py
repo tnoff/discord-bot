@@ -58,6 +58,12 @@ class AttributeNaming(Enum):
     # seam spans, which stay OK: a refusal is a decision, not a fault, and
     # marking it ERROR is what inflates the seam's error rate.
     SUBMIT_REJECTION = 'queue.submit_rejection'
+    # False when a yt-dlp DownloadError matched none of the classification
+    # branches and fell through to the retryable fallback. Set on the fallback
+    # only, so absence means "recognised". A terminal give-up carrying
+    # false is the signature of a matcher that has gone stale against reworded
+    # upstream text -- the failure mode that hid the dead age-gate matcher.
+    DOWNLOAD_ERROR_CLASSIFIED = 'download.error_classified'
 
 class DiscordContextNaming(Enum):
     '''

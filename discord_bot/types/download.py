@@ -87,6 +87,42 @@ REJECTION_ERROR_TYPES = frozenset({
 })
 
 
+# yt-dlp's YouTube errors are assembled from two sources with different owners.
+# The leading sentence is YouTube's own `playabilityStatus.reason`, served from
+# their API and free to change with no yt-dlp release; yt-dlp then appends its
+# own tail (the cookies/login hint, the captcha note, the rate-limit note).
+# Classification therefore matches the LEADING sentence only -- see the
+# age-restriction comment in interfaces/download_protocols.py for what happens
+# when a matcher reaches into the tail.
+#
+# The other half of the problem is punctuation. Production emits
+# "Sign in to confirm you’re not a bot" with U+2019, not an ASCII apostrophe,
+# and yt-dlp pads its appended URLs with double spaces. The bot matcher survives
+# that only because it is written as two fragments straddling the apostrophe --
+# as one natural string it would be silently dead, exactly like the age gate was.
+# Folding the punctuation before matching removes that trap for every matcher
+# instead of relying on each one to dodge it.
+_PUNCTUATION_FOLD = str.maketrans({
+    '‘': "'", '’': "'", '‚': "'", '‛': "'",
+    '“': '"', '”': '"',
+    '–': '-', '—': '-',
+    ' ': ' ',
+})
+
+
+def normalize_ytdlp_error(error_str: str) -> str:
+    '''
+    Fold a yt-dlp error message to a form that is safe to substring-match:
+    typographic punctuation to its ASCII equivalent, runs of whitespace to a
+    single space.
+
+    The result is for MATCHING ONLY. The raw message is what gets recorded on
+    the span and carried in error_detail, so nothing a human or a log reader
+    sees is rewritten.
+    '''
+    return ' '.join(error_str.translate(_PUNCTUATION_FOLD).split())
+
+
 def is_rejection(error_type: DownloadErrorType | None) -> bool:
     '''True when a terminal download error means the video was declined rather
     than the download failing.'''
