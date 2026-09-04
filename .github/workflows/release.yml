@@ -154,62 +154,62 @@ jobs:
   trigger-bump-bot:
     name: Trigger docker-apps bump (bot)
     needs: push-bot
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-bot
       image: ${{ needs.push-bot.outputs.image }}
       image_tag: ${{ needs.push-bot.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   trigger-bump-dispatcher:
     name: Trigger docker-apps bump (dispatcher)
     needs: push-dispatcher
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-dispatcher
       image: ${{ needs.push-dispatcher.outputs.image }}
       image_tag: ${{ needs.push-dispatcher.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   trigger-bump-broker:
     name: Trigger docker-apps bump (broker)
     needs: push-broker
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-broker
       image: ${{ needs.push-broker.outputs.image }}
       image_tag: ${{ needs.push-broker.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   trigger-bump-downloader:
     name: Trigger docker-apps bump (downloader)
     needs: push-downloader
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-downloader
       image: ${{ needs.push-downloader.outputs.image }}
       image_tag: ${{ needs.push-downloader.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   trigger-bump-search:
     name: Trigger docker-apps bump (search)
     needs: push-search
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-search
       image: ${{ needs.push-search.outputs.image }}
       image_tag: ${{ needs.push-search.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   # Closes the loop opened in #922. docker-apps!1668 added
   # apps/discord/db-app.yaml and the bump-discord-db-pin job, so BUMP_SOURCE
@@ -223,11 +223,11 @@ jobs:
   trigger-bump-db:
     name: Trigger docker-apps bump (db)
     needs: push-db
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump.yml@8570bac7529b60e79b4fc6c837027d2f65fc0c9f
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@b5f1653b3f3a9750af00c7bfda9af04fe263c1b1
     with:
       bump_source: discord-db
       image: ${{ needs.push-db.outputs.image }}
       image_tag: ${{ needs.push-db.outputs.secondary_tag }}
-      target_project_id: ${{ vars.DOCKER_APPS_PROJECT_ID }}
     secrets:
-      trigger_token: ${{ secrets.DOCKER_APPS_TRIGGER_TOKEN }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
