@@ -9,7 +9,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import fake_media_download
-from tests.helpers import fake_engine, fake_context  # pylint: disable=unused-import
+from tests.helpers import fake_engine, fake_context, fake_stores  # pylint: disable=unused-import
 from tests.helpers import attach_in_process_broker
 
 
@@ -62,7 +62,7 @@ async def test_get_player_check_voice_client_active(mocker, fake_context):  # py
 
 
 @pytest.mark.asyncio
-async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """Test adding source to player with S3 caching enabled"""
     config = music_config({
         'music': {
@@ -76,8 +76,8 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
             }
         }
     })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
-    attach_in_process_broker(cog)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+    attach_in_process_broker(cog, db_engine=fake_engine)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -91,9 +91,9 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
 
 
 @pytest.mark.asyncio
-async def test_add_source_to_player_puts_blocked(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+async def test_add_source_to_player_puts_blocked(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """Test adding source to player when queue is blocked"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -150,9 +150,9 @@ async def test_player_queue_management(mocker, fake_context):  # pylint: disable
 
 
 @pytest.mark.asyncio
-async def test_add_source_to_player_queue_full(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+async def test_add_source_to_player_queue_full(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """add_source_to_player returns False when the play queue is full."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -183,9 +183,9 @@ async def test_cog_load_creates_background_tasks(fake_context):  # pylint: disab
 
 
 @pytest.mark.asyncio
-async def test_cog_load_with_db_engine_creates_post_play_task(fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+async def test_cog_load_with_db_engine_creates_post_play_task(fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """cog_load creates the post_play_processing task when db_engine is set."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.dispatcher = MagicMock()
     loop_mock = MagicMock()
     loop_mock.create_task = MagicMock(return_value=MagicMock())
@@ -215,9 +215,9 @@ async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: di
 
 
 @pytest.mark.asyncio
-async def test_add_source_to_player_queue_full_with_bundle(fake_engine, mocker, fake_context):  # pylint: disable=redefined-outer-name
+async def test_add_source_to_player_queue_full_with_bundle(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """add_source_to_player sets failure_reason on the bundle when queue is full."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

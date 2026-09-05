@@ -155,7 +155,7 @@ bot = [
     # spotipy and google-api-python-client are the pod's and not this image's.
     # scraping stays -- bs4 is the urban cog's, which has nothing to do with
     # media_search and is imported unconditionally by the cog registry.
-    "discord_bot[gateway,voice,database,storage,rendering,scraping]",
+    "discord_bot[gateway,voice,storage,rendering,scraping]",
 ]
 dispatcher = [
     # The strictest image: the core set plus discord.py and nothing else. It sends

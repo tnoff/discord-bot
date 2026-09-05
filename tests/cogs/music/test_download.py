@@ -23,18 +23,18 @@ from discord_bot.cogs.music_helpers.common import SearchType
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_download_worker_download_exception, yield_fake_download_worker, yield_download_worker_download_error
 from tests.helpers import fake_source_dict, fake_media_download
-from tests.helpers import fake_engine, fake_context, random_string #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context, random_string, fake_stores #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_download
 
 @pytest.mark.asyncio()
-async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+async def test_download_queue(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     config = BASE_MUSIC_CONFIG
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             cog.dispatcher = MagicMock()
@@ -45,7 +45,7 @@ async def test_download_queue(mocker, fake_engine, fake_context):  #pylint:disab
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
 @pytest.mark.asyncio()
-async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+async def test_download_queue_hits_cache(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     config = music_config({
         'music': {
             'download': {
@@ -63,7 +63,7 @@ async def test_download_queue_hits_cache(mocker, fake_engine, fake_context):  #p
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
-            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             cog.dispatcher = MagicMock()
@@ -281,10 +281,10 @@ def yield_download_worker_success_no_data():
 
 
 @pytest.mark.asyncio()
-async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """download_files marks PlaylistAddRequest as failed when ytdlp_data is None."""
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_download_worker_success_no_data())
     cog.dispatcher = MagicMock()
@@ -300,7 +300,7 @@ async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_engine, 
 
 
 @pytest.mark.asyncio()
-async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake_context):  # pylint: disable=redefined-outer-name
+async def test_download_playlist_add_request_cache_hit(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """download_files handles cache hit for PlaylistAddRequest via __add_playlist_item."""
     config = music_config({
         'music': {
@@ -318,7 +318,7 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
 
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             cog.dispatcher = MagicMock()
@@ -346,13 +346,13 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_engine, fake
 
 
 @pytest.mark.asyncio()
-async def test_download_files_runs_cache_cleanup(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+async def test_download_files_runs_cache_cleanup(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     '''process_download_results triggers broker_client.cache_cleanup after adding the source.'''
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
             cog.dispatcher = MagicMock()

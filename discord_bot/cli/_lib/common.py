@@ -314,14 +314,19 @@ def register_on_ready(bot: 'Bot', general_config: GeneralConfig, logger) -> None
 
 
 
-def load_cogs(bot: 'Bot', cog_classes: list, settings: dict, db_engine,
+def load_cogs(bot: 'Bot', cog_classes: list, settings: dict, stores,
               dispatcher: DispatchClientBase, redis_manager=None) -> list:
-    '''Attempt to instantiate each cog class; skip those missing required args.'''
+    '''Attempt to instantiate each cog class; skip those missing required args.
+
+    stores is the DatabaseStores bundle, in the slot db_engine occupied before
+    MR 4b. Cogs that need no persistence still take the argument and ignore it,
+    which is what lets this loop call every constructor the same way.
+    '''
     logger = logging.getLogger('main')
     cogs = []
     for cog_cls in cog_classes:
         try:
-            cogs.append(cog_cls(bot, settings, dispatcher, db_engine,
+            cogs.append(cog_cls(bot, settings, dispatcher, stores,
                                 redis_manager=redis_manager))
         except CogMissingRequiredArg as e:
             logger.debug(f'Main :: Cannot add cog {str(cog_cls)}, {str(e)}')

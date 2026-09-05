@@ -24,7 +24,7 @@ class CogHelperBase(Cog):
     _message_delete_after: int | None = None
 
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 db_engine: object = None,
+                 stores: object = None,
                  settings_prefix: str | None = None,
                  config_model: type[BaseModel] | None = None,
                  redis_manager=None):
@@ -33,8 +33,11 @@ class CogHelperBase(Cog):
         bot                 :   Discord bot object
         settings            :   Common settings config
         dispatcher          :   Dispatch service (MessageDispatcher or HttpDispatchClient)
-        db_engine           :   Accepted but unused at this level; present so load_cogs can
-                                call all cog constructors uniformly
+        stores              :   DatabaseStores bundle, or None. Accepted but unused at this
+                                level; present so load_cogs can call all cog constructors
+                                uniformly. Replaced db_engine with the MR 4b cutover -- this
+                                process holds no engine, so what gets threaded through is the
+                                set of remote stores rather than a connection to open.
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
         config_model        :   (Optional) Pydantic model to validate config against;
                                 settings_prefix must also be given
@@ -45,7 +48,7 @@ class CogHelperBase(Cog):
 
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
-        self.db_engine = db_engine
+        self.stores = stores
         logging_dict = settings.get('general', {}).get('logging', {})
         self.logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
         self.logger = get_logger(self._cog_name, self.logging_config)

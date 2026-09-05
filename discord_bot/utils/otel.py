@@ -25,6 +25,13 @@ class MetricNaming(Enum):
     CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
     DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
     DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
+    # The bot's TCP probe of the db POD, added with MR 4b. Deliberately not
+    # 'database_ready_check': that name belongs to the db pod's own /health
+    # outcome (servers/database_health_server) and is what the
+    # discord-db-postgres-unreachable alert watches. Reusing it would make a
+    # bot-side network failure fire an alert that means 'postgres is
+    # unreachable from the db pod' -- two different faults, one page.
+    DATABASE_PEER_READY_CHECK = 'database_peer_ready_check'
     DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
     DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
     SEARCH_RESULT_QUEUE_DEPTH = 'music.search_result_queue_depth'

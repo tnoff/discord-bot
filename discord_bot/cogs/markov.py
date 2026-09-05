@@ -11,10 +11,9 @@ from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.cog_helper import CogHelper
+from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.interfaces.database_protocols import MarkovStore
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
@@ -24,7 +23,6 @@ from discord_bot.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, DiscordContextNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
-from discord_bot.clients.markov_client import MarkovClient
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365
@@ -85,18 +83,18 @@ def clean_message(content: str, emojis: List[dict]):
         corpus.append(word.lower())
     return corpus
 
-class Markov(CogHelper):
+class Markov(CogHelperBase):
     '''
     Save markov relations to a database periodically
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 db_engine: AsyncEngine = None, redis_manager=None):
-        if not db_engine:
-            raise CogMissingRequiredArg('No db engine passed, cannot start markov')
+                 stores: object = None, redis_manager=None):
+        if not stores or not stores.markov:
+            raise CogMissingRequiredArg('No markov store passed, cannot start markov')
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
 
-        super().__init__(bot, settings, dispatcher, db_engine,
+        super().__init__(bot, settings, dispatcher, stores,
                          settings_prefix='markov', config_model=MarkovConfig,
                          redis_manager=redis_manager)
 
@@ -106,11 +104,15 @@ class Markov(CogHelper):
         self.history_retention_days = self.config.history_retention_days
         self.server_reject_list = self.config.server_reject_list
 
-        # The cog talks to persistence only through this. Annotated against the
-        # Protocol rather than MarkovClient so the eventual HTTP store drops in
-        # without touching a line below -- and so nothing here can reach for a
-        # session, a live row, or a transaction boundary it does not own.
-        self.markov_store: MarkovStore = MarkovClient(self.with_db_session)
+        # The cog talks to persistence only through this. It was annotated against
+        # the Protocol rather than MarkovClient so the HTTP store could drop in
+        # without touching a line below -- which is exactly what happened in MR 4b,
+        # and not one line below this changed.
+        # Injected rather than constructed. The cog has never cared which
+        # implementation this is -- it was annotated against the Protocol from the
+        # day MarkovStore existed, precisely so this line could change without any
+        # line below it changing.
+        self.markov_store: MarkovStore = stores.markov
 
         self._task = None
         self._result_task = None

@@ -20,10 +20,9 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.engine.base import Engine
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.cog_helper import CogHelper
+from discord_bot.cogs.common import CogHelperBase
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
 from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.interfaces.download_client_protocol import (
@@ -50,8 +49,6 @@ from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, E
 from discord_bot.utils.common import rm_tree, return_loop_runner, tracing_config_from_settings
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
-from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.clients.playlist_client import PlaylistClient
 from discord_bot.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
@@ -239,19 +236,19 @@ LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
 LOOP_POST_PLAY_PROCESSING = 'post_play_processing'
 
 #
-class Music(CogHelper): #pylint:disable=too-many-public-methods
+class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     '''
     Music related commands
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 db_engine: Engine = None, redis_manager=None): #pylint:disable=too-many-statements
+                 stores: object = None, redis_manager=None): #pylint:disable=too-many-statements
         # Enabled-check BEFORE the config validation in the base class: with music
         # switched off there is no music section to validate, and its absence has to
         # read as "not enabled" rather than as a config error.
         if not settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
         try:
-            super().__init__(bot, settings, dispatcher, db_engine,
+            super().__init__(bot, settings, dispatcher, stores,
                              settings_prefix='music', config_model=MusicConfig,
                              redis_manager=redis_manager)
         except CogMissingRequiredArg as exc:
@@ -275,20 +272,20 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         self._message_delete_after = self.config.general.message_delete_after
         # History Playlist Queue
         self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
-        if self.db_engine:
+        if self.stores:
             self.history_playlist_queue = Queue()
 
-        # Every playlist read and write goes through this. Annotated against the
-        # Protocol rather than PlaylistClient so the eventual HTTP store drops in
-        # without touching a call site -- and so nothing below can reach for a
-        # session, a live row, or a transaction boundary it does not own.
+        # Every playlist read and write goes through this. It was annotated against
+        # the Protocol rather than PlaylistClient so the HTTP store could drop in
+        # without touching a call site -- which is what MR 4b did, and no call site
+        # below changed.
         self.playlist_store: PlaylistStore | None = None
         # Same rule for the analytics tables, and with this one the cog holds no
         # session of its own at all.
         self.guild_analytics_store: GuildAnalyticsStore | None = None
-        if self.db_engine:
-            self.playlist_store = PlaylistClient(self.with_db_session)
-            self.guild_analytics_store = GuildAnalyticsClient(self.with_db_session)
+        if self.stores:
+            self.playlist_store = self.stores.playlist
+            self.guild_analytics_store = self.stores.guild_analytics
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -481,11 +478,11 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         # instead (cli/search.py's LOOP_SEARCH_WORKER, the same loop name).
         await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
         # No embedded BrokerHttpServer: the broker pod serves that surface.
-        if self.db_engine:
+        if self.stores:
             self._start_tasks()
 
     def _start_tasks(self):
-        # Only reached when a db_engine is configured — without one this loop
+        # Only reached when the stores are configured — without them this loop
         # never starts, never registers, and emits no heartbeat series.
         self._post_play_processing_task = self.bot.loop.create_task(
             return_loop_runner(self.post_play_processing, self.bot, self.logger,
@@ -923,7 +920,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
 
         guild_id : Guild id
         '''
-        if not self.db_engine:
+        if not self.stores:
             return None
         # Get-or-create in one call. Split across a read and a conditional write
         # it is a race between any two players starting at once, and the table's
@@ -1729,7 +1726,7 @@ class Music(CogHelper): #pylint:disable=too-many-public-methods
         '''
         Check if database session is in use
         '''
-        if not self.db_engine:
+        if not self.stores:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'Functionality not available, database is not enabled')
             return False
