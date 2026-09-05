@@ -18,13 +18,17 @@ RUN groupadd -g 1000 discord && \
     useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
 
 COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY alembic/ "${APPDIR}/alembic/"
-COPY alembic.ini "${APPDIR}/"
+# No alembic/ or alembic.ini. Unlike the bot image (one builder stage, one
+# runtime stage) this one is single-stage, so ${APPDIR} IS the shipped
+# filesystem: 88 KB of migration scripts were riding along in the image with
+# no alembic to run them from the moment #927 dropped [database]. The size is
+# beside the point -- the files claimed a capability the image doesn't have.
 COPY pyproject.toml VERSION "${APPDIR}/"
 
-# Installs [broker], not [bot]: SQLAlchemy/asyncpg for the VideoCacheClient,
-# boto3 for the S3 checkout, dappertable for bundle rendering, alembic because
-# this image COPYs the migrations above. It used to install [bot], which meant
+# Installs [broker], not [bot]: boto3 for the S3 checkout and dappertable for
+# bundle rendering. NOT SQLAlchemy, asyncpg or alembic -- the video-cache
+# catalog is read over HTTP from the db pod as of #927, so this image holds no
+# database engine at all. It used to install [bot], which meant
 # carrying yt-dlp and all three search clients into a pod that neither downloads
 # nor searches. The extra now matches the measured import set; the import
 # boundary in tests/cli/test_import_boundaries.py asserts the other direction.
