@@ -12,7 +12,7 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 | image | extra | packages it imports |
 |---|---|---|
-| `discord-bot` | `[bot]` | `boto3`, `bs4`, `dappertable`, `discord`, `sqlalchemy` |
+| `discord-bot` | `[bot]` | `boto3`, `bs4`, `dappertable`, `discord` |
 | `discord-dispatcher` | `[dispatcher]` | `discord` |
 | `discord-broker` | `[broker]` | `boto3`, `dappertable` |
 | `discord-downloader` | `[downloader]` | `boto3`, `yt_dlp` |
@@ -23,12 +23,12 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 | image | `discord_bot` modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 92 | 24 |
+| `discord-bot` | 89 | 27 |
 | `discord-dispatcher` | 45 | 5 |
-| `discord-broker` | 67 | 11 |
+| `discord-broker` | 67 | 10 |
 | `discord-downloader` | 61 | 8 |
 | `discord-search` | 66 | 12 |
-| `discord-db` | 48 | 5 |
+| `discord-db` | 48 | 13 |
 
 ## Why this is one package and not one per image
 
@@ -36,15 +36,15 @@ Modules by how many of the 6 entrypoints import them:
 
 | imported by | modules |
 |---|---|
-| 1 of 6 | 65 |
-| 2 of 6 | 26 |
-| 3 of 6 | 14 |
+| 1 of 6 | 75 |
+| 2 of 6 | 18 |
+| 3 of 6 | 15 |
 | 4 of 6 | 7 |
 | 5 of 6 | 6 |
 | 6 of 6 | 27 |
 
-80 of 145 modules (55%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
+73 of 148 modules (49%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
 installable distribution per tier would force every one of those into a shared
-`core` distribution — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db), `discord` (bot + dispatcher) and `sqlalchemy` (bot + db)
+`core` distribution — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)
 would land back on all 6 images. That is strictly worse than the per-image
 extras, which is why this stays one package with 6 per-image extras.

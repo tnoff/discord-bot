@@ -70,6 +70,7 @@ async def test_run_config_only_token(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
             },
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
@@ -92,6 +93,7 @@ async def test_run_config_reject_list(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'rejectlist_guilds': [
                     fake_guild.id,
                 ],
@@ -116,6 +118,7 @@ async def test_run_config_no_reject_list(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
             }
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
@@ -128,42 +131,16 @@ async def test_run_config_no_reject_list(mocker):
         assert guilds[0].left_guild is False
 
 @pytest.mark.asyncio
-async def test_run_config_with_db(mocker, pg_test_db_url):
-    '''
-    Run config with postgres db
-    '''
-    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {
-            'general': {
-                'discord_token': 'foo',
-                'dispatch_http_url': 'http://localhost:8082',
-                'sql_connection_statement': plain_url,
-                'rejectlist_guilds': [
-                    1234,
-                ],
-            },
-        }
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
-        runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
-        await asyncio.sleep(.01)
-        assert result.exception is None
-
-@pytest.mark.asyncio
-async def test_run_config_with_intents(mocker, pg_test_db_url):
+async def test_run_config_with_intents(mocker):
     '''
     Run config with intents
     '''
-    plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
-                'sql_connection_statement': plain_url,
+                'database_http_url': 'http://localhost:8085',
                 'intents': [
                     'members',
                 ]
@@ -615,7 +592,8 @@ async def test_main_loop_second_signal_noop():
 def test_main_runner_no_event_loop(mocker):
     '''main_runner falls through to asyncio.run (lines 318-319, 325-326) when no loop is running'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {'general': {'discord_token': 'foo', 'dispatch_http_url': 'http://localhost:8082'}}
+        config_data = {'general': {'discord_token': 'foo', 'dispatch_http_url': 'http://localhost:8082',
+                                      'database_http_url': 'http://localhost:8085'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
@@ -656,6 +634,7 @@ async def test_main_with_otlp_enabled(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {'otlp': {'enabled': True}},
             }
         }
@@ -682,6 +661,7 @@ async def test_main_with_otlp_retired_filter_keys_ignored(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {
                         'enabled': True,
@@ -717,6 +697,7 @@ async def test_main_with_tracing_block(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': True},
                     'tracing': {
@@ -746,6 +727,7 @@ async def test_main_with_memory_profiling(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'memory_profiling': {'enabled': True},
@@ -770,6 +752,7 @@ async def test_main_with_process_metrics(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'process_metrics': {'enabled': True},
@@ -795,6 +778,7 @@ async def test_main_with_health_server_monitoring(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
                     'health_server': {'enabled': True},
@@ -840,40 +824,41 @@ async def test_dispatcher_main_with_health_server(mocker):
         assert result.exception is None
 
 
-def test_run_config_with_postgresql_db(mocker):
-    '''postgresql URL is rewritten to postgresql+asyncpg and engine is disposed synchronously.
+def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
+    '''postgresql:// is rewritten to postgresql+asyncpg, and dispose runs with no loop.
 
-    Covers cli.py lines 186 (url rewrite), 270-271 (RuntimeError → loop=None), 275 (asyncio.run).
-    This test is intentionally synchronous so there is no running event loop in the finally block,
-    exercising the asyncio.run(db_engine.dispose()) path.
+    Both halves used to be reached through the bot entrypoint, which built an
+    engine of its own. It does not any more -- the bot holds HTTP stores and the
+    db pod is the only process that opens a connection -- so this drives
+    managed_db directly rather than through an entrypoint that would no longer
+    touch it.
+
+    Deliberately synchronous: dispose_db_engine's no-running-loop branch is the
+    one that runs on a pod roll (managed_db's finally fires after run_loop's
+    asyncio.run has already returned), and it is only reachable from a test with
+    no loop of its own. close=False is asserted because passing close=True there
+    is what logged a traceback per pooled connection on every shutdown.
     '''
+    from discord_bot.cli._lib.db import managed_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
+
     mock_async_engine = AsyncMock()
     mock_async_engine.sync_engine = MagicMock()
-    # Prevent actual DB connection
     mocker.patch('discord_bot.cli._lib.db.BASE.metadata.create_all')
-    create_async_engine_mock = mocker.patch('discord_bot.cli._lib.db.create_async_engine', return_value=mock_async_engine)
+    create_async_engine_mock = mocker.patch('discord_bot.cli._lib.db.create_async_engine',
+                                            return_value=mock_async_engine)
     mocker.patch('discord_bot.cli._lib.db._create_tables', new=AsyncMock())
-    mocker.patch('discord_bot.cli.bot.run_bot')
 
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {
-            'general': {
-                'discord_token': 'foo',
-                'dispatch_http_url': 'http://localhost:8082',
-                'sql_connection_statement': 'postgresql://user:pass@localhost/testdb',
-            }
-        }
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
+    general_config = GeneralConfig(
+        discord_token='foo',
+        sql_connection_statement='postgresql://user:pass@localhost/testdb')
 
-    assert result.exception is None
-    # Verify the URL was rewritten to use the asyncpg driver
+    with managed_db(general_config) as engine:
+        assert engine is mock_async_engine
+
     called_url = create_async_engine_mock.call_args[0][0]
     assert 'asyncpg' in str(called_url)
-    # asyncio.run disposed the async engine (no running loop in a sync test)
-    mock_async_engine.dispose.assert_awaited_once()
+    mock_async_engine.dispose.assert_awaited_once_with(close=False)
 
 
 def test_setup_db_engine_survives_the_bootstrap_loop(pg_test_db_url):
@@ -1003,6 +988,25 @@ def test_bot_run_raises_when_dispatch_http_url_missing():
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert 'dispatch_http_url required' in str(result.exception)
+
+
+def test_bot_run_raises_when_database_http_url_missing():
+    '''cli/bot.py run() refuses to start without the db pod's URL.
+
+    Deliberately fatal rather than degraded. Before the cutover a missing DSN
+    left managed_db returning None and the cogs quietly running without
+    persistence -- playlists, markov and analytics absent on a bot that came up
+    green. Now that the database is a pod deployed alongside this one, a missing
+    URL is a misconfiguration to surface at startup, not a mode to fall back to.
+    '''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo',
+                                   'dispatch_http_url': 'http://localhost:8082'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        assert 'database_http_url required' in str(result.exception)
 
 
 def test_dispatcher_run_raises_when_redis_url_missing():

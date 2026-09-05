@@ -1,5 +1,5 @@
 '''
-The bot process — gateway connection, all cogs, SQLAlchemy DB.
+The bot process — gateway connection, all cogs, remote persistence.
 
 The only bot entrypoint: a separate discord-dispatcher worker handles message
 queuing, so dispatch_http_url is required and cogs route via HttpDispatchClient.
@@ -13,6 +13,7 @@ import logging
 import click
 from discord.ext.commands import Bot
 
+from discord_bot.clients.database_stores import build_http_stores
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.exceptions import DiscordBotException
@@ -25,7 +26,6 @@ from discord_bot.cli._lib.common import (
 )
 from discord_bot.cli._lib.gateway import build_bot
 from discord_bot.cli._lib.cog_registry import POSSIBLE_COGS
-from discord_bot.cli._lib.db import managed_db, instrument_sqlalchemy
 from discord_bot.cli.health import setup_health_server
 
 
@@ -52,25 +52,36 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
 
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the bot process.'''
-    with managed_db(general_config) as db_engine:
-        logger = setup_observability(general_config)
-        instrument_sqlalchemy(db_engine)
+    logger = setup_observability(general_config)
 
-        dispatch_http_url = settings.get('general', {}).get('dispatch_http_url')
-        if not dispatch_http_url:
-            raise DiscordBotException('dispatch_http_url required for HA bot mode')
-        http_dispatcher = HttpDispatchClient(dispatch_http_url)
-        bot = build_bot(general_config)
-        cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
-        cog_list += load_cogs(bot, POSSIBLE_COGS, settings, db_engine, http_dispatcher)
+    general_settings = settings.get('general', {})
+    dispatch_http_url = general_settings.get('dispatch_http_url')
+    if not dispatch_http_url:
+        raise DiscordBotException('dispatch_http_url required for HA bot mode')
+    # Required, not optional. Before MR 4b a missing DSN left managed_db returning
+    # None and the cogs degrading to no-persistence — playlists, markov and
+    # analytics silently absent on a bot that otherwise came up fine. That was
+    # survivable when the fallback was "no database"; it is not a mode worth
+    # keeping now that the database is a pod this one is deployed alongside, and a
+    # bot that silently loses half its commands is the failure this project has
+    # spent its whole length removing.
+    database_http_url = general_settings.get('database_http_url')
+    if not database_http_url:
+        raise DiscordBotException('database_http_url required for HA bot mode')
 
-        register_on_ready(bot, general_config, logger)
-        run_bot(general_config, bot, cog_list,
-                health_server=setup_health_server(
-                    bot, general_config,
-                    db_engine=db_engine,
-                    dispatch_http_url=dispatch_http_url,
-                ))
+    http_dispatcher = HttpDispatchClient(dispatch_http_url)
+    stores = build_http_stores(database_http_url)
+    bot = build_bot(general_config)
+    cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
+    cog_list += load_cogs(bot, POSSIBLE_COGS, settings, stores, http_dispatcher)
+
+    register_on_ready(bot, general_config, logger)
+    run_bot(general_config, bot, cog_list,
+            health_server=setup_health_server(
+                bot, general_config,
+                dispatch_http_url=dispatch_http_url,
+                database_http_url=database_http_url,
+            ))
 
 
 if __name__ == '__main__':  # pragma: no cover

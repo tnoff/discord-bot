@@ -34,7 +34,7 @@ from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 
 from tests.helpers import fake_source_dict, fake_media_download
-from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_search
@@ -225,8 +225,8 @@ def yield_search_client_check_source_raises_transport():
     return FakeSearchClient
 
 @pytest.mark.asyncio
-async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -239,7 +239,7 @@ async def test_guild_cleanup(mocker, fake_engine, fake_context):  #pylint:disabl
             assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
 
 @pytest.mark.asyncio
-async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+async def test_guild_hanging_downloads(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     '''A download still queued at shutdown is parked, not dropped.
 
     This asserted queue_size == 0 while shutdown drained the queue.  Draining it
@@ -247,7 +247,7 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
     grace period expired part-way through the follow-up DISCARDED loop, so shutdown
     now leaves the queue for the downloader tier, which outlives this pod.
     '''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_download(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
@@ -260,8 +260,8 @@ async def test_guild_hanging_downloads(mocker, fake_engine, fake_context):  #pyl
 
 
 @pytest.mark.asyncio
-async def test_get_player_join_voice_timeout(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+async def test_get_player_join_voice_timeout(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.dispatcher = Mock()
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -462,10 +462,10 @@ async def test_bump_item(mocker, fake_context):  #pylint:disable=redefined-outer
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
 @pytest.mark.asyncio
-async def test_stop(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_stop(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -664,7 +664,7 @@ async def test_process_search_results_requeue_failure_does_not_mask_the_original
     assert 'downloader is not accepting connections' in str(exc_info.value)
 
 @pytest.mark.asyncio()
-async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     config = music_config({
         'music': {
             'download': {
@@ -685,19 +685,19 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context): 
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
             mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
-            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
-            attach_in_process_broker(cog)
+            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+            attach_in_process_broker(cog, db_engine=fake_engine)
             cog.dispatcher = Mock()
             await cog.broker_client.register_download(sd)
             await cog.play_(cog, fake_context['context'], search='foo bar')
             assert cog.players[fake_context['guild'].id].get_queue_items()
 
 @pytest.mark.asyncio()
-async def test_random_play(mocker, fake_engine, fake_context):  #pylint:disable=redefined-outer-name
+async def test_random_play(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     '''Test that random-play command queues 32 shuffled items from history playlist'''
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1524,9 +1524,9 @@ async def test_voice_client_cleanup_player_removed_externally(fake_context, mock
 
 
 @pytest.mark.asyncio
-async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_music_stats_command(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """Test music_stats command displays analytics correctly"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1557,9 +1557,9 @@ async def test_music_stats_command(fake_engine, mocker, fake_context):  #pylint:
 
 
 @pytest.mark.asyncio
-async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_music_stats_command_with_days(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """Test music_stats command displays days correctly when duration exceeds 24 hours"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1587,9 +1587,9 @@ async def test_music_stats_command_with_days(fake_engine, mocker, fake_context):
 
 
 @pytest.mark.asyncio
-async def test_music_stats_command_with_hours_and_seconds(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
+async def test_music_stats_command_with_hours_and_seconds(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """Test music_stats command displays hours and seconds correctly"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1849,7 +1849,7 @@ def test_cog_builds_no_in_process_download_stack(fake_context):  #pylint:disable
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
 
-def test_cog_builds_no_in_process_broker_stack(fake_context, fake_engine):  #pylint:disable=redefined-outer-name
+def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """
     A deployment-shaped config never constructs the in-process broker stack.
 
@@ -1874,7 +1874,7 @@ def test_cog_builds_no_in_process_broker_stack(fake_context, fake_engine):  #pyl
             },
         },
     })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_engine)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
     assert isinstance(cog.broker_client, HttpBrokerClient)
     assert not isinstance(cog.broker_client, InMemoryBrokerClient)
     assert not hasattr(cog, 'media_broker')

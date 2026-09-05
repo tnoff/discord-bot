@@ -49,7 +49,7 @@ IMAGE_IMPORTS = {
     # media_search cutover, and the forbidden set derived from VOCABULARY is now
     # what stops them coming back through an import chain.
     'discord_bot.cli.bot': frozenset({
-        'discord', 'sqlalchemy', 'boto3', 'bs4', 'dappertable',
+        'discord', 'boto3', 'bs4', 'dappertable',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.

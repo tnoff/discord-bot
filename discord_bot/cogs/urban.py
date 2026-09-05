@@ -3,10 +3,9 @@ import asyncio
 from bs4 import BeautifulSoup
 from dappertable import shorten_string
 from discord.ext.commands import Bot, command, Context
-from sqlalchemy.engine.base import Engine
 from requests import get as requests_get
 
-from discord_bot.cogs.cog_helper import CogHelper
+from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
@@ -14,13 +13,13 @@ from discord_bot.clients.dispatch_client_base import DispatchClientBase
 BASE_URL = 'https://www.urbandictionary.com/'
 
 
-class UrbanDictionary(CogHelper):
+class UrbanDictionary(CogHelperBase):
     '''
     Class that looks up urban dictionary definitions
     '''
 
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 _db_engine: Engine = None, redis_manager=None):
+                 _stores: object = None, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
         super().__init__(bot, settings, dispatcher, None, redis_manager=redis_manager)

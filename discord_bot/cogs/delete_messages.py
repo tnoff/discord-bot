@@ -7,9 +7,8 @@ from discord.errors import DiscordServerError
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel
-from sqlalchemy.engine.base import Engine
 
-from discord_bot.cogs.cog_helper import CogHelper
+from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
 from discord_bot.utils.common import return_loop_runner
@@ -39,12 +38,12 @@ class DeleteMessagesConfig(BaseModel):
     loop_sleep_interval: float = LOOP_SLEEP_INTERVAL_DEFAULT
     discord_channels: list[DiscordChannelConfig]
 
-class DeleteMessages(CogHelper):
+class DeleteMessages(CogHelperBase):
     '''
     Delete Messages in Channels after X days
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 _db_engine: Engine = None, redis_manager=None):
+                 _stores: object = None, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('delete_messages', False):
             raise CogMissingRequiredArg('Delete messages not enabled')
 

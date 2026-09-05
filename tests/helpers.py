@@ -19,6 +19,10 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_bot.clients.broker_client import InMemoryBrokerClient
+from discord_bot.clients.database_stores import DatabaseStores
+from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_bot.clients.markov_client import MarkovClient
+from discord_bot.clients.playlist_client import PlaylistClient
 from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from discord_bot.cogs.music_helpers.common import SearchType
@@ -148,6 +152,28 @@ async def fake_engine(pg_test_db_url) -> AsyncGenerator[AsyncEngine, None]:
 def fake_context() -> Generator[dict[str, Any], None, None]:
     yield generate_fake_context()
 
+
+@pytest_asyncio.fixture(scope="function")
+async def fake_stores(fake_engine) -> AsyncGenerator[DatabaseStores, None]:  #pylint:disable=redefined-outer-name
+    '''
+    A DatabaseStores bundle backed by the local test engine.
+
+    Production builds this bundle out of the HTTP stores and points them at the
+    db pod. Tests build it out of the in-process clients over `fake_engine`, so
+    a cog exercises real queries against real postgres rather than a mock of
+    what the db pod might answer. That substitution is the point of the
+    Protocols: the cog cannot tell the two apart, and a test that asserts on
+    rows afterwards is asserting on the same engine the cog wrote through.
+
+    Request `fake_engine` alongside this fixture to read those rows back.
+    '''
+    session_generator = partial(async_mock_session, fake_engine)
+    yield DatabaseStores(
+        playlist=PlaylistClient(session_generator),
+        markov=MarkovClient(session_generator),
+        guild_analytics=GuildAnalyticsClient(session_generator),
+    )
+
 @asynccontextmanager
 async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
@@ -156,7 +182,8 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
 
 
 
-def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None) -> AsyncioBroker:
+def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
+                            db_engine: Optional[AsyncEngine] = None) -> AsyncioBroker:
     '''
     Rebuild the in-process broker stack the cog no longer builds itself.
 
@@ -177,14 +204,20 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None) -> Asy
 
     video_cache overrides the client built from cog config — pass one to exercise
     the cache path without an enable_cache_files config, or a fake to assert on
-    calls. By default the cog's own config decides, exactly as it used to.
+    calls.
+
+    db_engine is what the cache gets built over. It has to be passed in now: the
+    cog stopped carrying a database handle when persistence moved behind HTTP,
+    and the video cache was never the bot's to begin with — it is broker state,
+    and this function is standing up the broker. Without an engine the config's
+    cache settings are inert, which is exactly what a bot process sees.
     '''
     bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None
-    if video_cache is None and cog.config.download.cache.enable_cache_files and cog.db_engine and bucket_name:
+    if video_cache is None and cog.config.download.cache.enable_cache_files and db_engine and bucket_name:
         max_mb = cog.config.download.cache.max_cache_size_mb
         video_cache = VideoCacheClient(
             cog.config.download.cache.max_cache_files,
-            partial(cog.with_db_session),
+            partial(async_mock_session, db_engine),
             max_cache_size_bytes=(max_mb * 1024 * 1024 if max_mb else None),
             storage_type='s3',
         )

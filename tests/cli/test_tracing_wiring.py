@@ -21,11 +21,10 @@ import pytest
 from discord_bot.cli import database as database_cli
 from discord_bot.cli import downloader as downloader_cli
 from discord_bot.cli._lib import worker_pod
-from discord_bot.cli.health import setup_health_server
 from discord_bot.cogs.music import Music
 from discord_bot.utils.common import GeneralConfig
 
-from tests.helpers import fake_context, fake_engine  # pylint: disable=unused-import
+from tests.helpers import fake_context, fake_engine, fake_stores  # pylint: disable=unused-import
 
 
 def _general_config(tracing: dict, *, health_server=True) -> GeneralConfig:
@@ -55,7 +54,13 @@ def _patch_db_collaborators(mocker, engine):
 
 
 # --------------------------------------------------------------------------- #
-# db probe -> DatabasePingHealthServer (the db pod) and HealthServer (the bot)
+# db probe -> DatabasePingHealthServer (the db pod only)
+#
+# The bot used to run this same probe on a 30s period against its own engine, so
+# the toggle had to reach two construction paths. It has no engine since the
+# persistence cutover -- its readiness check is a TCP probe of the db pod -- so
+# the db pod is the only place a db probe span can now originate, and the only
+# place the toggle is read.
 # --------------------------------------------------------------------------- #
 
 def test_db_pod_entrypoint_forwards_the_db_probe_toggle(mocker, fake_engine):  # pylint: disable=redefined-outer-name
@@ -88,21 +93,6 @@ def test_db_pod_entrypoint_defaults_to_suppressed(mocker, fake_engine):  # pylin
 
     health_server = run_database.call_args.args[1]
     assert health_server._suppress_db_probe_auto_instrumentation is True  # pylint: disable=protected-access
-
-
-@pytest.mark.parametrize('configured', [True, False])
-def test_bot_health_server_factory_forwards_the_db_probe_toggle(configured):
-    '''setup_health_server passes the value through in both positions.
-
-    The bot runs the same probe on a 30s period, so the toggle has to reach this
-    factory too -- it is a different construction path from the db pod's.
-    '''
-    general_config = _general_config(
-        {'suppress_db_probe_auto_instrumentation': configured})
-
-    health_server = setup_health_server(object(), general_config, db_engine=object())
-
-    assert health_server._suppress_db_probe_auto_instrumentation is configured  # pylint: disable=protected-access
 
 
 # --------------------------------------------------------------------------- #
@@ -203,7 +193,7 @@ def _music_settings(tracing: dict | None) -> dict:
     ({'trace_queue_worker_status_poll': False}, False),
     (None, False),
 ], ids=['on', 'off', 'no-tracing-block'])
-def test_music_cog_forwards_the_poller_toggle(fake_context, fake_engine, tracing, expected):  # pylint: disable=redefined-outer-name
+def test_music_cog_forwards_the_poller_toggle(fake_context, tracing, expected, fake_stores):  # pylint: disable=redefined-outer-name
     '''
     Both status pollers the cog owns get the configured value.
 
@@ -214,7 +204,7 @@ def test_music_cog_forwards_the_poller_toggle(fake_context, fake_engine, tracing
     leaves half the bot's poll spans unswitchable.
     '''
     cog = Music(fake_context['bot'], _music_settings(tracing),
-                fake_context['dispatcher'], fake_engine)
+                fake_context['dispatcher'], fake_stores)
 
     assert cog.download_client._trace_status_poll is expected  # pylint: disable=protected-access
     assert cog.youtube_music_search_client._trace_status_poll is expected  # pylint: disable=protected-access
