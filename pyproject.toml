@@ -166,8 +166,11 @@ dispatcher = [
     "discord_bot[gateway]",
 ]
 broker = [
-    # Owns the video cache and the S3 checkout, and renders bundles.
-    "discord_bot[database,storage,rendering]",
+    # The S3 checkout, and rendering bundles. NOT [database]: the video-cache
+    # catalog moved to the db pod in MR 4a and is reached over HTTP, so this
+    # image installs no SQLAlchemy, asyncpg or alembic. The objects stayed here,
+    # which is why [storage] did not follow the catalog out.
+    "discord_bot[storage,rendering]",
 ]
 downloader = [
     # Downloads media and uploads the result. No database, no rendering, no

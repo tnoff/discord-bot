@@ -45,7 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.clients.playlist_client import PlaylistClient
-from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig, VideoCacheClient
+from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.types.video_cache import MusicCacheConfig
 from discord_bot.exceptions import DiscordBotException
 from discord_bot.servers.database_health_server import DatabasePingHealthServer
 from discord_bot.servers.database_server import DEFAULT_PORT, DatabaseHttpServer

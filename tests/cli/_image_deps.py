@@ -54,9 +54,11 @@ IMAGE_IMPORTS = {
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
     'discord_bot.cli.dispatcher': frozenset({'discord'}),
-    # Owns the video cache (sqlalchemy) and the S3 checkout (boto3); dappertable
-    # renders bundles.
-    'discord_bot.cli.broker': frozenset({'sqlalchemy', 'boto3', 'dappertable'}),
+    # The S3 checkout (boto3); dappertable renders bundles. sqlalchemy left with
+    # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
+    # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
+    # not follow it out.
+    'discord_bot.cli.broker': frozenset({'boto3', 'dappertable'}),
     # Downloads (yt_dlp) and uploads finished media (boto3).
     'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.

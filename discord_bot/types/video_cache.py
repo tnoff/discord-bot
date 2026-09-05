@@ -23,7 +23,7 @@ of a caller's import chain once its store is remote.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VideoCacheEntry(BaseModel):
@@ -71,3 +71,23 @@ class VideoCacheEntry(BaseModel):
             base_path=str(row.base_path) if row.base_path is not None else None,
             storage_type=row.storage_type,
         )
+
+
+class MusicCacheConfig(BaseModel):
+    '''Music cache configuration.
+
+    Shared source of truth for cache defaults/validation across the music cog,
+    the standalone broker process and the db pod, so all three apply the same
+    max_cache_files default (raw dict .get() otherwise yields None and crashes
+    ready_remove).
+
+    It lives here rather than beside VideoCacheClient because of who needs it.
+    video_cache_client imports discord_bot.database, so reading this model from
+    there pulls SQLAlchemy into the importer -- which is exactly what the broker
+    stopped being allowed to do when [database] left its extra. This module
+    imports pydantic and nothing else, so the config is reachable from a pod
+    that owns no engine. The value is unchanged; only the address is.
+    '''
+    enable_cache_files: bool = False
+    max_cache_files: int = Field(default=2048, ge=1)
+    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)

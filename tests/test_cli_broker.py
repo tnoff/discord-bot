@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from discord_bot.cli import broker as broker_cli
+from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
 
 
 def _general_config(health_enabled=True):
@@ -32,14 +33,8 @@ def _settings(dispatch_url='http://disp'):
 
 def _patch_run_deps(mocker, video_cache=None):
     '''Patch every heavy dependency cli.broker.run touches; return the mocks.'''
-    db_engine = MagicMock()
-    cm = MagicMock()
-    cm.__enter__ = MagicMock(return_value=db_engine)
-    cm.__exit__ = MagicMock(return_value=False)
     return {
         'observability': mocker.patch('discord_bot.cli.broker.setup_observability'),
-        'instrument': mocker.patch('discord_bot.cli.broker.instrument_sqlalchemy'),
-        'managed_db': mocker.patch('discord_bot.cli.broker.managed_db', return_value=cm),
         'redis_manager': mocker.patch('discord_bot.cli.broker.RedisManager', return_value=MagicMock()),
         'registry': mocker.patch('discord_bot.cli.broker.RedisBrokerRegistry', return_value=MagicMock()),
         'result_queue': mocker.patch('discord_bot.cli.broker.RedisDownloadResultQueue', return_value=MagicMock()),
@@ -51,7 +46,6 @@ def _patch_run_deps(mocker, video_cache=None):
         'server': mocker.patch('discord_bot.cli.broker.BrokerHttpServer', return_value=MagicMock()),
         'health': mocker.patch('discord_bot.cli.broker.BrokerHealthServer', return_value=MagicMock()),
         'run_broker': mocker.patch('discord_bot.cli.broker.run_broker'),
-        'db_engine': db_engine,
     }
 
 
@@ -86,54 +80,32 @@ def test_run_without_dispatcher_or_health(mocker):
     m['run_broker'].assert_called_once()
 
 
-def test_build_video_cache_returns_none_when_disabled():
-    assert broker_cli._build_video_cache({}, MagicMock(), 'b') is None  # pylint: disable=protected-access
-    assert broker_cli._build_video_cache({'enable_cache_files': True}, None, 'b') is None  # pylint: disable=protected-access
-    assert broker_cli._build_video_cache({'enable_cache_files': True}, MagicMock(), None) is None  # pylint: disable=protected-access
+def test_build_video_cache_returns_none_when_disabled(caplog):
+    '''Cache off, no db pod, or no bucket each yield no catalog client.'''
+    with caplog.at_level('WARNING'):
+        assert broker_cli._build_video_cache({}, 'http://discord-db:8085', 'b') is None  # pylint: disable=protected-access
+        assert broker_cli._build_video_cache({'enable_cache_files': True}, None, 'b') is None  # pylint: disable=protected-access
+        assert broker_cli._build_video_cache({'enable_cache_files': True}, 'http://d:8085', None) is None  # pylint: disable=protected-access
 
 
-@pytest.mark.asyncio
-async def test_build_video_cache_constructs_and_session_generator_works(mocker):
-    mock_vc = mocker.patch('discord_bot.cli.broker.VideoCacheClient', return_value='VC')
-    mock_session = AsyncMock()
-    factory_cm = MagicMock()
-    factory_cm.__aenter__ = AsyncMock(return_value=mock_session)
-    factory_cm.__aexit__ = AsyncMock(return_value=False)
-    mocker.patch('discord_bot.cli.broker.async_sessionmaker', return_value=MagicMock(return_value=factory_cm))
+def test_build_video_cache_constructs_the_http_store():
+    '''
+    The catalog is an HTTP client now, pointed at the configured pod.
 
+    This replaces the session-generator test that stood here: there is no session
+    to generate any more, and driving the closure end-to-end was only ever a proxy
+    for "the client can reach the rows".
+    '''
     result = broker_cli._build_video_cache(  # pylint: disable=protected-access
         {'enable_cache_files': True, 'max_cache_files': 10, 'max_cache_size_mb': 5},
-        MagicMock(), 'bucket',
+        'http://discord-db:8085', 'bucket',
     )
-    assert result == 'VC'
-    assert mock_vc.call_args.kwargs['max_cache_size_bytes'] == 5 * 1024 * 1024
-    # Drive the session-generator closure end-to-end.
-    session_generator = mock_vc.call_args.args[1]
-    async with session_generator() as session:
-        assert session is mock_session
-
-
-@pytest.mark.asyncio
-async def test_build_video_cache_no_size_limit(mocker):
-    mock_vc = mocker.patch('discord_bot.cli.broker.VideoCacheClient', return_value='VC')
-    broker_cli._build_video_cache(  # pylint: disable=protected-access
-        {'enable_cache_files': True, 'max_cache_files': 3, 'max_cache_size_mb': None},
-        MagicMock(), 'bucket',
-    )
-    assert mock_vc.call_args.kwargs['max_cache_size_bytes'] is None
-
-
-@pytest.mark.asyncio
-async def test_build_video_cache_defaults_max_cache_files_when_absent(mocker):
-    # Regression: caching enabled but max_cache_files omitted must fall back to
-    # the shared default (2048), not None — a None here crashes ready_remove's
-    # `cache_count - self.max_cache_files` subtraction in production.
-    mock_vc = mocker.patch('discord_bot.cli.broker.VideoCacheClient', return_value='VC')
-    broker_cli._build_video_cache(  # pylint: disable=protected-access
-        {'enable_cache_files': True},
-        MagicMock(), 'bucket',
-    )
-    assert mock_vc.call_args.args[0] == 2048
+    assert isinstance(result, HttpVideoCacheStore)
+    assert result._base_url == 'http://discord-db:8085'  # pylint: disable=protected-access
+    # The eviction knobs were accepted and deliberately dropped: they describe the
+    # catalog, which this process no longer owns. The db pod reads them from its
+    # own config. See tests/cli/test_database.py for the guard that moved there.
+    assert not hasattr(result, 'max_cache_files')
 
 
 @pytest.mark.asyncio

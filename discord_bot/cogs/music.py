@@ -44,7 +44,7 @@ from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
-from discord_bot.cogs.music_helpers.video_cache_client import MusicCacheConfig
+from discord_bot.types.video_cache import MusicCacheConfig
 
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.utils.common import rm_tree, return_loop_runner, tracing_config_from_settings

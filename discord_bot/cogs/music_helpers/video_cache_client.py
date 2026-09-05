@@ -1,10 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, List
 
 from opentelemetry.trace import SpanKind
-from pydantic import BaseModel, Field
-
 
 from discord_bot.database import VideoCache
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
@@ -15,18 +13,6 @@ from discord_bot.utils.sql_retry import async_retry_database_commands
 from discord_bot.utils.otel import async_otel_span_wrapper
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
-
-
-class MusicCacheConfig(BaseModel):
-    '''Music cache configuration.
-
-    Shared source of truth for cache defaults/validation across the music cog
-    and the standalone broker process, so both apply the same max_cache_files
-    default (raw dict .get() otherwise yields None and crashes ready_remove).
-    '''
-    enable_cache_files: bool = False
-    max_cache_files: int = Field(default=2048, ge=1)
-    max_cache_size_mb: Optional[int] = Field(default=None, ge=1)
 
 
 class VideoCacheClient():
