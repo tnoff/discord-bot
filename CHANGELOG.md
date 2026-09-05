@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.138] - 2026-09-05
+
+### Changed
+
+- The bot and broker images no longer COPY `alembic/` and `alembic.ini`. Neither installs the alembic CLI since `[database]` left `[bot]` (#928) and `[broker]` (#927), so both were shipping migration scripts that cannot be executed in the image that holds them — the same defect #917 fixed on the dispatcher. On the broker, a single-stage build, that is 88 KB removed from the running image; on the bot the files never left the builder stage, so nothing about the image changes except that it stops implying `alembic upgrade head` is available. `discord-db` remains the image that gains the COPY when the migration runner lands (projects/alembic-migration-ownership).
+
 ## [2.5.137] - 2026-09-05
 
 ### Changed
