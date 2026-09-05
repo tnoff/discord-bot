@@ -5,6 +5,15 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.137] - 2026-09-05
+
+### Changed
+
+- The bot no longer holds a database engine. Playlists, markov and guild analytics now go over HTTP to the `discord-db` pod, and `[database]` has left the `[bot]` extra — SQLAlchemy, asyncpg and alembic are not installed in that image any more, which `tests/cli/test_import_boundaries.py` and the generated `docs/image-dependencies.md` both enforce. With the broker cutover before it, no gateway process opens a connection: `discord-db` is now the only image that can.
+- `general.database_http_url` is **required** for the bot. It previously fell back to running without persistence when the DSN was missing, which left playlists, markov and analytics silently absent on a bot that otherwise came up healthy; a missing URL is now a startup error naming the key.
+- `cogs/cog_helper.py` is removed, and the `db_engine` passed to every cog constructor is now a `DatabaseStores` bundle. Cogs that need persistence read `self.stores.playlist` / `.markov` / `.guild_analytics`; `if self.stores:` reads as "persistence available" exactly where `if self.db_engine:` used to.
+- The bot's health server no longer runs `SELECT 1`. `/ready` TCP-probes the db pod alongside the dispatcher and reports each peer independently; `/health` is bot-only, so an unreachable peer never triggers a kubelet restart. The new probe counts on `database_peer_ready_check` — deliberately a separate metric from `dispatcher_ready_check`, which a Grafana panel sums by outcome.
+
 ## [2.5.136] - 2026-09-05
 
 ### Changed
