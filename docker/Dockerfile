@@ -60,8 +60,13 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # rewrites on every commit, and buildkit would recompress and re-upload all of
 # it per build (measured: `exporting layers` 270.9s of a 283.3s export step).
 COPY discord_bot/ "${APPDIR}/discord_bot/"
-COPY alembic/ "${APPDIR}/alembic/"
-COPY alembic.ini VERSION "${APPDIR}/"
+# No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
+# (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
+# only ever landed in this builder stage, since the final stage copies the two
+# install prefixes and not ${APPDIR}, so this is not a size change: it removes
+# a build step that implied the bot could run `alembic upgrade head`, which it
+# now cannot. Same correction #917 made on the dispatcher.
+COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps --prefix=/install-app "${APPDIR}[bot]"
 
 
