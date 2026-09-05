@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.136] - 2026-09-05
+
+### Changed
+
+- The broker no longer holds a database engine. Its video-cache catalog now goes over HTTP to the `discord-db` pod, and `[database]` has left the `[broker]` extra — SQLAlchemy, asyncpg and alembic are not installed in that image any more, which `tests/cli/test_import_boundaries.py` and the generated `docs/image-dependencies.md` both enforce. The objects did not move: `MediaBroker` still checks media out of S3, so `[storage]` stays. Requires `general.database_http_url` when the cache is enabled; without it the cache is disabled with a warning naming the missing key, rather than silently as before.
+
 ## [2.5.135] - 2026-09-04
 
 ### Changed
