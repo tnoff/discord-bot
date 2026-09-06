@@ -55,6 +55,7 @@ from discord_bot.utils.common import GeneralConfig, resolve_tracing_config
 from discord_bot.cli._lib.common import (parse_and_validate_config, run_loop,
                                          setup_observability, shutdown_event_signals)
 from discord_bot.cli._lib.db import instrument_sqlalchemy, managed_db
+from discord_bot.cli._lib.migrations import run_pending_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,13 @@ def run_database(database_server: DatabaseHttpServer, health_server):
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the standalone persistence process.'''
     setup_observability(general_config)
+
+    # Before the engine, and long before anything binds a port. Two reasons, and
+    # the second is the one that bites: a schema this process is about to serve
+    # should be at head before it serves it, and alembic/env.py calls
+    # asyncio.run() at module scope, so this cannot move inside run_loop.
+    if run_pending_migrations(general_config):
+        logger.info('Main :: Database migrations applied')
 
     with managed_db(general_config) as db_engine:
         # managed_db returns None when no DSN is configured. Every other pod can

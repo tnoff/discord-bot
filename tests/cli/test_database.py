@@ -46,8 +46,14 @@ class _Monitoring:
 
 class _GeneralConfig:
     '''Stand-in for GeneralConfig with the fields run() reads.'''
-    def __init__(self, *, monitoring=None):
+    def __init__(self, *, monitoring=None, run_migrations=False,
+                 sql_connection_statement='postgresql://u:p@db:5432/discord'):
         self.monitoring = monitoring
+        # Defaults to off, like the real model. run() calls the migration runner
+        # before it builds anything, so a stand-in missing these attributes
+        # fails every test in this file rather than the one that added them.
+        self.run_migrations = run_migrations
+        self.sql_connection_statement = sql_connection_statement
 
 
 def _settings(*, cache=None, server=None):
@@ -62,6 +68,7 @@ def _patch_process_collaborators(mocker, engine):
     '''Patch only what would talk to the outside world; leave construction real.'''
     mocker.patch.object(database_cli, 'setup_observability')
     mocker.patch.object(database_cli, 'instrument_sqlalchemy')
+    mocker.patch.object(database_cli, 'run_pending_migrations', return_value=False)
     managed = mocker.patch.object(database_cli, 'managed_db')
     managed.return_value.__enter__.return_value = engine
     return mocker.patch.object(database_cli, 'run_database')
@@ -334,3 +341,51 @@ def test_main_reads_config_then_runs(mocker):
 
     parse.assert_called_once_with('/etc/discord.cnf')
     run.assert_called_once_with({'general': {}}, 'general-config')
+
+
+def test_migrations_run_before_anything_is_built(mocker, fake_engine):  # pylint: disable=redefined-outer-name
+    """The schema is brought to head before the engine, and long before a port.
+
+    Order is the whole point and it is invisible at the call site. Two reasons
+    it cannot move: a process should not serve a schema it has not verified, and
+    alembic/env.py calls asyncio.run() at module scope, so running this inside
+    run_loop raises "asyncio.run() cannot be called from a running event loop"
+    at pod start rather than in CI.
+    """
+    order = []
+    mocker.patch.object(database_cli, 'setup_observability')
+    mocker.patch.object(database_cli, 'instrument_sqlalchemy')
+    mocker.patch.object(database_cli, 'run_pending_migrations',
+                        side_effect=lambda _config: order.append('migrations') or True)
+    managed = mocker.patch.object(database_cli, 'managed_db')
+    managed.return_value.__enter__.side_effect = (
+        lambda: order.append('engine') or fake_engine
+    )
+    mocker.patch.object(database_cli, 'run_database',
+                        side_effect=lambda *_args: order.append('serve'))
+
+    database_cli.run(_settings(), _GeneralConfig(run_migrations=True))
+
+    assert order == ['migrations', 'engine', 'serve']
+
+
+def test_migration_failure_stops_the_pod_starting(mocker, fake_engine):  # pylint: disable=redefined-outer-name
+    """A chain that will not apply must not become a pod that serves anyway.
+
+    The runner raising here is what makes a bad schema a CrashLoop -- visible,
+    and caught by the rollout's progressDeadlineSeconds -- rather than a healthy
+    pod answering queries against a database in an unknown state.
+    """
+    mocker.patch.object(database_cli, 'setup_observability')
+    mocker.patch.object(database_cli, 'instrument_sqlalchemy')
+    mocker.patch.object(database_cli, 'run_pending_migrations',
+                        side_effect=DiscordBotException('chain is broken'))
+    managed = mocker.patch.object(database_cli, 'managed_db')
+    managed.return_value.__enter__.return_value = fake_engine
+    run_database = mocker.patch.object(database_cli, 'run_database')
+
+    with pytest.raises(DiscordBotException):
+        database_cli.run(_settings(), _GeneralConfig(run_migrations=True))
+
+    run_database.assert_not_called()
+    managed.assert_not_called()

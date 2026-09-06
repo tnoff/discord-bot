@@ -22,7 +22,9 @@ Deliberately compares against BASE.metadata.create_all rather than a golden dump
 checked into the repo: a dump would need hand-updating on every model change,
 which is the kind of chore that gets skipped and then lies.
 '''
+import concurrent.futures
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +39,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 REPLAY_DB = 'discord_bot_alembic_replay'
 REFERENCE_DB = 'discord_bot_createall_ref'
+CONCURRENT_DB = 'discord_bot_alembic_concurrent'
+ROLLBACK_DB = 'discord_bot_alembic_rollback'
 
 # Alembic's own bookkeeping table. It exists only in the replayed database by
 # definition, so it is excluded rather than treated as a difference.
@@ -84,17 +88,20 @@ def _drop_database(proc, database: str) -> None:
         engine.dispose()
 
 
-def _run_alembic(proc, database: str, *args: str) -> subprocess.CompletedProcess:
+def _run_alembic(proc, database: str, *args: str, cwd=None) -> subprocess.CompletedProcess:
     '''Invoke the real CLI, not the Python API.
 
     A deploy runs `alembic upgrade head` as a command, and env.py reads
     DATABASE_URL from the environment. Driving the API in-process would skip
     both, which is where a failure would actually live.
+
+    cwd selects which alembic.ini -- and therefore which set of revisions -- the
+    run sees, since script_location is `%(here)s/alembic`. Defaults to the repo.
     '''
     env = dict(os.environ, DATABASE_URL=_plain_url(proc, database))
     return subprocess.run(
         [sys.executable, '-m', 'alembic', *args],
-        cwd=REPO_ROOT,
+        cwd=cwd or REPO_ROOT,
         env=env,
         capture_output=True,
         text=True,
@@ -243,3 +250,93 @@ def test_migrated_schema_matches_create_all(replayed_schema, reference_schema, a
             assert populated, f'reference schema reported no {aspect}'
 
     assert replayed_schema[aspect] == reference_schema[aspect]
+
+
+def test_concurrent_upgrades_do_not_break_each_other(postgresql_proc):
+    """Two pods starting at once must both survive `alembic upgrade head`.
+
+    Not hypothetical, and not prevented by `replicas: 1`. Two discord-db pods
+    exist on every rollout (maxSurge: 1), and a node loss mid-rollout can leave
+    two of them STARTING -- nothing enforces the replica count either: no HPA,
+    no PodDisruptionBudget, just a comment in db-app.yaml.
+
+    Without the advisory lock in env.py the loser dies with
+    `UniqueViolationError: duplicate key value violates unique constraint
+    "pg_type_typname_nsp_index"`, both processes having tried to CREATE TABLE
+    alembic_version. Deleting the lock makes this test fail with that error,
+    which is the point of asserting on both exit codes rather than on the
+    database, whose contents survive either way -- postgres DDL is
+    transactional, so the loser rolls back.
+    """
+    _recreate_database(postgresql_proc, CONCURRENT_DB)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(_run_alembic, postgresql_proc, CONCURRENT_DB, 'upgrade', 'head')
+                for _ in range(2)
+            ]
+            results = [f.result() for f in futures]
+
+        for index, result in enumerate(results):
+            assert result.returncode == 0, (
+                f'concurrent upgrade {index} failed -- the advisory lock in '
+                f'alembic/env.py is what makes this pass.\n'
+                f'stdout:\n{result.stdout}\nstderr:\n{result.stderr}'
+            )
+
+        # Exactly one of them did the work. Both doing it would mean the lock
+        # serialized nothing; neither doing it would mean the fixture lied about
+        # starting from an empty database.
+        ran = [r for r in results if 'Running upgrade' in r.stderr]
+        assert len(ran) == 1, (
+            f'expected exactly one process to run revisions, {len(ran)} did'
+        )
+
+        engine = create_engine(_sync_url(postgresql_proc, CONCURRENT_DB), poolclass=NullPool)
+        try:
+            with engine.connect() as conn:
+                stamped = conn.execute(
+                    text(f'SELECT version_num FROM {ALEMBIC_TABLE}')
+                ).scalar_one()
+        finally:
+            engine.dispose()
+        assert stamped == EXPECTED_HEAD
+    finally:
+        _drop_database(postgresql_proc, CONCURRENT_DB)
+
+
+def test_older_scripts_refuse_a_newer_stamped_database(postgresql_proc, tmp_path):
+    """Rolling the db image back past a migration must fail loudly, not serve.
+
+    Once a revision is applied, an image whose alembic/versions lacks it cannot
+    resolve what the database is stamped at. Alembic exits non-zero with
+    "Can't locate revision", so the pod CrashLoops instead of serving against a
+    schema it cannot verify -- the right failure, and the reason revert-pinning
+    discord_db stops being safe after a migration lands. Asserted here so the
+    claim in db-app.yaml is measured rather than remembered.
+    """
+    _recreate_database(postgresql_proc, ROLLBACK_DB)
+    try:
+        forward = _run_alembic(postgresql_proc, ROLLBACK_DB, 'upgrade', 'head')
+        assert forward.returncode == 0, f'setup upgrade failed:\n{forward.stderr}'
+
+        # An older image: same chain, minus the revision prod is now stamped at.
+        shutil.copytree(REPO_ROOT / 'alembic', tmp_path / 'alembic')
+        shutil.copy(REPO_ROOT / 'alembic.ini', tmp_path / 'alembic.ini')
+        removed = [
+            path
+            for path in (tmp_path / 'alembic' / 'versions').glob('*.py')
+            if EXPECTED_HEAD in path.name
+        ]
+        assert len(removed) == 1, f'expected one file naming {EXPECTED_HEAD}, found {removed}'
+        removed[0].unlink()
+
+        result = _run_alembic(postgresql_proc, ROLLBACK_DB, 'upgrade', 'head', cwd=tmp_path)
+        assert result.returncode != 0, (
+            'an older image resolved a revision it does not ship -- it would '
+            f'have served against an unverified schema.\nstdout:\n{result.stdout}'
+        )
+        assert "Can't locate revision" in result.stderr
+        assert EXPECTED_HEAD in result.stderr
+    finally:
+        _drop_database(postgresql_proc, ROLLBACK_DB)

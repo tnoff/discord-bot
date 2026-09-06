@@ -238,6 +238,11 @@ class GeneralConfig(BaseModel):
     dispatch_process_id: Optional[str] = None
     dispatch_shard_id: int = 0
     dispatch_gateway: bool = True
+    # Run `alembic upgrade head` at startup. Read only by the db entrypoint --
+    # it is the only process that holds an engine, and the only image that ships
+    # the migrations. Defaults False so the runner lands inert and the ConfigMap
+    # decides when it runs; see projects/alembic-migration-ownership.md (docs).
+    run_migrations: bool = False
 
 def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
     '''

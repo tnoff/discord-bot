@@ -10,11 +10,16 @@ FROM python:3.14-slim-bookworm
 # boto3: VideoCacheClient is a pure DB catalog and every file operation stayed
 # with the broker, which is the property that let the catalog move at all.
 #
-# This image ships NO migration files and cannot run `alembic upgrade head`.
-# That is deliberate for now (projects/alembic-migration-ownership): the
-# entrypoint lands inert and the runner follows onto this pod.  When it does,
-# this is the Dockerfile that gains `COPY alembic/ alembic.ini` — and note that
-# `[database]` already installs alembic, so the library side needs nothing.
+# This image ships the migration files, and it is the ONLY one that does: the
+# runner lives on this pod's entrypoint (projects/alembic-migration-ownership),
+# `[database]` already installs the alembic CLI, and the bot and broker dropped
+# both when they stopped holding an engine.
+#
+# They are COPYd to ${WORKDIR}, not ${APPDIR}, and that is not a style choice --
+# the install RUN below ends with `rm -rf "${APPDIR}"`, so anything landed there
+# is deleted in the same layer.  ${WORKDIR} survives, and it is the image's
+# WORKDIR, so alembic.ini's `script_location = %(here)s/alembic` resolves with no
+# absolute path and no -c flag.
 
 # Setup venv
 ENV APPDIR="/opt/packages/discord-bot"
@@ -46,6 +51,13 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
 RUN pip install --no-cache-dir "${APPDIR}[db]" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
     rm -rf "${APPDIR}" /root/.cache
+
+# After the install RUN, which deletes ${APPDIR}. The chown is on the COPY
+# rather than a second chown -R: the files are read-only to this process and
+# rewriting ownership across a layer is what made the runtime chown expensive on
+# the bot image.
+COPY --chown=discord:discord alembic/ "${WORKDIR}/alembic/"
+COPY --chown=discord:discord alembic.ini "${WORKDIR}/"
 
 # Route through the shared entrypoint so HEAPTRACK_ENABLE=true launches the
 # process under heaptrack (parity with the other images; the INSTALL_HEAPTRACK
