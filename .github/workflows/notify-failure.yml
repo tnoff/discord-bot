@@ -1,0 +1,59 @@
+# Fleet failure notifier.
+#
+# One file covers every workflow in this repo, including ones added later. The
+# alternative -- an `if: failure()` job appended to each workflow -- needs an
+# edit per workflow per repo and silently misses anything new.
+#
+# workflows: ["*"] matches all workflows by name. Omitting the key entirely is
+# rejected (actionlint: "no workflow is configured for workflow_run"), so the
+# wildcard is the supported spelling rather than a shortcut.
+#
+# workflow_run only fires for a copy of this file on the DEFAULT branch, so it
+# cannot be exercised from a pull request -- it starts working when this merges.
+name: Notify on failure
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+# discord-notify.yml posts to a webhook and never touches the GitHub API.
+permissions: {}
+
+jobs:
+  notify:
+    # Three conditions, each load-bearing:
+    #
+    #   conclusion == 'failure'   -- `completed` also covers success, cancelled
+    #                                and skipped. Only failure is news.
+    #
+    #   event != 'pull_request'   -- a PR reports its own failure in the checks
+    #                                list, where somebody is already looking.
+    #                                Measured 2026-09-05 over 14 days, PR runs
+    #                                were 33 of 59 fleet-wide failures: including
+    #                                them more than doubles the volume and adds
+    #                                nothing already invisible.
+    #                                DELETE THIS LINE to notify on everything.
+    #
+    #   name != 'Notify on failure' -- workflow_run chains up to three levels, so
+    #                                without this a failed notifier notifies
+    #                                about itself. The cost is that a broken
+    #                                notifier is silent.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.name != 'Notify on failure'
+    uses: tnoff/github-workflows/.github/workflows/discord-notify.yml@f4bb64149ea33b839f31943af0ae1550622cc606
+    with:
+      # Without these every field would describe THIS run rather than the one
+      # that failed -- a reusable workflow shares the caller's run context.
+      source_run_url: ${{ github.event.workflow_run.html_url }}
+      source_workflow: ${{ github.event.workflow_run.name }}
+      source_branch: ${{ github.event.workflow_run.head_branch }}
+      source_actor: ${{ github.event.workflow_run.actor.login }}
+      source_sha: ${{ github.event.workflow_run.head_sha }}
+      message: >-
+        Triggered by ${{ github.event.workflow_run.event }}. Nobody is watching
+        a checks list for this one, which is why it is here.
+    secrets:
+      discord_webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
