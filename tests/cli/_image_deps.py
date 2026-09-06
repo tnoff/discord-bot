@@ -33,6 +33,11 @@ VOCABULARY = (
     'spotipy',
     'googleapiclient',
     'sqlalchemy',
+    # Tracked as of the migration runner. The db pod is the only process that
+    # may reach alembic, and this is what stops the CLI arriving anywhere else
+    # through an import chain -- the forbidden set is VOCABULARY minus each
+    # image's declaration, so nothing has to be listed as banned per image.
+    'alembic',
     'boto3',
     'bs4',
     'dappertable',
@@ -67,7 +72,11 @@ IMAGE_IMPORTS = {
     # copy-paste from the broker: PlaylistClient shortens playlist names with
     # shorten_string, so the pod serving those routes imports it. No boto3 --
     # VideoCacheClient is a pure catalog, which is what made it movable.
-    'discord_bot.cli.database': frozenset({'sqlalchemy', 'dappertable'}),
+    #
+    # alembic arrived with the migration runner (cli/_lib/migrations.py). Only
+    # this image installs it and only this image ships the revisions, so this is
+    # the one declaration that may name it.
+    'discord_bot.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
 }
 
 IMAGE_NAMES = {

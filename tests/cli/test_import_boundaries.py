@@ -181,3 +181,43 @@ def test_ownership_doc_is_current():
         'docs/image-dependencies.md is out of date. Regenerate with:\n'
         '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
     )
+
+
+# The only image whose Dockerfile may COPY the migration scripts. Declared, not
+# derived, because the point is that changing it takes a deliberate edit.
+MIGRATION_IMAGE_DOCKERFILES = frozenset({'Dockerfile.db'})
+
+
+def test_only_the_db_image_ships_the_migrations():
+    """A Dockerfile may COPY alembic/ only if its image can run it.
+
+    This exists because the property broke once already and nothing noticed:
+    #917 removed the migration COPYs from the dispatcher, then the MR 4 cutover
+    took `[database]` out of `[bot]` and `[broker]` -- dropping the alembic CLI
+    from both images while their COPY lines stayed. An image shipping scripts it
+    cannot execute is a lie about its own capability, and it was found by
+    reading Dockerfiles by hand, weeks later.
+
+    The import boundary above cannot catch it: whether a package is IMPORTED and
+    whether files are COPYd are different facts, and this one lives in the
+    Dockerfile rather than in the source tree.
+    """
+    dockerfiles = sorted((REPO_ROOT / 'docker').glob('Dockerfile*'))
+    assert dockerfiles, 'no Dockerfiles found -- the glob is wrong, not the repo'
+
+    ships = set()
+    for path in dockerfiles:
+        copies = [
+            line for line in path.read_text(encoding='utf-8').splitlines()
+            if line.startswith('COPY') and 'alembic' in line
+        ]
+        if copies:
+            ships.add(path.name)
+
+    assert ships == set(MIGRATION_IMAGE_DOCKERFILES), (
+        f'{sorted(ships)} ship migration files, expected '
+        f'{sorted(MIGRATION_IMAGE_DOCKERFILES)}. An image that COPYs alembic/ '
+        'without installing the alembic CLI cannot run what it carries; one that '
+        'installs it without the files has nothing to run. Change the constant '
+        'above only when an image genuinely gains or loses schema ownership.'
+    )

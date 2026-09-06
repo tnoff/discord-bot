@@ -15,7 +15,15 @@ from discord_bot.database import BASE
 config = context.config
 
 # Convert the URL to the asyncpg driver. PostgreSQL is the only supported backend.
-_database_url = os.environ.get("DATABASE_URL")
+#
+# config.attributes first, then the environment. The in-process runner
+# (discord_bot/cli/_lib/migrations.py) passes the DSN the pod is already
+# configured with, so the schema is upgraded on the same database the process is
+# about to serve -- taking it from the environment there would let
+# general.sql_connection_statement and DATABASE_URL disagree, and the migration
+# would win silently. The CLI path (`alembic upgrade head`, and every test in
+# tests/test_alembic_chain.py) sets no attribute and keeps reading the variable.
+_database_url = config.attributes.get("database_url") or os.environ.get("DATABASE_URL")
 if not _database_url:
     raise RuntimeError("DATABASE_URL must be set to a postgresql:// connection string")
 _raw_url = make_url(_database_url)
@@ -48,9 +56,37 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# A constant, and it must stay constant: the lock only serializes processes that
+# agree on the key. Advisory locks are namespaced per DATABASE, not per table, so
+# every pod pointed at this database contends on this one number.
+MIGRATION_LOCK_KEY = 0x646973636f726462
+
+
 def _do_run_migrations(connection):
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        # Serialize concurrent upgrades. discord-db runs replicas: 1, but two
+        # pods exist on every rollout (maxSurge: 1) and a node loss mid-rollout
+        # can leave two of them STARTING -- so "only one process migrates" is a
+        # convention, not a guarantee, and nothing enforces the replica count.
+        #
+        # Measured without this lock: the loser dies with
+        # UniqueViolationError on pg_type_typname_nsp_index, both processes
+        # having tried to CREATE TABLE alembic_version. The database survives
+        # (postgres DDL is transactional, so the loser rolls back) -- what does
+        # not survive is the pod, and on this tier that is a CrashLoop and a
+        # failed rollout. With it, the loser blocks, re-reads the version inside
+        # the lock, finds head and runs nothing.
+        #
+        # _xact_ rather than pg_advisory_lock: it releases with the transaction,
+        # so there is no unlock path to get wrong and an OOM-killed pod drops the
+        # lock with its session instead of wedging the next one.
+        #
+        # Correctness rests on READ COMMITTED, postgres' default: the version
+        # read after acquiring the lock takes a fresh snapshot and sees the
+        # winner's commit. Under REPEATABLE READ the loser would read a stale
+        # version and try to re-apply what just landed.
+        connection.exec_driver_sql(f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})")
         context.run_migrations()
 
 
