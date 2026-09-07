@@ -6,17 +6,19 @@ import-boundary test asserts the shape from the other side.
 
 **Nothing ran migrations before this.** `cli/_lib/db.py::setup_db` called
 `BASE.metadata.create_all`, which creates missing tables and never ALTERs
-anything, so every schema change to date was applied by hand. See
-projects/alembic-migration-ownership.md (docs) for how the chain was repaired and
-why the runner landed here rather than in an initContainer or a Job.
+anything, so every schema change up to 2026-09-06 was applied by hand. That call
+is gone; this module replaced it. See projects/alembic-migration-ownership.md
+(docs) for how the chain was repaired and why the runner landed here rather than
+in an initContainer or a Job.
 
-**It ships disabled.** `general.run_migrations` defaults to False, so merging
-this changes nothing in prod until the ConfigMap says otherwise -- the same
-sequencing the db tier's routes and entrypoint used. That is not caution for its
-own sake: prod is stamped at head while at least one of the revisions it is
-stamped past demonstrably never ran, and an automatic upgrade against that
-database is a no-op that freezes the mismatch. The flag is what keeps "the code
-exists" separate from "it ran".
+**The flag defaults to False and is True in prod.** It shipped disabled so that
+merging the runner changed nothing until the ConfigMap said otherwise, which
+bought the window in which prod's live schema was measured against the chain
+rather than assumed to match it. That measurement is done: `alembic_version`
+reads head, the one revision this project believed had never run turned out to
+have run, and the two drifted rows were repaired. The default stays False
+because it is the right default for anything that is not this pod, not because
+the question is still open.
 '''
 import logging
 import os
