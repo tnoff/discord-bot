@@ -43,7 +43,7 @@ jobs:
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.event != 'pull_request' &&
       github.event.workflow_run.name != 'Notify on failure'
-    uses: tnoff/github-workflows/.github/workflows/discord-notify.yml@f4bb64149ea33b839f31943af0ae1550622cc606
+    uses: tnoff/github-workflows/.github/workflows/discord-notify.yml@2c7a6597fce4072fb2755f49742147e7482e6065
     with:
       # Without these every field would describe THIS run rather than the one
       # that failed -- a reusable workflow shares the caller's run context.
