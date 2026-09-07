@@ -23,6 +23,7 @@ checked into the repo: a dump would need hand-updating on every model change,
 which is the kind of chore that gets skipped and then lies.
 '''
 import concurrent.futures
+import logging
 import os
 import shutil
 import subprocess
@@ -33,7 +34,9 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import NullPool
 
+from discord_bot.cli._lib.migrations import run_pending_migrations
 from discord_bot.database import BASE
+from discord_bot.utils.common import GeneralConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,6 +44,7 @@ REPLAY_DB = 'discord_bot_alembic_replay'
 REFERENCE_DB = 'discord_bot_createall_ref'
 CONCURRENT_DB = 'discord_bot_alembic_concurrent'
 ROLLBACK_DB = 'discord_bot_alembic_rollback'
+LOGGING_DB = 'discord_bot_alembic_logging'
 
 # Alembic's own bookkeeping table. It exists only in the replayed database by
 # definition, so it is excluded rather than treated as a difference.
@@ -340,3 +344,60 @@ def test_older_scripts_refuse_a_newer_stamped_database(postgresql_proc, tmp_path
         assert EXPECTED_HEAD in result.stderr
     finally:
         _drop_database(postgresql_proc, ROLLBACK_DB)
+
+
+def test_in_process_upgrade_leaves_application_logging_alone(postgresql_proc, monkeypatch):
+    '''The runner must not switch the process's own logging off.
+
+    Every other test here drives alembic through the CLI, where configuring
+    logging from alembic.ini is the whole point and nothing else has built a
+    logger yet. The db entrypoint is the opposite case: by the time
+    run_pending_migrations is called the OTLP LoggingHandler is already attached,
+    and env.py's fileConfig() defaults to disable_existing_loggers=True -- which
+    disables every logger not named in alembic.ini's `[loggers] keys =` line.
+
+    This is a regression test in the literal sense. It shipped broken: the first
+    prod roll with general.run_migrations true served traffic correctly and sent
+    ZERO lines to Loki, and nothing failed, alerted, or restarted to say so. The
+    only surviving evidence was alembic's own records on stdout, which is exactly
+    what made the tier look healthy AND instrumented when it was only healthy.
+
+    So the assertion is about the logger the app owns, not about alembic's.
+    '''
+    monkeypatch.setenv('ALEMBIC_CONFIG', str(REPO_ROOT / 'alembic.ini'))
+
+    app_logger = logging.getLogger('discord_bot.cli.database')
+    alembic_logger = logging.getLogger('alembic')
+    previous_level = alembic_logger.level
+
+    records = []
+
+    class _Collector(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Collector()
+    root = logging.getLogger()
+    root.addHandler(handler)
+
+    _recreate_database(postgresql_proc, LOGGING_DB)
+    try:
+        general_config = GeneralConfig(
+            sql_connection_statement=_plain_url(postgresql_proc, LOGGING_DB),
+            run_migrations=True,
+        )
+        assert run_pending_migrations(general_config) is True
+
+        # The property that broke. Not "logging still works somewhere" -- the
+        # named logger the entrypoint writes through, still enabled.
+        assert app_logger.disabled is False
+        assert logging.getLogger('main').disabled is False
+
+        # And the migration's own account of what it did has to reach the app's
+        # handlers, or the flag's effects are only visible on stdout.
+        upgrades = [r for r in records if r.name.startswith('alembic') and 'Running upgrade' in r.getMessage()]
+        assert upgrades, 'no `Running upgrade` record reached the application handlers'
+    finally:
+        root.removeHandler(handler)
+        alembic_logger.setLevel(previous_level)
+        _drop_database(postgresql_proc, LOGGING_DB)

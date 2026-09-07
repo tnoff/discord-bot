@@ -34,8 +34,22 @@ if not _raw_url.drivername.startswith("postgresql"):
 _async_url = _raw_url.set(drivername="postgresql+asyncpg")
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
+#
+# Guarded, because fileConfig() defaults to disable_existing_loggers=True: every
+# logger that already exists and is not named in alembic.ini's `[loggers] keys =`
+# line gets .disabled = True. Under the CLI nothing else has built loggers yet,
+# so that is harmless and wanted. In-process it is not -- the db entrypoint has
+# already attached the OTLP LoggingHandler to the application's loggers, and this
+# call would switch the whole tier off mid-startup. Measured in prod on
+# 2026-09-06, the first roll with general.run_migrations true: the pod served
+# fine and shipped ZERO lines to Loki, while its predecessor on the same image
+# with the flag off logged startup normally. Only alembic's own records survived,
+# on stdout, which is exactly what made it look like logging still worked.
+#
+# cli/_lib/migrations.py sets configure_logger False and raises the alembic
+# logger itself, so `Running upgrade` still reaches Loki through the app's
+# handler. Alembic documents this attribute for programmatic use.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 # add your model's MetaData object here

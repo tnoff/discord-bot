@@ -18,6 +18,7 @@ stamped past demonstrably never ran, and an automatic upgrade against that
 database is a no-op that freezes the mismatch. The flag is what keeps "the code
 exists" separate from "it ran".
 '''
+import logging
 import os
 from pathlib import Path
 
@@ -67,5 +68,18 @@ def run_pending_migrations(general_config: GeneralConfig) -> bool:
     # the database this process is configured to serve rather than on whatever
     # the environment happens to say.
     config.attributes['database_url'] = general_config.sql_connection_statement
+    # Keep alembic out of this process's logging config. env.py would otherwise
+    # call fileConfig(), which defaults to disable_existing_loggers=True and
+    # switches off every logger built before it -- including the ones already
+    # carrying the OTLP handler. That is not a theoretical risk: it took the db
+    # tier dark in Loki on the first prod roll with this flag enabled, while the
+    # pod stayed healthy and served normally, so nothing announced it.
+    config.attributes['configure_logger'] = False
+    # With fileConfig() skipped, alembic's own records are subject to this
+    # process's third_party_log_level (WARNING), which would drop `Running
+    # upgrade` -- the one line that says which revisions actually ran. Raise just
+    # this logger so it reaches Loki through the handler the app already
+    # installed, rather than only stdout the way it did before.
+    logging.getLogger('alembic').setLevel(logging.INFO)
     command.upgrade(config, 'head')
     return True
