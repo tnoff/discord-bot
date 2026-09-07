@@ -6,14 +6,18 @@ analytics and the video-cache catalog through HttpDatabaseClient instead of
 holding an engine of their own, which is what lets `database` leave `[bot]` and
 `[broker]` at the cutover. MR 3 of projects/discord-db-tier-extraction.
 
-**This pod runs no migrations, deliberately.** `alembic upgrade head` replays
-from base on postgres as of #915, but who runs it is a decision this MR does not
-make — see projects/alembic-migration-ownership. The entrypoint ships inert the
-same way this tier's 33 routes shipped inert, and the runner lands on this pod
-afterwards. `cli/_lib/db.setup_db` therefore still calls
-`BASE.metadata.create_all`: until something runs migrations it is the only thing
-that builds a schema, so removing it here would break fresh deploys rather than
-fix them.
+**This pod owns the schema**, as of 2026-09-06. `run()` calls
+`run_pending_migrations` before it builds anything, so `alembic upgrade head`
+runs here, on this process, against the database this process serves — gated on
+`general.run_migrations`, which is `true` in prod. See
+projects/alembic-migration-ownership.
+
+`cli/_lib/db.setup_db` no longer calls `BASE.metadata.create_all`. It could
+create missing tables and never `ALTER` anything, which is why every schema
+change before the runner was applied by hand; the chain does that job now, and
+`setup_db` opens no connection at all. The ordering is load-bearing and pinned
+by `test_migrations_run_before_anything_is_built`: migrate, then build the
+engine, then serve.
 
 Unlike every other pod in the fleet this one has **no Redis and no consumer
 loop**. A store call is request/response by definition — the caller cannot

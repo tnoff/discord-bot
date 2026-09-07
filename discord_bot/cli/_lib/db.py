@@ -4,7 +4,6 @@ Kept separate from cli/_lib/common.py so that the dispatcher process,
 which has no database, does not import SQLAlchemy at all.
 '''
 import asyncio
-import concurrent.futures
 import contextlib
 import sys
 
@@ -13,31 +12,33 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from discord_bot.database import BASE
 from discord_bot.utils.common import GeneralConfig
 
 
-async def _create_tables(engine):
-    '''Build the schema, then hand the pool back empty.
-
-    The dispose is load-bearing, not tidiness. setup_db runs this coroutine in a
-    throwaway thread with its own event loop, so every connection opened here is
-    bound to a loop that is about to close. Under NullPool that was harmless --
-    the connection was discarded at the end of the block and never reused. Now
-    that the engine pools, a surviving connection is handed to the serving loop
-    on the very first query and fails with "got Future attached to a different
-    loop". Measured against a scratch postgres: pooled without this dispose, the
-    first real query raises; with it, it succeeds.
-    '''
-    async with engine.begin() as conn:
-        await conn.run_sync(BASE.metadata.create_all)
-    await engine.dispose()
-
-
 def setup_db(general_config: GeneralConfig):
-    '''Create the async DB engine, run migrations, return the engine (or None).
+    '''Create the async DB engine and return it, or None when no DSN is set.
 
     PostgreSQL is the only supported backend; non-postgres drivernames raise.
+
+    **It does not build a schema, and the docstring said it did for a long
+    time.** This used to run BASE.metadata.create_all in a throwaway thread --
+    which creates missing tables and never ALTERs anything, so it could stand up
+    a fresh database but never migrate one, and every schema change to date was
+    applied by hand. The alembic chain now owns that job: cli/_lib/migrations.py
+    runs `alembic upgrade head` on this same entrypoint, before this function is
+    called, gated on general.run_migrations. See
+    projects/alembic-migration-ownership.md (docs).
+
+    Removing the bootstrap also removed a hazard rather than just a call. The
+    old version opened connections on a throwaway event loop and had to dispose
+    them explicitly, because a pooled connection surviving into the serving loop
+    fails with "got Future attached to a different loop" at pod start, in
+    production, nowhere near this code. No connection is opened here at all now,
+    so that cannot recur -- test_setup_db_opens_no_connection pins it.
+
+    One consequence worth stating: an unreachable database no longer fails here.
+    It surfaces on the readiness probe instead, which is what
+    database_ready_check{outcome="unavailable"} already alerts on.
     '''
     if not general_config.sql_connection_statement:
         print('Unable to find sql statement in settings, assuming no db', file=sys.stderr)
@@ -88,8 +89,6 @@ def setup_db(general_config: GeneralConfig):
         pool_size=5,
         max_overflow=10,
     )
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        pool.submit(asyncio.run, _create_tables(engine)).result()
     return engine
 
 

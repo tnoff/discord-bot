@@ -22,6 +22,7 @@ Deliberately compares against BASE.metadata.create_all rather than a golden dump
 checked into the repo: a dump would need hand-updating on every model change,
 which is the kind of chore that gets skipped and then lies.
 '''
+import asyncio
 import concurrent.futures
 import logging
 import os
@@ -34,6 +35,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import NullPool
 
+from discord_bot.cli._lib.db import setup_db
 from discord_bot.cli._lib.migrations import run_pending_migrations
 from discord_bot.database import BASE
 from discord_bot.utils.common import GeneralConfig
@@ -45,6 +47,7 @@ REFERENCE_DB = 'discord_bot_createall_ref'
 CONCURRENT_DB = 'discord_bot_alembic_concurrent'
 ROLLBACK_DB = 'discord_bot_alembic_rollback'
 LOGGING_DB = 'discord_bot_alembic_logging'
+SETUP_DB_DB = 'discord_bot_setup_db_empty'
 
 # Alembic's own bookkeeping table. It exists only in the replayed database by
 # definition, so it is excluded rather than treated as a difference.
@@ -401,3 +404,38 @@ def test_in_process_upgrade_leaves_application_logging_alone(postgresql_proc, mo
         root.removeHandler(handler)
         alembic_logger.setLevel(previous_level)
         _drop_database(postgresql_proc, LOGGING_DB)
+
+
+def test_setup_db_does_not_build_a_schema(postgresql_proc):
+    '''setup_db against an empty database leaves it empty.
+
+    The direct assertion behind "setup_db no longer calls create_all". It is
+    worth having as a database fact rather than as "the call is not in the
+    source", because the two can diverge -- create_all can be reached through a
+    helper, an import, or a well-meaning fixture, and only one of those shows up
+    in a grep.
+
+    It also names the split this project exists to create. Two things could
+    build a schema here and exactly one should: the chain builds it, setup_db
+    connects to it. While both did, a fresh database came up with create_all's
+    output and an empty alembic_version, which is the state that made prod
+    unmigratable in the first place.
+    '''
+    _recreate_database(postgresql_proc, SETUP_DB_DB)
+    try:
+        engine = setup_db(
+            GeneralConfig(sql_connection_statement=_plain_url(postgresql_proc, SETUP_DB_DB))
+        )
+        assert engine is not None
+        try:
+            inspection = create_engine(
+                _sync_url(postgresql_proc, SETUP_DB_DB), poolclass=NullPool
+            )
+            try:
+                assert inspect(inspection).get_table_names() == []
+            finally:
+                inspection.dispose()
+        finally:
+            asyncio.run(engine.dispose())
+    finally:
+        _drop_database(postgresql_proc, SETUP_DB_DB)

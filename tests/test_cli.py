@@ -844,10 +844,8 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
 
     mock_async_engine = AsyncMock()
     mock_async_engine.sync_engine = MagicMock()
-    mocker.patch('discord_bot.cli._lib.db.BASE.metadata.create_all')
     create_async_engine_mock = mocker.patch('discord_bot.cli._lib.db.create_async_engine',
                                             return_value=mock_async_engine)
-    mocker.patch('discord_bot.cli._lib.db._create_tables', new=AsyncMock())
 
     general_config = GeneralConfig(
         discord_token='foo',
@@ -861,25 +859,30 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
     mock_async_engine.dispose.assert_awaited_once_with(close=False)
 
 
-def test_setup_db_engine_survives_the_bootstrap_loop(pg_test_db_url):
-    """The engine works on the serving loop after the create_all bootstrap.
+def test_setup_db_opens_no_connection(pg_test_db_url):
+    """setup_db hands back a cold engine, and the serving loop is the first to use it.
 
-    This is the regression test for pooling, and it is why NullPool was
-    load-bearing rather than arbitrary. setup_db builds the schema in a throwaway
+    This replaces test_setup_db_engine_survives_the_bootstrap_loop, and the
+    reason is worth keeping. setup_db used to build the schema in a throwaway
     thread with its own event loop:
 
         pool.submit(asyncio.run, _create_tables(engine)).result()
 
-    Under NullPool the connection that ran create_all was discarded, so nothing
-    crossed loops. Once the engine pools, that connection goes back into the pool
-    still bound to a loop that is now closed; the serving loop then checks it out
-    and dies with "got Future attached to a different loop" -- at pod start, in
-    production, nowhere near this code. _create_tables disposes for exactly that.
+    Under NullPool the connection that ran create_all was discarded. Once the
+    engine pooled, that connection went back into the pool still bound to a loop
+    that was now closed, and the serving loop checked it out and died with "got
+    Future attached to a different loop" -- at pod start, in production, nowhere
+    near this code. The old test proved the explicit dispose fixed that.
 
-    Two queries, because the first can succeed on a freshly-opened connection
-    while the poisoned one waits behind it in the pool. Both run inside ONE
-    asyncio.run: a pooled async engine is bound to the loop that filled it, and
-    production has exactly one serving loop for the life of the process.
+    The alembic runner owns schema creation now, so the bootstrap is gone
+    entirely and there is no cross-loop connection to dispose of. Asserting the
+    pool is empty on return is strictly stronger than asserting it was cleaned
+    up afterwards: it fails if anyone reintroduces a connection here, whether or
+    not they remember to dispose it.
+
+    Two queries after, on ONE asyncio.run, because a pooled async engine is
+    bound to the loop that filled it and production has exactly one serving loop
+    for the life of the process.
     """
     from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
@@ -887,6 +890,9 @@ def test_setup_db_engine_survives_the_bootstrap_loop(pg_test_db_url):
 
     plain_url = pg_test_db_url.replace('postgresql+asyncpg://', 'postgresql://')
     engine = setup_db(GeneralConfig(discord_token='foo', sql_connection_statement=plain_url))
+
+    assert engine.pool.checkedin() == 0
+    assert engine.pool.checkedout() == 0
 
     async def _serve():
         results = []
