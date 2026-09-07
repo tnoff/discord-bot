@@ -6,6 +6,8 @@ refuses a newer database. What is left for here is the decision layer: whether
 the runner fires at all, what it hands alembic, and how it fails when the image
 is missing the files it would need.
 '''
+import logging
+
 import pytest
 
 from discord_bot.cli._lib import migrations
@@ -63,6 +65,15 @@ def test_enabled_upgrades_to_head_on_the_configured_dsn(recorder, tmp_path, monk
     assert recorder.revision == 'head'
     assert recorder.config.attributes['database_url'] == DSN
     assert recorder.config.config_file_name == str(ini)
+    # env.py checks this before calling fileConfig(), which would otherwise
+    # disable every logger built before it -- the OTLP-attached ones included.
+    # Asserted here because it is a property of what the runner HANDS alembic;
+    # that it actually saves the tier's logging is proven against a real
+    # postgres in tests/test_alembic_chain.py.
+    assert recorder.config.attributes['configure_logger'] is False
+    # Raised so `Running upgrade` clears third_party_log_level (WARNING) and
+    # lands in Loki rather than only on stdout.
+    assert logging.getLogger('alembic').level == logging.INFO
 
 
 def test_enabled_without_a_dsn_is_a_startup_error(recorder):
