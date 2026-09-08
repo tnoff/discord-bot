@@ -47,6 +47,30 @@ from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
+def assert_one_connected_trace(spans) -> Any:
+    """Assert finished ``spans`` form exactly one trace with every span reachable.
+
+    The shape check the 2026-09-04 collector-filter finding asked for: a filter
+    that drops an *intermediate* span severs a trace rather than thinning it,
+    and the severed halves still look like perfectly good spans one at a time.
+    Nothing is wrong with any individual span, so only a whole-tree assertion
+    catches it.
+
+    Returns the root span, so a caller can go on to assert what it is.
+    """
+    assert spans, 'no spans were exported -- the tracer patch did not take'
+    trace_ids = {span.context.trace_id for span in spans}
+    assert len(trace_ids) == 1, \
+        f'expected one trace, got {len(trace_ids)}: {[span.name for span in spans]}'
+    roots = [span for span in spans if span.parent is None]
+    assert len(roots) == 1, f'expected one root, got {[span.name for span in roots]}'
+    emitted = {span.context.span_id for span in spans}
+    orphans = [span.name for span in spans
+               if span.parent is not None and span.parent.span_id not in emitted]
+    assert not orphans, f'spans with no parent in the trace: {orphans}'
+    return roots[0]
+
+
 class HelperException(Exception):
     '''
     Test helper exception
