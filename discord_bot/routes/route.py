@@ -1,13 +1,17 @@
 '''
 The `Route` value type shared by every seam registry.
 
-Lives in its own module, imported by all of them, which makes it fanout-6 —
-the thing acceptance criterion one exists to avoid. It is the deliberate
-exception: the cost that criterion is written against is churn x fanout, and
-this module is a frozen three-field dataclass with no seam knowledge in it, so
-its churn is ~0. A route ADDITION touches a seam registry, never this file. If
-this module ever starts changing with the seams, that is the signal it has
-grown something that belonged in them.
+Lives in its own module, imported by every seam registry. Today that measures
+fanout 4 (bot, broker, downloader, search) because only the broker seam exists;
+it rises toward 6 as the other four land — see docs/image-dependencies.md, which
+measures this by importing each entrypoint in a clean interpreter.
+
+Reaching fanout 6 is the thing acceptance criterion one exists to avoid, and
+this module is the deliberate exception. The cost that criterion is written
+against is churn x fanout, and this is a frozen three-field dataclass with no
+seam knowledge in it, so its churn is ~0. A route ADDITION touches a seam
+registry, never this file. If this module ever starts changing with the seams,
+that is the signal it has grown something that belonged in them.
 '''
 from dataclasses import dataclass
 
