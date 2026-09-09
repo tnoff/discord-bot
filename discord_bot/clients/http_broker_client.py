@@ -21,6 +21,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.clients.http_player_session import HttpPlayerSessionMixin
+from discord_bot.routes import broker as broker_routes
 from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
@@ -60,8 +61,9 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.register_request', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': str(media_request.uuid)},
         ):
-            await self._http('POST', f'{self._base_url}/requests/{media_request.uuid}',
-                             media_request.model_dump(mode='json'))
+            await self._call_route(broker_routes.REGISTER_REQUEST,
+                                   media_request.model_dump(mode='json'),
+                                   uuid=media_request.uuid)
 
     async def update_request_status(self, uuid: str, update: LifecycleStatusUpdate) -> None:
         '''PUT /requests/{uuid}/status.'''
@@ -69,13 +71,13 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.update_status', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid},
         ):
-            await self._http('PUT', f'{self._base_url}/requests/{uuid}/status', update.model_dump())
+            await self._call_route(broker_routes.UPDATE_STATUS, update.model_dump(), uuid=uuid)
 
     async def register_download_result(self, result: DownloadResult) -> MediaDownload | None:
         '''POST /downloads — the broker stores success entries and pushes every
         result onto its bot-ready queue.  Consumers fetch via next_result.'''
         async with async_otel_span_wrapper('broker.register_download', kind=SpanKind.CLIENT):
-            await self._http('POST', f'{self._base_url}/downloads', result.model_dump(mode='json'))
+            await self._call_route(broker_routes.REGISTER_DOWNLOAD, result.model_dump(mode='json'))
         return None
 
     def _log_missing_route(self, status: int, route: str) -> None:
@@ -100,10 +102,10 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         allocations/day (glibc arena fragmentation → OOM). The broker.next_result
         span is only opened once an actual result is being parsed.'''
         session = self._get_session()
-        async with session.get(f'{self._base_url}/results/next',
+        async with session.get(self._route_url(broker_routes.NEXT_RESULT),
                                headers=self._trace_headers()) as resp:
             if resp.status in (204, _PEER_ROUTE_MISSING_STATUS):
-                self._log_missing_route(resp.status, '/results/next')
+                self._log_missing_route(resp.status, broker_routes.NEXT_RESULT.template)
                 return None
             resp.raise_for_status()
             payload = await resp.json()
@@ -118,8 +120,8 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         is treated as a no-op, not an error — see next_search_result.'''
         async with async_otel_span_wrapper('broker.register_search_result', kind=SpanKind.CLIENT):
             try:
-                await self._http('POST', f'{self._base_url}/search-results',
-                                 resolution.model_dump(mode='json'))
+                await self._call_route(broker_routes.REGISTER_SEARCH_RESULT,
+                                       resolution.model_dump(mode='json'))
             except aiohttp.ClientResponseError as error:
                 if error.status != _PEER_ROUTE_MISSING_STATUS:
                     raise
@@ -142,10 +144,11 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         allocations/day (glibc arena fragmentation → OOM). The span is only
         opened once an actual resolution is being parsed.'''
         session = self._get_session()
-        async with session.get(f'{self._base_url}/search-results/next',
+        async with session.get(self._route_url(broker_routes.NEXT_SEARCH_RESULT),
                                headers=self._trace_headers()) as resp:
             if resp.status in (204, _PEER_ROUTE_MISSING_STATUS):
-                self._log_missing_route(resp.status, '/search-results/next')
+                self._log_missing_route(resp.status,
+                                        broker_routes.NEXT_SEARCH_RESULT.template)
                 return None
             resp.raise_for_status()
             payload = await resp.json()
@@ -170,7 +173,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.checkout', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid, 'music.guild_id': guild_id},
         ):
-            data = await self._http('POST', f'{self._base_url}/requests/{uuid}/checkout', body)
+            data = await self._call_route(broker_routes.CHECKOUT, body, uuid=uuid)
             if not data:
                 return None
             s3_key = data.get('s3_key')
@@ -187,7 +190,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.release', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid},
         ):
-            await self._http('POST', f'{self._base_url}/requests/{uuid}/release')
+            await self._call_route(broker_routes.RELEASE, uuid=uuid)
 
     async def remove(self, uuid: str) -> None:
         '''POST /requests/{uuid}/remove.'''
@@ -195,7 +198,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.remove', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid},
         ):
-            await self._http('POST', f'{self._base_url}/requests/{uuid}/remove')
+            await self._call_route(broker_routes.REMOVE, uuid=uuid)
 
     async def discard(self, uuid: str) -> None:
         '''POST /requests/{uuid}/discard — drops entry and underlying file.'''
@@ -203,7 +206,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.discard', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid},
         ):
-            await self._http('POST', f'{self._base_url}/requests/{uuid}/discard')
+            await self._call_route(broker_routes.DISCARD, uuid=uuid)
 
     async def register_download(self, media_download: MediaDownload) -> None:
         '''POST /downloads/register — persist a downloaded MediaDownload.'''
@@ -211,8 +214,8 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.register_download', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': str(media_download.media_request.uuid)},
         ):
-            await self._http(
-                'POST', f'{self._base_url}/downloads/register',
+            await self._call_route(
+                broker_routes.REGISTER_DOWNLOAD_DIRECT,
                 media_download_to_dict(media_download),
             )
 
@@ -222,8 +225,8 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.check_cache', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': str(media_request.uuid)},
         ):
-            payload = await self._http(
-                'POST', f'{self._base_url}/cache/check',
+            payload = await self._call_route(
+                broker_routes.CHECK_CACHE,
                 media_request.model_dump(mode='json'),
             )
         if not payload or not payload.get('hit'):
@@ -233,13 +236,13 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     async def cache_cleanup(self) -> bool:
         '''POST /cache/cleanup — broker evicts stale cache entries.'''
         async with async_otel_span_wrapper('broker.cache_cleanup', kind=SpanKind.CLIENT):
-            payload = await self._http('POST', f'{self._base_url}/cache/cleanup')
+            payload = await self._call_route(broker_routes.CACHE_CLEANUP)
         return bool(payload and payload.get('removed'))
 
     async def get_cache_count(self) -> int:
         '''GET /cache/count — current entry count in the broker's VideoCache.'''
         async with async_otel_span_wrapper('broker.get_cache_count', kind=SpanKind.CLIENT):
-            payload = await self._http('GET', f'{self._base_url}/cache/count')
+            payload = await self._call_route(broker_routes.CACHE_COUNT)
         if not payload:
             return 0
         return int(payload.get('count', 0))
@@ -251,22 +254,22 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.prefetch', kind=SpanKind.CLIENT,
             attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit},
         ):
-            await self._http('POST', f'{self._base_url}/prefetch', {
-                # str() guild_path — it arrives as a Path (self.file_dir) and a
-                # PosixPath isn't JSON-serialisable for the HTTP body.
-                'uuids': uuids, 'guild_id': guild_id,
-                'guild_path': str(guild_path) if guild_path else None, 'limit': limit,
-            })
+            await self._call_route(broker_routes.PREFETCH, {
+                                   # str() guild_path — it arrives as a Path (self.file_dir) and a
+                                   # PosixPath isn't JSON-serialisable for the HTTP body.
+                                   'uuids': uuids, 'guild_id': guild_id,
+                                   'guild_path': str(guild_path) if guild_path else None, 'limit': limit,
+                                   })
 
     async def create_bundle(self, guild_id: int, channel_id: int,
                             input_string: str | None = None,
                             has_search_banner: bool = False) -> str:
         '''POST /bundles — broker creates a new bundle and returns its uuid.'''
         async with async_otel_span_wrapper('broker.create_bundle', kind=SpanKind.CLIENT):
-            payload = await self._http('POST', f'{self._base_url}/bundles', {
-                'guild_id': guild_id, 'channel_id': channel_id,
-                'input_string': input_string, 'has_search_banner': has_search_banner,
-            })
+            payload = await self._call_route(broker_routes.CREATE_BUNDLE, {
+                                             'guild_id': guild_id, 'channel_id': channel_id,
+                                             'input_string': input_string, 'has_search_banner': has_search_banner,
+                                             })
         if payload is None or 'uuid' not in payload:
             raise RuntimeError('broker create_bundle returned no uuid')
         return payload['uuid']
@@ -277,7 +280,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.finalize_bundle', kind=SpanKind.CLIENT,
             attributes={'music.bundle.uuid': bundle_uuid},
         ):
-            await self._http('POST', f'{self._base_url}/bundles/{bundle_uuid}/finalize')
+            await self._call_route(broker_routes.FINALIZE_BUNDLE, uuid=bundle_uuid)
 
     async def delete_bundle(self, bundle_uuid: str) -> None:
         '''DELETE /bundles/{uuid}.'''
@@ -285,7 +288,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.delete_bundle', kind=SpanKind.CLIENT,
             attributes={'music.bundle.uuid': bundle_uuid},
         ):
-            await self._http('DELETE', f'{self._base_url}/bundles/{bundle_uuid}')
+            await self._call_route(broker_routes.DELETE_BUNDLE, uuid=bundle_uuid)
 
     async def list_bundles_for_guild(self, guild_id: int) -> list[str]:
         '''GET /bundles?guild_id=N — returns bundle uuids for the guild.'''
@@ -293,7 +296,9 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             'broker.list_bundles_for_guild', kind=SpanKind.CLIENT,
             attributes={'music.guild_id': guild_id},
         ):
-            payload = await self._http('GET', f'{self._base_url}/bundles?guild_id={guild_id}')
+            payload = await self._http(
+                broker_routes.LIST_BUNDLES.method,
+                f'{self._route_url(broker_routes.LIST_BUNDLES)}?guild_id={guild_id}')
         if payload is None:
             return []
         return list(payload.get('uuids', []))
