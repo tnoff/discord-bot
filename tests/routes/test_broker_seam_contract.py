@@ -39,7 +39,12 @@ def _served(app: web.Application) -> set[tuple[str, str]]:
     whose route set depends on runtime construction. It is the same read the
     runtime advertisement will do.
     '''
-    return {(route.method, route.resource.canonical) for route in app.router.routes()}
+    # HEAD is excluded: aiohttp's add_get registers it alongside every GET as an
+    # affordance, and the registry declares GET. It is not a seam route, and
+    # asserting on it would make the registry restate an aiohttp implementation
+    # detail.
+    return {(route.method, route.resource.canonical) for route in app.router.routes()
+            if route.method != 'HEAD'}
 
 
 def _declared() -> set[tuple[str, str]]:
@@ -110,6 +115,21 @@ def test_clients_build_no_urls_themselves(module):
     assert offenders == [], (
         f'{module.__name__} builds a route path from _base_url at lines {offenders}; '
         'use a routes/broker.py symbol via _route_url or _call_route')
+
+
+def test_get_routes_still_answer_head():
+    '''Registering from the registry must not narrow what the server answers.
+
+    `add_route` does not register HEAD; `add_get` does. Converting the broker to
+    the registry silently dropped HEAD on all five GET routes until this caught
+    it — a behaviour change hiding inside a refactor that claimed to move only
+    where routes are defined.
+    '''
+    served = {(route.method, route.resource.canonical)
+              for route in _server().build_app().router.routes()}
+    for route in broker_routes.ALL:
+        if route.method == 'GET':
+            assert ('HEAD', route.template) in served
 
 
 def test_route_path_fills_its_placeholders():

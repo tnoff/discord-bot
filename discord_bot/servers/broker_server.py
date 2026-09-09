@@ -164,7 +164,14 @@ class BrokerHttpServer(AiohttpServerBase):
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
         for route, handler in self.route_handlers().items():
-            app.router.add_route(route.method, route.template, handler)
+            if route.method == 'GET':
+                # add_get registers HEAD alongside GET; add_route does not. These
+                # five GET routes answered HEAD before the registry landed, and
+                # this change is meant to move where routes are DEFINED, not what
+                # the server answers.
+                app.router.add_get(route.template, handler)
+            else:
+                app.router.add_route(route.method, route.template, handler)
         return app
 
     # ------------------------------------------------------------------
