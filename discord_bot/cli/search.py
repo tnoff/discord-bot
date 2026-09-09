@@ -151,7 +151,8 @@ def run(settings: dict, general_config: GeneralConfig):
     redis_manager = require_redis_manager(general_config, 'search')
     # No bucket_name: the search pod never checks out media, it only pushes
     # lifecycle updates and resolutions.
-    broker_client = HttpBrokerClient(require_broker_url(settings, 'search'))
+    broker_client = HttpBrokerClient(require_broker_url(settings, 'search'),
+                                     seam_contract=general_config.seam_contract)
 
     download_cfg = settings.get('music', {}).get('download', {})
     # Reuse the already-validated LoggingConfig off general_config — the same

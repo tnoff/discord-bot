@@ -96,6 +96,7 @@ class SeamContractCheck:
         self._status: PeerContractStatus | None = None
         self._missing: set[tuple[str, str]] = set()
         self._mismatch_since: float | None = None
+        self._task: asyncio.Future | None = None
 
     @property
     def status(self) -> PeerContractStatus | None:
@@ -106,6 +107,12 @@ class SeamContractCheck:
     def missing_routes(self) -> set[tuple[str, str]]:
         '''Routes this client calls that the peer did not advertise.'''
         return set(self._missing)
+
+    @property
+    def probe_task(self):
+        """The running probe task, or None. Read-only, and public so callers and
+        tests can see whether a check is live without reaching into the object."""
+        return self._task
 
     @property
     def breached(self) -> bool:
@@ -167,10 +174,51 @@ class SeamContractCheck:
         return PeerContractStatus.OK, set()
 
     async def run(self, interval: float = DEFAULT_INTERVAL_SECONDS) -> None:
-        '''Probe forever. Intended to be launched as a task, never awaited inline.'''
+        """Probe forever. Intended to be launched as a task, never awaited inline."""
         while True:
             await self.probe()
             await asyncio.sleep(interval)
+
+    def start(self, interval: float = DEFAULT_INTERVAL_SECONDS) -> None:
+        """Launch the probe loop as a background task.
+
+        Fire-and-forget on purpose, and the reason the whole class swallows its
+        own failures: this is called on a client's construction path, and a peer
+        that is simply not up yet is the NORMAL case during a roll. Blocking or
+        raising here would turn a transient into exactly the permanent outage the
+        2026-07-31 incident was.
+
+        Calling it twice is a no-op rather than a second task, so a client that
+        gets re-wired does not end up double-probing its peer.
+        """
+        if self._task is not None and not self._task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No RUNNING event loop. The pods build their clients in synchronous
+            # run() functions, before asyncio.run, so calling start() there is the
+            # easy mistake when wiring a new caller — and on a pod's startup path
+            # it must degrade to "no check" rather than to a crash loop. Logged at
+            # WARNING because the check silently not running is worth noticing.
+            #
+            # get_running_loop rather than ensure_future: ensure_future falls back
+            # to get_event_loop, which on 3.12 returns a non-running loop instead
+            # of raising and on 3.14 raises. Asking directly makes the branch
+            # behave the same on every version the tox matrix covers.
+            logger.warning('seam %s: contract check not started, no running event '
+                           'loop — call start_seam_check from an async context',
+                           self._seam)
+            return
+        self._task = loop.create_task(self.run(interval))
+
+    async def stop(self) -> None:
+        """Cancel the probe loop and wait for it to unwind. Safe if never started."""
+        if self._task is None:
+            return
+        self._task.cancel()
+        await asyncio.gather(self._task, return_exceptions=True)
+        self._task = None
 
     def observations(self, _options=None):
         '''OTEL observable-gauge callback: 1 once a mismatch outlives the grace.

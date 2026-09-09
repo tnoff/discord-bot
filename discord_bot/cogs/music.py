@@ -46,7 +46,9 @@ from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.types.video_cache import MusicCacheConfig
 
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
-from discord_bot.utils.common import rm_tree, return_loop_runner, tracing_config_from_settings
+from discord_bot.utils.common import (rm_tree, return_loop_runner,
+                                      seam_contract_from_settings,
+                                      tracing_config_from_settings)
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
@@ -324,7 +326,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # MusicPlayer knows where to fetch the file from S3.  Without it the player
         # falls through to open() the raw s3_key and 404s.
         self.broker_client: BrokerClient = HttpBrokerClient(
-            self.config.broker_client.url, bucket_name=storage_bucket_name)
+            self.config.broker_client.url, bucket_name=storage_bucket_name,
+            seam_contract=seam_contract_from_settings(settings))
 
         # Source expansion runs in the search pod: the cog posts a Spotify or
         # YouTube-playlist id over HTTP and gets a CatalogResponse back, and never
@@ -452,6 +455,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
+        # The bot is the client that broke twice on this seam: it depended on the
+        # broker's GET /search-results/next while a pre-MR2 broker was still the
+        # Service's only ready endpoint. Started here rather than in __init__
+        # because there is no running loop there, and it must never be able to
+        # stop the cog from loading.
+        self.broker_client.start_seam_check()
         self._cleanup_task = self.bot.loop.create_task(
             return_loop_runner(self.cleanup_players, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()

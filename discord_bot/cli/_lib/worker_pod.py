@@ -144,8 +144,9 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
     Registering the entry also publishes its ``heartbeat`` gauge (see below), so
     every worker pod's consumer loop is observable the same way a cog loop is.
 
-    ``broker_client`` is the pod's outbound HttpBrokerClient, closed on the way
-    out.  Both pods hold one for the whole process lifetime and neither used to
+    ``broker_client`` is the pod's outbound HttpBrokerClient. Its peer-route
+    seam check is started here and it is closed on the way out, which stops the
+    check with it.  Both pods hold one for the whole process lifetime and neither used to
     close it, so aiohttp logged ``Unclosed client session`` at ERROR on every
     single pod roll.  Harmless in itself — the process is exiting — but it is
     recurring ERROR-level noise in the exact window an operator reads logs during
@@ -168,6 +169,11 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
         if removed:
             logger.warning('Main :: %s cleared %s stale guild block(s) with no expiry',
                            pod_label, removed)
+    if broker_client is not None:
+        # Started here rather than at construction: run() is synchronous, so
+        # there is no loop yet when the client is built. A no-op unless the pod
+        # was given a seam_contract config, and it cannot fail the startup path.
+        broker_client.start_seam_check()
     with shutdown_event_signals() as stop_event:
         try:
             if health_server:

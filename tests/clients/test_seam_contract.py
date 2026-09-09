@@ -285,3 +285,41 @@ def test_register_gauge_publishes_the_breach_metric():
     check.register_gauge(_MeterProvider())
     assert published['name'] == 'seam_contract_breach'
     assert published['callbacks'] == [check.observations]
+
+
+def test_start_outside_an_event_loop_is_survivable():
+    """The wiring mistake this design invites, degraded to a no-op.
+
+    Clients are constructed in the pods' SYNCHRONOUS run() functions, so calling
+    start() there is the natural error — and asyncio.ensure_future raises with no
+    running loop. On a pod's startup path that would be a crash loop, so it
+    degrades to "no check" and says so.
+    """
+    check = SeamContractCheck('broker', 'http://peer', CALLED, lambda: None,
+                              clock=_Clock())
+    check.start()
+    assert check.status is None
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_start_is_idempotent():
+    """A client re-wired twice must not end up double-probing its peer."""
+    clock = _Clock()
+    check, server, session = await _check_against(_peer_app(ENTRIES), CALLED, clock)
+    try:
+        check.start(interval=60)
+        first = check.probe_task
+        assert first is not None
+        check.start(interval=60)
+        assert check.probe_task is first, 'a second start must not spawn a second loop'
+    finally:
+        await check.stop()
+        assert check.probe_task is None
+        await _close(server, session)
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_stop_without_start_is_safe():
+    check = SeamContractCheck('broker', 'http://peer', CALLED, lambda: None,
+                              clock=_Clock())
+    await check.stop()

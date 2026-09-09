@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+
 from discord_bot.cli import search as search_cli
 from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.cli._lib import common as cli_common
@@ -12,6 +13,7 @@ from discord_bot.cli._lib import common as cli_common
 from discord_bot.cli._lib import worker_pod
 from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
+from discord_bot.utils.common import SeamContractConfig
 
 
 def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_general=None):
@@ -30,11 +32,15 @@ def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_gen
 class _GeneralConfig:
     '''Stand-in for GeneralConfig with the fields run() reads.'''
     def __init__(self, *, redis_url='redis://localhost:6379', redis_sentinel=None,
-                 monitoring=None, logging_config=None):
+                 monitoring=None, logging_config=None, seam_contract=None):
         self.redis_url = redis_url
         self.redis_sentinel = redis_sentinel
         self.monitoring = monitoring
         self.logging = logging_config
+        # The real GeneralConfig always has this -- it carries defaults -- so the
+        # stub does too. Defaulting it to None here rather than omitting it keeps
+        # the stub honest about what run() reads.
+        self.seam_contract = seam_contract or SeamContractConfig()
 
 
 def _patch_collaborators(mocker):
@@ -71,7 +77,8 @@ def test_run_wires_collaborators(mocker):
     mocks['setup_observability'].assert_called_once_with(general)
     mocks['RedisManager'].from_general_config.assert_called_once_with(general)
     # No bucket_name: the search pod never checks media out of S3.
-    mocks['HttpBrokerClient'].assert_called_once_with('http://broker:8081')
+    mocks['HttpBrokerClient'].assert_called_once_with(
+        'http://broker:8081', seam_contract=general.seam_contract)
 
     # Worker wiring: the injected ytmusic client + redis manager + backoff defaults.
     worker_args, worker_kwargs = mocks['RedisYoutubeMusicSearchWorker'].call_args
