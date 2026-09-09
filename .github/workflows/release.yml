@@ -45,7 +45,7 @@ jobs:
       contents: write
     uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@2c7a6597fce4072fb2755f49742147e7482e6065
     secrets:
-      app_id: ${{ secrets.CI_APP_ID }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   tag:
@@ -57,7 +57,7 @@ jobs:
     with:
       gate_on_fragments: true
     secrets:
-      app_id: ${{ secrets.CI_APP_ID }}
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   push-bot:
