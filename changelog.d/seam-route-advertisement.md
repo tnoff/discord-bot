@@ -1,0 +1,1 @@
+Every discord application server now serves `GET /_contract/routes`, advertising the route set read from its live router, so a client can ask a peer which routes it serves instead of comparing build SHAs.

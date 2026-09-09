@@ -82,6 +82,7 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         app.router.add_post(f'{self.ROUTE_PREFIX}/clear', self._handle_clear)
         app.router.add_post(f'{self.ROUTE_PREFIX}/block', self._handle_block)
         app.router.add_get(f'{self.ROUTE_PREFIX}/status', self._handle_status)
+        self.add_contract_route(app)
         return app
 
     async def _handle_submit(self, request: web.Request) -> web.Response:

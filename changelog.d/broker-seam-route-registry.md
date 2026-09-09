@@ -1,0 +1,1 @@
+Broker pod-to-pod routes are now defined once, in `discord_bot/routes/broker.py`, and imported by both the server and its HTTP clients. A route present on only one side of the seam is now a test failure rather than a production 404.
