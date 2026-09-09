@@ -172,6 +172,7 @@ class BrokerHttpServer(AiohttpServerBase):
                 app.router.add_get(route.template, handler)
             else:
                 app.router.add_route(route.method, route.template, handler)
+        self.add_contract_route(app)
         return app
 
     # ------------------------------------------------------------------

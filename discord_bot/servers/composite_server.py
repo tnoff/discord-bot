@@ -27,6 +27,7 @@ import logging
 
 from aiohttp import web
 
+from discord_bot.routes import contract
 from discord_bot.servers.base import AiohttpServerBase
 
 logger = logging.getLogger(__name__)
@@ -73,5 +74,16 @@ class CompositeHttpServer(AiohttpServerBase):
         app = web.Application(middlewares=[self._get_drain_middleware()])
         for server in self._servers:
             for route in server.build_app().router.routes():
+                # Every child registers the contract endpoint, so merging them
+                # verbatim would register it N times and aiohttp would refuse the
+                # duplicate. Skipped by exact identity rather than by deduping
+                # everything: two children colliding on a REAL route is a bug that
+                # should still fail loudly at startup.
+                if (route.method, route.resource.canonical) == (
+                        contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template):
+                    continue
                 app.router.add_route(route.method, route.resource.canonical, route.handler)
+        # One advertisement for the merged set. The handler reads request.app, so
+        # it reports every child's routes rather than the first child's.
+        self.add_contract_route(app)
         return app

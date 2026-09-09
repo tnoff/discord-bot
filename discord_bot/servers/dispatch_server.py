@@ -58,6 +58,7 @@ class DispatchHttpServer(AiohttpServerBase):
         app.router.add_post('/dispatch/fetch_history', self._handle_fetch_history)
         app.router.add_post('/dispatch/fetch_emojis', self._handle_fetch_emojis)
         app.router.add_get('/dispatch/results/{request_id}', self._handle_get_result)
+        self.add_contract_route(app)
         return app
 
     # ------------------------------------------------------------------
