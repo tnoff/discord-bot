@@ -6,12 +6,17 @@ the media-broker contract, so it gets its own mixin rather than widening
 HttpBrokerClient further.  See interfaces/player_session_store for the engine
 side and the reasoning.
 
-Mixed into HttpBrokerClient, which supplies _base_url, _http and
+Mixed into HttpBrokerClient, which supplies _base_url, _call_route and
 _log_missing_route.
+
+The routes live in routes/broker.py, not with the database stores: these are
+served by broker_server.py, so /sessions* is the broker seam despite reading
+like persistence.
 '''
 import aiohttp
 from opentelemetry.trace import SpanKind
 
+from discord_bot.routes import broker as broker_routes
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.utils.otel import async_otel_span_wrapper
 
@@ -36,12 +41,13 @@ class HttpPlayerSessionMixin:
             attributes={'music.guild_id': session.guild_id},
         ):
             try:
-                await self._http('PUT', f'{self._base_url}/sessions/{session.guild_id}',
-                                 session.model_dump(mode='json'))
+                await self._call_route(broker_routes.SAVE_SESSION,
+                                       session.model_dump(mode='json'),
+                                       guild_id=session.guild_id)
             except aiohttp.ClientResponseError as error:
                 if error.status != PEER_ROUTE_MISSING_STATUS:
                     raise
-                self._log_missing_route(error.status, '/sessions')
+                self._log_missing_route(error.status, broker_routes.SAVE_SESSION.template)
 
     async def list_player_sessions(self) -> list[PlayerSession]:
         '''GET /sessions — every stored player session.
@@ -51,11 +57,11 @@ class HttpPlayerSessionMixin:
         '''
         async with async_otel_span_wrapper('broker.list_player_sessions', kind=SpanKind.CLIENT):
             try:
-                payload = await self._http('GET', f'{self._base_url}/sessions')
+                payload = await self._call_route(broker_routes.LIST_SESSIONS)
             except aiohttp.ClientResponseError as error:
                 if error.status != PEER_ROUTE_MISSING_STATUS:
                     raise
-                self._log_missing_route(error.status, '/sessions')
+                self._log_missing_route(error.status, broker_routes.LIST_SESSIONS.template)
                 return []
         if payload is None:
             return []
@@ -68,8 +74,8 @@ class HttpPlayerSessionMixin:
             attributes={'music.guild_id': guild_id},
         ):
             try:
-                await self._http('DELETE', f'{self._base_url}/sessions/{guild_id}')
+                await self._call_route(broker_routes.DELETE_SESSION, guild_id=guild_id)
             except aiohttp.ClientResponseError as error:
                 if error.status != PEER_ROUTE_MISSING_STATUS:
                     raise
-                self._log_missing_route(error.status, '/sessions')
+                self._log_missing_route(error.status, broker_routes.DELETE_SESSION.template)

@@ -12,6 +12,8 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
+from discord_bot.routes import broker as broker_routes
+from discord_bot.routes.route import Route
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
@@ -124,31 +126,53 @@ class BrokerHttpServer(AiohttpServerBase):
         accepting requests, else 0. Public so it can be exercised directly.'''
         return self._serving_heartbeat_observations('broker')
 
+    def route_handlers(self) -> dict[Route, object]:
+        '''Map every route on the broker seam to the handler that serves it.
+
+        Keyed by the shared `routes/broker.py` symbols rather than by literal
+        strings, so a route the client calls and a route this server registers
+        are the same object. Split out of `build_app()` so the completeness
+        test can compare these keys against the registry without standing up
+        an Application.
+        '''
+        return {
+            broker_routes.REGISTER_REQUEST: self._handle_register_request,
+            broker_routes.UPDATE_STATUS: self._handle_update_status,
+            broker_routes.CHECKOUT: self._handle_checkout,
+            broker_routes.RELEASE: self._handle_release,
+            broker_routes.REMOVE: self._handle_remove,
+            broker_routes.DISCARD: self._handle_discard,
+            broker_routes.REGISTER_DOWNLOAD: self._handle_register_download,
+            broker_routes.REGISTER_DOWNLOAD_DIRECT: self._handle_register_download_direct,
+            broker_routes.NEXT_RESULT: self._handle_next_result,
+            broker_routes.REGISTER_SEARCH_RESULT: self._handle_register_search_result,
+            broker_routes.NEXT_SEARCH_RESULT: self._handle_next_search_result,
+            broker_routes.PREFETCH: self._handle_prefetch,
+            broker_routes.CHECK_CACHE: self._handle_check_cache,
+            broker_routes.CACHE_CLEANUP: self._handle_cache_cleanup,
+            broker_routes.CACHE_COUNT: self._handle_get_cache_count,
+            broker_routes.LIST_BUNDLES: self._handle_list_bundles_for_guild,
+            broker_routes.CREATE_BUNDLE: self._handle_create_bundle,
+            broker_routes.FINALIZE_BUNDLE: self._handle_finalize_bundle,
+            broker_routes.DELETE_BUNDLE: self._handle_delete_bundle,
+            broker_routes.LIST_SESSIONS: self._handle_list_player_sessions,
+            broker_routes.SAVE_SESSION: self._handle_save_player_session,
+            broker_routes.DELETE_SESSION: self._handle_delete_player_session,
+        }
+
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
-        app.router.add_post('/requests/{uuid}', self._handle_register_request)
-        app.router.add_put('/requests/{uuid}/status', self._handle_update_status)
-        app.router.add_post('/downloads', self._handle_register_download)
-        app.router.add_post('/downloads/register', self._handle_register_download_direct)
-        app.router.add_get('/results/next', self._handle_next_result)
-        app.router.add_post('/search-results', self._handle_register_search_result)
-        app.router.add_get('/search-results/next', self._handle_next_search_result)
-        app.router.add_post('/requests/{uuid}/checkout', self._handle_checkout)
-        app.router.add_post('/requests/{uuid}/release', self._handle_release)
-        app.router.add_post('/requests/{uuid}/remove', self._handle_remove)
-        app.router.add_post('/requests/{uuid}/discard', self._handle_discard)
-        app.router.add_post('/prefetch', self._handle_prefetch)
-        app.router.add_post('/cache/check', self._handle_check_cache)
-        app.router.add_post('/cache/cleanup', self._handle_cache_cleanup)
-        app.router.add_get('/cache/count', self._handle_get_cache_count)
-        app.router.add_get('/bundles', self._handle_list_bundles_for_guild)
-        app.router.add_post('/bundles', self._handle_create_bundle)
-        app.router.add_post('/bundles/{uuid}/finalize', self._handle_finalize_bundle)
-        app.router.add_delete('/bundles/{uuid}', self._handle_delete_bundle)
-        app.router.add_get('/sessions', self._handle_list_player_sessions)
-        app.router.add_put('/sessions/{guild_id}', self._handle_save_player_session)
-        app.router.add_delete('/sessions/{guild_id}', self._handle_delete_player_session)
+        for route, handler in self.route_handlers().items():
+            if route.method == 'GET':
+                # add_get registers HEAD alongside GET; add_route does not. These
+                # five GET routes answered HEAD before the registry landed, and
+                # this change is meant to move where routes are DEFINED, not what
+                # the server answers.
+                app.router.add_get(route.template, handler)
+            else:
+                app.router.add_route(route.method, route.template, handler)
+        self.add_contract_route(app)
         return app
 
     # ------------------------------------------------------------------

@@ -6,6 +6,7 @@ from aiohttp import web
 from opentelemetry.metrics import Observation
 from opentelemetry.propagate import extract
 
+from discord_bot.routes import contract
 from discord_bot.utils.otel import AttributeNaming
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,28 @@ class AiohttpServerBase:
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
         return ctx, body
+
+    def add_contract_route(self, app: web.Application) -> None:
+        """Register the route-contract endpoint on `app`.
+
+        Called at the end of every concrete `build_app()`. The handler reads
+        `request.app`, not `self`, so a server whose routes get merged into
+        someone else's Application still advertises the set that Application
+        really serves — which is what the composite search pod needs.
+        """
+        app.router.add_route(contract.CONTRACT_ROUTE.method,
+                             contract.CONTRACT_ROUTE.template,
+                             self._handle_route_contract)
+
+    @staticmethod
+    async def _handle_route_contract(request: web.Request) -> web.Response:
+        """Advertise the routes this listener actually serves.
+
+        Derived from the live router on every request rather than cached at
+        build time: `database_server` registers its store groups conditionally,
+        so the honest answer is whatever is registered right now.
+        """
+        return web.json_response(contract.encode(contract.served_routes(request.app)))
 
     def _get_drain_middleware(self):
         '''
