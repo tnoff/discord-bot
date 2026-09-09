@@ -1,0 +1,153 @@
+# Backstage catalog descriptor for the whole Discord system.
+#
+# This is the case the project spec called the modeling stress test: ONE repo
+# builds SIX images, deployed as six Deployments in the `discord` namespace and
+# released together. A location may hold many documents, so the System, its six
+# Components and the database it owns all live here -- and because every entity
+# is read from this one location, the derived github.com/project-slug is right
+# for all of them without being written once.
+#
+# The dependsOn edges below were read out of docker-apps apps/discord/config.yaml
+# with comment lines stripped, not copied from its README. That matters: the
+# README still says discord-db is "live but called by nothing" and that the bot
+# and broker hold their own engines until a cutover. They do not. Both point at
+# http://discord-db:8085 and only discord.db.conf carries a
+# sql_connection_statement, so the cutover has happened and the README is stale.
+#
+# No annotations, for the reasons the rest of the catalog gives: the slug is
+# derived, and techdocs / kubernetes / grafana each assert a target that does not
+# exist yet. Worth recording for whoever installs the Kubernetes plugin: unlike
+# the two websites, which collide on `app=website` and need new labels, every
+# tier here already carries `app: discord` plus a unique `tier:`, so
+# `app=discord,tier=<tier>` is unambiguous today.
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: discord
+  description: >-
+    The Discord bot and the five tiers it was split into. One repo, six images, six
+    Deployments in the `discord` namespace, rolled together because they share a build.
+spec:
+  owner: group:default/admin
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-bot
+  description: >-
+    Hosts the cog logic -- music, markov, urban, delete_messages -- and owns no I/O of its
+    own any more. Every Discord API call goes to the dispatcher, and every other capability
+    is an HTTP call to the tier that holds it.
+  # Deployment label `tier: runner`
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/discord-broker
+    - component:default/discord-db
+    - component:default/discord-dispatcher
+    - component:default/discord-downloader
+    - component:default/discord-search
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-dispatcher
+  description: >-
+    Owns the Discord REST surface: the other tiers POST to it and it queues the work in
+    Redis before calling Discord. One replica with strategy Recreate, because it is the
+    single gateway holder and two of it would be two clients.
+  # Deployment label `tier: dispatcher`, Service port 8082
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - resource:default/redis
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-broker
+  description: >-
+    Media broker. Fronts the download and search tiers for the bot, and reads and writes
+    the catalog through discord-db rather than a database engine of its own.
+  # Deployment label `tier: broker`, Service port 8081
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/discord-db
+    - component:default/discord-dispatcher
+    - resource:default/redis
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-downloader
+  description: >-
+    Consumes the Redis download queue. Runs in-tunnel behind a gluetun WireGuard sidecar
+    and picks a different Mullvad exit per download, so downloads are not all attributable
+    to one address.
+  # Deployment label `tier: downloader`, Service port 8083
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/discord-broker
+    - resource:default/redis
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-search
+  description: >-
+    Consumes the Redis search queue and resolves media metadata. Held at one replica by the
+    ytmusic rate limit rather than by any safety concern.
+  # Deployment label `tier: search`, Service port 8084
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/discord-broker
+    - resource:default/redis
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-db
+  description: >-
+    The only tier that speaks SQL. Serves markov, playlists, guild analytics and the
+    video-cache catalog over HTTP, so no other tier needs a database engine in its image.
+    One replica, load-bearing: the migration runner is on this entrypoint and two of it
+    could race into `alembic upgrade head`.
+  # Deployment label `tier: db`, Service port 8085
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - resource:default/discord-postgres
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: discord-postgres
+  description: >-
+    The operator-managed `discord-pg` cluster in the `discord-postgres` namespace, reached
+    as the `discord.discord` role. Backed up nightly.
+spec:
+  type: database
+  owner: group:default/admin
+  system: discord
