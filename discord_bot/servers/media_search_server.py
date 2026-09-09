@@ -67,6 +67,7 @@ class MediaSearchHttpServer(AiohttpServerBase):
         app = web.Application(middlewares=[self._get_drain_middleware()])
         app.router.add_post(f'{ROUTE_PREFIX}/spotify', self._handle_spotify)
         app.router.add_post(f'{ROUTE_PREFIX}/youtube', self._handle_youtube)
+        self.add_contract_route(app)
         return app
 
     @staticmethod

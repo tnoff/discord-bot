@@ -21,7 +21,7 @@ import pytest
 from aiohttp import web
 
 from discord_bot.clients import http_broker_client, http_player_session
-from discord_bot.routes import broker as broker_routes
+from discord_bot.routes import broker as broker_routes, contract
 from discord_bot.routes.route import Route, collect
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.workers.asyncio_broker import AsyncioBroker
@@ -39,12 +39,14 @@ def _served(app: web.Application) -> set[tuple[str, str]]:
     whose route set depends on runtime construction. It is the same read the
     runtime advertisement will do.
     '''
-    # HEAD is excluded: aiohttp's add_get registers it alongside every GET as an
-    # affordance, and the registry declares GET. It is not a seam route, and
-    # asserting on it would make the registry restate an aiohttp implementation
-    # detail.
-    return {(route.method, route.resource.canonical) for route in app.router.routes()
-            if route.method != 'HEAD'}
+    # Two exclusions, for different reasons. HEAD is an aiohttp affordance that
+    # add_get registers alongside every GET; the registry declares GET, and
+    # asserting on HEAD would make it restate an implementation detail. The
+    # contract endpoint is served by every application server but belongs to no
+    # seam. Both are excluded HERE rather than inside served_routes(), because a
+    # client asking what its peer serves should get the honest answer.
+    served = {entry for entry in contract.served_routes(app) if entry[0] != 'HEAD'}
+    return served - {(contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)}
 
 
 def _declared() -> set[tuple[str, str]]:

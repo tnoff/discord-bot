@@ -185,6 +185,7 @@ class DatabaseHttpServer(AiohttpServerBase):
                 app.router.add_post(f'{ROUTE_PREFIX}/{group}/{name}', handler)
         logger.info('database server serving route groups: %s',
                     ', '.join(sorted(routes)) or 'none')
+        self.add_contract_route(app)
         return app
 
     @staticmethod
