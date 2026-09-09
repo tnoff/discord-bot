@@ -151,3 +151,26 @@ spec:
   type: database
   owner: group:default/admin
   system: discord
+---
+# Redis sits with the discord system, not with docker-apps where its manifests
+# live -- the same rule discord-postgres follows. Checked rather than assumed:
+# across the whole docker-apps tree the only references to redis-primary are
+# apps/discord/config.yaml and apps/discord/downloader-app.yaml, and the
+# NetworkPolicy set in the redis namespace is a default deny plus exactly two
+# exceptions -- the discord tiers, and a metrics scrape from monitoring. A scrape
+# is not a consumer.
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: redis
+  description: >-
+    Redis at `redis-primary.redis.svc.cluster.local:6379`, used by four of the six tiers.
+    Modelled as a queue rather than a cache, and the distinction is load-bearing: it carries
+    the download and search work queues, so flushing it or losing a pod mid-pop drops real
+    in-flight work rather than a rebuildable cache. Access is per-client NetworkPolicy, and
+    a tier with no entry does not fail loudly -- its connect hangs, `/health` never comes up
+    and the pod CrashLoops.
+spec:
+  type: queue
+  owner: group:default/admin
+  system: discord
