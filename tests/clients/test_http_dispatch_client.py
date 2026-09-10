@@ -17,6 +17,7 @@ from discord_bot.types.dispatch_request import (
 from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
+from discord_bot.routes import dispatch as dispatch_routes
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 
@@ -290,7 +291,7 @@ async def test_post_failure_logs_error_and_does_not_raise(mocker):
     )
     client = HttpDispatchClient('http://localhost:9999')
     # Should not raise even though the underlying call failed
-    await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
 
 
@@ -347,7 +348,7 @@ async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     # Must not raise — fire-and-forget contract
-    await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
     counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/send'})
 
@@ -361,7 +362,7 @@ async def test_submit_fetch_when_breaker_open_propagates(mocker):
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(CircuitBreakerOpenError):
-        await client._submit_fetch('/dispatch/fetch_history', {'guild_id': 1})  # pylint: disable=protected-access
+        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
     await client.close()
     counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/fetch_history'})
 
@@ -373,7 +374,7 @@ async def test_post_success_records_metric(mocker):
     dispatcher, server = _make_setup()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
-        await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+        await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     assert any(c[0] == 'send_message' for c in dispatcher.calls)
     # Counter recorded a success
     assert mocker.call(1, {'result': 'success', 'path': '/dispatch/send'}) in counter.add.call_args_list
@@ -388,7 +389,7 @@ async def test_post_underlying_failure_records_failure_metric(mocker):
     )
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
-    await client._post('/dispatch/send', {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
+    await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
     counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/send'})
 
@@ -403,7 +404,7 @@ async def test_submit_fetch_underlying_failure_records_failure_metric_and_propag
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(RuntimeError, match='connection refused'):
-        await client._submit_fetch('/dispatch/fetch_history', {'guild_id': 1})  # pylint: disable=protected-access
+        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
     await client.close()
     counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/fetch_history'})
 

@@ -22,6 +22,7 @@ from typing import ClassVar
 from aiohttp import web
 from opentelemetry.trace import SpanKind
 
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.queue import PutsBlocked, QueueFull, submit_rejection_status
@@ -45,9 +46,12 @@ class QueueWorkerHttpServer(AiohttpServerBase):
     surface the bot pod's HTTP client polls (the bot pod can't read Redis).
     '''
 
-    # Route prefix ('/downloads', '/search/ytmusic') and otel span prefix
-    # ('downloader', 'youtube_music_search') — set by the subclass.
-    ROUTE_PREFIX: ClassVar[str]
+    # The seam's route group for this pod's prefix, set by the subclass to one of
+    # routes/queue_worker.py's groups. ROUTE_PREFIX is DERIVED from it rather than
+    # declared: it used to be a bare literal here and an identical one on the
+    # matching client, and a prefix typo moves every route on the seam at once.
+    ROUTES: ClassVar[QueueWorkerRoutes]
+    # otel span prefix ('downloader', 'youtube_music_search') — set by the subclass.
     SPAN_PREFIX: ClassVar[str]
     # background_job label on this pod's heartbeat gauge.
     HEARTBEAT_JOB: ClassVar[str]
@@ -70,6 +74,20 @@ class QueueWorkerHttpServer(AiohttpServerBase):
                                 self.heartbeat_observations,
                                 self.HEARTBEAT_DESCRIPTION)
 
+    def __init_subclass__(cls, **kwargs):
+        """Derive ROUTE_PREFIX from ROUTES on every subclass.
+
+        A real class attribute rather than a property, because ROUTE_PREFIX was a
+        ClassVar and callers (including tests) read it off the CLASS. Deriving it
+        here keeps that working while leaving exactly one definition of the
+        prefix -- the registry group -- instead of the two matching literals that
+        used to sit on the server subclass and its client.
+        """
+        super().__init_subclass__(**kwargs)
+        routes = getattr(cls, 'ROUTES', None)
+        if routes is not None:
+            cls.ROUTE_PREFIX = routes.prefix
+
     def heartbeat_observations(self, _options=None):
         '''OTEL observable-gauge callback: 1 while the HTTP server is up and
         accepting requests, else 0. Public so it can be exercised directly.'''
@@ -78,10 +96,12 @@ class QueueWorkerHttpServer(AiohttpServerBase):
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
-        app.router.add_post(self.ROUTE_PREFIX, self._handle_submit)
-        app.router.add_post(f'{self.ROUTE_PREFIX}/clear', self._handle_clear)
-        app.router.add_post(f'{self.ROUTE_PREFIX}/block', self._handle_block)
-        app.router.add_get(f'{self.ROUTE_PREFIX}/status', self._handle_status)
+        self.register_seam_routes(app, {
+            self.ROUTES.submit: self._handle_submit,
+            self.ROUTES.clear: self._handle_clear,
+            self.ROUTES.block: self._handle_block,
+            self.ROUTES.status: self._handle_status,
+        })
         self.add_contract_route(app)
         return app
 

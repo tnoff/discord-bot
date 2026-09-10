@@ -40,6 +40,7 @@ from discord_bot.types.playlist import (
     PlaylistItemWrite,
 )
 from discord_bot.utils.otel import DiscordContextNaming
+from discord_bot.routes import database as database_routes
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class HttpPlaylistStore(HttpStoreBase):
     '''Forwards the playlist store's sixteen calls to a remote db pod.'''
 
     SPAN_PREFIX = 'playlist_store'
-    ROUTE_PREFIX = '/database/playlist'
+    GROUP = database_routes.PLAYLIST
 
     async def _guild_call(self, route: str, guild_id: int):
         '''

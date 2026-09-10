@@ -23,6 +23,8 @@ import logging
 from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.routes import media_search as media_search_routes
+from discord_bot.routes.route import Route
 from discord_bot.types.catalog import CatalogResponse
 from discord_bot.types.media_search import MediaSearchResponse
 from discord_bot.utils.otel import async_otel_span_wrapper
@@ -30,7 +32,10 @@ from discord_bot.utils.otel import async_otel_span_wrapper
 logger = logging.getLogger(__name__)
 
 SPAN_PREFIX = 'media_search'
-ROUTE_PREFIX = '/search'
+# Re-exported from the registry rather than restated: this module used to own the
+# literal, and the server owned an identical one. There is now a single
+# definition and this name is kept only so existing imports resolve.
+ROUTE_PREFIX = media_search_routes.ROUTE_PREFIX
 
 
 class HttpMediaSearchClient(HttpClientMixin):
@@ -44,7 +49,11 @@ class HttpMediaSearchClient(HttpClientMixin):
         self._base_url = base_url.rstrip('/')
         self._session = session
 
-    async def _expand(self, route: str, body: dict) -> CatalogResponse:
+    #: The seam this client speaks, for HttpClientMixin.start_seam_check.
+    SEAM = 'media_search'
+    ROUTES_CALLED = media_search_routes.ALL
+
+    async def _expand(self, route: Route, body: dict) -> CatalogResponse:
         '''
         POST one provider route and return its catalog, or raise its failure.
 
@@ -53,7 +62,7 @@ class HttpMediaSearchClient(HttpClientMixin):
         in-process client would have raised -- which is what keeps the cog's
         `except MediaSearchError` working identically on both sides of the split.
         '''
-        payload = await self._http('POST', f'{self._base_url}{ROUTE_PREFIX}/{route}', body)
+        payload = await self._call_route(route, body)
         response = MediaSearchResponse.model_validate(payload)
         if response.error is not None:
             raise response.error.to_exception()
@@ -75,7 +84,8 @@ class HttpMediaSearchClient(HttpClientMixin):
             raise ValueError('Playlist, album, or track id must be passed')
         body = {'playlist_id': playlist_id, 'album_id': album_id, 'track_id': track_id}
         async with async_otel_span_wrapper(f'{SPAN_PREFIX}.spotify', kind=SpanKind.CLIENT):
-            return await self._expand('spotify', {k: v for k, v in body.items() if v})
+            return await self._expand(media_search_routes.SPOTIFY,
+                                      {k: v for k, v in body.items() if v})
 
     async def youtube_source(self, playlist_id: str) -> CatalogResponse:
         '''
@@ -84,4 +94,5 @@ class HttpMediaSearchClient(HttpClientMixin):
         playlist_id : ID of youtube playlist
         '''
         async with async_otel_span_wrapper(f'{SPAN_PREFIX}.youtube', kind=SpanKind.CLIENT):
-            return await self._expand('youtube', {'playlist_id': playlist_id})
+            return await self._expand(media_search_routes.YOUTUBE,
+                                      {'playlist_id': playlist_id})
