@@ -154,6 +154,38 @@ def resolve_tracing_config(general_config) -> MonitoringTracingConfig:
     monitoring = getattr(general_config, 'monitoring', None)
     return (monitoring and monitoring.tracing) or MonitoringTracingConfig()
 
+class SeamContractConfig(BaseModel):
+    """How long a pod-to-pod route gap may persist before it is a breach.
+
+    The whole point is that the tolerance is BOUNDED. A client that 404s on a
+    route its peer does not serve keeps working through a rolling update, which
+    is correct; the two 2026 incidents happened because nothing said when that
+    stopped being a roll and started being a stuck image pin.
+
+    grace_seconds default 300 sits between the two recorded shapes with room to
+    spare: the 2026-07-31 skew window was ~20 seconds, and the 2026-08-03 pin
+    skew ran ~9.5 hours. Five minutes clears a roll plus a cold-node image pull
+    and still catches a pin the same hour it happens.
+    """
+    grace_seconds: float = 300.0
+    interval_seconds: float = 60.0
+
+
+def seam_contract_from_settings(settings: dict) -> SeamContractConfig:
+    """The seam-contract block from the raw settings dict.
+
+    Same reason as tracing_config_from_settings below: the cogs are handed
+    unparsed settings and validate their own slice, so a cog that needs this
+    reads it here rather than growing a constructor argument threaded from the
+    CLI. Absent block means all-defaults, so the check is bounded even in a
+    config that has never heard of it.
+
+    settings : the raw config dict.
+    """
+    block = (settings or {}).get('general', {}).get('seam_contract') or {}
+    return SeamContractConfig.model_validate(block)
+
+
 def tracing_config_from_settings(settings: dict) -> MonitoringTracingConfig:
     """
     Same, from the raw settings dict rather than a parsed GeneralConfig.
@@ -243,6 +275,10 @@ class GeneralConfig(BaseModel):
     # the migrations. Defaults False so the runner lands inert and the ConfigMap
     # decides when it runs; see projects/alembic-migration-ownership.md (docs).
     run_migrations: bool = False
+    # Always present with defaults rather than Optional: a client should get a
+    # bounded tolerance without anyone having to opt in, since the failure this
+    # bounds is one that already reached production twice.
+    seam_contract: SeamContractConfig = Field(default_factory=SeamContractConfig)
 
 def get_logger(logger_name, logging_config: Optional[LoggingConfig], otlp_logger=None):
     '''

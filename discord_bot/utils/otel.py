@@ -41,6 +41,12 @@ class MetricNaming(Enum):
     SEARCH_QUEUE_DEPTH = 'search_queue_depth'
     SEARCH_YOUTUBE_BACKOFF = 'search_youtube_backoff_seconds'
     SEARCH_FAILURE_COUNT = 'search_failure_count'
+    # 1 when a peer has been missing a route this client calls for longer than
+    # the grace window. Deliberately NOT named for the mismatch itself: a
+    # mismatch inside the window is the normal middle of a rolling update, and a
+    # metric that fired on it would be muted within a week. The breach is the
+    # part worth alerting on.
+    SEAM_CONTRACT_BREACH = 'seam_contract_breach'
     BROKER_ENTRIES = 'broker.entries'
     BROKER_BUNDLES = 'broker.bundles'
     BROKER_RESULT_FETCH = 'broker.result_fetch'
@@ -59,6 +65,15 @@ class AttributeNaming(Enum):
     # Provider-agnostic egress exit the download traffic left from (see
     # utils/integrations/egress_probe.py).  High-cardinality attribution lives on
     # spans/logs, never a metric label.
+    # Which pod-to-pod seam a contract check is about ('broker', 'database', ...).
+    # Low cardinality by construction: there are five seams and there will not be
+    # many more. The MISSING ROUTES are not a label -- that would put up to 33
+    # values on one series -- they go in the log line and the span.
+    SEAM = 'seam'
+    # Why a seam check is unhappy: routes_missing, or no_contract_endpoint for a
+    # peer predating the advertisement. Separate values because an operator
+    # rolling the advertisement out wants to alert on one and not yet the other.
+    SEAM_CONTRACT_REASON = 'seam_contract_reason'
     EGRESS_HOSTNAME = 'egress.hostname'
     EGRESS_IP = 'egress.ip'
     # Why a queue submit was refused (PutsBlocked / QueueFull). Set on the

@@ -49,11 +49,29 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     next_result polls the remote broker for the next bot-ready DownloadResult,
     replacing the local-queue side-channel used in single-process mode.
     '''
+    #: The seam this client speaks, for HttpClientMixin.start_seam_check.
+    SEAM = 'broker'
+    #: Every route this client (with its player-session mixin) calls on the
+    #: broker. It is the whole seam registry because this class calls all of it;
+    #: tests/routes/test_broker_seam_contract.py asserts that against the symbols
+    #: actually referenced in the source, so the declaration cannot quietly
+    #: become a lie the way a hand-kept list would.
+    ROUTES_CALLED = broker_routes.ALL
+
     def __init__(self, base_url: str, bucket_name: str | None = None,
-                 session: aiohttp.ClientSession | None = None):
+                 session: aiohttp.ClientSession | None = None,
+                 seam_contract=None):
+        '''
+        seam_contract : a SeamContractConfig enabling the peer route check.
+                        Omitted in tests and anywhere the check is not wanted,
+                        which makes start_seam_check a no-op rather than
+                        something callers must remember not to call.
+        '''
         self._base_url = base_url.rstrip('/')
         self._bucket_name = bucket_name
         self._session = session
+        self._seam_contract_config = seam_contract
+
 
     async def register_request(self, media_request: MediaRequest) -> None:
         '''POST /requests/{uuid} — register a new MediaRequest with the remote broker.'''

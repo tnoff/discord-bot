@@ -21,6 +21,7 @@ import pytest
 from aiohttp import web
 
 from discord_bot.clients import http_broker_client, http_player_session
+from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.routes import broker as broker_routes, contract
 from discord_bot.routes.route import Route, collect
 from discord_bot.servers.broker_server import BrokerHttpServer
@@ -150,3 +151,29 @@ def test_collect_finds_only_route_instances():
     namespace = {'A': Route('GET', '/a'), 'NOT_A_ROUTE': 'GET /b', 'Route': Route}
     assert collect(namespace) == (namespace['A'],)
     assert len(broker_routes.ALL) == 22
+
+
+def test_routes_called_matches_what_the_source_calls():
+    """HttpBrokerClient.ROUTES_CALLED is what the seam check compares against.
+
+    Declared rather than derived at runtime, so it needs a proof that it is not
+    a lie — a hand-kept list drifting from actual usage is the same defect this
+    whole project is about, one level up. Reads the registry symbols the two
+    client modules actually reference and requires the declaration to match.
+
+    An under-declaration is the dangerous direction: a route the client calls
+    but does not declare is one the check will never notice is missing, which is
+    silently the pre-project behaviour for that route.
+    """
+    referenced = set()
+    for module in (http_broker_client, http_player_session):
+        tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding='utf-8'))
+        referenced |= {
+            node.attr for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name) and node.value.id == 'broker_routes'
+            and node.attr.isupper() and node.attr != 'ALL'
+        }
+    declared = {name for name, value in vars(broker_routes).items()
+                if isinstance(value, Route) and value in HttpBrokerClient.ROUTES_CALLED}
+    assert referenced == declared

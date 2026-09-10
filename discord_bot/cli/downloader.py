@@ -154,7 +154,8 @@ def run(settings: dict, general_config: GeneralConfig):
     download_cfg = music_settings.get('download', {})
     storage_cfg = download_cfg.get('storage') or {}
     bucket_name = storage_cfg.get('bucket_name')
-    broker_client = HttpBrokerClient(broker_url, bucket_name=bucket_name)
+    broker_client = HttpBrokerClient(broker_url, bucket_name=bucket_name,
+                                     seam_contract=general_config.seam_contract)
 
     download_dir_path = download_cfg.get('download_dir_path')
     if download_dir_path:
