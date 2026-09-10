@@ -1,1 +1,0 @@
-Adds the client-side seam contract check: a client can ask its peer which routes it serves and time how long any gap persists, so a rolling-update skew stays quiet while a stuck image pin raises `seam_contract_breach`.

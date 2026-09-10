@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.145] - 2026-09-10
+
+### Changed
+
+- Adds the client-side seam contract check: a client can ask its peer which routes it serves and time how long any gap persists, so a rolling-update skew stays quiet while a stuck image pin raises `seam_contract_breach`.
+
 ## [2.5.144] - 2026-09-09
 
 ### Changed
