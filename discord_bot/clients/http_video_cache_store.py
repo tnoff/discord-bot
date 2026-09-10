@@ -43,6 +43,7 @@ from discord_bot.clients.http_store_base import HttpStoreBase
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
                                               media_download_to_dict)
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.routes import database as database_routes
 from discord_bot.types.video_cache import VideoCacheEntry
 from discord_bot.utils.otel import MusicMediaDownloadNaming
 
@@ -53,7 +54,7 @@ class HttpVideoCacheStore(HttpStoreBase):
     '''Forwards the video-cache catalog's six calls to a remote db pod.'''
 
     SPAN_PREFIX = 'video_cache_store'
-    ROUTE_PREFIX = '/database/video_cache'
+    GROUP = database_routes.VIDEO_CACHE
 
     async def iterate_file(self, media_download: MediaDownload) -> bool:
         '''

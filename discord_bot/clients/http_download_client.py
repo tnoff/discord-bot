@@ -14,6 +14,8 @@ Re-exported from clients/download_client, so existing imports keep working.
 from typing import ClassVar
 
 from discord_bot.clients.http_queue_worker_client import HttpQueueWorkerClient
+from discord_bot.routes import queue_worker as queue_worker_routes
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 
 __all__ = ['HttpDownloadClient']
 
@@ -33,5 +35,5 @@ class HttpDownloadClient(HttpQueueWorkerClient):
     stop() drive the status poller, mirroring the local client's run() lifecycle.
     '''
 
-    ROUTE_PREFIX: ClassVar[str] = '/downloads'
+    ROUTES: ClassVar[QueueWorkerRoutes] = queue_worker_routes.DOWNLOADS
     SPAN_PREFIX: ClassVar[str] = 'downloader'

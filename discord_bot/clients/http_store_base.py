@@ -34,27 +34,57 @@ logger = logging.getLogger(__name__)
 class HttpStoreBase(HttpClientMixin):
     '''Base for the HTTP implementations of the persistence Protocols.'''
 
-    # Set by each subclass: the span name prefix and the route group.
+    # Set by each subclass: the span name prefix and the registry group it speaks.
     SPAN_PREFIX = ''
+    #: One of routes/database.py's groups. ROUTE_PREFIX is derived from it by
+    #: __init_subclass__ rather than declared -- it used to be a literal here and
+    #: the identical string was generated server-side.
+    GROUP = None
     ROUTE_PREFIX = ''
+    #: For HttpClientMixin.start_seam_check. Every store client speaks this seam.
+    SEAM = 'database'
 
-    def __init__(self, base_url: str, session=None):
+    def __init_subclass__(cls, **kwargs):
+        """Derive ROUTE_PREFIX and ROUTES_CALLED from GROUP.
+
+        A real class attribute, because ROUTE_PREFIX was one and callers read it
+        off the class. Deriving leaves one definition of the prefix instead of the
+        two that used to agree by coincidence.
+
+        ROUTES_CALLED is this group ONLY, never the whole seam: a markov client
+        must not demand its peer serve the playlist routes. On this tier that is
+        not hypothetical -- the groups are configured per pod, so a db pod
+        legitimately serves a subset, and requiring all 33 would fire the subset
+        check against a correctly-configured peer.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls.GROUP is not None:
+            cls.ROUTE_PREFIX = cls.GROUP.prefix
+            cls.ROUTES_CALLED = cls.GROUP.all
+
+    def __init__(self, base_url: str, session=None, seam_contract=None):
         '''
         base_url : Root URL of the db pod, e.g. http://discord-db:8085
         session : Pre-built aiohttp session; the mixin makes one lazily otherwise
+        seam_contract : a SeamContractConfig enabling the peer route check
         '''
         self._base_url = base_url.rstrip('/')
         self._session = session
+        self._seam_contract_config = seam_contract
 
     async def _call(self, route: str, body: dict = None):
         '''
         POST one store route and return its result, or raise its failure.
 
-        route : Route name under the subclass's group prefix
+        route : Route NAME under this client's group. Resolved through the
+                registry, so a name this seam does not define raises KeyError here
+                rather than 404ing against a route that never existed -- which on
+                this seam is indistinguishable from the supported
+                "that store is not configured on this pod".
         body : Request body; {} for the routes that take no arguments
         '''
-        payload = await self._http('POST', f'{self._base_url}{self.ROUTE_PREFIX}/{route}',
-                                   body if body is not None else {})
+        payload = await self._call_route(self.GROUP.routes[route],
+                                        body if body is not None else {})
         response = DatabaseResponse.model_validate(payload)
         if response.error is not None:
             raise response.error.to_exception()

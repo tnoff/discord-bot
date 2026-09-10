@@ -21,6 +21,7 @@ from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
 from discord_bot.interfaces.dispatch_protocols import WorkQueue
+from discord_bot.routes import dispatch as dispatch_routes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.otel import otel_span_wrapper
@@ -47,17 +48,27 @@ class DispatchHttpServer(AiohttpServerBase):
         self._host = host
         self._port = port
 
+    def route_handlers(self) -> dict:
+        """Map every route on the dispatch seam to the handler that serves it.
+
+        Keyed by the shared routes/dispatch.py symbols, so the route a client
+        calls and the route this server registers are the same object.
+        """
+        return {
+            dispatch_routes.SEND: self._handle_send,
+            dispatch_routes.DELETE: self._handle_delete,
+            dispatch_routes.UPDATE_MUTABLE: self._handle_update_mutable,
+            dispatch_routes.REMOVE_MUTABLE: self._handle_remove_mutable,
+            dispatch_routes.UPDATE_MUTABLE_CHANNEL: self._handle_update_mutable_channel,
+            dispatch_routes.FETCH_HISTORY: self._handle_fetch_history,
+            dispatch_routes.FETCH_EMOJIS: self._handle_fetch_emojis,
+            dispatch_routes.GET_RESULT: self._handle_get_result,
+        }
+
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
-        app.router.add_post('/dispatch/send', self._handle_send)
-        app.router.add_post('/dispatch/delete', self._handle_delete)
-        app.router.add_post('/dispatch/update_mutable', self._handle_update_mutable)
-        app.router.add_post('/dispatch/remove_mutable', self._handle_remove_mutable)
-        app.router.add_post('/dispatch/update_mutable_channel', self._handle_update_mutable_channel)
-        app.router.add_post('/dispatch/fetch_history', self._handle_fetch_history)
-        app.router.add_post('/dispatch/fetch_emojis', self._handle_fetch_emojis)
-        app.router.add_get('/dispatch/results/{request_id}', self._handle_get_result)
+        self.register_seam_routes(app, self.route_handlers())
         self.add_contract_route(app)
         return app
 

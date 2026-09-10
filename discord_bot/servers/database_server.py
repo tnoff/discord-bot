@@ -89,6 +89,7 @@ from discord_bot.interfaces.database_protocols import (
     PlaylistStore,
     VideoCacheStore,
 )
+from discord_bot.routes import database as database_routes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.database_wire import DatabaseErrorBody, DatabaseResponse
 from discord_bot.types.markov import MarkovMessageWrite
@@ -134,14 +135,16 @@ class DatabaseHttpServer(AiohttpServerBase):
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
-        routes = {}
+        handlers = {}
+        served = []
         if self._guild_analytics_store is not None:
-            routes['guild_analytics'] = {
+            handlers.update(database_routes.GUILD_ANALYTICS.bind({
                 'get_analytics': self._handle_get_analytics,
                 'record_play': self._handle_record_play,
-            }
+            }))
+            served.append(database_routes.GUILD_ANALYTICS.name)
         if self._markov_store is not None:
-            routes['markov'] = {
+            handlers.update(database_routes.MARKOV.bind({
                 'list_channels': self._handle_list_channels,
                 'list_guild_channel_ids': self._handle_list_guild_channel_ids,
                 'get_channel': self._handle_get_channel,
@@ -151,9 +154,10 @@ class DatabaseHttpServer(AiohttpServerBase):
                 'save_messages': self._handle_save_messages,
                 'generate_words': self._handle_generate_words,
                 'prune_relations_before': self._handle_prune_relations_before,
-            }
+            }))
+            served.append(database_routes.MARKOV.name)
         if self._playlist_store is not None:
-            routes['playlist'] = {
+            handlers.update(database_routes.PLAYLIST.bind({
                 'list_playlists': self._handle_list_playlists,
                 'count_playlists': self._handle_count_playlists,
                 'get_playlist': self._handle_get_playlist,
@@ -170,21 +174,21 @@ class DatabaseHttpServer(AiohttpServerBase):
                 'delete_item': self._handle_delete_item,
                 'delete_item_by_index': self._handle_delete_item_by_index,
                 'record_history_item': self._handle_record_history_item,
-            }
+            }))
+            served.append(database_routes.PLAYLIST.name)
         if self._video_cache_store is not None:
-            routes['video_cache'] = {
+            handlers.update(database_routes.VIDEO_CACHE.bind({
                 'iterate_file': self._handle_iterate_file,
                 'get_webpage_url_item': self._handle_get_webpage_url_item,
                 'remove_video_cache': self._handle_remove_video_cache,
                 'ready_remove': self._handle_ready_remove,
                 'get_deletable_entries': self._handle_get_deletable_entries,
                 'get_cache_count': self._handle_get_cache_count,
-            }
-        for group, handlers in routes.items():
-            for name, handler in handlers.items():
-                app.router.add_post(f'{ROUTE_PREFIX}/{group}/{name}', handler)
+            }))
+            served.append(database_routes.VIDEO_CACHE.name)
+        self.register_seam_routes(app, handlers)
         logger.info('database server serving route groups: %s',
-                    ', '.join(sorted(routes)) or 'none')
+                    ', '.join(sorted(served)) or 'none')
         self.add_contract_route(app)
         return app
 
