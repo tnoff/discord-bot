@@ -211,12 +211,23 @@ spec:
   owner: group:default/admin
   system: discord
 ---
-# No inbound dependsOn, and that is accurate rather than missing. The writer is
-# the CronJob in docker-apps apps/discord/backup-cronjob.yaml, running the
-# database-backup image -- a repo catalogued as a `library` precisely because it
-# owns no workload of its own. No tier here reads this bucket, and an edge from
-# discord-postgres would claim the database needs its own backups in order to
-# run, which is backwards.
+# No inbound dependsOn -- but "missing" is the honest word, not "accurate".
+#
+# The writer is the CronJob in docker-apps apps/backstage/../apps/discord/
+# backup-cronjob.yaml: `discord-database-backup`, nightly at 11:00, running
+# iad.ocir.io/tnoff/database_backup. That CronJob has no entity, and by this
+# project's own taxonomy it should have one -- `service` covers "anything
+# docker-apps deploys, INCLUDING CronJobs, which are workloads that run, fail and
+# need an owner like any other".
+#
+# So the edge that belongs here is discord-database-backup -> this bucket, and it
+# has to be declared in docker-apps where that CronJob is defined. Until then this
+# Resource is a leaf. What would NOT be right is an edge from discord-postgres:
+# that would claim the database needs its own backups in order to run.
+#
+# (An earlier draft of this comment called database-backup a `library` that owns
+# no workload. Both halves are wrong: its descriptor is spec.type: service and
+# says "Deployed, but as scheduled Jobs rather than a Deployment".)
 apiVersion: backstage.io/v1alpha1
 kind: Resource
 metadata:
