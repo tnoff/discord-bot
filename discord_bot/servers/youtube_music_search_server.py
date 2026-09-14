@@ -17,6 +17,8 @@ from typing import ClassVar
 
 from discord_bot.servers.queue_worker_server import QueueWorkerHttpServer
 from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
+from discord_bot.routes import queue_worker as queue_worker_routes
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class YoutubeMusicSearchHttpServer(QueueWorkerHttpServer):
     two different things — a cog loop and a pod's HTTP listener — on one series.
     '''
 
-    ROUTE_PREFIX: ClassVar[str] = '/search/ytmusic'
+    ROUTES: ClassVar[QueueWorkerRoutes] = queue_worker_routes.YTMUSIC
     SPAN_PREFIX: ClassVar[str] = 'youtube_music_search'
     HEARTBEAT_JOB: ClassVar[str] = 'youtube_music_search_server'
     HEARTBEAT_DESCRIPTION: ClassVar[str] = 'Youtube music search HTTP server heartbeat'

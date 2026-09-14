@@ -18,6 +18,8 @@ from discord_bot.interfaces.youtube_music_search_protocols import (
     YoutubeMusicSearchClient, YoutubeMusicSearchWorkerBase,
 )
 from discord_bot.types.media_request import MediaRequest
+from discord_bot.routes import queue_worker as queue_worker_routes
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 
 __all__ = [
     'YoutubeMusicSearchClient',
@@ -85,5 +87,5 @@ class HttpYoutubeMusicSearchClient(HttpQueueWorkerClient):
     not a runtime fallback, so they are absent rather than raising stubs.
     '''
 
-    ROUTE_PREFIX: ClassVar[str] = '/search/ytmusic'
+    ROUTES: ClassVar[QueueWorkerRoutes] = queue_worker_routes.YTMUSIC
     SPAN_PREFIX: ClassVar[str] = 'youtube_music_search'

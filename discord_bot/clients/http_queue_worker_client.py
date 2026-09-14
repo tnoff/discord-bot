@@ -30,6 +30,7 @@ from aiohttp import ClientResponseError
 from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
@@ -69,9 +70,14 @@ class HttpQueueWorkerClient(HttpClientMixin):
     so it can't read the shared Redis queue/backoff state directly.
     '''
 
-    # Route prefix ('/downloads', '/search/ytmusic') and otel span prefix
-    # ('downloader', 'youtube_music_search') — set by the subclass.
-    ROUTE_PREFIX: ClassVar[str]
+    # The seam's route group for this client's peer, set by the subclass to one of
+    # routes/queue_worker.py's groups -- the SAME object the matching server
+    # subclass uses, which is the whole point. ROUTE_PREFIX is derived from it;
+    # it used to be a bare literal here and an identical one on the server.
+    ROUTES: ClassVar[QueueWorkerRoutes]
+    #: For HttpClientMixin.start_seam_check.
+    SEAM = 'queue_worker'
+    # otel span prefix ('downloader', 'youtube_music_search') — set by the subclass.
     SPAN_PREFIX: ClassVar[str]
 
     POLL_INTERVAL_SECONDS: ClassVar[float] = 1.0
@@ -98,9 +104,24 @@ class HttpQueueWorkerClient(HttpClientMixin):
         self._poller_task: asyncio.Task | None = None
         self._poller_stop: asyncio.Event = asyncio.Event()
 
-    @property
-    def _submit_url(self) -> str:
-        return f'{self._base_url}{self.ROUTE_PREFIX}'
+    def __init_subclass__(cls, **kwargs):
+        """Derive ROUTE_PREFIX from ROUTES on every subclass.
+
+        A real class attribute rather than a property, because ROUTE_PREFIX was a
+        ClassVar and callers (including tests) read it off the CLASS. Deriving it
+        here keeps that working while leaving exactly one definition of the
+        prefix -- the registry group -- instead of the two matching literals that
+        used to sit on the server subclass and its client.
+        """
+        super().__init_subclass__(**kwargs)
+        routes = getattr(cls, 'ROUTES', None)
+        if routes is not None:
+            cls.ROUTE_PREFIX = routes.prefix
+            # This peer's group only, never both. A downloader client that declared
+            # all eight routes would have its subset check demand /search/ytmusic
+            # of the downloader pod, which correctly does not serve it -- turning a
+            # healthy peer into a permanent breach.
+            cls.ROUTES_CALLED = routes.all
 
     @staticmethod
     def _build_submit_body(guild_id: int, media_request: MediaRequest,
@@ -125,7 +146,7 @@ class HttpQueueWorkerClient(HttpClientMixin):
         rejection: Exception | None = None
         async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', kind=SpanKind.CLIENT) as span:
             try:
-                await self._http('POST', self._submit_url,
+                await self._call_route(self.ROUTES.submit,
                                  self._build_submit_body(guild_id, media_request, priority))
             except ClientResponseError as exc:
                 rejection_type = SUBMIT_REJECTION_BY_STATUS.get(exc.status)
@@ -142,7 +163,7 @@ class HttpQueueWorkerClient(HttpClientMixin):
     async def block_guild(self, guild_id: int) -> bool:
         '''POST {prefix}/block — refuse subsequent submits for this guild.'''
         async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.block', kind=SpanKind.CLIENT):
-            await self._http('POST', f'{self._submit_url}/block', {'guild_id': guild_id})
+            await self._call_route(self.ROUTES.block, {'guild_id': guild_id})
         return True
 
     async def clear_guild_queue(self, guild_id: int,
@@ -160,7 +181,7 @@ class HttpQueueWorkerClient(HttpClientMixin):
         '''
         body = {'guild_id': guild_id, 'preserve_playlist_adds': preserve_predicate is not None}
         async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.clear', kind=SpanKind.CLIENT):
-            resp = await self._http('POST', f'{self._submit_url}/clear', body)
+            resp = await self._call_route(self.ROUTES.clear, body)
         resp = resp or {}
         return ClearGuildResult(
             dropped=[parse_media_request(item) for item in resp.get('dropped', [])],
@@ -221,7 +242,7 @@ class HttpQueueWorkerClient(HttpClientMixin):
         suppress_instrumentation() would not touch it.'''
         try:
             status = await asyncio.wait_for(
-                self._http('GET', f'{self._submit_url}/status',
+                self._http(self.ROUTES.status.method, self._route_url(self.ROUTES.status),
                            traced=self._trace_status_poll),
                 timeout=self.STATUS_REQUEST_TIMEOUT_SECONDS)
         except Exception as exc:

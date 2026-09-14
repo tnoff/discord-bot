@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.146] - 2026-09-14
+
+### Changed
+
+- The database, dispatch, queue-worker and media-search pod-to-pod routes now come from shared registries like the broker's, so all five seams define each route once and a route present on only one side is a test failure rather than a production 404.
+
 ## [2.5.145] - 2026-09-10
 
 ### Changed

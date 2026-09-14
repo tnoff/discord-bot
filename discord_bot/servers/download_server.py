@@ -14,6 +14,8 @@ from typing import ClassVar
 
 from discord_bot.servers.queue_worker_server import QueueWorkerHttpServer
 from discord_bot.workers.redis_download_worker import RedisDownloadWorker
+from discord_bot.routes import queue_worker as queue_worker_routes
+from discord_bot.routes.queue_worker import QueueWorkerRoutes
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class DownloadHttpServer(QueueWorkerHttpServer):
         GET  /downloads/status   queue_size + failure_summary + backoff snapshot
     '''
 
-    ROUTE_PREFIX: ClassVar[str] = '/downloads'
+    ROUTES: ClassVar[QueueWorkerRoutes] = queue_worker_routes.DOWNLOADS
     SPAN_PREFIX: ClassVar[str] = 'downloader'
     # RENAMED from 'downloader' (this MR).  This gauge reports is_serving — the
     # TCP site is up — not that the download loop is turning, and the bare name

@@ -33,6 +33,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.exceptions import MediaSearchError
 from discord_bot.interfaces.media_search_protocols import MediaSearchClient
+from discord_bot.routes import media_search as media_search_routes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.media_search import MediaSearchErrorBody, MediaSearchResponse
 from discord_bot.utils.otel import otel_span_wrapper
@@ -40,7 +41,8 @@ from discord_bot.utils.otel import otel_span_wrapper
 logger = logging.getLogger(__name__)
 
 SPAN_PREFIX = 'media_search'
-ROUTE_PREFIX = '/search'
+# Single definition lives in the registry; see routes/media_search.py.
+ROUTE_PREFIX = media_search_routes.ROUTE_PREFIX
 DEFAULT_PORT = 8084
 
 SPOTIFY_ID_FIELDS = ('playlist_id', 'album_id', 'track_id')
@@ -65,8 +67,10 @@ class MediaSearchHttpServer(AiohttpServerBase):
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''
         app = web.Application(middlewares=[self._get_drain_middleware()])
-        app.router.add_post(f'{ROUTE_PREFIX}/spotify', self._handle_spotify)
-        app.router.add_post(f'{ROUTE_PREFIX}/youtube', self._handle_youtube)
+        self.register_seam_routes(app, {
+            media_search_routes.SPOTIFY: self._handle_spotify,
+            media_search_routes.YOUTUBE: self._handle_youtube,
+        })
         self.add_contract_route(app)
         return app
 
