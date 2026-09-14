@@ -1,1 +1,0 @@
-The database, dispatch, queue-worker and media-search pod-to-pod routes now come from shared registries like the broker's, so all five seams define each route once and a route present on only one side is a test failure rather than a production 404.
