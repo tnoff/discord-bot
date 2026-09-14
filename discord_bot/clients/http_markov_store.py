@@ -28,6 +28,7 @@ from typing import List
 from discord_bot.clients.http_store_base import HttpStoreBase
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.utils.otel import DiscordContextNaming
+from discord_bot.routes import database as database_routes
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class HttpMarkovStore(HttpStoreBase):
     '''Forwards the markov store's nine calls to a remote db pod.'''
 
     SPAN_PREFIX = 'markov_store'
-    ROUTE_PREFIX = '/database/markov'
+    GROUP = database_routes.MARKOV
 
     async def _channel_call(self, route: str, guild_id: int, channel_id: int):
         '''

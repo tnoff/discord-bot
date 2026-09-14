@@ -330,11 +330,19 @@ def test_routes_sit_under_a_per_provider_segment():
     assert YoutubeMusicSearchHttpServer.ROUTE_PREFIX == '/search/ytmusic'
 
 
-def test_client_and_server_agree_on_the_route_prefix():
+def test_client_and_server_share_one_route_group():
     '''The two halves are deployed as separate pods, so a prefix that drifts between
-    them is a silent 404 across a version skew, not a test failure.'''
-    assert (HttpYoutubeMusicSearchClient.ROUTE_PREFIX
-            == YoutubeMusicSearchHttpServer.ROUTE_PREFIX)
+    them is a silent 404 across a version skew, not a test failure.
+
+    Asserts the two read the SAME registry group object, not merely that their
+    prefixes are equal. Since both now derive ROUTE_PREFIX from ROUTES, comparing
+    the prefixes would be tautological -- it would pass by construction and read
+    as coverage while checking nothing. Identity is the property that actually
+    holds the seam together, and it fails if either side is repointed.
+    '''
+    assert HttpYoutubeMusicSearchClient.ROUTES is YoutubeMusicSearchHttpServer.ROUTES
+    assert (HttpYoutubeMusicSearchClient.ROUTES.prefix
+            == YoutubeMusicSearchHttpServer.ROUTE_PREFIX == '/search/ytmusic')
 
 
 def test_default_port_is_8084():

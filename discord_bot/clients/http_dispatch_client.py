@@ -9,6 +9,8 @@ from discord_bot.types.dispatch_request import (
     DeleteRequest,
     SendRequest,
 )
+from discord_bot.routes import dispatch as dispatch_routes
+from discord_bot.routes.route import Route
 from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.utils.dispatch_queue import dispatch_request_id
@@ -53,10 +55,16 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     is available, then deliver it to the registered cog result queue.
     '''
 
-    def __init__(self, base_url: str, session: aiohttp.ClientSession | None = None):
+    #: The seam this client speaks, for HttpClientMixin.start_seam_check.
+    SEAM = 'dispatch'
+    ROUTES_CALLED = dispatch_routes.ALL
+
+    def __init__(self, base_url: str, session: aiohttp.ClientSession | None = None,
+                 seam_contract=None):
         self._base_url = base_url.rstrip('/')
         self._session = session
         self._cog_queues: dict[str, asyncio.Queue] = {}
+        self._seam_contract_config = seam_contract
 
     async def start(self) -> None:
         '''No-op — no background poller needed (polling happens per-request).'''
@@ -69,14 +77,14 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     # ------------------------------------------------------------------
 
     def _handle_send(self, request: SendRequest) -> None:
-        asyncio.create_task(self._post('/dispatch/send', {
+        asyncio.create_task(self._post(dispatch_routes.SEND, {
             'guild_id': request.guild_id, 'channel_id': request.channel_id,
             'content': request.content, 'delete_after': request.delete_after,
             'span_context': request.span_context,
         }))
 
     def _handle_delete(self, request: DeleteRequest) -> None:
-        asyncio.create_task(self._post('/dispatch/delete', {
+        asyncio.create_task(self._post(dispatch_routes.DELETE, {
             'guild_id': request.guild_id, 'channel_id': request.channel_id,
             'message_id': request.message_id, 'span_context': request.span_context,
         }))
@@ -94,7 +102,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         req_id = dispatch_request_id({'key': key, 'guild_id': guild_id, 't': str(asyncio.get_running_loop().time())})
         trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, req_id)
         logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, req_id)
-        asyncio.create_task(self._post('/dispatch/update_mutable', {
+        asyncio.create_task(self._post(dispatch_routes.UPDATE_MUTABLE, {
             'key': key, 'guild_id': guild_id, 'content': content,
             'channel_id': channel_id, 'sticky': sticky, 'delete_after': delete_after,
         }))
@@ -103,11 +111,11 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     def remove_mutable(self, key: str):
         '''Fire-and-forget: POST /dispatch/remove_mutable.'''
         logger.debug('remove_mutable: key=%s', key)
-        asyncio.create_task(self._post('/dispatch/remove_mutable', {'key': key}))
+        asyncio.create_task(self._post(dispatch_routes.REMOVE_MUTABLE, {'key': key}))
 
     def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int):
         '''Fire-and-forget: POST /dispatch/update_mutable_channel.'''
-        asyncio.create_task(self._post('/dispatch/update_mutable_channel', {
+        asyncio.create_task(self._post(dispatch_routes.UPDATE_MUTABLE_CHANNEL, {
             'key': key, 'guild_id': guild_id, 'new_channel_id': new_channel_id,
         }))
 
@@ -115,7 +123,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
                      delete_after: int | None = None, allow_404: bool = False,
                      span_context: dict | None = None):
         '''Fire-and-forget: POST /dispatch/send.'''
-        asyncio.create_task(self._post('/dispatch/send', {
+        asyncio.create_task(self._post(dispatch_routes.SEND, {
             'guild_id': guild_id, 'channel_id': channel_id, 'content': content,
             'delete_after': delete_after, 'allow_404': allow_404, 'span_context': span_context,
         }))
@@ -123,7 +131,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     def delete_message(self, guild_id: int, channel_id: int, message_id: int,
                        span_context: dict | None = None):
         '''Fire-and-forget: POST /dispatch/delete.'''
-        asyncio.create_task(self._post('/dispatch/delete', {
+        asyncio.create_task(self._post(dispatch_routes.DELETE, {
             'guild_id': guild_id, 'channel_id': channel_id,
             'message_id': message_id, 'span_context': span_context,
         }))
@@ -133,14 +141,14 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     # ------------------------------------------------------------------
 
     async def _do_fetch_history(self, params: dict) -> dict:
-        request_id = await self._submit_fetch('/dispatch/fetch_history', params)
+        request_id = await self._submit_fetch(dispatch_routes.FETCH_HISTORY, params)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
             raise DispatchRemoteError.from_payload(payload)
         return payload
 
     async def _do_fetch_emojis(self, params: dict) -> dict:
-        request_id = await self._submit_fetch('/dispatch/fetch_emojis', params)
+        request_id = await self._submit_fetch(dispatch_routes.FETCH_EMOJIS, params)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
             raise DispatchRemoteError.from_payload(payload)
@@ -150,12 +158,18 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     # HTTP helpers
     # ------------------------------------------------------------------
 
-    async def _post(self, path: str, body: dict) -> None:
-        '''POST *body* to *path* with retry+breaker; logs and swallows errors so callers are fire-and-forget.'''
+    async def _post(self, route: Route, body: dict) -> None:
+        '''POST *body* on *route* with retry+breaker; logs and swallows errors so callers are fire-and-forget.
+
+        The `path` metric label stays the route TEMPLATE, which is byte-identical
+        to the literal it replaced -- these routes take no path parameters -- so
+        no existing series is orphaned.
+        '''
+        path = route.template
         session = self._get_session()
         async def _call():
             async with session.post(
-                f'{self._base_url}{path}',
+                self._route_url(route),
                 headers=self._trace_headers(),
                 json=body,
             ) as resp:
@@ -170,12 +184,13 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': path})
             logger.error('HttpDispatchClient :: POST %s failed: %s', path, exc)
 
-    async def _submit_fetch(self, path: str, params: dict) -> str:
-        '''POST *params* to *path* and return the request_id from the 202 response.'''
+    async def _submit_fetch(self, route: Route, params: dict) -> str:
+        '''POST *params* on *route* and return the request_id from the 202 response.'''
+        path = route.template
         session = self._get_session()
         async def _call():
             async with session.post(
-                f'{self._base_url}{path}',
+                self._route_url(route),
                 headers=self._trace_headers(),
                 json=params,
             ) as resp:
@@ -200,13 +215,17 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         while True:
             async def _call():
                 async with session.get(
-                    f'{self._base_url}/dispatch/results/{request_id}',
+                    self._route_url(dispatch_routes.GET_RESULT, request_id=request_id),
                     headers=self._trace_headers(),
                 ) as resp:
                     resp.raise_for_status()
                     return resp.status, await resp.json()
             try:
                 status, data = await _BREAKER.call(lambda: async_retry_broker_command(_call))
+            # These four keep the bare '/dispatch/results' label rather than the
+            # route template. The template carries {request_id}, so switching to it
+            # would change an existing series' label value and orphan the old one
+            # for no gain -- the URL comes from the registry either way.
             except CircuitBreakerOpenError:
                 _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': '/dispatch/results'})
                 raise

@@ -41,6 +41,22 @@ class AiohttpServerBase:
             raise web.HTTPUnprocessableEntity() from exc
         return ctx, body
 
+    def register_seam_routes(self, app: web.Application, handlers: dict) -> None:
+        """Register one seam registry's routes onto `app` from a route->handler map.
+
+        Shared rather than repeated per server: the same six lines in two
+        build_app()s already tripped R0801, and there are five seams to convert.
+
+        GET goes through add_get, which registers HEAD alongside it. add_route does
+        not, and these GET routes answered HEAD before the registries landed -- so
+        using add_route uniformly would silently narrow what every server answers.
+        """
+        for route, handler in handlers.items():
+            if route.method == 'GET':
+                app.router.add_get(route.template, handler)
+            else:
+                app.router.add_route(route.method, route.template, handler)
+
     def add_contract_route(self, app: web.Application) -> None:
         """Register the route-contract endpoint on `app`.
 

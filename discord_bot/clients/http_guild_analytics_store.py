@@ -28,6 +28,7 @@ import logging
 from discord_bot.clients.http_store_base import HttpStoreBase
 from discord_bot.types.guild_analytics import GuildAnalyticsEntry
 from discord_bot.utils.otel import DiscordContextNaming
+from discord_bot.routes import database as database_routes
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class HttpGuildAnalyticsStore(HttpStoreBase):
     '''Forwards get_analytics / record_play to a remote db pod.'''
 
     SPAN_PREFIX = 'guild_analytics_store'
-    ROUTE_PREFIX = '/database/guild_analytics'
+    GROUP = database_routes.GUILD_ANALYTICS
 
     async def get_analytics(self, guild_id: int) -> GuildAnalyticsEntry:
         '''
