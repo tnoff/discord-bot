@@ -18,7 +18,7 @@ permissions:
 jobs:
   secrets:
     name: Scan for secrets
-    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@2c7a6597fce4072fb2755f49742147e7482e6065
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
 
   # The suite has no sqlite fallback. tox.ini sets
   # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
@@ -33,7 +33,7 @@ jobs:
   # pre_commands with sudo (github-workflows#38).
   tox:
     name: Tox
-    uses: tnoff/github-workflows/.github/workflows/tox.yml@2c7a6597fce4072fb2755f49742147e7482e6065
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
       # ci-base-images base. Two tests shell out to it directly
@@ -108,7 +108,7 @@ jobs:
             dockerfile: docker/Dockerfile.search
           - image: db
             dockerfile: docker/Dockerfile.db
-    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@2c7a6597fce4072fb2755f49742147e7482e6065
+    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
@@ -117,7 +117,7 @@ jobs:
     if: startsWith(github.head_ref, 'renovate/dev-')
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@2c7a6597fce4072fb2755f49742147e7482e6065
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       bump_changelog: true
     secrets:
@@ -131,7 +131,7 @@ jobs:
   # left `Release` dead in nine repos for five days in September 2026.
   contracts:
     name: Workflow contracts
-    uses: tnoff/github-workflows/.github/workflows/check-workflow-contracts.yml@2740215791774b60db5cb6da23da260de2e6dfd8
+    uses: tnoff/github-workflows/.github/workflows/check-workflow-contracts.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
 
   result:
     name: CI result
