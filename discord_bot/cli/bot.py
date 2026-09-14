@@ -14,6 +14,7 @@ import click
 from discord.ext.commands import Bot
 
 from discord_bot.clients.database_stores import build_http_stores
+from discord_bot.clients.http_client_base import start_seam_checks
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.cogs.error import CommandErrorHandler
 from discord_bot.exceptions import DiscordBotException
@@ -50,6 +51,35 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
     run_loop(main_loop(bot, cog_list, require_discord_token(general_config), health_server=health_server))
 
 
+def register_seam_checks(bot: Bot, *clients) -> None:
+    """Start each client's peer route check once the gateway is up.
+
+    Registered with ``add_listener`` rather than ``@bot.event``: the decorator
+    REPLACES the handler bound to an event name, so a second ``on_ready``
+    decorated anywhere would silently unregister ``register_on_ready``'s
+    guild-rejectlist pass. Listeners are additive; the decorator is not.
+
+    ``on_ready`` rather than a one-shot task because it is the first async point
+    this process reaches, and the clients are built in a synchronous ``run()``.
+    A gateway reconnect re-fires it, which is harmless: ``SeamContractCheck.start``
+    is a no-op while its task is still live.
+
+    **Lives here rather than in cli/_lib/common.py, and that is load-bearing.**
+    common.py is imported by all six images; importing the seam-check machinery
+    there pulled ``clients/http_client_base`` into the dispatcher image, which
+    serves its seam and calls none — measured as +2 modules by
+    docs/image-dependencies.md. This function is bot-only, so it belongs in the
+    bot-only module. See http-seam-contract.md, acceptance criterion one.
+
+    Covers the clients this process owns directly — its dispatch client and
+    database stores. Clients a cog owns are started by that cog's ``cog_load``,
+    where it already builds them.
+    """
+    async def _on_ready_seam_checks():
+        start_seam_checks(*clients)
+    bot.add_listener(_on_ready_seam_checks, 'on_ready')
+
+
 def run(settings: dict, general_config: GeneralConfig):
     '''Entry point for the bot process.'''
     logger = setup_observability(general_config)
@@ -69,13 +99,20 @@ def run(settings: dict, general_config: GeneralConfig):
     if not database_http_url:
         raise DiscordBotException('database_http_url required for HA bot mode')
 
-    http_dispatcher = HttpDispatchClient(dispatch_http_url)
-    stores = build_http_stores(database_http_url)
+    http_dispatcher = HttpDispatchClient(dispatch_http_url,
+                                         seam_contract=general_config.seam_contract)
+    stores = build_http_stores(database_http_url,
+                               seam_contract=general_config.seam_contract)
     bot = build_bot(general_config)
     cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
     cog_list += load_cogs(bot, POSSIBLE_COGS, settings, stores, http_dispatcher)
 
     register_on_ready(bot, general_config, logger)
+    # The dispatch client and the three stores, which this process owns. The
+    # music cog starts its own (broker, downloader, ytmusic, media_search) from
+    # cog_load, where it builds them.
+    register_seam_checks(bot, http_dispatcher, stores.playlist, stores.markov,
+                         stores.guild_analytics)
     run_bot(general_config, bot, cog_list,
             health_server=setup_health_server(
                 bot, general_config,

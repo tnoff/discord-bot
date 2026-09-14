@@ -51,9 +51,11 @@ def _patch_run_deps(mocker, video_cache=None):
 
 def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     m = _patch_run_deps(mocker, video_cache='VC')
-    broker_cli.run(_settings(), _general_config(health_enabled=True))
+    general_config = _general_config(health_enabled=True)
+    broker_cli.run(_settings(), general_config)
     m['run_broker'].assert_called_once()
-    m['dispatch'].assert_called_once_with('http://disp')
+    m['dispatch'].assert_called_once_with(
+        'http://disp', seam_contract=general_config.seam_contract)
     m['health'].assert_called_once()
     # RedisBroker built with the config-derived retry limits + video_cache + bucket.
     kwargs = m['broker'].call_args.kwargs

@@ -41,13 +41,15 @@ ROUTE_PREFIX = media_search_routes.ROUTE_PREFIX
 class HttpMediaSearchClient(HttpClientMixin):
     '''Forwards spotify_source / youtube_source to a remote search pod.'''
 
-    def __init__(self, base_url: str, session=None):
+    def __init__(self, base_url: str, session=None, seam_contract=None):
         '''
         base_url : Root URL of the search pod, e.g. http://discord-search:8084
         session : Pre-built aiohttp session; the mixin makes one lazily otherwise
+        seam_contract : a SeamContractConfig enabling the peer route check
         '''
         self._base_url = base_url.rstrip('/')
         self._session = session
+        self._seam_contract_config = seam_contract
 
     #: The seam this client speaks, for HttpClientMixin.start_seam_check.
     SEAM = 'media_search'

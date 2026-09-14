@@ -4,6 +4,7 @@ import pytest
 from discord_bot.cli import broker as broker_cli
 from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_bot.cogs.music import MusicGeneralConfig
+from discord_bot.utils.common import SeamContractConfig
 
 
 def _settings(*, dispatch_http_url=None, bucket='media-bucket', music_general=None,
@@ -25,8 +26,12 @@ def _settings(*, dispatch_http_url=None, bucket='media-bucket', music_general=No
 
 class _GeneralConfig:
     '''Stand-in for GeneralConfig with the fields run() reads.'''
-    def __init__(self, *, monitoring=None):
+    def __init__(self, *, monitoring=None, seam_contract=None):
         self.monitoring = monitoring
+        # The real GeneralConfig always has this -- it carries defaults -- so the
+        # stub does too. Defaulting it to None here rather than omitting it keeps
+        # the stub honest about what run() reads.
+        self.seam_contract = seam_contract or SeamContractConfig()
 
 
 def _patch_collaborators(mocker):
@@ -54,7 +59,8 @@ def test_run_wires_dispatcher_when_configured(mocker):
 
     broker_cli.run(settings, _GeneralConfig())
 
-    mocks['HttpDispatchClient'].assert_called_once_with('http://dispatcher:8082')
+    mocks['HttpDispatchClient'].assert_called_once_with(
+        'http://dispatcher:8082', seam_contract=SeamContractConfig())
     _, broker_kwargs = mocks['RedisBroker'].call_args
     assert broker_kwargs['dispatcher'] is mocks['HttpDispatchClient'].return_value
 

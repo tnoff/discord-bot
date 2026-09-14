@@ -102,7 +102,6 @@ from discord_bot.utils.otel import otel_span_wrapper
 logger = logging.getLogger(__name__)
 
 SPAN_PREFIX = 'database'
-ROUTE_PREFIX = '/database'
 DEFAULT_PORT = 8085
 
 
