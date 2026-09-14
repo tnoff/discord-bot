@@ -36,9 +36,12 @@ kind: Component
 metadata:
   name: discord-bot
   description: >-
-    Hosts the cog logic -- music, markov, urban, delete_messages -- and owns no I/O of its
-    own any more. Every Discord API call goes to the dispatcher, and every other capability
-    is an HTTP call to the tier that holds it.
+    Hosts the cog logic -- music, markov, urban, delete_messages. Every Discord API call goes
+    to the dispatcher and every other capability is an HTTP call to the tier that holds it,
+    with one exception: the music player reads cached media out of object storage directly.
+    cogs/music.py passes download.storage.bucket_name into the broker client and
+    cogs/music_helpers/music_player.py calls get_file() with the bucket the checkout stamped
+    on its result, so this tier holds S3 credentials and a bucket name of its own.
   # Deployment label `tier: runner`
 spec:
   type: service
@@ -51,6 +54,7 @@ spec:
     - component:default/discord-dispatcher
     - component:default/discord-downloader
     - component:default/discord-search
+    - resource:default/discord-data-cache-bucket
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -85,6 +89,7 @@ spec:
   dependsOn:
     - component:default/discord-db
     - component:default/discord-dispatcher
+    - resource:default/discord-data-cache-bucket
     - resource:default/redis
 ---
 apiVersion: backstage.io/v1alpha1
@@ -103,6 +108,7 @@ spec:
   system: discord
   dependsOn:
     - component:default/discord-broker
+    - resource:default/discord-data-cache-bucket
     - resource:default/redis
 ---
 apiVersion: backstage.io/v1alpha1
@@ -172,5 +178,54 @@ metadata:
     and the pod CrashLoops.
 spec:
   type: queue
+  owner: group:default/admin
+  system: discord
+---
+# The two object-storage buckets, named individually rather than left implicit.
+# Transcribed from terraform oci/oci.tf, where they are literals:
+#
+#   module discord_data_cache  display_name "discord_data_cache"        no expiry
+#   module discord_database    display_name "discord_database_backups"  delete_after 14
+#
+# Both live in the `apps` compartment in us-sanjose-1. That region is worth
+# recording: the read-only OCI profile on the workstation is scoped to
+# us-ashburn-1, so these buckets 404 from there and the 404 looks exactly like
+# the bucket being gone. Contents are an operator measurement, not an inference
+# from an error code.
+#
+# There is deliberately NO entity for the `dev_discord_data` bucket. It is
+# development scaffolding with its own push bot and no deployed consumer in this
+# cluster, and the catalog is for what runs.
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: discord-data-cache-bucket
+  description: >-
+    The video cache: media objects checked out by the broker and replayed by the bot without
+    re-downloading. No lifecycle expiry, so it grows until something removes an object -- and
+    what is stored is the SIZED DOWNLOAD rather than decoded PCM, which is why measured
+    usage has run far over a cap set as though it were audio frames. discord-db owns the
+    CATALOG of what is in here; the objects themselves are this bucket.
+spec:
+  type: object-storage
+  owner: group:default/admin
+  system: discord
+---
+# No inbound dependsOn, and that is accurate rather than missing. The writer is
+# the CronJob in docker-apps apps/discord/backup-cronjob.yaml, running the
+# database-backup image -- a repo catalogued as a `library` precisely because it
+# owns no workload of its own. No tier here reads this bucket, and an edge from
+# discord-postgres would claim the database needs its own backups in order to
+# run, which is backwards.
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: discord-database-backups-bucket
+  description: >-
+    Nightly `pg_dump` of the `discord-pg` cluster, written by the discord-database-backup
+    CronJob. Objects are deleted after 14 days, so it holds two weeks of dumps and nothing
+    older.
+spec:
+  type: object-storage
   owner: group:default/admin
   system: discord
