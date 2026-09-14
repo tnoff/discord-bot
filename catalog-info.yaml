@@ -146,6 +146,48 @@ spec:
   dependsOn:
     - resource:default/discord-postgres
 ---
+# The nightly backup, declared here rather than in docker-apps where its CronJob
+# manifest lives.
+#
+# The manifest is apps/discord/backup-cronjob.yaml over there, and it runs an
+# image built by neither repo (iad.ocir.io/tnoff/database_backup). So no location
+# owns this workload outright, and "declare it where the YAML is" would split the
+# discord system across two files: the bucket it writes is HERE, and its only
+# writer would be somewhere else.
+#
+# The whole discord system in one descriptor is a property this file claims in its
+# own header, and it is the property that made the six-tier model legible. Entities
+# sit with the system they belong to; docker-apps' descriptor is the fallback for
+# things with no owning system, which is why the monitoring stack lives there and
+# backstage-database-backup does not live here.
+#
+# Known wrinkle, pre-existing rather than new: AnnotateScmSlugEntityProcessor
+# derives the slug from the location a file was fetched from, so this Component
+# gets github.com/project-slug: tnoff/discord-bot even though its manifest and its
+# image come from elsewhere. Already true of discord-postgres, redis and both
+# buckets below. Worth knowing before the Kubernetes or GitHub plugins are pointed
+# at these.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-database-backup
+  description: >-
+    Nightly `pg_dump` of discord-pg to object storage, 11:00 UTC, in the `discord`
+    namespace. Runs iad.ocir.io/tnoff/database_backup and connects as the `discord.discord`
+    role, carrying the `postgres-access: "true"` label the NetworkPolicy requires.
+  # Pinned at 233d7e8 while the backstage CronJob on the same image runs c46d8c2.
+  # Nothing holds the two together -- worth knowing before assuming a fix in one is
+  # live in both.
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/database-backup
+    - resource:default/discord-database-backups-bucket
+    - resource:default/discord-postgres
+---
 apiVersion: backstage.io/v1alpha1
 kind: Resource
 metadata:
@@ -211,23 +253,19 @@ spec:
   owner: group:default/admin
   system: discord
 ---
-# No inbound dependsOn -- but "missing" is the honest word, not "accurate".
+# Written by discord-database-backup above -- declared in this same file, which is
+# the point of putting it here rather than in docker-apps. The Resource and its
+# only writer are one edge in one location.
 #
-# The writer is the CronJob in docker-apps apps/backstage/../apps/discord/
-# backup-cronjob.yaml: `discord-database-backup`, nightly at 11:00, running
-# iad.ocir.io/tnoff/database_backup. That CronJob has no entity, and by this
-# project's own taxonomy it should have one -- `service` covers "anything
-# docker-apps deploys, INCLUDING CronJobs, which are workloads that run, fail and
-# need an owner like any other".
+# What would NOT be right is an edge from discord-postgres: that would claim the
+# database needs its own backups in order to run.
 #
-# So the edge that belongs here is discord-database-backup -> this bucket, and it
-# has to be declared in docker-apps where that CronJob is defined. Until then this
-# Resource is a leaf. What would NOT be right is an edge from discord-postgres:
-# that would claim the database needs its own backups in order to run.
-#
-# (An earlier draft of this comment called database-backup a `library` that owns
-# no workload. Both halves are wrong: its descriptor is spec.type: service and
-# says "Deployed, but as scheduled Jobs rather than a Deployment".)
+# (Two earlier drafts of this comment were wrong and are worth not repeating. The
+# first called database-backup a `library` that owns no workload when it was
+# spec.type: service -- it is `library` now, but only since database-backup#226,
+# and the reasoning was backwards either way. The second said this Resource had to
+# stay a leaf until docker-apps declared the CronJob. Neither the type nor the
+# location was settled at the time each was written.)
 apiVersion: backstage.io/v1alpha1
 kind: Resource
 metadata:
