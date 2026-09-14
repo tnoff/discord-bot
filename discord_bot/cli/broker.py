@@ -37,6 +37,7 @@ import signal
 
 import click
 
+from discord_bot.clients.http_client_base import start_seam_checks
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_bot.clients.redis_client import RedisManager
@@ -68,7 +69,7 @@ def main(config_file):
 
 
 def _build_video_cache(cache_cfg: dict, database_http_url: str | None,
-                       bucket_name: str | None):
+                       bucket_name: str | None, seam_contract=None):
     '''Construct an HttpVideoCacheStore if caching is enabled and a db pod + bucket exist.
 
     **max_cache_files, max_cache_size_mb and storage_type are deliberately not
@@ -95,13 +96,20 @@ def _build_video_cache(cache_cfg: dict, database_http_url: str | None,
             'general.database_http_url' if not database_http_url else 'music.storage.bucket_name',
         )
         return None
-    return HttpVideoCacheStore(database_http_url)
+    return HttpVideoCacheStore(database_http_url, seam_contract=seam_contract)
 
 
 async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-                    broker_metrics: BrokerMetrics, video_cache=None):
-    '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server, Redis and the db client.'''
+                    broker_metrics: BrokerMetrics, video_cache=None, seam_clients=()):
+    '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server, Redis and the db client.
+
+    seam_clients are this pod's outbound HTTP clients -- its dispatch client and
+    its video-cache store. Their route checks start here rather than at
+    construction because run() is synchronous, so there is no loop yet when they
+    are built.
+    '''
     await redis_manager.start()
+    start_seam_checks(*seam_clients)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -135,10 +143,10 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
 
 
 def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-               broker_metrics: BrokerMetrics, video_cache=None):
+               broker_metrics: BrokerMetrics, video_cache=None, seam_clients=()):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(broker_server, health_server, redis_manager, broker_metrics,
-                       video_cache=video_cache))
+                       video_cache=video_cache, seam_clients=seam_clients))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -155,11 +163,13 @@ def run(settings: dict, general_config: GeneralConfig):
 
     database_http_url = general_settings.get('database_http_url')
     video_cache = _build_video_cache(download_cfg.get('cache', {}), database_http_url,
-                                     bucket_name)
+                                     bucket_name,
+                                     seam_contract=general_config.seam_contract)
 
     dispatch_http_url = general_settings.get('dispatch_http_url')
     if dispatch_http_url:
-        dispatcher = HttpDispatchClient(dispatch_http_url)
+        dispatcher = HttpDispatchClient(dispatch_http_url,
+                                        seam_contract=general_config.seam_contract)
     else:
         # No dispatcher wired: the broker still tracks bundle state but every
         # request_bundle render / failure summary is silently dropped, so the
@@ -218,4 +228,4 @@ def run(settings: dict, general_config: GeneralConfig):
         )
 
     run_broker(broker_server, health_server, redis_manager, broker_metrics,
-               video_cache=video_cache)
+               video_cache=video_cache, seam_clients=(dispatcher, video_cache))

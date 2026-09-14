@@ -50,7 +50,7 @@ class DatabaseStores:
         return any((self.playlist, self.markov, self.guild_analytics))
 
 
-def build_http_stores(base_url: str) -> DatabaseStores:
+def build_http_stores(base_url: str, seam_contract=None) -> DatabaseStores:
     '''
     Build the three HTTP stores a bot process needs, all against one db pod.
 
@@ -58,10 +58,17 @@ def build_http_stores(base_url: str) -> DatabaseStores:
     its session lazily on first use, so three idle stores cost nothing, and the
     entrypoint closes each on shutdown.
 
+    Each store gets its own seam check for the same reason it gets its own
+    session: ROUTES_CALLED is derived per GROUP, so a markov store claims only
+    the markov routes. One check over the merged seam would demand all four
+    groups of a db pod configured with fewer -- which is a supported state, and
+    would turn it into a permanent breach.
+
     base_url : Root URL of the db pod, e.g. http://discord-db:8085
+    seam_contract : a SeamContractConfig enabling the peer route check
     '''
     return DatabaseStores(
-        playlist=HttpPlaylistStore(base_url),
-        markov=HttpMarkovStore(base_url),
-        guild_analytics=HttpGuildAnalyticsStore(base_url),
+        playlist=HttpPlaylistStore(base_url, seam_contract=seam_contract),
+        markov=HttpMarkovStore(base_url, seam_contract=seam_contract),
+        guild_analytics=HttpGuildAnalyticsStore(base_url, seam_contract=seam_contract),
     )

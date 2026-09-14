@@ -86,7 +86,8 @@ class HttpQueueWorkerClient(HttpClientMixin):
     # park one poll iteration for far longer than the poll interval.
     STATUS_REQUEST_TIMEOUT_SECONDS: ClassVar[float] = 10.0
 
-    def __init__(self, base_url: str, session=None, trace_status_poll: bool = False):
+    def __init__(self, base_url: str, session=None, trace_status_poll: bool = False,
+                 seam_contract=None):
         '''
         base_url : the worker pod's base URL.
         session : optional shared aiohttp session.
@@ -94,10 +95,12 @@ class HttpQueueWorkerClient(HttpClientMixin):
             which is the behaviour that shipped -- see _poll_status_loop_once for
             why it was turned off, and monitoring.tracing.trace_queue_worker_status_poll
             for the toggle that turns it back on without an image build.
+        seam_contract : a SeamContractConfig enabling the peer route check
         '''
         self._base_url = base_url.rstrip('/')
         self._session = session
         self._trace_status_poll = trace_status_poll
+        self._seam_contract_config = seam_contract
         self._cached_failure_summary: str = _DEFAULT_FAILURE_SUMMARY
         self._cached_backoff_seconds: int | None = None
         self._cached_queue_sizes: dict[int, int] = {}

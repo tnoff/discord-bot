@@ -31,6 +31,7 @@ from discord_bot.interfaces.download_client_protocol import (
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
 from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.clients.http_client_base import start_seam_checks
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
@@ -325,9 +326,13 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # CheckoutResult(s3_key=...), and the client stamps bucket_name onto it so
         # MusicPlayer knows where to fetch the file from S3.  Without it the player
         # falls through to open() the raw s3_key and 404s.
+        # Read once and shared by all four of this cog's HTTP clients: they speak
+        # four different seams but the grace window is a property of the roll, not
+        # of the seam, so one config drives them all.
+        seam_contract_config = seam_contract_from_settings(settings)
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name,
-            seam_contract=seam_contract_from_settings(settings))
+            seam_contract=seam_contract_config)
 
         # Source expansion runs in the search pod: the cog posts a Spotify or
         # YouTube-playlist id over HTTP and gets a CatalogResponse back, and never
@@ -339,8 +344,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # A provider failure still arrives as MediaSearchError, raised by the
         # remote client out of the pod's typed error body, so the rendering below
         # it does not know the difference.
-        self.search_client = SearchClient(
-            HttpMediaSearchClient(self.config.media_search_client.url))
+        # Kept as an attribute as well as wrapped: SearchClient is a Protocol
+        # consumer and does not expose the transport, but the seam check is a
+        # property of the HTTP client underneath it.
+        self.media_search_client = HttpMediaSearchClient(
+            self.config.media_search_client.url, seam_contract=seam_contract_config)
+        self.search_client = SearchClient(self.media_search_client)
         # Downloads run in the standalone downloader pod: the cog submits, clears
         # and blocks over HTTP and never builds an in-process worker or queue.
         # Results still return through the broker's download-result queue, which
@@ -353,14 +362,16 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         tracing_config = tracing_config_from_settings(self.settings)
         self.download_client: DownloadClient = HttpDownloadClient(
             self.config.download_client.url,
-            trace_status_poll=tracing_config.trace_queue_worker_status_poll)
+            trace_status_poll=tracing_config.trace_queue_worker_status_poll,
+            seam_contract=seam_contract_config)
         # The search loop runs in the standalone search pod; the cog submits,
         # clears and blocks over HTTP and never builds a worker, queue or driver.
         # Resolutions come back through the broker's search-result queue, which
         # process_search_results already consumes.
         self.youtube_music_search_client: YoutubeMusicSearchClient = HttpYoutubeMusicSearchClient(
             self.config.youtube_music_search_client.url,
-            trace_status_poll=tracing_config.trace_queue_worker_status_poll)
+            trace_status_poll=tracing_config.trace_queue_worker_status_poll,
+            seam_contract=seam_contract_config)
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
@@ -455,12 +466,20 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         When cog starts
         '''
-        # The bot is the client that broke twice on this seam: it depended on the
-        # broker's GET /search-results/next while a pre-MR2 broker was still the
+        # The bot is the client that broke twice on the broker seam: it depended on
+        # the broker's GET /search-results/next while a pre-MR2 broker was still the
         # Service's only ready endpoint. Started here rather than in __init__
         # because there is no running loop there, and it must never be able to
         # stop the cog from loading.
-        self.broker_client.start_seam_check()
+        #
+        # All four of this cog's seams, not just the broker: the download client
+        # speaks queue_worker to the downloader pod, the ytmusic client speaks the
+        # same seam to the search pod at a different prefix, and the media-search
+        # client speaks media_search to that same pod. Each claims only its own
+        # peer's routes, so the two queue_worker clients do not demand each
+        # other's prefix.
+        start_seam_checks(self.broker_client, self.download_client,
+                          self.youtube_music_search_client, self.media_search_client)
         self._cleanup_task = self.bot.loop.create_task(
             return_loop_runner(self.cleanup_players, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()
