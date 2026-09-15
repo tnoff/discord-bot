@@ -51,7 +51,7 @@ def test_seam_checks_bind_without_displacing_on_ready():
     async def on_ready():  # stands in for register_on_ready's handler
         return None
 
-    register_seam_checks(bot, None)
+    register_seam_checks(bot)
 
     assert bot.events == [on_ready], 'register_seam_checks displaced the existing on_ready'
     assert [name for name, _ in bot.listeners] == ['on_ready']
@@ -70,7 +70,7 @@ async def test_the_listener_defers_until_the_gateway_is_up():
     client = HttpBrokerClient('http://broker:8081',
                               seam_contract=SeamContractConfig(interval_seconds=60))
 
-    register_seam_checks(bot, client)
+    register_seam_checks(bot)
     assert client.seam_check is None, 'check started before the gateway was up'
 
     assert len(bot.listeners) == 1
@@ -94,7 +94,7 @@ async def test_a_gateway_reconnect_does_not_double_probe():
     bot = _RecordingBot()
     client = HttpBrokerClient('http://broker:8081',
                               seam_contract=SeamContractConfig(interval_seconds=60))
-    register_seam_checks(bot, client)
+    register_seam_checks(bot)
     assert len(bot.listeners) == 1
     _name, listener = bot.listeners[0]
 

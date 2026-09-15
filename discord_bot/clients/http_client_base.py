@@ -1,5 +1,6 @@
 '''Shared aiohttp session helpers used by HTTP client classes.'''
 import logging
+import weakref
 
 import aiohttp
 from opentelemetry.propagate import inject
@@ -25,20 +26,96 @@ _RESPONSE_INVALID_COUNTER = METER_PROVIDER.create_counter(
 )
 
 
-def start_seam_checks(*clients) -> None:
-    """Start the peer route check on every client given, skipping None.
+class SeamClientRegistry:
+    """Every client in this process that was built with a seam contract config.
 
-    Pods speak several seams at once, and each call is already individually a
-    no-op for a client with no registry or no config — so the alternative is a
-    run of near-identical guarded lines in every entrypoint, which is both the
-    thing R0801 catches and the shape a new seam gets forgotten in.
+    Enrolment is automatic -- see the _SeamContractConfig descriptor -- and that
+    is the whole design. This used to be an explicit argument list handed to
+    start_seam_checks, which meant every pod restated which of its clients to
+    check, and a client that was built but left off the list was checked by
+    nothing while looking entirely healthy. The bot's eight checks are wired in
+    TWO files (cli/bot.py and cogs/music.py), so it was the pod most exposed to
+    that, and the bot is where the 2026-09-15 regression showed up.
+
+    Holds WEAK references on purpose: a client is owned by the cog or entrypoint
+    that built it, never by this registry, and the suite constructs hundreds.
+    Enrolment must not be the thing keeping one alive.
+    """
+
+    def __init__(self):
+        self._clients = weakref.WeakSet()
+
+    def enroll(self, client) -> None:
+        """Record a client as needing its peer route check started."""
+        self._clients.add(client)
+
+    def withdraw(self, client) -> None:
+        """Drop a client so it is not started again. Safe if never enrolled."""
+        self._clients.discard(client)
+
+    @property
+    def clients(self) -> tuple:
+        """Everything currently enrolled, as a snapshot that is safe to iterate."""
+        return tuple(self._clients)
+
+    def reset(self) -> None:
+        """Forget every client. For tests; no caller in the app."""
+        self._clients.clear()
+
+
+#: Process-wide, like GAUGE_REGISTRY and for the same reason.
+SEAM_CLIENTS = SeamClientRegistry()
+
+
+class _SeamContractConfig:
+    """Descriptor enrolling a client the moment it is handed a seam config.
+
+    Hooks the ASSIGNMENT rather than a constructor because there is no shared
+    constructor to hook: HttpClientMixin is a mixin, and each of the five
+    concrete clients writes `self._seam_contract_config = seam_contract` in its
+    own __init__. Those five lines are untouched -- they now enrol as a side
+    effect, so a new client enrols by doing the thing it already had to do, and
+    there is no additional step for anyone to forget.
+
+    "Was given a config" is exactly the right condition rather than a proxy for
+    it: start_seam_check is already a no-op without one, so this enrols
+    precisely the set that could ever have been started.
+    """
+
+    #: Instance-dict key. A data descriptor takes precedence over the instance
+    #: dict, so the attribute name itself would be safe to reuse; a distinct key
+    #: makes it obvious at a glance that reads come through here.
+    SLOT = '_seam_contract_config_value'
+
+    def __get__(self, client, owner=None):
+        if client is None:
+            return None
+        return client.__dict__.get(self.SLOT)
+
+    def __set__(self, client, config):
+        client.__dict__[self.SLOT] = config
+        if config is not None:
+            SEAM_CLIENTS.enroll(client)
+
+
+def start_seam_checks() -> None:
+    """Start the peer route check on every client this process built.
+
+    **Takes no arguments, and that is the point.** What this replaces is a
+    client that exists, speaks a seam, and was simply left off a list -- a
+    failure invisible at runtime, because a check that never started looks
+    exactly like one that is passing. There is no longer a list to get wrong.
+
+    Safe to call repeatedly and from more than one place: SeamContractCheck.start
+    is a no-op while its task is live. The bot calls it from both cog_load and
+    on_ready for that reason -- whichever runs first covers the clients built by
+    then, and the later call picks up anything built after.
 
     Call from an async context; see HttpClientMixin.start_seam_check for why
     construction is the wrong place.
     """
-    for client in clients:
-        if client is not None:
-            client.start_seam_check()
+    for client in SEAM_CLIENTS.clients:
+        client.start_seam_check()
 
 
 class HttpClientMixin:
@@ -58,15 +135,20 @@ class HttpClientMixin:
     #: Captured at construction, which is synchronous; the probe task is
     #: started later from an async context. Splitting it this way is what
     #: keeps the wiring off the pod's startup path — see start_seam_check.
-    _seam_contract_config = None
+    #:
+    #: A DESCRIPTOR, not a plain default: assigning it enrols the client with
+    #: SEAM_CLIENTS, so start_seam_checks needs no argument list and a client
+    #: cannot be built and then left unchecked. Concrete clients assign it
+    #: exactly as before and need to know nothing about this.
+    _seam_contract_config = _SeamContractConfig()
 
     @property
     def seam_check(self) -> SeamContractCheck | None:
         """This client's live route check, or None if none was started.
 
-        Read-only, and public so a caller that started several clients through
-        start_seam_checks can see which ones actually took -- start_seam_check
-        returns the check, but the fan-out helper deliberately returns nothing.
+        Read-only, and public so a caller that ran start_seam_checks can see
+        which clients actually took -- start_seam_check returns the check, but
+        the fan-out helper deliberately returns nothing.
         """
         return self._seam_check
 
@@ -83,6 +165,7 @@ class HttpClientMixin:
         been closed raises RuntimeError, and while SeamContractCheck survives
         that, not causing it is better than tolerating it.
         """
+        SEAM_CLIENTS.withdraw(self)
         if self._seam_check is not None:
             await self._seam_check.stop()
             self._seam_check = None

@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from discord_bot.database import BASE
+from discord_bot.clients.http_client_base import SEAM_CLIENTS
 from discord_bot.utils.loop_health import LOOP_HEALTH
 
 _TEST_DB_NAME = 'discord_bot_test'
@@ -129,3 +130,17 @@ def reset_loop_health():
     LOOP_HEALTH.reset()
     yield
     LOOP_HEALTH.reset()
+
+
+@pytest.fixture(autouse=True)
+def reset_seam_clients():
+    '''Clear the process-global seam-client registry between tests.
+
+    Same shape as LOOP_HEALTH above, and newly load-bearing: clients now enrol
+    themselves the moment they are given a seam contract config, so without this
+    a client built by one test is still enrolled for the next, and a later
+    start_seam_checks() walks every client the suite has ever constructed.
+    '''
+    SEAM_CLIENTS.reset()
+    yield
+    SEAM_CLIENTS.reset()

@@ -19,6 +19,7 @@ import logging
 from functools import partial
 from typing import Awaitable, Callable, Iterable
 
+from discord_bot.clients.http_client_base import start_seam_checks
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
@@ -169,11 +170,12 @@ async def worker_pod_main_loop(http_server, health_server, redis_manager: RedisM
         if removed:
             logger.warning('Main :: %s cleared %s stale guild block(s) with no expiry',
                            pod_label, removed)
-    if broker_client is not None:
-        # Started here rather than at construction: run() is synchronous, so
-        # there is no loop yet when the client is built. A no-op unless the pod
-        # was given a seam_contract config, and it cannot fail the startup path.
-        broker_client.start_seam_check()
+    # Started here rather than at construction: run() is synchronous, so there
+    # is no loop yet when the clients are built. Takes no argument -- the broker
+    # client, and anything else this pod builds with a seam contract config,
+    # enrolled itself. A no-op for a pod given no config, and it cannot fail the
+    # startup path.
+    start_seam_checks()
     with shutdown_event_signals() as stop_event:
         try:
             if health_server:
