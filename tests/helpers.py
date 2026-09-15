@@ -554,6 +554,16 @@ def fake_bot_yielder(start_sleep: int = 0, user: Optional[Any] = None, guilds: O
         def event(self, func: Callable) -> None:
             self.startup_functions.append(func)
 
+        def add_listener(self, func: Callable, _name: Optional[str] = None) -> None:
+            '''Additive counterpart to event().
+
+            Modelled as the same list because both end up awaited on startup
+            here. The distinction that matters on the real Bot is that event()
+            REPLACES the handler bound to a name and add_listener does not,
+            which is why cli/bot.register_seam_checks uses this one.
+            '''
+            self.startup_functions.append(func)
+
         def get_cog(self, name: str) -> Optional[Any]:
             if name == 'MessageDispatcher':
                 return FakeMessageDispatcher(self)

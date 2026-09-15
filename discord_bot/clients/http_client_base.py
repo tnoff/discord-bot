@@ -8,6 +8,22 @@ from discord_bot.utils.otel import METER_PROVIDER
 from discord_bot.utils.retry import async_retry_broker_command
 
 
+def start_seam_checks(*clients) -> None:
+    """Start the peer route check on every client given, skipping None.
+
+    Pods speak several seams at once, and each call is already individually a
+    no-op for a client with no registry or no config — so the alternative is a
+    run of near-identical guarded lines in every entrypoint, which is both the
+    thing R0801 catches and the shape a new seam gets forgotten in.
+
+    Call from an async context; see HttpClientMixin.start_seam_check for why
+    construction is the wrong place.
+    """
+    for client in clients:
+        if client is not None:
+            client.start_seam_check()
+
+
 class HttpClientMixin:
     '''Mixin providing lazy aiohttp session management and trace header injection.'''
     _session: aiohttp.ClientSession | None = None
@@ -26,6 +42,16 @@ class HttpClientMixin:
     #: started later from an async context. Splitting it this way is what
     #: keeps the wiring off the pod's startup path — see start_seam_check.
     _seam_contract_config = None
+
+    @property
+    def seam_check(self) -> SeamContractCheck | None:
+        """This client's live route check, or None if none was started.
+
+        Read-only, and public so a caller that started several clients through
+        start_seam_checks can see which ones actually took -- start_seam_check
+        returns the check, but the fan-out helper deliberately returns nothing.
+        """
+        return self._seam_check
 
     def _get_session(self) -> aiohttp.ClientSession:
         '''Return the shared session, creating it lazily on first use.'''

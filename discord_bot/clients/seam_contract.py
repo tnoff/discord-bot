@@ -99,6 +99,16 @@ class SeamContractCheck:
         self._task: asyncio.Future | None = None
 
     @property
+    def seam(self) -> str:
+        '''The seam this check speaks, as the gauge labels it.
+
+        Read-only and public for the same reason as probe_task: a caller wiring
+        several clients at once needs to tell which check belongs to which seam
+        without reaching into the object.
+        '''
+        return self._seam
+
+    @property
     def status(self) -> PeerContractStatus | None:
         '''Last probe outcome, or None before the first definite answer.'''
         return self._status
