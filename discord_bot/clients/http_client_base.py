@@ -94,7 +94,11 @@ class HttpClientMixin:
         if self._seam_check is None:
             self._seam_check = SeamContractCheck(
                 self.SEAM, self._base_url, self.ROUTES_CALLED, self._get_session,
-                grace_seconds=self._seam_contract_config.grace_seconds)
+                grace_seconds=self._seam_contract_config.grace_seconds,
+                # Labels WHICH client on the seam. Read off the class because the
+                # database stores and the two queue-worker clients derive it in
+                # __init_subclass__; '' for the broker, which has no prefix.
+                prefix=getattr(self, 'ROUTE_PREFIX', '') or '')
             self._seam_check.register_gauge(meter_provider)
         self._seam_check.start(self._seam_contract_config.interval_seconds)
         return self._seam_check
