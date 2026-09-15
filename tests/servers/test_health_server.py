@@ -238,7 +238,7 @@ class TestDispatchHealthServerAsync:
         fake_redis = fakeredis.aioredis.FakeRedis(protocol=2)
         hs = DispatchHealthServer(RedisManager.from_client(fake_redis), port=18090)
         task = asyncio.create_task(hs.serve())
-        await asyncio.sleep(0.05)
+        await _wait_for_port(18090)
         try:
             response = await _raw_request(18090)
             assert '200 OK' in response
@@ -256,7 +256,7 @@ class TestDispatchHealthServerAsync:
         fake_redis.ping = AsyncMock(side_effect=ConnectionError('redis down'))
         hs = DispatchHealthServer(RedisManager.from_client(fake_redis), port=18091)
         task = asyncio.create_task(hs.serve())
-        await asyncio.sleep(0.05)
+        await _wait_for_port(18091)
         try:
             response = await _raw_request(18091)
             assert '503' in response
