@@ -65,7 +65,7 @@ class HttpMediaSearchClient(HttpClientMixin):
         `except MediaSearchError` working identically on both sides of the split.
         '''
         payload = await self._call_route(route, body)
-        response = MediaSearchResponse.model_validate(payload)
+        response = self._validate(MediaSearchResponse, payload)
         if response.error is not None:
             raise response.error.to_exception()
         return response.catalog

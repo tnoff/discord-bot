@@ -111,3 +111,43 @@ class DatabaseUnavailable(Exception):
     def __init__(self, detail: str):
         self.detail = detail
         super().__init__(f'database tier unavailable: {detail}')
+
+
+class SeamResponseInvalid(Exception):
+    '''
+    A peer answered on a seam, and this build could not parse what it sent.
+
+    The counterpart to the route check in clients/seam_contract. That check asks
+    "does my peer still serve the routes I call" and is **predictive** -- it
+    fires before any traffic, because the 2026-07-31 incident was a 404 on first
+    use killing a consumer permanently. This one is **reactive** by necessity:
+    a route that exists but whose body has gained a required field cannot be
+    seen by a route-set comparison, only by trying to parse a real response.
+
+    Raised in place of a bare pydantic ValidationError so the failure carries
+    the peer's identity. An unwrapped ValidationError says a MarkovChannelEntry
+    was malformed; it does not say which peer sent it or on which seam, and a
+    client that calls three stores over one envelope type cannot tell them apart
+    at all. See docs/projects/http-seam-contract.md, "Payload-shape drift".
+
+    **This does not change control flow.** It propagates exactly as the
+    ValidationError did, into the same broad catch in return_loop_runner, which
+    retries with backoff and records the error against LoopHealth. The class was
+    always alerting; what it lacked was attribution, and attribution is all this
+    adds.
+
+    seam : Seam name, e.g. 'database' -- the same label the breach gauge carries
+    prefix : Route prefix distinguishing peers that share a seam, e.g.
+             '/database/markov'. Empty for seams served by one pod at the root.
+    model : The model that rejected the body
+    error : The ValidationError being wrapped, kept for the full field report
+    '''
+
+    def __init__(self, seam: str, prefix: str, model: type, error: Exception):
+        self.seam = seam
+        self.prefix = prefix
+        self.model = model
+        self.validation_error = error
+        peer = f'{seam}{prefix}' if prefix else seam
+        super().__init__(f'peer on seam {peer} sent a body this build cannot parse '
+                         f'as {model.__name__}: {error}')

@@ -55,7 +55,7 @@ class HttpMarkovStore(HttpStoreBase):
         '''Return every tracked channel.'''
         async with self._span('list_channels'):
             result = await self._call('list_channels')
-            return [MarkovChannelEntry.model_validate(entry) for entry in result]
+            return [self._validate(MarkovChannelEntry, entry) for entry in result]
 
     async def list_guild_channel_ids(self, guild_id: int) -> List[int]:
         '''
@@ -74,7 +74,7 @@ class HttpMarkovStore(HttpStoreBase):
         channel_id : Discord channel id
         '''
         result = await self._channel_call('get_channel', guild_id, channel_id)
-        return MarkovChannelEntry.model_validate(result) if result else None
+        return self._validate(MarkovChannelEntry, result) if result else None
 
     async def add_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry:
         '''
@@ -84,7 +84,7 @@ class HttpMarkovStore(HttpStoreBase):
         channel_id : Discord channel id
         '''
         result = await self._channel_call('add_channel', guild_id, channel_id)
-        return MarkovChannelEntry.model_validate(result)
+        return self._validate(MarkovChannelEntry, result)
 
     async def remove_channel(self, guild_id: int, channel_id: int) -> bool:
         '''

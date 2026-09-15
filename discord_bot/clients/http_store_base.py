@@ -85,7 +85,7 @@ class HttpStoreBase(HttpClientMixin):
         '''
         payload = await self._call_route(self.GROUP.routes[route],
                                         body if body is not None else {})
-        response = DatabaseResponse.model_validate(payload)
+        response = self._validate(DatabaseResponse, payload)
         if response.error is not None:
             raise response.error.to_exception()
         return response.result

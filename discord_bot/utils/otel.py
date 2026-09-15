@@ -47,6 +47,14 @@ class MetricNaming(Enum):
     # metric that fired on it would be muted within a week. The breach is the
     # part worth alerting on.
     SEAM_CONTRACT_BREACH = 'seam_contract_breach'
+    # Incremented when a peer's response body fails validation. A COUNTER, not a
+    # gauge: unlike the breach above there is no steady state to observe, only
+    # events, and a rate() over this is what distinguishes one malformed row from
+    # a peer that has drifted wholesale. Deliberately not folded into
+    # seam_contract_breach -- that metric means "my peer is missing a route I
+    # call", and a body this build cannot parse is the opposite case, a route
+    # that is present and answering.
+    SEAM_RESPONSE_INVALID = 'seam_response_invalid'
     BROKER_ENTRIES = 'broker.entries'
     BROKER_BUNDLES = 'broker.bundles'
     BROKER_RESULT_FETCH = 'broker.result_fetch'
@@ -79,6 +87,9 @@ class AttributeNaming(Enum):
     # they share one label set and a breach cannot be attributed to one of them.
     # The client's ROUTE_PREFIX, or '' for a seam that has none.
     SEAM_PREFIX = 'seam_prefix'
+    # The model that rejected the body. Low cardinality by construction -- it is
+    # a class name from this build, not anything the peer controls.
+    SEAM_RESPONSE_MODEL = 'seam_response_model'
     EGRESS_HOSTNAME = 'egress.hostname'
     EGRESS_IP = 'egress.ip'
     # Why a queue submit was refused (PutsBlocked / QueueFull). Set on the

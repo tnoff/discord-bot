@@ -86,7 +86,7 @@ class HttpPlaylistStore(HttpStoreBase):
         guild_id : Discord guild id
         '''
         result = await self._guild_call('list_playlists', guild_id)
-        return [PlaylistEntry.model_validate(entry) for entry in result]
+        return [self._validate(PlaylistEntry, entry) for entry in result]
 
     async def count_playlists(self, guild_id: int) -> int:
         '''
@@ -103,7 +103,7 @@ class HttpPlaylistStore(HttpStoreBase):
         playlist_id : Playlist row id
         '''
         result = await self._playlist_call('get_playlist', playlist_id)
-        return PlaylistEntry.model_validate(result) if result else None
+        return self._validate(PlaylistEntry, result) if result else None
 
     async def get_playlist_by_name(self, guild_id: int, name: str) -> PlaylistEntry | None:
         '''
@@ -115,7 +115,7 @@ class HttpPlaylistStore(HttpStoreBase):
         async with self._span('get_playlist_by_name', {DiscordContextNaming.GUILD.value: guild_id}):
             result = await self._call('get_playlist_by_name',
                                       {'guild_id': guild_id, 'name': name})
-        return PlaylistEntry.model_validate(result) if result else None
+        return self._validate(PlaylistEntry, result) if result else None
 
     async def get_history_playlist(self, guild_id: int) -> PlaylistEntry | None:
         '''
@@ -124,7 +124,7 @@ class HttpPlaylistStore(HttpStoreBase):
         guild_id : Discord guild id
         '''
         result = await self._guild_call('get_history_playlist', guild_id)
-        return PlaylistEntry.model_validate(result) if result else None
+        return self._validate(PlaylistEntry, result) if result else None
 
     async def ensure_history_playlist(self, guild_id: int) -> int:
         '''
@@ -146,7 +146,7 @@ class HttpPlaylistStore(HttpStoreBase):
         async with self._span('create_playlist', {DiscordContextNaming.GUILD.value: guild_id}):
             result = await self._call('create_playlist',
                                       {'guild_id': guild_id, 'name': name})
-        return PlaylistEntry.model_validate(result)
+        return self._validate(PlaylistEntry, result)
 
     async def delete_playlist(self, playlist_id: int) -> bool:
         '''
@@ -188,7 +188,7 @@ class HttpPlaylistStore(HttpStoreBase):
         playlist_id : Playlist row id
         '''
         result = await self._playlist_call('list_items', playlist_id)
-        return [PlaylistItemEntry.model_validate(entry) for entry in result]
+        return [self._validate(PlaylistItemEntry, entry) for entry in result]
 
     async def add_items(self, playlist_id: int, items: List[PlaylistItemWrite],
                         max_size: int) -> List[PlaylistItemAddOutcome]:
@@ -207,7 +207,7 @@ class HttpPlaylistStore(HttpStoreBase):
             'add_items', playlist_id,
             items=[item.model_dump(mode='json') for item in items],
             max_size=max_size)
-        return [PlaylistItemAddOutcome.model_validate(outcome) for outcome in result]
+        return [self._validate(PlaylistItemAddOutcome, outcome) for outcome in result]
 
     async def delete_item(self, item_id: int) -> bool:
         '''
@@ -230,7 +230,7 @@ class HttpPlaylistStore(HttpStoreBase):
         index : Zero-based position in list order
         '''
         result = await self._playlist_call('delete_item_by_index', playlist_id, index=index)
-        return PlaylistItemEntry.model_validate(result) if result else None
+        return self._validate(PlaylistItemEntry, result) if result else None
 
     async def record_history_item(self, playlist_id: int, item: PlaylistItemWrite,
                                   max_size: int) -> bool:
