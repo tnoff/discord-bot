@@ -13,11 +13,13 @@ import aiohttp
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
+from discord_bot.clients.seam_contract import (DEFAULT_GRACE_SECONDS, GAUGE_REGISTRY,
+                                               PeerContractStatus, SeamContractCheck)
 from discord_bot.routes import broker as broker_routes
 from discord_bot.routes import contract
-from discord_bot.clients.seam_contract import (DEFAULT_GRACE_SECONDS, PeerContractStatus,
-                                               SeamContractCheck)
 
 
 class _Clock:
@@ -47,13 +49,32 @@ def _peer_app(served, contract_status=200):
     return app
 
 
-async def _check_against(app, routes_called, clock, grace=DEFAULT_GRACE_SECONDS):
+async def _check_against(app, routes_called, clock, grace=DEFAULT_GRACE_SECONDS,
+                         seam='broker', prefix=''):
     server = TestServer(app)
     await server.start_server()
     session = aiohttp.ClientSession()
-    check = SeamContractCheck('broker', str(server.make_url('')), routes_called,
-                              lambda: session, grace_seconds=grace, clock=clock)
+    check = SeamContractCheck(seam, str(server.make_url('')), routes_called,
+                              lambda: session, grace_seconds=grace, clock=clock,
+                              prefix=prefix)
     return check, server, session
+
+
+def _reported(reader):
+    '''{(seam, seam_prefix)} currently emitted by the process-wide gauge.'''
+    out = set()
+    data = reader.get_metrics_data()
+    # None when the gauge has nothing to emit -- no checks registered, or none
+    # with a definite answer yet. Distinct from "collected an empty set".
+    if data is None:
+        return out
+    for resource_metric in data.resource_metrics:
+        for scope_metric in resource_metric.scope_metrics:
+            for metric in scope_metric.metrics:
+                for point in metric.data.data_points:
+                    out.add((point.attributes.get('seam'),
+                             point.attributes.get('seam_prefix')))
+    return out
 
 
 async def _close(server, session):
@@ -271,20 +292,36 @@ async def test_a_breach_stays_breached_across_probes():
 
 
 def test_register_gauge_publishes_the_breach_metric():
-    """The gauge is what the docker-apps alert rule reads."""
-    published = {}
+    """The gauge is what the docker-apps alert rule reads.
+
+    The callback is the REGISTRY's, not the check's, and the instrument is
+    created once per meter however many checks register. Asserting the count is
+    the point: a second create_observable_gauge under the same name is not an
+    error, it is silently ignored, so "created once" is the only observable
+    difference between the fix and the bug.
+    """
+    GAUGE_REGISTRY.reset()
+    published = []
 
     class _MeterProvider:
         @staticmethod
         def create_observable_gauge(name, callbacks, unit, description):
-            published.update(name=name, callbacks=callbacks,
-                             unit=unit, description=description)
+            published.append({'name': name, 'callbacks': callbacks,
+                              'unit': unit, 'description': description})
 
-    check = SeamContractCheck('broker', 'http://peer', CALLED, lambda: None,
+    provider = _MeterProvider()
+    first = SeamContractCheck('broker', 'http://peer', CALLED, lambda: None,
                               clock=_Clock())
-    check.register_gauge(_MeterProvider())
-    assert published['name'] == 'seam_contract_breach'
-    assert published['callbacks'] == [check.observations]
+    second = SeamContractCheck('dispatch', 'http://peer2', CALLED, lambda: None,
+                               clock=_Clock())
+    try:
+        first.register_gauge(provider)
+        second.register_gauge(provider)
+        assert len(published) == 1
+        assert published[0]['name'] == 'seam_contract_breach'
+        assert published[0]['callbacks'] == [GAUGE_REGISTRY.observations]
+    finally:
+        GAUGE_REGISTRY.reset()
 
 
 def test_start_outside_an_event_loop_is_survivable():
@@ -323,3 +360,93 @@ async def test_stop_without_start_is_safe():
     check = SeamContractCheck('broker', 'http://peer', CALLED, lambda: None,
                               clock=_Clock())
     await check.stop()
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_several_checks_in_one_process_all_report():
+    """The regression #947 shipped, and the reason the gauge is process-wide.
+
+    A meter keeps the FIRST instrument registered under a name and discards the
+    rest without warning, so creating the gauge per check wired up whichever
+    check registered first and silently dropped every other callback. In prod
+    that took 8 of 12 checks dark: the bot reported its broker seam and nothing
+    else, the broker pod its dispatch seam and nothing else -- and a check that
+    is not reporting looks exactly like a peer that is healthy, which is the one
+    failure this project exists to prevent.
+
+    Asserts on the COLLECTED metric, not on the registry. The registry was never
+    the broken part: the callbacks existed, the meter simply never called them.
+    """
+    GAUGE_REGISTRY.reset()
+    reader = InMemoryMetricReader()
+    meter = MeterProvider(metric_readers=[reader]).get_meter('test')
+    clock = _Clock()
+    first, server_a, session_a = await _check_against(
+        _peer_app(ENTRIES), CALLED, clock, seam='broker')
+    second, server_b, session_b = await _check_against(
+        _peer_app(ENTRIES), CALLED, clock, seam='dispatch')
+    try:
+        first.register_gauge(meter)
+        second.register_gauge(meter)
+        await first.probe()
+        await second.probe()
+        assert _reported(reader) == {('broker', ''), ('dispatch', '')}
+    finally:
+        await _close(server_a, session_a)
+        await _close(server_b, session_b)
+        GAUGE_REGISTRY.reset()
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_two_clients_on_one_seam_are_told_apart():
+    """The bot holds three database stores; a breach must name which one.
+
+    Same seam, same pod, different prefixes. Without the prefix label these
+    share a label set entirely, so the metric can say the database seam is
+    breached but not whether it was markov, playlist or guild_analytics -- and
+    the missing routes only ever went to the log line.
+    """
+    GAUGE_REGISTRY.reset()
+    reader = InMemoryMetricReader()
+    meter = MeterProvider(metric_readers=[reader]).get_meter('test')
+    clock = _Clock()
+    markov, server_a, session_a = await _check_against(
+        _peer_app(ENTRIES), CALLED, clock, seam='database', prefix='/database/markov')
+    playlist, server_b, session_b = await _check_against(
+        _peer_app(ENTRIES), CALLED, clock, seam='database', prefix='/database/playlist')
+    try:
+        markov.register_gauge(meter)
+        playlist.register_gauge(meter)
+        await markov.probe()
+        await playlist.probe()
+        assert _reported(reader) == {('database', '/database/markov'),
+                                     ('database', '/database/playlist')}
+    finally:
+        await _close(server_a, session_a)
+        await _close(server_b, session_b)
+        GAUGE_REGISTRY.reset()
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_a_stopped_check_stops_reporting():
+    """Deregistration on stop, so a closed client cannot freeze its last answer.
+
+    Without it a stopped check keeps contributing its final observation for the
+    life of the process -- a permanent 'ok' from something that has stopped
+    checking anything, which reads on a dashboard as verified health.
+    """
+    GAUGE_REGISTRY.reset()
+    reader = InMemoryMetricReader()
+    meter = MeterProvider(metric_readers=[reader]).get_meter('test')
+    clock = _Clock()
+    check, server, session = await _check_against(_peer_app(ENTRIES), CALLED, clock)
+    try:
+        check.register_gauge(meter)
+        await check.probe()
+        assert _reported(reader) == {('broker', '')}
+
+        await check.stop()
+        assert _reported(reader) == set()
+    finally:
+        await _close(server, session)
+        GAUGE_REGISTRY.reset()

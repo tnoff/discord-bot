@@ -74,6 +74,11 @@ class AttributeNaming(Enum):
     # peer predating the advertisement. Separate values because an operator
     # rolling the advertisement out wants to alert on one and not yet the other.
     SEAM_CONTRACT_REASON = 'seam_contract_reason'
+    # Which client on the seam, for pods that run several. The bot speaks the
+    # database seam through three store clients at three prefixes; without this
+    # they share one label set and a breach cannot be attributed to one of them.
+    # The client's ROUTE_PREFIX, or '' for a seam that has none.
+    SEAM_PREFIX = 'seam_prefix'
     EGRESS_HOSTNAME = 'egress.hostname'
     EGRESS_IP = 'egress.ip'
     # Why a queue submit was refused (PutsBlocked / QueueFull). Set on the

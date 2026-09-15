@@ -77,7 +77,7 @@ class SeamContractCheck:
 
     def __init__(self, seam: str, base_url: str, routes_called: tuple[Route, ...],
                  session_factory, grace_seconds: float = DEFAULT_GRACE_SECONDS,
-                 clock=time.monotonic):
+                 clock=time.monotonic, prefix: str = ''):
         '''
         seam : Low-cardinality label for the metric, e.g. 'broker'
         base_url : Root URL of the peer
@@ -86,8 +86,14 @@ class SeamContractCheck:
                           the owning client's, so sessions are not duplicated
         grace_seconds : How long a mismatch may persist before it is a breach
         clock : Monotonic time source, injectable for tests
+        prefix : The client's ROUTE_PREFIX, labelling WHICH client on the seam.
+                 Several clients can speak one seam from one pod -- the bot holds
+                 three database stores -- and without this they share a label set,
+                 so a breach names the seam but not the store. Empty for a seam
+                 whose client has no prefix, which is the broker.
         '''
         self._seam = seam
+        self._prefix = prefix
         self._base_url = base_url.rstrip('/')
         self._called = {(route.method, route.template) for route in routes_called}
         self._session_factory = session_factory
@@ -223,7 +229,14 @@ class SeamContractCheck:
         self._task = loop.create_task(self.run(interval))
 
     async def stop(self) -> None:
-        """Cancel the probe loop and wait for it to unwind. Safe if never started."""
+        """Cancel the probe loop and wait for it to unwind. Safe if never started.
+
+        Deregisters first, and unconditionally: a check that has stopped probing
+        must stop reporting too, or it freezes its last answer into the gauge for
+        the life of the process -- and a stale 'ok' from a check that is no longer
+        running is the exact reading this project exists to prevent.
+        """
+        GAUGE_REGISTRY.deregister(self)
         if self._task is None:
             return
         self._task.cancel()
@@ -244,12 +257,75 @@ class SeamContractCheck:
         reason = self._status.value if self.breached else PeerContractStatus.OK.value
         return [Observation(1 if self.breached else 0, attributes={
             AttributeNaming.SEAM.value: self._seam,
+            AttributeNaming.SEAM_PREFIX.value: self._prefix,
             AttributeNaming.SEAM_CONTRACT_REASON.value: reason,
         })]
 
     def register_gauge(self, meter_provider) -> None:
-        '''Publish the breach gauge for this seam.'''
+        '''Publish this check through the process-wide breach gauge.
+
+        Goes through GAUGE_REGISTRY rather than creating an instrument here. See
+        that class for why: creating one per check silently drops all but the
+        first.
+        '''
+        GAUGE_REGISTRY.register(self, meter_provider)
+
+
+class SeamGaugeRegistry:
+    """Every seam check in this process, behind ONE observable gauge.
+
+    **A meter keeps only the first instrument registered under a given name, and
+    says nothing about the rest.** Creating `seam_contract_breach` once per check
+    therefore wires up whichever check registered first and silently discards the
+    callbacks of all the others -- no warning, no error, no series. It shipped
+    that way in #947 and took 8 of 12 checks dark in prod: the bot reported its
+    broker seam and nothing else, the broker pod its dispatch seam and nothing
+    else, and both looked exactly like a pod whose peers are all healthy.
+
+    That is the failure this whole project exists to make impossible -- a check
+    that is not running is indistinguishable from a passing one -- so the fix is
+    structural rather than a rule to remember. One instrument, created on the
+    first registration, whose single callback walks every registered check.
+
+    A stopped check deregisters, so a closed client stops reporting rather than
+    freezing its last answer for the life of the process.
+    """
+
+    def __init__(self):
+        self._checks = []
+        self._provider_ids = set()
+
+    def register(self, check: 'SeamContractCheck', meter_provider) -> None:
+        '''Add `check`, creating the gauge once per meter provider.'''
+        if check not in self._checks:
+            self._checks.append(check)
+        # id() rather than the provider itself: MeterProvider is not hashable in
+        # every SDK version, and identity is the question being asked.
+        if id(meter_provider) in self._provider_ids:
+            return
+        self._provider_ids.add(id(meter_provider))
         create_observable_gauge(meter_provider, MetricNaming.SEAM_CONTRACT_BREACH.value,
                                 self.observations,
                                 '1 when a peer has been missing a called route longer '
                                 'than the grace window')
+
+    def deregister(self, check: 'SeamContractCheck') -> None:
+        '''Drop `check`; it stops contributing observations. Safe if absent.'''
+        if check in self._checks:
+            self._checks.remove(check)
+
+    def observations(self, _options=None):
+        '''Every registered check's observations, flattened into one callback.'''
+        out = []
+        for check in list(self._checks):
+            out.extend(check.observations())
+        return out
+
+    def reset(self) -> None:
+        '''Forget every check and provider. For tests; no caller in the app.'''
+        self._checks.clear()
+        self._provider_ids.clear()
+
+
+#: The process-wide registry. One gauge, however many seams this pod speaks.
+GAUGE_REGISTRY = SeamGaugeRegistry()
