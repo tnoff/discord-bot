@@ -65,7 +65,7 @@ class HttpPlayerSessionMixin:
                 return []
         if payload is None:
             return []
-        return [PlayerSession.model_validate(s) for s in payload.get('sessions', [])]
+        return [self._validate(PlayerSession, s) for s in payload.get('sessions', [])]
 
     async def delete_player_session(self, guild_id: int) -> None:
         '''DELETE /sessions/{guild_id}.  A 404 is a no-op for the same reason as save.'''

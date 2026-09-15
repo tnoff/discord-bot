@@ -118,7 +118,7 @@ class HttpVideoCacheStore(HttpStoreBase):
         '''Return the rows currently flagged `ready_for_deletion`.'''
         async with self._span('get_deletable_entries'):
             result = await self._call('get_deletable_entries')
-            return [VideoCacheEntry.model_validate(entry) for entry in result]
+            return [self._validate(VideoCacheEntry, entry) for entry in result]
 
     async def get_cache_count(self) -> int:
         '''Return the number of rows in the catalog.'''

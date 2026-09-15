@@ -128,7 +128,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             resp.raise_for_status()
             payload = await resp.json()
             async with async_otel_span_wrapper('broker.next_result', kind=SpanKind.CLIENT):
-                return DownloadResult.model_validate(payload)
+                return self._validate(DownloadResult, payload)
 
     async def register_search_result(self, resolution: SearchResolution) -> None:
         '''POST /search-results — the broker pushes the resolution onto its
@@ -171,7 +171,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             resp.raise_for_status()
             payload = await resp.json()
             async with async_otel_span_wrapper('broker.next_search_result', kind=SpanKind.CLIENT):
-                return SearchResolution.model_validate(payload)
+                return self._validate(SearchResolution, payload)
 
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
         '''

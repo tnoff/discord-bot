@@ -48,7 +48,7 @@ class HttpGuildAnalyticsStore(HttpStoreBase):
         async with self._span('get_analytics',
                               {DiscordContextNaming.GUILD.value: guild_id}):
             result = await self._call('get_analytics', {'guild_id': guild_id})
-            return GuildAnalyticsEntry.model_validate(result)
+            return self._validate(GuildAnalyticsEntry, result)
 
     async def record_play(self, guild_id: int, duration_seconds: int,
                           cache_hit: bool) -> bool:

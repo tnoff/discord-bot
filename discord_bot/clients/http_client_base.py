@@ -1,11 +1,28 @@
 '''Shared aiohttp session helpers used by HTTP client classes.'''
+import logging
+
 import aiohttp
 from opentelemetry.propagate import inject
+from pydantic import ValidationError
 
 from discord_bot.clients.seam_contract import SeamContractCheck
+from discord_bot.exceptions import SeamResponseInvalid
 from discord_bot.routes.route import Route
-from discord_bot.utils.otel import METER_PROVIDER
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 from discord_bot.utils.retry import async_retry_broker_command
+
+logger = logging.getLogger(__name__)
+
+#: Module level, and therefore created exactly once per process. A meter keeps
+#: only the FIRST instrument registered under a given name and silently discards
+#: the rest, which is how eight of twelve seam checks shipped dark in #951 --
+#: every client built its own instrument and only the first pod-wide one
+#: survived. One counter here, labelled per call, cannot repeat that.
+_RESPONSE_INVALID_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.SEAM_RESPONSE_INVALID.value,
+    description='Responses from a peer that this build could not parse',
+    unit='1',
+)
 
 
 def start_seam_checks(*clients) -> None:
@@ -102,6 +119,47 @@ class HttpClientMixin:
             self._seam_check.register_gauge(meter_provider)
         self._seam_check.start(self._seam_contract_config.interval_seconds)
         return self._seam_check
+
+    def _validate(self, model, payload):
+        """Parse a peer's response body, naming the peer if it does not fit.
+
+        **Every `model_validate` on a response body in `clients/` goes through
+        here**, enforced by tests/clients/test_response_validation.py. The point
+        is not the try/except -- it is that `seam` and `prefix` are read off the
+        client rather than passed in, so a caller cannot label a failure with the
+        wrong peer, and a new client gets correct attribution by declaring the
+        same `SEAM` the route check already needs.
+
+        This is the *reactive* half of the seam contract. The route check in
+        seam_contract asks "does my peer serve the routes I call" before any
+        traffic; it cannot see a route that still exists but whose body gained a
+        required field, because a route-set comparison has nothing to compare.
+        Only a real response shows that, and only after it arrives.
+
+        Control flow is unchanged: SeamResponseInvalid propagates exactly where
+        the ValidationError did. `async_retry_broker_command` catches neither, so
+        neither is mistaken for a retryable transport error, and both land in the
+        same broad catch in return_loop_runner. What changes is that the failure
+        now says which peer sent it.
+
+        model : The pydantic model to parse into
+        payload : The decoded body, or a fragment of it
+        """
+        try:
+            return model.model_validate(payload)
+        except ValidationError as error:
+            prefix = getattr(self, 'ROUTE_PREFIX', '') or ''
+            seam = self.SEAM or ''
+            _RESPONSE_INVALID_COUNTER.add(1, {
+                AttributeNaming.SEAM.value: seam,
+                AttributeNaming.SEAM_PREFIX.value: prefix,
+                AttributeNaming.SEAM_RESPONSE_MODEL.value: model.__name__,
+            })
+            logger.error('seam %s%s: peer sent a body this build cannot parse as %s. '
+                         'The route is being served, so the route check cannot see '
+                         'this -- suspect a model change that shipped on one side '
+                         'only. %s', seam, prefix, model.__name__, error)
+            raise SeamResponseInvalid(seam, prefix, model, error) from error
 
     def _trace_headers(self) -> dict[str, str]:
         '''Return headers dict with W3C traceparent injected from the active span, if any.'''
