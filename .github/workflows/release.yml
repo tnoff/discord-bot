@@ -39,6 +39,68 @@ permissions:
   contents: read
 
 jobs:
+  # Skip the image build when the commit did not touch anything the image is
+  # built from. Without this a metadata-only merge -- a catalog descriptor, a
+  # README -- folds a changelog, cuts a tag, rebuilds the image and bumps a
+  # production pin in docker-apps for content no image contains.
+  #
+  # The same filter already exists in ci.yml as the `changes` job, and it works:
+  # the build correctly skips on a docs-only PR. It was never wired into the
+  # release path, so the saving stopped at the PR and the merge rebuilt anyway.
+  # That is the shape worth remembering -- a control present where you watch the
+  # checks and absent where the work actually happens.
+  #
+  # The keep-list below is copied from ci.yml's `changes` job and must stay
+  # identical to it. If the two drift, a PR can build an image that its own merge
+  # then refuses to rebuild.
+  #
+  # Two differences from ci.yml's copy, both forced by the event: the base is
+  # github.event.before compared two-dot rather than a PR base ref, and this one
+  # FAILS OPEN. An absent, all-zeros or unreachable base builds anyway. A build
+  # that did not need to happen costs minutes; a build that silently did not
+  # happen leaves docker-apps pinned to a stale image and reads exactly like a
+  # successful run.
+  changes:
+    name: Detect image-input changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Filter
+        id: filter
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ZERO=0000000000000000000000000000000000000000
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "${ZERO}" ] \
+             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "no usable base ref (${BEFORE:-empty}) -- building"
+            echo "image=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES="$(git diff --name-only "${BEFORE}" "${AFTER}")"
+          MATCH=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              discord_bot/*|alembic/*|alembic.ini|docker/*|pyproject.toml|VERSION)
+                MATCH=true; break ;;
+            esac
+          done <<< "${FILES}"
+          echo "changed files:"
+          printf '%s\n' "${FILES}" | sed -n 's/^/  /p'
+          echo "image inputs changed: ${MATCH}"
+          echo "image=${MATCH}" >> "$GITHUB_OUTPUT"
+
   assemble-changelog:
     name: Assemble changelog
     permissions:
@@ -62,7 +124,10 @@ jobs:
 
   push-bot:
     name: Push bot image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
@@ -75,7 +140,10 @@ jobs:
 
   push-dispatcher:
     name: Push dispatcher image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
@@ -88,7 +156,10 @@ jobs:
 
   push-broker:
     name: Push broker image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
@@ -101,7 +172,10 @@ jobs:
 
   push-downloader:
     name: Push downloader image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
@@ -114,7 +188,10 @@ jobs:
 
   push-search:
     name: Push search image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
@@ -140,7 +217,10 @@ jobs:
   # landed as docker-apps!1668 and pinned the tag this job produced.
   push-db:
     name: Push db image
-    if: "${{ !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}"
+    needs: changes
+    if: >-
+      ${{ needs.changes.outputs.image == 'true'
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
     with:
       registry: ${{ vars.OCI_REGISTRY }}
