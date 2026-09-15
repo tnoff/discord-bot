@@ -90,9 +90,22 @@ IMAGE_NAMES = {
 
 
 @functools.lru_cache(maxsize=None)
+def run_probe(probe: str) -> str:
+    '''Run `probe` in a clean interpreter; return its last stdout line.
+
+    Shared with _seam_topology so both generated docs measure the same way and
+    the subprocess is configured in one place. Cached because each call is a
+    fresh interpreter, ~0.5s a go, and both callers probe the same six
+    entrypoints.
+    '''
+    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
+                            capture_output=True, text=True, check=True, cwd=REPO_ROOT)
+    return result.stdout.strip().splitlines()[-1]
+
+
 def _measure_cached(entrypoint: str) -> str:
-    '''Raw probe output. Cached: each call is a fresh interpreter, ~0.5s a go.'''
-    probe = (
+    '''Raw probe output for one entrypoint's imports.'''
+    return run_probe(
         'import importlib, json, sys; '
         f'importlib.import_module({entrypoint!r}); '
         f'vocab = {list(VOCABULARY)!r}; '
@@ -101,9 +114,6 @@ def _measure_cached(entrypoint: str) -> str:
         '"modules": sorted(m for m in sys.modules if m.startswith("discord_bot."))'
         '}))'
     )
-    result = subprocess.run([sys.executable, '-c', probe],  # nosec B603 - fixed argv, no shell
-                            capture_output=True, text=True, check=True, cwd=REPO_ROOT)
-    return result.stdout.strip().splitlines()[-1]
 
 
 def measure(entrypoint: str) -> dict:
