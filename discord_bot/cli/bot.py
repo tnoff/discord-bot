@@ -51,7 +51,7 @@ def run_bot(general_config: GeneralConfig, bot: Bot, cog_list: list, health_serv
     run_loop(main_loop(bot, cog_list, require_discord_token(general_config), health_server=health_server))
 
 
-def register_seam_checks(bot: Bot, *clients) -> None:
+def register_seam_checks(bot: Bot) -> None:
     """Start each client's peer route check once the gateway is up.
 
     Registered with ``add_listener`` rather than ``@bot.event``: the decorator
@@ -71,12 +71,15 @@ def register_seam_checks(bot: Bot, *clients) -> None:
     docs/image-dependencies.md. This function is bot-only, so it belongs in the
     bot-only module. See http-seam-contract.md, acceptance criterion one.
 
-    Covers the clients this process owns directly — its dispatch client and
-    database stores. Clients a cog owns are started by that cog's ``cog_load``,
-    where it already builds them.
+    Takes no client list. Every client that was given a seam contract config
+    enrolled itself when it was built, so this covers the ones this process owns
+    directly (its dispatch client and database stores) AND anything a cog built
+    in ``cog_load``, which runs first. The music cog also calls
+    ``start_seam_checks`` itself; both calls are no-ops for a check already
+    running, and between them nothing built in either place can be missed.
     """
     async def _on_ready_seam_checks():
-        start_seam_checks(*clients)
+        start_seam_checks()
     bot.add_listener(_on_ready_seam_checks, 'on_ready')
 
 
@@ -108,11 +111,9 @@ def run(settings: dict, general_config: GeneralConfig):
     cog_list += load_cogs(bot, POSSIBLE_COGS, settings, stores, http_dispatcher)
 
     register_on_ready(bot, general_config, logger)
-    # The dispatch client and the three stores, which this process owns. The
-    # music cog starts its own (broker, downloader, ytmusic, media_search) from
-    # cog_load, where it builds them.
-    register_seam_checks(bot, http_dispatcher, stores.playlist, stores.markov,
-                         stores.guild_analytics)
+    # No client list: the dispatch client, the three stores and the music cog's
+    # four all enrolled themselves at construction. See SeamClientRegistry.
+    register_seam_checks(bot)
     run_bot(general_config, bot, cog_list,
             health_server=setup_health_server(
                 bot, general_config,

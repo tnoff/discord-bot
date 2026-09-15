@@ -100,16 +100,16 @@ def _build_video_cache(cache_cfg: dict, database_http_url: str | None,
 
 
 async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-                    broker_metrics: BrokerMetrics, video_cache=None, seam_clients=()):
+                    broker_metrics: BrokerMetrics, video_cache=None):
     '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server, Redis and the db client.
 
-    seam_clients are this pod's outbound HTTP clients -- its dispatch client and
-    its video-cache store. Their route checks start here rather than at
-    construction because run() is synchronous, so there is no loop yet when they
-    are built.
+    The route checks for this pod's outbound clients -- its dispatch client and
+    its video-cache store -- start here rather than at construction because
+    run() is synchronous, so there is no loop yet when they are built. They are
+    not named: each enrolled itself when it was given a seam contract config.
     '''
     await redis_manager.start()
-    start_seam_checks(*seam_clients)
+    start_seam_checks()
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -143,10 +143,10 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
 
 
 def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-               broker_metrics: BrokerMetrics, video_cache=None, seam_clients=()):
+               broker_metrics: BrokerMetrics, video_cache=None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(broker_server, health_server, redis_manager, broker_metrics,
-                       video_cache=video_cache, seam_clients=seam_clients))
+                       video_cache=video_cache))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -228,4 +228,4 @@ def run(settings: dict, general_config: GeneralConfig):
         )
 
     run_broker(broker_server, health_server, redis_manager, broker_metrics,
-               video_cache=video_cache, seam_clients=(dispatcher, video_cache))
+               video_cache=video_cache)

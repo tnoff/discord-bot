@@ -478,8 +478,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # client speaks media_search to that same pod. Each claims only its own
         # peer's routes, so the two queue_worker clients do not demand each
         # other's prefix.
-        start_seam_checks(self.broker_client, self.download_client,
-                          self.youtube_music_search_client, self.media_search_client)
+        start_seam_checks()
         self._cleanup_task = self.bot.loop.create_task(
             return_loop_runner(self.cleanup_players, self.bot, self.logger,
                                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()

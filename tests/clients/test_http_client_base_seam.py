@@ -10,10 +10,13 @@ whose peer is healthy.
 See docs/projects/http-seam-contract.md, acceptance criteria five and six.
 '''
 
+import gc
+
 import pytest
 
 from discord_bot.clients.http_broker_client import HttpBrokerClient
-from discord_bot.clients.http_client_base import HttpClientMixin, start_seam_checks
+from discord_bot.clients.http_client_base import (HttpClientMixin, SEAM_CLIENTS,
+                                                  start_seam_checks)
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.utils.common import SeamContractConfig
 
@@ -84,17 +87,20 @@ async def test_close_without_a_check_is_safe():
 
 
 @pytest.mark.asyncio(loop_scope='session')
-async def test_start_seam_checks_starts_every_client_given():
-    '''The fan-out helper the pods call once instead of a line per client.
+async def test_start_seam_checks_starts_every_client_built():
+    """The fan-out the pods call once, with no list to get wrong.
 
     Two clients on different seams, because the bug this guards against is a
-    loop that starts the first and returns.
-    '''
+    loop that starts the first and returns. Neither is passed in: both enrolled
+    themselves when they were handed a config, which is the property that makes
+    a client impossible to leave unchecked.
+    """
     config = SeamContractConfig(interval_seconds=60)
+    SEAM_CLIENTS.reset()
     broker = HttpBrokerClient('http://broker:8081', seam_contract=config)
     dispatch = HttpDispatchClient('http://dispatcher:8082', seam_contract=config)
 
-    start_seam_checks(broker, dispatch)
+    start_seam_checks()
     try:
         assert broker.seam_check is not None
         assert dispatch.seam_check is not None
@@ -105,19 +111,82 @@ async def test_start_seam_checks_starts_every_client_given():
 
 
 @pytest.mark.asyncio(loop_scope='session')
-async def test_start_seam_checks_skips_a_none_client():
-    '''None is a configured absence, not a bug.
+async def test_a_client_built_without_a_config_never_enrols():
+    """A configured absence, not a bug.
 
     The broker pod's dispatch client is None when general.dispatch_http_url is
-    unset, and its video cache is None when caching is off -- both supported.
-    Passing them positionally is what keeps the entry point free of a guard per
-    client, so the skip has to happen here.
-    '''
-    config = SeamContractConfig(interval_seconds=60)
-    broker = HttpBrokerClient('http://broker:8081', seam_contract=config)
+    unset, and a client can also be built with no seam_contract at all -- both
+    supported. Enrolment keyed on the config means those simply never appear,
+    so the fan-out needs no guard per client.
+    """
+    SEAM_CLIENTS.reset()
+    unconfigured = HttpBrokerClient('http://broker:8081')
+    assert not SEAM_CLIENTS.clients
 
-    start_seam_checks(None, broker, None)
+    start_seam_checks()
     try:
-        assert broker.seam_check is not None
+        assert unconfigured.seam_check is None
     finally:
-        await broker.close()
+        await unconfigured.close()
+
+
+@pytest.mark.asyncio(loop_scope='session')
+async def test_closing_a_client_withdraws_it():
+    """A closed client must not be restarted by a later fan-out.
+
+    The bot calls start_seam_checks from two places, so a client closed between
+    them would otherwise get a fresh probe task against a closed session.
+    """
+    SEAM_CLIENTS.reset()
+    client = HttpBrokerClient('http://broker:8081',
+                              seam_contract=SeamContractConfig(interval_seconds=60))
+    assert len(SEAM_CLIENTS.clients) == 1
+    await client.close()
+    assert not SEAM_CLIENTS.clients
+
+    start_seam_checks()
+    assert client.seam_check is None
+
+
+def test_enrolment_does_not_keep_a_client_alive():
+    """Weak references, because the suite builds hundreds of these.
+
+    A registry that kept its own strong reference would turn every client ever
+    constructed into a permanent one, and start_seam_checks would walk the
+    wreckage of every earlier test.
+    """
+    SEAM_CLIENTS.reset()
+    client = HttpBrokerClient('http://broker:8081',
+                              seam_contract=SeamContractConfig(interval_seconds=60))
+    assert len(SEAM_CLIENTS.clients) == 1
+    del client
+    gc.collect()
+    assert not SEAM_CLIENTS.clients
+
+
+class _ConfigPeek(HttpBrokerClient):
+    """Reads the descriptor from inside a client class, as the real ones do."""
+
+    @property
+    def config(self):
+        return self._seam_contract_config
+
+    @classmethod
+    def unbound_config(cls):
+        """What the descriptor yields off the CLASS, with no instance."""
+        return cls._seam_contract_config
+
+
+def test_the_config_still_reads_back_normally():
+    """The descriptor must stay invisible to everything except enrolment.
+
+    Five concrete clients assign this attribute and read it back through
+    start_seam_check. If the descriptor changed what a read returns, every one
+    of them would break, so the read path is pinned here rather than left to be
+    covered incidentally.
+    """
+    SEAM_CLIENTS.reset()
+    config = SeamContractConfig(interval_seconds=60)
+    assert _ConfigPeek('http://broker:8081', seam_contract=config).config is config
+    assert _ConfigPeek('http://broker:8081').config is None
+    assert _ConfigPeek.unbound_config() is None
