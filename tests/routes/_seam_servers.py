@@ -29,7 +29,8 @@ from discord_bot.servers.dispatch_server import DispatchHttpServer
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.workers.asyncio_broker import AsyncioBroker
+
+from tests.fakes.asyncio_broker import AsyncioBroker
 
 CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
 

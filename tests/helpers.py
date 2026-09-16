@@ -42,10 +42,11 @@ from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
-from discord_bot.workers.asyncio_broker import AsyncioBroker
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
-from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+
+from tests.fakes.asyncio_broker import AsyncioBroker
+from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
 def assert_one_connected_trace(spans) -> Any:
     """Assert finished ``spans`` form exactly one trace with every span reachable.

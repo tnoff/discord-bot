@@ -122,12 +122,15 @@ def test_extra_names_are_normalised_and_self_references_resolve():
 # a reintroduced in-process fallback, and a fallback is silent: the bot would run
 # its own private broker registry while the downloader and search pods talked to
 # the real one, and the symptom is "audio never plays", not a crash.
+#
+# The three asyncio_* engines used to head this list. They are gone from it
+# because they are gone from discord_bot/ — they now live in tests/fakes/, which
+# no image contains, so "the bot must not import them" is a property of the build
+# rather than a rule this tuple has to keep restating. What remains here is the
+# code that genuinely ships and must still stay out of the bot's import graph.
 BOT_FORBIDDEN_MODULES = (
-    'discord_bot.workers.asyncio_broker',
     'discord_bot.servers.broker_server',
     'discord_bot.clients.broker_client',
-    'discord_bot.workers.asyncio_download_worker',
-    'discord_bot.workers.asyncio_youtube_music_search_worker',
 )
 
 

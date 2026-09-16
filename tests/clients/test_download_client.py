@@ -12,7 +12,8 @@ import pytest
 
 from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.interfaces.download_protocols import ClearGuildResult
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
+
+from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 
 
 def _make_worker() -> AsyncioDownloadWorker:

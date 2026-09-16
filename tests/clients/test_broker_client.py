@@ -13,7 +13,6 @@ from opentelemetry.trace import SpanKind
 import aiohttp
 from aiohttp import web
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.types.player_session import PlayerSession
@@ -28,6 +27,7 @@ from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, 
 from discord_bot.interfaces.result_queue import SearchResultQueue
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
+from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
 

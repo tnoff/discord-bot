@@ -10,12 +10,13 @@ import asyncio
 import pytest
 
 from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
-from discord_bot.workers.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
+
+from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
 
 class _StubYoutubeMusicClient:

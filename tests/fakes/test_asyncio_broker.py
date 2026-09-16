@@ -18,8 +18,8 @@ from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult,
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
-from discord_bot.workers.asyncio_broker import AsyncioBroker
 
+from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
 
 
