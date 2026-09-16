@@ -18,13 +18,10 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
-from discord_bot.clients.broker_client import InMemoryBrokerClient
 from discord_bot.clients.database_stores import DatabaseStores
 from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.clients.playlist_client import PlaylistClient
-from discord_bot.clients.download_client import InMemoryDownloadClient
-from discord_bot.clients.youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import BASE
@@ -44,9 +41,13 @@ from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
+from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
+from tests.fakes.in_memory_download_client import InMemoryDownloadClient
+from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+
 
 def assert_one_connected_trace(spans) -> Any:
     """Assert finished ``spans`` form exactly one trace with every span reachable.

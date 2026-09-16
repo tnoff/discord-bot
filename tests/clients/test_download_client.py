@@ -10,10 +10,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.clients.download_client import InMemoryDownloadClient
 from discord_bot.interfaces.download_protocols import ClearGuildResult
 
+from tests.fakes.in_memory_download_client import InMemoryDownloadClient
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+
 
 
 def _make_worker() -> AsyncioDownloadWorker:

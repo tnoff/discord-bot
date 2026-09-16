@@ -17,7 +17,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
-from discord_bot.clients.download_client import HttpDownloadClient
+from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_queue_worker_client import _exception_detail
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.cogs.music_helpers.common import SearchType

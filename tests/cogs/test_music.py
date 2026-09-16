@@ -21,17 +21,18 @@ from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
-from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
+from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
-from discord_bot.clients.youtube_music_search_client import (
-    HttpYoutubeMusicSearchClient, InMemoryYoutubeMusicSearchClient,
-)
+from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_bot.interfaces.download_protocols import ClearGuildResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 
+from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
+from tests.fakes.in_memory_download_client import InMemoryDownloadClient
+from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
@@ -39,6 +40,7 @@ from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
 from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_search
 from tests.helpers import attach_in_process_download
+
 
 # youtube_music_search_client is required config since the dual-path collapse —
 # the cog is an HTTP client only, and tests that need the in-process search stack
