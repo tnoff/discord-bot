@@ -6,11 +6,11 @@ import pytest
 
 from discord_bot.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
+from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_worker
 from tests.helpers import fake_engine, fake_context, fake_source_dict, fake_media_download #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker

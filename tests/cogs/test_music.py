@@ -21,7 +21,6 @@ from discord_bot.types.search import SearchResult, SearchCollection
 from discord_bot.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.clients.broker_client import HttpBrokerClient, InMemoryBrokerClient
 from discord_bot.clients.download_client import HttpDownloadClient, InMemoryDownloadClient
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
@@ -33,6 +32,7 @@ from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
 
+from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeContext, FakeChannel
@@ -684,7 +684,7 @@ async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context, f
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('discord_bot.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
-            mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
+            mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog, db_engine=fake_engine)
             cog.dispatcher = Mock()

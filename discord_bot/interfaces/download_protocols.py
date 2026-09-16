@@ -7,7 +7,7 @@ Two shapes live here, mirroring interfaces/broker_protocols.py:
   DownloadWorkerBase (ABC) — the download *engine*.  Owns the queue-agnostic
     yt-dlp pipeline (create_source, backoff, retry, broker reporting) and the
     run() consumer loop, and declares the per-guild queue surface as abstract
-    hooks.  AsyncioDownloadWorker (workers/asyncio_download_worker.py) backs it
+    hooks.  AsyncioDownloadWorker (tests/fakes/asyncio_download_worker.py) backs it
     with in-process DistributedQueues; a later RedisDownloadWorker will back it
     with Redis for HA.
 

@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_bot.workers.asyncio_broker import AsyncioBroker
 from discord_bot.interfaces.broker_protocols import Zone
 
+from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import fake_media_download, fake_source_dict, generate_fake_context
 
 # Tests inspect MediaBroker internals directly; suppress the blanket warning.

@@ -14,13 +14,13 @@ from discord_bot.cogs.music import Music
 from discord_bot.exceptions import ExitEarlyException
 
 from discord_bot.interfaces import download_protocols
-from discord_bot.workers.asyncio_download_worker import AsyncioDownloadWorker
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
 
+from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_download_worker_download_exception, yield_fake_download_worker, yield_download_worker_download_error
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, random_string, fake_stores #pylint:disable=unused-import
@@ -62,7 +62,7 @@ async def test_download_queue_hits_cache(mocker, fake_context, fake_stores):  #p
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
             mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_bot.workers.asyncio_broker.get_file', return_value=True)
+            mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
             attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))

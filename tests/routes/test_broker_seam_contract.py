@@ -25,7 +25,8 @@ from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.routes import broker as broker_routes, contract
 from discord_bot.routes.route import Route, collect
 from discord_bot.servers.broker_server import BrokerHttpServer
-from discord_bot.workers.asyncio_broker import AsyncioBroker
+
+from tests.fakes.asyncio_broker import AsyncioBroker
 
 
 def _server() -> BrokerHttpServer:

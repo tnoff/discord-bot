@@ -13,11 +13,11 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 
+from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
 

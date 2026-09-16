@@ -26,9 +26,9 @@ from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.loop_health import LoopHealth
-from discord_bot.workers.asyncio_broker import AsyncioBroker as MediaBroker
 from discord_bot.workers.asyncio_queues import AsyncioSearchResultQueue
 
+from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context
 
 
