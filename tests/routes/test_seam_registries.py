@@ -11,7 +11,6 @@ to all five seams. The broker seam has its own module as well
 client-source assertions specific to it.
 '''
 import pytest
-from aiohttp import web
 
 from discord_bot.routes import broker as broker_routes
 from discord_bot.routes import contract
@@ -23,56 +22,15 @@ from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.clients.http_playlist_store import HttpPlaylistStore
 from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
-from discord_bot.servers.dispatch_server import DispatchHttpServer
-from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.workers.asyncio_broker import AsyncioBroker
-
-CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
+from tests.routes._seam_servers import SEAMS, served as _served
 
 
-def _fully_configured_database():
-    '''A db pod with every store, so its route set is the whole registry.
-
-    The groups are conditional, so this is the only configuration whose served set
-    equals ALL -- which is why the advertisement is a runtime read and this test
-    has to say which pod shape it is asserting about.
-    '''
-    return DatabaseHttpServer(guild_analytics_store=object(), markov_store=object(),
-                              playlist_store=object(), video_cache_store=object())
-
-
-# (seam name, server factory, the routes that server should serve)
-SEAMS = [
-    ('broker', lambda: BrokerHttpServer(AsyncioBroker()), broker_routes.ALL),
-    ('database', _fully_configured_database, database_routes.ALL),
-    ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL),
-    ('media_search', lambda: MediaSearchHttpServer(object()), media_search_routes.ALL),
-    # The queue-worker registry covers TWO pods at different prefixes. Both are
-    # listed, because a test that walked the seam once would leave whichever pod
-    # it skipped entirely unchecked -- the gap the project spec's route inventory
-    # had when it counted this class once and reported 4 routes instead of 8.
-    ('queue_worker/downloads', lambda: DownloadHttpServer(object()),
-     queue_worker_routes.DOWNLOADS.all),
-    ('queue_worker/ytmusic', lambda: YoutubeMusicSearchHttpServer(object()),
-     queue_worker_routes.YTMUSIC.all),
-]
-
-
-def _served(app: web.Application) -> set:
-    '''Seam routes the app serves: the router's real contents, minus the two
-    things that are not seam routes -- HEAD (an add_get affordance) and the
-    contract endpoint (served by every application server, owned by no seam).'''
-    served = {entry for entry in contract.served_routes(app) if entry[0] != 'HEAD'}
-    return served - {CONTRACT_ENTRY}
-
-
-@pytest.mark.parametrize('name,factory,expected', SEAMS, ids=[s[0] for s in SEAMS])
-def test_registry_and_router_agree(name, factory, expected):
+@pytest.mark.parametrize('name,factory,expected,_image', SEAMS, ids=[s[0] for s in SEAMS])
+def test_registry_and_router_agree(name, factory, expected, _image):
     '''Both directions, because they fail differently.
 
     A served route missing from the registry is one no client can name. A registry
@@ -85,8 +43,8 @@ def test_registry_and_router_agree(name, factory, expected):
     assert declared - served == set(), f'{name}: in the registry but not served'
 
 
-@pytest.mark.parametrize('name,factory,expected', SEAMS, ids=[s[0] for s in SEAMS])
-def test_every_server_advertises_its_seam(name, factory, expected):
+@pytest.mark.parametrize('name,factory,expected,_image', SEAMS, ids=[s[0] for s in SEAMS])
+def test_every_server_advertises_its_seam(name, factory, expected, _image):
     '''The advertisement is what the client-side subset check reads, so a seam
     whose routes are registered but not advertised would be invisible to it.'''
     app = factory().build_app()

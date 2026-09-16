@@ -55,6 +55,14 @@ spec:
     - component:default/discord-downloader
     - component:default/discord-search
     - resource:default/discord-data-cache-bucket
+  consumesApis:
+    - api:default/broker
+    - api:default/database
+    - api:default/dispatch
+    - api:default/media-search
+    - api:default/queue-worker-downloads
+    - api:default/queue-worker-ytmusic
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -72,6 +80,9 @@ spec:
   system: discord
   dependsOn:
     - resource:default/redis
+  providesApis:
+    - api:default/dispatch
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -91,6 +102,12 @@ spec:
     - component:default/discord-dispatcher
     - resource:default/discord-data-cache-bucket
     - resource:default/redis
+  providesApis:
+    - api:default/broker
+  consumesApis:
+    - api:default/database
+    - api:default/dispatch
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -110,6 +127,11 @@ spec:
     - component:default/discord-broker
     - resource:default/discord-data-cache-bucket
     - resource:default/redis
+  providesApis:
+    - api:default/queue-worker-downloads
+  consumesApis:
+    - api:default/broker
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -127,6 +149,12 @@ spec:
   dependsOn:
     - component:default/discord-broker
     - resource:default/redis
+  providesApis:
+    - api:default/media-search
+    - api:default/queue-worker-ytmusic
+  consumesApis:
+    - api:default/broker
+
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -145,6 +173,9 @@ spec:
   system: discord
   dependsOn:
     - resource:default/discord-postgres
+  providesApis:
+    - api:default/database
+
 ---
 # The nightly backup, declared here rather than in docker-apps where its CronJob
 # manifest lives.
@@ -278,3 +309,115 @@ spec:
   type: object-storage
   owner: group:default/admin
   system: discord
+
+---
+# The six API entities, one per SERVED SURFACE, and the OpenAPI documents behind
+# them are generated -- tests/routes/test_openapi_docs.py reads each server's
+# built aiohttp router, the same source GET /_contract/routes reads. A pod and
+# its published API description therefore cannot disagree about which routes
+# exist.
+#
+# Six entities for five seams. `queue_worker` is a route shape rather than a pod:
+# the downloader serves it at /downloads and the search pod at /search/ytmusic,
+# with disjoint route sets, so one entity per seam would describe two pods as one
+# and be accurate for neither. discord-search consequently provides two of these.
+#
+# `definition` is a $text reference rather than an inlined document, so the spec
+# lives in one place and a route addition shows up as a diff in docs/openapi/
+# rather than a re-indented wall inside this file.
+#
+# The documents carry routes and no body schemas, deliberately. See
+# docs/projects/http-seam-contract.md -- the seam contract guarantees which
+# routes exist; the bodies are typed four different ways across the seams and
+# describing them here would be a third representation with nothing to keep it
+# honest.
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: broker
+  description: >-
+    The `broker` seam as served by discord-broker -- 22 routes across 20 paths.
+    Generated from the built router; do not hand-edit docs/openapi/broker.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/broker.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: database
+  description: >-
+    The `database` seam as served by discord-db -- 33 routes across 33 paths.
+    Generated from the built router; do not hand-edit docs/openapi/database.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/database.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: dispatch
+  description: >-
+    The `dispatch` seam as served by discord-dispatcher -- 8 routes across 8 paths.
+    Generated from the built router; do not hand-edit docs/openapi/dispatch.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/dispatch.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: media-search
+  description: >-
+    The `media_search` seam as served by discord-search -- 2 routes across 2 paths.
+    Generated from the built router; do not hand-edit docs/openapi/media-search.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/media-search.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: queue-worker-downloads
+  description: >-
+    The `queue_worker` seam as served by discord-downloader at `/downloads` -- 4 routes across 4 paths.
+    Generated from the built router; do not hand-edit docs/openapi/queue-worker-downloads.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/queue-worker-downloads.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: queue-worker-ytmusic
+  description: >-
+    The `queue_worker` seam as served by discord-search at `/ytmusic` -- 4 routes across 4 paths.
+    Generated from the built router; do not hand-edit docs/openapi/queue-worker-ytmusic.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/queue-worker-ytmusic.yaml

@@ -208,6 +208,12 @@ test = [
     "bandit==1.9.4",
     "fakeredis==2.37.1",
     "freezegun==1.5.5",
+    # Validates the generated docs/openapi/*.yaml are real OpenAPI rather than
+    # plausible-looking YAML. The generator is deterministic, so the risk is an
+    # edit to the generator producing a document that reads fine and no tool
+    # accepts -- which is precisely the failure that only shows up in Backstage
+    # at ingestion, far from the change that caused it.
+    "openapi-spec-validator==0.9.0",
     "pylint-pydantic==0.4.1",
     "pylint==4.0.8",
     "pytest==9.1.1",
