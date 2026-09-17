@@ -31,13 +31,15 @@ imported anything in ``VOCABULARY`` that it did not declare. A second test
 asserting that would be tautological, and a tautological test is worse than no
 test — it reads as coverage while checking nothing.
 '''
+import json
 import os
 import re
 
 import pytest
 
 from tests.cli._image_deps import (
-    IMAGE_IMPORTS, OWNERSHIP_DOC, REPO_ROOT, VOCABULARY, measure, render_table,
+    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, OWNERSHIP_DOC, REPO_ROOT, VOCABULARY,
+    measure, render_closure, render_table,
 )
 
 
@@ -228,4 +230,72 @@ def test_only_the_db_image_ships_the_migrations():
         'without installing the alembic CLI cannot run what it carries; one that '
         'installs it without the files has nothing to run. Change the constant '
         'above only when an image genuinely gains or loses schema ownership.'
+    )
+
+
+def test_every_dockerfile_exists():
+    '''
+    Every declared Dockerfile is on disk, and every image has exactly one.
+
+    ci.yml's build matrix is generated from IMAGE_DOCKERFILES now, so a typo here
+    no longer fails loudly at build time -- it produces a matrix leg pointing at a
+    path that does not exist, which is a build failure with a confusing message,
+    or worse a missing leg. Checking against the filesystem is cheap and the
+    declaration is the only place the mapping is written down.
+    '''
+    assert set(IMAGE_DOCKERFILES) == set(IMAGE_IMPORTS), (
+        f'images and dockerfiles disagree: {set(IMAGE_DOCKERFILES) ^ set(IMAGE_IMPORTS)}'
+    )
+    missing = sorted(path for path in IMAGE_DOCKERFILES.values()
+                     if not (REPO_ROOT / path).is_file())
+    assert not missing, f'declared Dockerfiles that do not exist: {missing}'
+    duplicated = len(set(IMAGE_DOCKERFILES.values())) != len(IMAGE_DOCKERFILES)
+    assert not duplicated, (
+        f'two images share a Dockerfile: {sorted(IMAGE_DOCKERFILES.values())}. '
+        f'The build matrix keys on it, so they would build the same thing twice.'
+    )
+
+
+def test_image_closure_is_current():
+    '''
+    docs/image-closure.json matches a live measurement.
+
+    This one is load-bearing in a way the markdown table is not: ci.yml reads it
+    to decide which images to build, so a stale copy does not merely misinform a
+    reader, it skips a build. A module that moved into the bot's import chain
+    since the last regeneration would be seen as not affecting the bot.
+    '''
+    rendered = render_closure()
+    if os.environ.get('UPDATE_IMAGE_DEPS'):
+        CLOSURE_DOC.write_text(rendered, encoding='utf-8')
+    assert CLOSURE_DOC.read_text(encoding='utf-8') == rendered, (
+        'docs/image-closure.json is out of date, and CI keys its build filter on it.\n'
+        'Regenerate with:\n'
+        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
+    )
+
+
+def test_every_module_is_claimed_by_some_image():
+    '''
+    No first-party module is reachable from no entrypoint.
+
+    This is the property the CI filter depends on: if a file belongs to no
+    image's closure, "which images does this change affect" has no safe answer,
+    and the filter fails the build rather than guessing. Asserting it here means
+    the answer arrives when the unreachable module is added, not weeks later on
+    an unrelated PR that happens to touch it.
+    '''
+    closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
+    claimed = set().union(*(set(image['modules']) for image in closure['images']))
+    orphans = []
+    for path in sorted((REPO_ROOT / 'discord_bot').rglob('*.py')):
+        module = str(path.relative_to(REPO_ROOT).with_suffix('')).replace('/', '.')
+        if module.endswith('.__init__'):
+            module = module[: -len('.__init__')]
+        if module not in claimed:
+            orphans.append(module)
+    assert not orphans, (
+        f'modules no entrypoint reaches: {orphans}. They ship in every image and no '
+        f'test exercises them through a real import chain. Delete them, or move them '
+        f'under tests/ if they are doubles.'
     )
