@@ -336,33 +336,36 @@ class TestHealthServerReadiness:
                 pass
 
     async def test_ready_check_increments_counter_by_outcome(self, mocker):
-        '''_readiness_check records the dispatcher probe outcome on the counter.'''
-        counter = mocker.patch('discord_bot.servers.health_server._READY_CHECK_COUNTER')
+        '''_readiness_check records the probe outcome, tagged with its target.'''
+        counter = mocker.patch('discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18110, dispatch_http_url='http://dispatcher:8082')
 
         mocker.patch.object(hs, '_tcp_probe', AsyncMock(return_value=True))
         await hs._readiness_check()  # pylint: disable=protected-access
-        counter.add.assert_called_once_with(1, {'outcome': 'ok'})
+        counter.add.assert_called_once_with(
+            1, {'source': 'bot', 'target': 'dispatch', 'outcome': 'ok'})
 
         counter.reset_mock()
         mocker.patch.object(hs, '_tcp_probe', AsyncMock(return_value=False))
         await hs._readiness_check()  # pylint: disable=protected-access
-        counter.add.assert_called_once_with(1, {'outcome': 'unavailable'})
+        counter.add.assert_called_once_with(
+            1, {'source': 'bot', 'target': 'dispatch', 'outcome': 'unavailable'})
 
-    async def test_database_peer_lands_on_its_own_counter(self, mocker):
-        '''The db probe increments DATABASE_PEER_READY_CHECK, never the dispatcher's.
-
-        Two counters rather than one counter with a `peer` dimension, because the
-        docker-apps dashboard panel sums dispatcher_ready_check by outcome under a
-        dispatcher-titled panel: a dimension would fold db results into it and
-        leave a correct-looking graph answering a different question. This asserts
-        the separation directly, since nothing else would notice it breaking.
+    async def test_database_peer_is_tagged_as_its_own_target(self, mocker):
         '''
-        dispatch_counter = mocker.patch(
-            'discord_bot.servers.health_server._READY_CHECK_COUNTER')
-        database_counter = mocker.patch(
-            'discord_bot.servers.health_server._DATABASE_PEER_COUNTER')
+        The db probe is separable from the dispatcher probe, now by label.
+
+        This used to be two counters with two metric names, because a
+        docker-apps panel titled for the dispatcher summed
+        dispatcher_ready_check by outcome and a dimension would have folded db
+        results into it -- a correct-looking graph answering a different
+        question. The panel now selects on `target`, so one metric is safe, and
+        the separation this asserts is the same separation as before: a db
+        result must never arrive unlabelled or labelled as the dispatcher.
+        '''
+        counter = mocker.patch(
+            'discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18112, database_http_url='http://discord-db:8085')
 
@@ -371,8 +374,8 @@ class TestHealthServerReadiness:
 
         assert ok is True
         assert payload == {'database': 'ok'}
-        database_counter.add.assert_called_once_with(1, {'outcome': 'ok'})
-        dispatch_counter.add.assert_not_called()
+        counter.add.assert_called_once_with(
+            1, {'source': 'bot', 'target': 'database', 'outcome': 'ok'})
 
     async def test_both_peers_are_probed_and_reported_independently(self, mocker):
         '''One unreachable peer fails readiness without masking the other's state.
@@ -398,7 +401,7 @@ class TestHealthServerReadiness:
 
     async def test_ready_check_skips_counter_without_dispatch_url(self, mocker):
         '''No probe and no counter increment when dispatch_http_url is unset.'''
-        counter = mocker.patch('discord_bot.servers.health_server._READY_CHECK_COUNTER')
+        counter = mocker.patch('discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18111)
         await hs._readiness_check()  # pylint: disable=protected-access

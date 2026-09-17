@@ -11,6 +11,21 @@ import json
 import logging
 
 from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+
+# ONE instrument for every pod that reports its own readiness, created once.
+#
+# Not one per health server, and the reason is not just that the blocks were
+# identical. OTel meters keep the FIRST instrument registered under a name and
+# silently drop later ones, so two modules creating `pod_ready_check` in a
+# process that imported both would leave the second reporting nothing, with no
+# error anywhere. That is the #951 failure, and the fix is the same: one
+# instrument, one place.
+_POD_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.POD_READY_CHECK.value,
+    description='Pod readiness probe outcomes, by pod',
+    unit='1',
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +71,16 @@ class HealthServerBase:
     async def _readiness_check(self) -> tuple[bool, dict]:
         """Return (overall_ok, extra_payload_fields) for readiness; defaults to _check()."""
         return await self._check()
+
+    @staticmethod
+    def record_readiness(pod: str, ok: bool) -> str:
+        '''Record one readiness outcome for `pod`, and return it for the payload.'''
+        outcome = 'ok' if ok else 'unavailable'
+        _POD_READY_CHECK_COUNTER.add(1, {
+            AttributeNaming.POD.value: pod,
+            AttributeNaming.OUTCOME.value: outcome,
+        })
+        return outcome
 
     @staticmethod
     def _apply_loop_health(ok: bool, extra: dict) -> tuple[bool, dict]:

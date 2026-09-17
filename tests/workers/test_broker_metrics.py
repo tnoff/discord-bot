@@ -23,9 +23,10 @@ def _zone_map(observations):
 class TestObservations:
     def test_queue_depth_defaults_to_zero(self):
         bm, _, _ = _metrics()
-        (obs,) = bm.queue_depth_observations(None)
+        obs = next(o for o in bm.result_queue_depth_observations(None)
+                   if o.attributes['result_type'] == 'download')
         assert obs.value == 0
-        assert obs.attributes == {'background_job': 'broker'}
+        assert obs.attributes == {'background_job': 'broker', 'result_type': 'download'}
 
     def test_entry_observations_report_known_zones_as_zero(self):
         '''Known zones are always emitted (as 0) so a drop is visible, not absent.'''
@@ -52,11 +53,25 @@ def _metrics_with_search(search_depth=0):
 
 
 class TestSearchQueueDepth:
+    def test_no_search_observation_when_the_broker_has_no_search_queue(self):
+        '''
+        Absence, not a zero.
+
+        A 0 for a queue that does not exist is a real-looking series saying
+        nothing is pending, which reads identically to a drained queue. The
+        collapse onto one metric made this possible to get wrong, so it is
+        asserted rather than assumed.
+        '''
+        bm, _, _ = _metrics()
+        types = {o.attributes['result_type'] for o in bm.result_queue_depth_observations(None)}
+        assert types == {'download'}
+
     def test_search_queue_depth_defaults_to_zero(self):
         bm = _metrics_with_search()
-        (obs,) = bm.search_queue_depth_observations(None)
+        obs = next(o for o in bm.result_queue_depth_observations(None)
+                   if o.attributes['result_type'] == 'search')
         assert obs.value == 0
-        assert obs.attributes == {'background_job': 'broker'}
+        assert obs.attributes == {'background_job': 'broker', 'result_type': 'search'}
 
 
 @pytest.mark.asyncio
@@ -64,7 +79,8 @@ class TestSearchQueueDepthRefresh:
     async def test_refresh_populates_search_queue_depth(self):
         bm = _metrics_with_search(search_depth=7)
         await bm.refresh()
-        assert bm.search_queue_depth_observations(None)[0].value == 7
+        assert next(o for o in bm.result_queue_depth_observations(None)
+             if o.attributes['result_type'] == 'search').value == 7
 
 
 @pytest.mark.asyncio
@@ -73,7 +89,8 @@ class TestRefresh:
         entries = [{'zone': 'available'}, {'zone': 'available'}, {'zone': 'checked_out'}]
         bm, _, _ = _metrics(depth=5, entries=entries, bundles=2)
         await bm.refresh()
-        assert bm.queue_depth_observations(None)[0].value == 5
+        assert next(o for o in bm.result_queue_depth_observations(None)
+             if o.attributes['result_type'] == 'download').value == 5
         assert _zone_map(bm.entry_observations(None)) == {
             'in_flight': 0, 'available': 2, 'checked_out': 1}
         assert bm.bundle_observations(None)[0].value == 2

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy import text
 
+from discord_bot.utils.otel import AttributeNaming
 from discord_bot.servers.database_health_server import DatabasePingHealthServer
 
 from tests.helpers import fake_engine  # pylint: disable=unused-import
@@ -49,19 +50,19 @@ async def test_check_unavailable_when_db_raises():
 @pytest.mark.asyncio
 async def test_check_counts_the_ok_outcome(mocker, fake_engine):  # pylint: disable=redefined-outer-name
     '''Probe outcomes are counted, so a flapping database is visible before the kill.'''
-    counter = mocker.patch('discord_bot.servers.database_health_server._READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_bot.servers.health_server_base._POD_READY_CHECK_COUNTER')
     ok, _ = await _server(fake_engine)._check()  # pylint: disable=protected-access
     assert ok is True
-    counter.add.assert_called_once_with(1, {'outcome': 'ok'})
+    counter.add.assert_called_once_with(1, {AttributeNaming.POD.value: 'database', 'outcome': 'ok'})
 
 
 @pytest.mark.asyncio
 async def test_check_counts_a_bad_outcome(mocker):
     '''The unavailable outcome is counted under its own label.'''
-    counter = mocker.patch('discord_bot.servers.database_health_server._READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_bot.servers.health_server_base._POD_READY_CHECK_COUNTER')
     ok, _ = await _server(_failing_engine(ConnectionError('pg down')))._check()  # pylint: disable=protected-access
     assert ok is False
-    counter.add.assert_called_once_with(1, {'outcome': 'unavailable'})
+    counter.add.assert_called_once_with(1, {AttributeNaming.POD.value: 'database', 'outcome': 'unavailable'})
 
 
 @pytest.mark.asyncio

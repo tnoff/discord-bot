@@ -20,10 +20,10 @@ __all__ = ['DownloadMetrics', 'DEFAULT_POLL_INTERVAL_SECONDS']
 class DownloadMetrics(QueueMetricsBase):
     '''Polls Redis-backed downloader state into gauge-friendly cached values.'''
 
-    QUEUE_DEPTH_METRIC: ClassVar[str] = MetricNaming.DOWNLOAD_QUEUE_DEPTH.value
+    QUEUE_DEPTH_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_DEPTH.value
     QUEUE_DEPTH_DESCRIPTION: ClassVar[str] = 'Pending downloads across all guild queues'
-    BACKOFF_METRIC: ClassVar[str] = MetricNaming.DOWNLOAD_YOUTUBE_BACKOFF.value
+    BACKOFF_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_BACKOFF_SECONDS.value
     BACKOFF_DESCRIPTION: ClassVar[str] = 'Seconds remaining on the shared YouTube backoff window'
-    FAILURE_COUNT_METRIC: ClassVar[str] = MetricNaming.DOWNLOAD_FAILURE_COUNT.value
+    FAILURE_COUNT_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_FAILURES.value
     FAILURE_COUNT_DESCRIPTION: ClassVar[str] = 'Failures in the shared YouTube failure queue'
     JOB_LABEL: ClassVar[str] = 'downloader'

@@ -379,8 +379,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # Cache filesystem stats — only meaningful in local mode with a dedicated mount
         if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
         # Heartbeat gauges. Every one is driven by LoopHealth (successful
         # iterations), not by task liveness — see utils/loop_health. A loop only
         # emits a series once it registers in cog_load, so the ones that don't

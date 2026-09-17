@@ -13,18 +13,8 @@ primary signal and there is no bot to pass.
 '''
 from discord_bot.servers.db_probe import db_ping
 from discord_bot.servers.health_server_base import HealthServerBase
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 
 
-# Counts each probe by outcome, mirroring the broker's. The kubelet hits /health
-# on a fixed interval, so a flapping outcome is the early warning that postgres
-# is going away -- visible before the pod is killed, and before the bot and
-# broker start seeing 503s from routes they now depend on.
-_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DATABASE_READY_CHECK.value,
-    description='Database pod health probe outcomes (postgres reachability)',
-    unit='1',
-)
 
 
 class DatabasePingHealthServer(HealthServerBase):
@@ -53,7 +43,5 @@ class DatabasePingHealthServer(HealthServerBase):
     async def _check(self):
         db_ok = await db_ping(self._db_engine,
                               self._suppress_db_probe_auto_instrumentation)
-        _READY_CHECK_COUNTER.add(1, {
-            AttributeNaming.OUTCOME.value: 'ok' if db_ok else 'unavailable',
-        })
-        return db_ok, {'db': 'ok' if db_ok else 'unavailable'}
+        outcome = self.record_readiness('database', db_ok)
+        return db_ok, {'db': outcome}

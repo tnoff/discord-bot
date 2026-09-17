@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from discord_bot.utils.otel import AttributeNaming
 from discord_bot.servers.broker_health_server import BrokerHealthServer
 
 
@@ -30,17 +31,17 @@ async def test_check_unavailable_when_redis_raises():
 
 @pytest.mark.asyncio
 async def test_check_counts_ok_outcome(mocker):
-    counter = mocker.patch('discord_bot.servers.broker_health_server._READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_bot.servers.health_server_base._POD_READY_CHECK_COUNTER')
     server = _server(AsyncMock(return_value=True))
     ok, _ = await server._check()  # pylint: disable=protected-access
     assert ok is True
-    counter.add.assert_called_once_with(1, {'outcome': 'ok'})
+    counter.add.assert_called_once_with(1, {AttributeNaming.POD.value: 'broker', 'outcome': 'ok'})
 
 
 @pytest.mark.asyncio
 async def test_check_counts_unavailable_outcome(mocker):
-    counter = mocker.patch('discord_bot.servers.broker_health_server._READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_bot.servers.health_server_base._POD_READY_CHECK_COUNTER')
     server = _server(AsyncMock(side_effect=ConnectionError('redis down')))
     ok, _ = await server._check()  # pylint: disable=protected-access
     assert ok is False
-    counter.add.assert_called_once_with(1, {'outcome': 'unavailable'})
+    counter.add.assert_called_once_with(1, {AttributeNaming.POD.value: 'broker', 'outcome': 'unavailable'})
