@@ -16,6 +16,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OWNERSHIP_DOC = REPO_ROOT / 'docs' / 'image-dependencies.md'
+CLOSURE_DOC = REPO_ROOT / 'docs' / 'image-closure.json'
 
 # The tier-defining third-party packages: heavy, tier-specific, or both. Base
 # dependencies (aiohttp, pydantic, redis, the otel stack) are deliberately out of
@@ -86,6 +87,23 @@ IMAGE_NAMES = {
     'discord_bot.cli.downloader': 'discord-downloader',
     'discord_bot.cli.search': 'discord-search',
     'discord_bot.cli.database': 'discord-db',
+}
+
+# The Dockerfile that builds each image. Declared here rather than in the CI
+# matrix because the matrix is now generated from this: ci.yml used to carry its
+# own copy of image -> dockerfile, which made it a second place the set of images
+# was written down. The 2026-09-04 finding is what that costs -- discord-db was
+# added to five of the six places and missed in release.yml, and built green
+# while shipping nothing for four days.
+#
+# test_every_dockerfile_exists keeps these honest against the filesystem.
+IMAGE_DOCKERFILES = {
+    'discord_bot.cli.bot': 'docker/Dockerfile',
+    'discord_bot.cli.dispatcher': 'docker/Dockerfile.dispatcher',
+    'discord_bot.cli.broker': 'docker/Dockerfile.broker',
+    'discord_bot.cli.downloader': 'docker/Dockerfile.downloader',
+    'discord_bot.cli.search': 'docker/Dockerfile.search',
+    'discord_bot.cli.database': 'docker/Dockerfile.db',
 }
 
 
@@ -210,3 +228,43 @@ def render_table() -> str:
         '',
     ]
     return '\n'.join(lines)
+
+
+def short_name(entrypoint: str) -> str:
+    '''The name CI uses for an image: `discord-db` -> `db`.'''
+    return IMAGE_NAMES[entrypoint].replace('discord-', '')
+
+
+def render_closure() -> str:
+    '''
+    Render the per-image closure CI keys its build filter on.
+
+    JSON rather than the markdown ownership table next door because this one is
+    read by a program, not a person: ci.yml maps a PR's changed files onto it to
+    decide which images to build. The markdown table stays because it answers a
+    different question -- "what does this image carry" -- and answering both from
+    one file would make each worse.
+
+    The module list is MEASURED, not walked. A static AST walk misses lazy and
+    PEP 562 imports, and the gate has to be right about reachability or it skips
+    an image that needed building. The one dynamic import in the tree
+    (utils/integrations/youtube_music.py) is exactly the case a walk would miss.
+    '''
+    measured = {ep: measure(ep) for ep in IMAGE_IMPORTS}
+    images = []
+    for ep in IMAGE_IMPORTS:
+        images.append({
+            'image': short_name(ep),
+            'entrypoint': ep,
+            'dockerfile': IMAGE_DOCKERFILES[ep],
+            'extra': short_name(ep),
+            'modules': sorted(set(measured[ep]['modules']) | {'discord_bot'}),
+        })
+    images.sort(key=lambda i: i['image'])
+    doc = {
+        '_generated_by': 'tests/cli/test_import_boundaries.py '
+                         '(UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py)',
+        '_do_not_edit': 'Regenerate rather than editing. ci.yml reads this to pick which images to build.',
+        'images': images,
+    }
+    return json.dumps(doc, indent=2, sort_keys=False) + '\n'
