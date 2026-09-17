@@ -11,9 +11,22 @@ Kept in its own module rather than reusing servers/health_server.HealthServer,
 which takes a Bot and reports the database as a secondary field. Here it is the
 primary signal and there is no bot to pass.
 '''
+from enum import Enum
 from discord_bot.servers.db_probe import db_ping
 from discord_bot.servers.health_server_base import HealthServerBase
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER
+
+
+class DatabaseMetricNaming(Enum):
+    '''
+    Metric names the db pod emits, and nothing else.
+
+    Split out of utils/otel.py (2026-09-17). One member, and it still earns its
+    own home: database_ready_check is what the discord-db-postgres-unreachable
+    alert watches, and the bot's separate probe of this pod is deliberately
+    named database_peer_ready_check so the two faults cannot page as one.
+    '''
+    DATABASE_READY_CHECK = 'database.ready_check'
 
 
 # Counts each probe by outcome, mirroring the broker's. The kubelet hits /health
@@ -21,11 +34,10 @@ from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 # is going away -- visible before the pod is killed, and before the bot and
 # broker start seeing 503s from routes they now depend on.
 _READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DATABASE_READY_CHECK.value,
+    name=DatabaseMetricNaming.DATABASE_READY_CHECK.value,
     description='Database pod health probe outcomes (postgres reachability)',
     unit='1',
 )
-
 
 class DatabasePingHealthServer(HealthServerBase):
     '''

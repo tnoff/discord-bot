@@ -5,15 +5,16 @@ A thin alias over RedisPingHealthServer: the broker pod is healthy when Redis
 (its source of truth) is reachable.  Kept in its own module/name so logs and
 telemetry distinguish it from the dispatcher's health server.
 '''
+from discord_bot.workers.broker_metrics import BrokerMetricNaming
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER
 
 
 # Counts each broker health probe by outcome. The k8s livenessProbe hits /health
 # on a fixed interval, so a flapping outcome is an early warning that the broker
 # is losing its Redis connection before the pod is killed.
 _READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.BROKER_READY_CHECK.value,
+    name=BrokerMetricNaming.BROKER_READY_CHECK.value,
     description='Broker health probe outcomes (Redis reachability)',
     unit='1',
 )

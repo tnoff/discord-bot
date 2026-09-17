@@ -10,6 +10,7 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
+from discord_bot.workers.broker_metrics import BrokerMetricNaming
 from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_bot.routes import broker as broker_routes
@@ -30,13 +31,13 @@ logger = logging.getLogger(__name__)
 # 'empty' on a 204. A healthy system alternates; a rising 'hit' rate with the
 # result-queue depth climbing means the bot side has stopped draining.
 _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.BROKER_RESULT_FETCH.value,
+    name=BrokerMetricNaming.BROKER_RESULT_FETCH.value,
     description='GET /results/next outcomes (hit / empty)',
     unit='1',
 )
 # Same hit/empty accounting for GET /search-results/next.
 _SEARCH_RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.BROKER_SEARCH_RESULT_FETCH.value,
+    name=BrokerMetricNaming.BROKER_SEARCH_RESULT_FETCH.value,
     description='GET /search-results/next outcomes (hit / empty)',
     unit='1',
 )

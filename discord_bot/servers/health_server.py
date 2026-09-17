@@ -5,8 +5,9 @@ Runs as an asyncio task inside the bot's event loop.
 import asyncio
 from urllib.parse import urlsplit
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.servers.health_server_base import HealthServerBase, close_writer
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER
 
 
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
@@ -15,7 +16,7 @@ _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
 # bot pod (cli.bot), which probes the remote dispatcher; a flapping outcome is an
 # early warning for the readiness-split regression class.
 _READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DISPATCHER_READY_CHECK.value,
+    name=BotMetricNaming.DISPATCHER_READY_CHECK.value,
     description='Dispatcher readiness probe outcomes from the bot pod',
     unit='1',
 )
@@ -25,7 +26,7 @@ _READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
 # and is titled for the dispatcher; adding a dimension would silently fold db-pod
 # results into it and make a correct-looking panel wrong. Two probes, two names.
 _DATABASE_PEER_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DATABASE_PEER_READY_CHECK.value,
+    name=BotMetricNaming.DATABASE_PEER_READY_CHECK.value,
     description='Bot-side TCP reachability of the discord-db pod',
     unit='1',
 )

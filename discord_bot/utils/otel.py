@@ -16,31 +16,21 @@ METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
 class MetricNaming(Enum):
     '''
-    Metric naming
+    Metric names shared across images.
+
+    Only names more than one image emits live here. The per-tier names moved out
+    (2026-09-17): 21 of the 25 members this enum used to carry were emitted by
+    exactly ONE image, so every tier-local metric addition edited a module all
+    six images import and rebuilt all six. They now live beside the code that
+    emits them -- utils/bot_metrics.py, workers/broker_metrics.py,
+    workers/download_metrics.py, workers/search_metrics.py and
+    servers/database_health_server.py -- each of which is reached by its own
+    image alone.
+
+    Adding a name here is therefore a deliberate claim that several images emit
+    it. If only one does, it belongs in that tier's module.
     '''
     HEARTBEAT = 'heartbeat'
-    ACTIVE_PLAYERS = 'active_players'
-    VOICE_CLIENTS_CONNECTED = 'voice_clients_connected'
-    CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
-    CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
-    DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
-    DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
-    # The bot's TCP probe of the db POD, added with MR 4b. Deliberately not
-    # 'database_ready_check': that name belongs to the db pod's own /health
-    # outcome (servers/database_health_server) and is what the
-    # discord-db-postgres-unreachable alert watches. Reusing it would make a
-    # bot-side network failure fire an alert that means 'postgres is
-    # unreachable from the db pod' -- two different faults, one page.
-    DATABASE_PEER_READY_CHECK = 'database_peer_ready_check'
-    DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
-    DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
-    SEARCH_RESULT_QUEUE_DEPTH = 'music.search_result_queue_depth'
-    DOWNLOAD_QUEUE_DEPTH = 'download_queue_depth'
-    DOWNLOAD_YOUTUBE_BACKOFF = 'download_youtube_backoff_seconds'
-    DOWNLOAD_FAILURE_COUNT = 'download_failure_count'
-    SEARCH_QUEUE_DEPTH = 'search_queue_depth'
-    SEARCH_YOUTUBE_BACKOFF = 'search_youtube_backoff_seconds'
-    SEARCH_FAILURE_COUNT = 'search_failure_count'
     # 1 when a peer has been missing a route this client calls for longer than
     # the grace window. Deliberately NOT named for the mismatch itself: a
     # mismatch inside the window is the normal middle of a rolling update, and a
@@ -55,12 +45,7 @@ class MetricNaming(Enum):
     # call", and a body this build cannot parse is the opposite case, a route
     # that is present and answering.
     SEAM_RESPONSE_INVALID = 'seam_response_invalid'
-    BROKER_ENTRIES = 'broker.entries'
-    BROKER_BUNDLES = 'broker.bundles'
-    BROKER_RESULT_FETCH = 'broker.result_fetch'
-    BROKER_SEARCH_RESULT_FETCH = 'broker.search_result_fetch'
-    BROKER_READY_CHECK = 'broker.ready_check'
-    DATABASE_READY_CHECK = 'database.ready_check'
+
 
 class AttributeNaming(Enum):
     '''

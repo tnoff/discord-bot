@@ -12,6 +12,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import CogMissingRequiredArg
@@ -124,7 +125,7 @@ class Markov(CogHelperBase):
                                 partial(loop_heartbeat_observations, LOOP_MARKOV_CHECK), 'Markov check loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                 partial(loop_heartbeat_observations, LOOP_MARKOV_RESULT), 'Markov result loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Markov dispatch result queue depth')
+        create_observable_gauge(METER_PROVIDER, BotMetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Markov dispatch result queue depth')
 
     def __result_queue_depth_callback(self, _options):
         '''
