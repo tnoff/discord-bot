@@ -23,12 +23,15 @@ from discord_bot.types.search_resolution import SearchResolution
 # itself is still re-exported from clients/broker_client.py, so the import below
 # and every other test here are unchanged.
 from discord_bot.clients import http_broker_client as http_broker_client_module
-from discord_bot.clients.broker_client import CheckoutResult, HttpBrokerClient, InMemoryBrokerClient
+from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.interfaces.result_queue import SearchResultQueue
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
+from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
+
 
 
 def _dl_result(mr, file_name=None):

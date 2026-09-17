@@ -26,7 +26,9 @@ from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+
 from tests.routes._seam_servers import SEAMS, served as _served
+
 
 
 @pytest.mark.parametrize('name,factory,expected,_image', SEAMS, ids=[s[0] for s in SEAMS])

@@ -123,14 +123,19 @@ def test_extra_names_are_normalised_and_self_references_resolve():
 # its own private broker registry while the downloader and search pods talked to
 # the real one, and the symptom is "audio never plays", not a crash.
 #
-# The three asyncio_* engines used to head this list. They are gone from it
-# because they are gone from discord_bot/ — they now live in tests/fakes/, which
-# no image contains, so "the bot must not import them" is a property of the build
-# rather than a rule this tuple has to keep restating. What remains here is the
-# code that genuinely ships and must still stay out of the bot's import graph.
+# This list has shrunk from five entries to one, and the shrinking is the point.
+# The three asyncio_* engines and clients/broker_client left discord_bot/ rather
+# than being listed here: a module under tests/ cannot reach an image, so "the
+# bot must not import them" became a property of the build instead of a rule
+# this tuple has to keep restating. A rule enforced by the filesystem does not
+# need remembering; a rule enforced by a tuple does.
+#
+# What remains is the one module that genuinely ships and must still stay out of
+# the bot's import graph. servers/broker_server is deployable -- the broker pod
+# serves it -- so it cannot be moved out of reach, which is exactly why it still
+# needs asserting.
 BOT_FORBIDDEN_MODULES = (
     'discord_bot.servers.broker_server',
-    'discord_bot.clients.broker_client',
 )
 
 

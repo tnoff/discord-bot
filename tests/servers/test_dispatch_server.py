@@ -9,6 +9,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.servers.dispatch_server import DispatchHttpServer
+
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 

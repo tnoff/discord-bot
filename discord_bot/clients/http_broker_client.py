@@ -10,8 +10,9 @@ difference between starting and an ImportError.  Same discipline that keeps
 sqlalchemy off the dispatcher, and the same split interfaces/result_queue.py
 already made.
 
-Re-exported from clients/broker_client.py, so `from
-discord_bot.clients.broker_client import HttpBrokerClient` keeps working.
+This is the canonical home. clients/broker_client.py used to re-export it for
+back-compat; that shim is gone, along with the single-process sibling it existed
+to sit beside.
 '''
 import logging
 from pathlib import Path

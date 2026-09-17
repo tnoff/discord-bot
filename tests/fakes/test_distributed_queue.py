@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from discord_bot.utils.distributed_queue import DistributedQueue, DistributedQueueItem
 from discord_bot.types.queue import PutsBlocked
+
+from tests.fakes.distributed_queue import DistributedQueue, DistributedQueueItem
 
 def test_block():
     x = DistributedQueue(10)

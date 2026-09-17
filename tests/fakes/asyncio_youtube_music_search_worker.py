@@ -11,7 +11,8 @@ from typing import Callable
 
 from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.types.media_request import MediaRequest
-from discord_bot.utils.distributed_queue import DistributedQueue
+
+from tests.fakes.distributed_queue import DistributedQueue
 
 
 class AsyncioYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):

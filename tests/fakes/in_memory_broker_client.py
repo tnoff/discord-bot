@@ -1,43 +1,34 @@
 '''
-Cog-facing broker clients.
+Single-process BrokerClient: a thin wrapper around a MediaBrokerBase.
 
-HttpBrokerClient (re-exported from clients/http_broker_client.py) forwards every
-call to the broker pod's BrokerHttpServer.  It is the only implementation any
-deployment builds: music.broker_client is required config
-(projects/discord-bot-ha-only).
+Retired from production by the HA rollout and kept only as a test double.
+The pod-facing implementation is HttpBrokerClient (clients/http_broker_client.py);
+music.broker_client is required config, so nothing a deployment can be
+configured with reaches this class. tests.helpers.attach_in_process_broker
+builds this stack so the suite can drive real broker behaviour without
+standing up a pod behind an aiohttp server.
 
-InMemoryBrokerClient wraps a local MediaBrokerBase (AsyncioBroker) and is now a
-TEST DOUBLE — tests.helpers.attach_in_process_broker builds this stack so the
-suite can drive real broker behaviour without standing up a pod behind an aiohttp
-server.  Nothing a pod can be configured with reaches it, and
-tests/cogs/test_music.py::test_cog_builds_no_in_process_broker_stack asserts that.
-
-Both satisfy the BrokerClient Protocol (interfaces/broker_client_protocol).
+It satisfies the BrokerClient Protocol (interfaces/broker_client_protocol),
+and must keep satisfying it: a double that drifts from the Protocol takes the
+meaning out of every test built on it rather than failing them.
 '''
 import logging
 from pathlib import Path
 
 from discord_bot.interfaces.broker_protocols import (
-    BrokerClient,
     CheckoutResult,
     DownloadResultQueue,
     SearchResultQueue,
     MediaBrokerBase,
 )
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
-from discord_bot.clients.http_broker_client import HttpBrokerClient
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
-# Re-exported so `from discord_bot.clients.broker_client import CheckoutResult`
-# / `BrokerClient` / `HttpBrokerClient` keep working.  Canonical homes are
-# types/checkout_result.py, interfaces/broker_protocols.py and
-# clients/http_broker_client.py respectively.
-__all__ = ['BrokerClient', 'CheckoutResult', 'HttpBrokerClient', 'InMemoryBrokerClient']
-
 logger = logging.getLogger(__name__)
+
 
 class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
     '''

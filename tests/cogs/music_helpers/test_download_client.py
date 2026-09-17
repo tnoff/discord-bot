@@ -15,11 +15,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from yt_dlp.utils import DownloadError
 
-from discord_bot.clients.download_client import (
-    VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded,
-    DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator,
-    DirectItemAvailableException,
-)
+from discord_bot.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
 from discord_bot.interfaces import download_protocols
 from discord_bot.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
@@ -32,6 +28,7 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType
 from discord_bot.types.queue import PutsBlocked
+
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, generate_fake_context
 

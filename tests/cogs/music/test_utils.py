@@ -1,10 +1,11 @@
 import pytest
 
-from discord_bot.clients.download_client import match_generator
+from discord_bot.interfaces.download_protocols import match_generator
 
-from discord_bot.clients.download_client import VideoTooLong, VideoBanned
+from discord_bot.interfaces.download_protocols import VideoTooLong, VideoBanned
 
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
+
 
 def test_match_generator_no_data():
     func = match_generator(None, None)
