@@ -9,6 +9,7 @@ import pytest
 
 from aiohttp import ClientConnectionError
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.cogs import music as music_module
 from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
@@ -920,6 +921,40 @@ def test_music_cache_filestats_callbacks(fake_context, mocker):  #pylint:disable
     result = cog._Music__cache_filestats_callback_total(None)  # pylint: disable=protected-access
     assert len(result) == 1
     assert result[0].value == 1024*1024*1000  # 1GB in bytes
+
+def test_music_cache_filestats_gauges_registered_only_on_a_local_mount(fake_context, mocker, tmp_path):  #pylint:disable=redefined-outer-name
+    """The cache filesystem gauges exist only when the cache really is a filesystem.
+
+    Both conditions matter and neither is cosmetic. With a storage bucket the
+    cache is object storage, where `disk_usage` on the download dir would report
+    the POD's root filesystem -- a real number about the wrong thing. Without a
+    dedicated mount it would report whatever volume the path happens to land on,
+    which is the same error one level down. Prod runs with a bucket, so these two
+    gauges are absent there by design, and `cache_filesystem_*` is named for the
+    only case that creates them.
+    """
+    registered = []
+    mocker.patch('discord_bot.cogs.music.create_observable_gauge',
+                 side_effect=lambda _meter, name, *a, **k: registered.append(name))
+    mocker.patch.object(Path, 'is_mount', return_value=True)
+
+    config = music_config({'music': {'download': {'download_dir_path': str(tmp_path)}}})
+    Music(fake_context['bot'], config, fake_context['dispatcher'])
+    assert BotMetricNaming.CACHE_FILESYSTEM_MAX.value in registered
+    assert BotMetricNaming.CACHE_FILESYSTEM_USED.value in registered
+
+    registered.clear()
+    bucketed = music_config({'music': {'download': {
+        'download_dir_path': str(tmp_path),
+        'storage': {'backend': 's3', 'bucket_name': 'cache-bucket'},
+    }}})
+    Music(fake_context['bot'], bucketed, fake_context['dispatcher'])
+    assert BotMetricNaming.CACHE_FILESYSTEM_MAX.value not in registered, (
+        'the cache gauges were registered against object storage, where disk_usage '
+        'reports the pod root filesystem rather than the cache'
+    )
+    assert BotMetricNaming.CACHE_FILESYSTEM_USED.value not in registered
+
 
 def test_music_active_players_callback(fake_context):  #pylint:disable=redefined-outer-name
     """Test active players callback method"""
