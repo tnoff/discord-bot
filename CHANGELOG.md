@@ -5,6 +5,29 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.147] - 2026-09-16
+
+### Added
+
+- Every discord application server now publishes an OpenAPI 3.1 document per surface, generated from its live router and wired into the Backstage catalog, so each seam has a machine-readable contract rather than a route list that only the tests can see.
+- A generated pod-to-pod dependency graph (`docs/seam-topology.md`), so the caller-to-peer edge count has one source instead of being recounted by hand.
+- A client that cannot parse a peer's response body now names the peer, the seam and the model it failed on, and raises `seam_response_invalid` -- previously a shape change on the far side surfaced as an opaque validation error with nothing identifying which peer sent it.
+- The service catalog now names the two object-storage buckets and records the correct runner tier.
+
+### Changed
+
+- The client-side seam contract check now runs on all five seams rather than the broker alone, so a route gap on any pod-to-pod hop is visible instead of only the one seam that happened to be instrumented first.
+- Seam clients enrol themselves for checking when they are constructed, so a client that is built but never handed to the starter can no longer sit unchecked.
+- CI skips every check on metadata-only pull requests, and merges no longer rebuild all six images when nothing an image consumes has changed.
+- The retired single-process engines (`AsyncioBroker`, `AsyncioDownloadWorker`, `AsyncioYoutubeMusicSearchWorker`) and two dead modules have left the images. They were reachable from no entrypoint but shipped to all six pods; the engines are test doubles and now live under `tests/`, where the build cannot carry them.
+- The last of the retired single-process stack has left the images too: two back-compat re-export shims deleted, and the in-process queue and the three in-memory clients moved under `tests/`. Every `discord_bot` module is now reached by at least one image entrypoint.
+- Bumped the shared workflow pin to `0d92c3c`.
+
+### Fixed
+
+- Only one seam gauge is created per process now. OpenTelemetry meters keep the first instrument registered under a name and silently drop later ones, so on a pod with several seam clients every check after the first reported nothing -- the metric looked healthy because the missing series never existed.
+- The health server waits for its port to accept connections instead of sleeping a fixed 50ms and hoping.
+
 ## [2.5.146] - 2026-09-14
 
 ### Changed
