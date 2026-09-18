@@ -9,7 +9,7 @@ import pytest
 
 from aiohttp import ClientConnectionError
 
-from discord_bot.utils.otel import MetricNaming
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_bot.cogs import music as music_module
 from discord_bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
@@ -940,8 +940,8 @@ def test_music_cache_filestats_gauges_registered_only_on_a_local_mount(fake_cont
 
     config = music_config({'music': {'download': {'download_dir_path': str(tmp_path)}}})
     Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert MetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value in registered
-    assert MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value in registered
+    assert BotMetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value in registered
+    assert BotMetricNaming.CACHE_FILESYSTEM_USED_BYTES.value in registered
 
     registered.clear()
     bucketed = music_config({'music': {'download': {
@@ -949,11 +949,11 @@ def test_music_cache_filestats_gauges_registered_only_on_a_local_mount(fake_cont
         'storage': {'backend': 's3', 'bucket_name': 'cache-bucket'},
     }}})
     Music(fake_context['bot'], bucketed, fake_context['dispatcher'])
-    assert MetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value not in registered, (
+    assert BotMetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value not in registered, (
         'the cache gauges were registered against object storage, where disk_usage '
         'reports the pod root filesystem rather than the cache'
     )
-    assert MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value not in registered
+    assert BotMetricNaming.CACHE_FILESYSTEM_USED_BYTES.value not in registered
 
 
 def test_voice_sessions_reports_both_counts_under_one_metric(fake_context, mocker):  #pylint:disable=redefined-outer-name

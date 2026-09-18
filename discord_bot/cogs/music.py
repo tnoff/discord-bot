@@ -21,6 +21,7 @@ from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelperBase
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
@@ -388,12 +389,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             seam_contract=seam_contract_config)
 
         # Callback functions
-        create_observable_gauge(METER_PROVIDER, MetricNaming.VOICE_SESSIONS.value, self.__voice_sessions_callback, 'Voice sessions, by what counted them')
+        create_observable_gauge(METER_PROVIDER, BotMetricNaming.VOICE_SESSIONS.value, self.__voice_sessions_callback, 'Voice sessions, by what counted them')
         # Cache filesystem stats — only meaningful in local mode with a dedicated mount
         if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, BotMetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, BotMetricNaming.CACHE_FILESYSTEM_USED_BYTES.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
         # Heartbeat gauges. Every one is driven by LoopHealth (successful
         # iterations), not by task liveness — see utils/loop_health. A loop only
         # emits a series once it registers in cog_load, so the ones that don't

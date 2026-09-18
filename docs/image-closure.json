@@ -91,6 +91,7 @@
         "discord_bot.types.search_resolution",
         "discord_bot.types.video_cache",
         "discord_bot.utils",
+        "discord_bot.utils.bot_metrics",
         "discord_bot.utils.circuit_breaker",
         "discord_bot.utils.common",
         "discord_bot.utils.discord_utils",

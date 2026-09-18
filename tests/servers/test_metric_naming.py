@@ -9,7 +9,17 @@ every consumer of these strings lives in another repository.
 '''
 import pytest
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.utils.otel import AttributeNaming, MetricNaming
+from discord_bot.workers.broker_metrics import BrokerMetricNaming
+
+# The scheme applies to every metric this project emits, and they no longer live
+# in one enum: names only one image emits moved to that image's module, so a
+# check that read MetricNaming alone would stop seeing most of them. Gathering
+# all three is what keeps these assertions about the SCHEME rather than about
+# one file.
+ALL_NAMING = (MetricNaming, BotMetricNaming, BrokerMetricNaming)
+ALL_NAMES = {m.value for enum in ALL_NAMING for m in enum}
 
 
 def test_no_metric_name_uses_dots():
@@ -21,7 +31,7 @@ def test_no_metric_name_uses_dots():
     `broker.entries` and `download_queue_depth` look like different conventions
     when they were the same one written two ways.
     '''
-    dotted = sorted(m.value for m in MetricNaming if '.' in m.value)
+    dotted = sorted(n for n in ALL_NAMES if '.' in n)
     assert not dotted, f'metric names containing dots: {dotted}'
 
 
@@ -32,7 +42,7 @@ def test_no_gauge_is_named_count():
     `download_failure_count` was a GAUGE of the current failure queue, so the
     suffix promised a monotonic counter and delivered a level.
     '''
-    counted = sorted(m.value for m in MetricNaming if m.value.endswith('_count'))
+    counted = sorted(n for n in ALL_NAMES if n.endswith('_count'))
     assert not counted, f'gauges named like counters: {counted}'
 
 
@@ -41,7 +51,7 @@ def test_no_gauge_is_named_count():
                                   'cache_filesystem_used_bytes'])
 def test_units_are_in_the_name_where_they_are_not_obvious(name):
     '''A bare `cache_filesystem_max` does not say what it counts.'''
-    assert name in {m.value for m in MetricNaming}
+    assert name in ALL_NAMES
 
 
 def test_the_queue_workers_share_one_set_of_names():
@@ -53,7 +63,7 @@ def test_the_queue_workers_share_one_set_of_names():
     the absence of the old prefixes is what stops them growing back one PR at a
     time, which is how there came to be six names for three things.
     '''
-    names = {m.value for m in MetricNaming}
+    names = ALL_NAMES
     assert {'queue_worker_depth', 'queue_worker_backoff_seconds',
             'queue_worker_failures'} <= names
     for gone in ('download_queue_depth', 'search_queue_depth',
@@ -71,7 +81,7 @@ def test_readiness_separates_self_reports_from_peer_probes():
     single name would make every query depend on remembering a filter, and a
     forgotten filter reads as a plausible number rather than an error.
     '''
-    names = {m.value for m in MetricNaming}
+    names = ALL_NAMES
     assert {'pod_ready_check', 'peer_ready_check'} <= names
     for gone in ('broker.ready_check', 'database.ready_check',
                  'dispatcher_ready_check', 'database_peer_ready_check'):
@@ -89,7 +99,7 @@ def test_the_broker_pairs_kept_one_name_and_gained_a_label():
     pod. That is the whole rule: collapse to a label only when the existing
     labels do not already distinguish the series.
     '''
-    names = {m.value for m in MetricNaming}
+    names = ALL_NAMES
     assert {'broker_result_queue_depth', 'broker_result_fetch'} <= names
     for gone in ('music.download_result_queue_depth', 'music.search_result_queue_depth',
                  'broker.result_fetch', 'broker.search_result_fetch'):
@@ -99,5 +109,8 @@ def test_the_broker_pairs_kept_one_name_and_gained_a_label():
 
 def test_metric_names_are_unique():
     '''Two members sharing a value would silently merge two series into one.'''
-    values = [m.value for m in MetricNaming]
-    assert len(values) == len(set(values)), 'duplicate metric name values'
+    values = [m.value for enum in ALL_NAMING for m in enum]
+    assert len(values) == len(set(values)), (
+        'duplicate metric name values across the naming enums -- two members '
+        'sharing a value would silently merge two series into one'
+    )
