@@ -8,7 +8,6 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel
 
-from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.cogs.common import CogHelperBase
 from discord_bot.exceptions import CogMissingRequiredArg
 from discord_bot.types.dispatch_result import ChannelHistoryResult
@@ -62,7 +61,7 @@ class DeleteMessages(CogHelperBase):
                                 partial(loop_heartbeat_observations, LOOP_DELETE_MESSAGE_CHECK), 'Delete message loop heartbeat')
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                 partial(loop_heartbeat_observations, LOOP_DELETE_MESSAGE_RESULT), 'Delete message result loop heartbeat')
-        create_observable_gauge(METER_PROVIDER, BotMetricNaming.DISPATCH_RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Delete message dispatch result queue depth')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.RESULT_QUEUE_DEPTH.value, self.__result_queue_depth_callback, 'Delete message dispatch result queue depth')
 
     def __result_queue_depth_callback(self, _options):
         '''
@@ -71,7 +70,8 @@ class DeleteMessages(CogHelperBase):
         depth = self._result_queue.qsize() if self._result_queue else 0
         return [
             Observation(depth, attributes={
-                AttributeNaming.BACKGROUND_JOB.value: 'delete_message_result'
+                AttributeNaming.BACKGROUND_JOB.value: 'delete_message_result',
+                AttributeNaming.RESULT_TYPE.value: 'dispatch'
             })
         ]
 

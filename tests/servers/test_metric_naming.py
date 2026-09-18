@@ -100,11 +100,40 @@ def test_the_broker_pairs_kept_one_name_and_gained_a_label():
     labels do not already distinguish the series.
     '''
     names = ALL_NAMES
-    assert {'broker_result_queue_depth', 'broker_result_fetch'} <= names
+    assert {'result_queue_depth', 'result_fetch'} <= names
     for gone in ('music.download_result_queue_depth', 'music.search_result_queue_depth',
-                 'broker.result_fetch', 'broker.search_result_fetch'):
+                 'broker.result_fetch', 'broker.search_result_fetch',
+                 'broker_result_queue_depth', 'broker_result_fetch',
+                 'dispatch_result_queue_depth'):
         assert gone not in names
     assert AttributeNaming.RESULT_TYPE.value == 'result_type'
+
+
+def test_no_metric_name_carries_a_pod_name_that_job_already_supplies():
+    '''
+    A pod name in a metric name is a dimension in the wrong place.
+
+    `job` already says which pod emitted a series, so `broker_result_fetch` spelt
+    the same fact twice -- and worse, it stopped the broker's result queues being
+    comparable with the bot's, which measured the same thing under
+    `dispatch_result_queue_depth`. One name, separated by `job` and
+    `result_type`, and they can finally be summed.
+
+    `broker_entries` and `broker_bundles` are the deliberate exception and the
+    reason this list is explicit rather than a regex over pod names: there the
+    prefix is the CONCEPT, not the pod. Bare `entries` and `bundles` would mean
+    nothing, so the prefix is carrying meaning rather than repeating `job`.
+    '''
+    concept_is_the_prefix = {'broker_entries', 'broker_bundles'}
+    offenders = sorted(n for n in ALL_NAMES
+                       if n.startswith(('broker_', 'bot_', 'database_', 'dispatcher_',
+                                        'downloader_', 'search_'))
+                       and n not in concept_is_the_prefix)
+    assert not offenders, (
+        f'metric names repeating what `job` already says: {offenders}. '
+        f'Drop the pod prefix, or add it to the documented exceptions if the '
+        f'prefix is the concept rather than the pod.'
+    )
 
 
 def test_metric_names_are_unique():
