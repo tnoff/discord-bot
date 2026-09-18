@@ -21,7 +21,7 @@ from collections import Counter
 from opentelemetry.metrics import Observation
 
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
-from discord_bot.utils.otel import create_observable_gauge, METER_PROVIDER, AttributeNaming
+from discord_bot.utils.otel import create_observable_gauge, METER_PROVIDER, AttributeNaming, MetricNaming
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,11 @@ class BrokerMetricNaming(Enum):
     both halves come from the broker process -- `job` cannot tell them apart the
     way it separates the downloader from the search pod.
     '''
-    BROKER_RESULT_QUEUE_DEPTH = 'broker_result_queue_depth'
-    BROKER_RESULT_FETCH = 'broker_result_fetch'
+    # No `broker_` prefix: `job="discord-broker"` already says which pod, and a
+    # pod name in a metric name is a dimension in the wrong place. broker_entries
+    # and broker_bundles keep theirs because there the prefix is the CONCEPT --
+    # bare `entries` and `bundles` mean nothing on their own.
+    RESULT_FETCH = 'result_fetch'
     BROKER_ENTRIES = 'broker_entries'
     BROKER_BUNDLES = 'broker_bundles'
 
@@ -66,7 +69,7 @@ class BrokerMetrics:
         self._bundle_count = 0
         # One gauge, one callback, a result_type dimension. Both streams come from
         # the broker, so `job` cannot separate them and a label must.
-        create_observable_gauge(METER_PROVIDER, BrokerMetricNaming.BROKER_RESULT_QUEUE_DEPTH.value,
+        create_observable_gauge(METER_PROVIDER, MetricNaming.RESULT_QUEUE_DEPTH.value,
                                 self.result_queue_depth_observations,
                                 'Pending results on the broker bot-ready queues, by result type')
         create_observable_gauge(METER_PROVIDER, BrokerMetricNaming.BROKER_ENTRIES.value,

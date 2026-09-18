@@ -29,4 +29,3 @@ class BotMetricNaming(Enum):
     # for the only case that creates them rather than for storage in general.
     CACHE_FILESYSTEM_MAX_BYTES = 'cache_filesystem_max_bytes'
     CACHE_FILESYSTEM_USED_BYTES = 'cache_filesystem_used_bytes'
-    DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'

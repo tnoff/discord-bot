@@ -56,6 +56,15 @@ class MetricNaming(Enum):
     # which emit the same three measurements from different processes -- already
     # separated by `job`, and by the `background_job` attribute the base class
     # has always set. Two name prefixes for it bought nothing.
+    # Results queued awaiting a consumer, wherever they queue. The broker holds
+    # the bot-ready download and search queues; the bot holds its dispatch result
+    # queues. Same measurement, different pods, so `job` separates them and
+    # `result_type` separates the broker's two -- there is no reason for a pod
+    # name in the metric itself when `job` already carries one.
+    #
+    # It was broker_result_queue_depth and dispatch_result_queue_depth, which
+    # measured the same thing under two names and could not be summed or compared.
+    RESULT_QUEUE_DEPTH = 'result_queue_depth'
     QUEUE_WORKER_DEPTH = 'queue_worker_depth'
     QUEUE_WORKER_BACKOFF_SECONDS = 'queue_worker_backoff_seconds'
     # A GAUGE of the current failure queue, not a counter of failures. The old

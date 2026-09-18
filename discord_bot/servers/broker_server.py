@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # 'empty' on a 204. A healthy system alternates; a rising 'hit' rate with the
 # result-queue depth climbing means the bot side has stopped draining.
 _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
-    name=BrokerMetricNaming.BROKER_RESULT_FETCH.value,
+    name=BrokerMetricNaming.RESULT_FETCH.value,
     description='Result-queue fetch outcomes (hit / empty), by result type',
     unit='1',
 )
