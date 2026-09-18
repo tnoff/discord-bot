@@ -16,7 +16,7 @@ from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.retry import async_retry_broker_command
 from discord_bot.clients.http_client_base import HttpClientMixin
-from discord_bot.utils.otel import DispatchNaming, METER_PROVIDER
+from discord_bot.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,8 @@ _BREAKER = CircuitBreaker(
 )
 
 _REQUEST_COUNTER = METER_PROVIDER.create_counter(
-    name='discord_bot.dispatch.request.count',
-    description='HttpDispatchClient request outcome count',
+    name=MetricNaming.DISPATCH_REQUEST.value,
+    description='HttpDispatchClient request outcomes, by route template',
     unit='1',
 )
 
@@ -176,12 +176,12 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
                 resp.raise_for_status()
         try:
             await _BREAKER.call(lambda: async_retry_broker_command(_call))
-            _REQUEST_COUNTER.add(1, {'result': 'success', 'path': path})
+            _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: path})
         except CircuitBreakerOpenError:
-            _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': path})
+            _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'breaker_open', AttributeNaming.PATH.value: path})
             logger.error('HttpDispatchClient :: dispatch breaker open, dropping POST %s', path)
         except Exception as exc:
-            _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': path})
+            _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'failure', AttributeNaming.PATH.value: path})
             logger.error('HttpDispatchClient :: POST %s failed: %s', path, exc)
 
     async def _submit_fetch(self, route: Route, params: dict) -> str:
@@ -199,12 +199,12 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         try:
             data = await _BREAKER.call(lambda: async_retry_broker_command(_call))
         except CircuitBreakerOpenError:
-            _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': path})
+            _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'breaker_open', AttributeNaming.PATH.value: path})
             raise
         except Exception:
-            _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': path})
+            _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'failure', AttributeNaming.PATH.value: path})
             raise
-        _REQUEST_COUNTER.add(1, {'result': 'success', 'path': path})
+        _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: path})
         return data['request_id']
 
     async def _poll_result(self, request_id: str) -> dict:
@@ -227,17 +227,17 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             # would change an existing series' label value and orphan the old one
             # for no gain -- the URL comes from the registry either way.
             except CircuitBreakerOpenError:
-                _REQUEST_COUNTER.add(1, {'result': 'breaker_open', 'path': '/dispatch/results'})
+                _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'breaker_open', AttributeNaming.PATH.value: '/dispatch/results'})
                 raise
             except Exception:
-                _REQUEST_COUNTER.add(1, {'result': 'failure', 'path': '/dispatch/results'})
+                _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'failure', AttributeNaming.PATH.value: '/dispatch/results'})
                 raise
             if status == 200:
-                _REQUEST_COUNTER.add(1, {'result': 'success', 'path': '/dispatch/results'})
+                _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: '/dispatch/results'})
                 return data
             # 202 means still pending — back off and retry
             if asyncio.get_running_loop().time() >= deadline:
-                _REQUEST_COUNTER.add(1, {'result': 'timeout', 'path': '/dispatch/results'})
+                _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'timeout', AttributeNaming.PATH.value: '/dispatch/results'})
                 raise DispatchRemoteError(f'poll timeout for request_id={request_id}')
             await asyncio.sleep(interval)
             interval = min(interval * 2, _POLL_INTERVAL_MAX)

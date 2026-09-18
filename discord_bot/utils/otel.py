@@ -52,10 +52,6 @@ class MetricNaming(Enum):
     # bot-only and lives in utils/bot_metrics.py.
     POD_READY_CHECK = 'pod_ready_check'
 
-    # Queue workers. One set of names for the downloader and the search pod,
-    # which emit the same three measurements from different processes -- already
-    # separated by `job`, and by the `background_job` attribute the base class
-    # has always set. Two name prefixes for it bought nothing.
     # Results queued awaiting a consumer, wherever they queue. The broker holds
     # the bot-ready download and search queues; the bot holds its dispatch result
     # queues. Same measurement, different pods, so `job` separates them and
@@ -65,6 +61,11 @@ class MetricNaming(Enum):
     # It was broker_result_queue_depth and dispatch_result_queue_depth, which
     # measured the same thing under two names and could not be summed or compared.
     RESULT_QUEUE_DEPTH = 'result_queue_depth'
+
+    # Queue workers. One set of names for the downloader and the search pod,
+    # which emit the same three measurements from different processes -- already
+    # separated by `job`, and by the `background_job` attribute the base class
+    # has always set. Two name prefixes for it bought nothing.
     QUEUE_WORKER_DEPTH = 'queue_worker_depth'
     QUEUE_WORKER_BACKOFF_SECONDS = 'queue_worker_backoff_seconds'
     # A GAUGE of the current failure queue, not a counter of failures. The old
@@ -84,6 +85,20 @@ class MetricNaming(Enum):
     # a peer that has drifted wholesale.
     SEAM_RESPONSE_INVALID = 'seam_response_invalid'
 
+    # Outcome of every HttpDispatchClient call -- success, failure, or a call the
+    # circuit breaker refused outright. The bot and the broker both speak the
+    # dispatch seam through that client, which is what keeps this name here
+    # rather than in a tier module.
+    #
+    # `dispatch` names the SEAM, not a pod, and gets the same exception
+    # broker_entries does. It was 'discord_bot.dispatch.request.count', the one
+    # instrument in this project named by a hardcoded string rather than an enum
+    # member -- which is exactly why three renames walked past it while it stayed
+    # dotted, prefixed with a pod that emits a minority of its series, and
+    # suffixed `_count` on a counter. tests/utils/test_metric_ownership.py now
+    # fails any instrument named off-enum, so the next one cannot hide the same way.
+    DISPATCH_REQUEST = 'dispatch_request'
+
 class AttributeNaming(Enum):
     '''
     More generic span attribute constants
@@ -91,6 +106,9 @@ class AttributeNaming(Enum):
     RETRY_COUNT = 'retry_count'
     BACKGROUND_JOB = 'background_job'
     OUTCOME = 'outcome'
+    # The route TEMPLATE a client called ('/dispatch/send'), never a filled-in
+    # path: templates are bounded by the route table, request ids are not.
+    PATH = 'path'
     # Readiness dimensions. POD names the pod reporting its own health;
     # SOURCE/TARGET name the two ends of a peer probe.
     POD = 'pod'
