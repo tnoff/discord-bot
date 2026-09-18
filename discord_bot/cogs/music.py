@@ -58,7 +58,7 @@ from discord_bot.clients.youtube_music_search_client import (
 )
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
-from discord_bot.utils.otel import async_otel_span_wrapper, capture_span_context, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 
@@ -239,6 +239,20 @@ LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
 LOOP_POST_PLAY_PROCESSING = 'post_play_processing'
 
 #
+def _tagged(observation: Observation, tracked_by: str) -> Observation:
+    '''
+    Re-stamp an observation with the side of the voice stack that produced it.
+
+    The two callbacks already emit their own attributes -- a guild id, or nothing
+    at all for the explicit zero -- and both shapes have to survive. Merging into
+    a copy rather than mutating keeps the zero series distinct from the per-guild
+    ones, which is what makes `sum()` over this metric mean what it looks like.
+    '''
+    attributes = dict(observation.attributes or {})
+    attributes[AttributeNaming.TRACKED_BY.value] = tracked_by
+    return Observation(observation.value, attributes=attributes)
+
+
 class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     '''
     Music related commands
@@ -374,13 +388,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             seam_contract=seam_contract_config)
 
         # Callback functions
-        create_observable_gauge(METER_PROVIDER, MetricNaming.ACTIVE_PLAYERS.value, self.__active_players_callback, 'Active music players')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.VOICE_CLIENTS_CONNECTED.value, self.__voice_clients_connected_callback, 'Active voice client connections')
+        create_observable_gauge(METER_PROVIDER, MetricNaming.VOICE_SESSIONS.value, self.__voice_sessions_callback, 'Voice sessions, by what counted them')
         # Cache filesystem stats — only meaningful in local mode with a dedicated mount
         if not storage_bucket_name and self.download_dir and self.download_dir.is_mount():
             # Cache stats
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
-            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_MAX_BYTES.value, self.__cache_filestats_callback_total, 'Max size of cache filesystem', unit='bytes')
+            create_observable_gauge(METER_PROVIDER, MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value, self.__cache_filestats_callback_used, 'Used size of cache filesystem', unit='bytes')
         # Heartbeat gauges. Every one is driven by LoopHealth (successful
         # iterations), not by task liveness — see utils/loop_health. A loop only
         # emits a series once it registers in cog_load, so the ones that don't
@@ -397,6 +410,20 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                                     partial(loop_heartbeat_observations, job_name), description)
 
     # Metric callback functons
+    def __voice_sessions_callback(self, _options):
+        '''
+        Both counts of the bot's voice sessions, under one metric.
+
+        `tracked_by=player` is MusicPlayer objects the cog holds; `voice_client`
+        is discord.py's raw sockets. They agree almost always -- 1 disagreeing
+        minute in 10,008 over a week -- and the disagreement is the signal: a
+        socket with no player behind it is a stranded bot, and that condition
+        cannot be written without both series.
+        '''
+        return ([_tagged(o, 'player') for o in self.__active_players_callback(_options)]
+                + [_tagged(o, 'voice_client')
+                   for o in self.__voice_clients_connected_callback(_options)])
+
     def __active_players_callback(self, _options):
         '''
         Get active players, or an explicit zero when there are none.

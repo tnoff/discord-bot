@@ -31,13 +31,7 @@ logger = logging.getLogger(__name__)
 # result-queue depth climbing means the bot side has stopped draining.
 _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
     name=MetricNaming.BROKER_RESULT_FETCH.value,
-    description='GET /results/next outcomes (hit / empty)',
-    unit='1',
-)
-# Same hit/empty accounting for GET /search-results/next.
-_SEARCH_RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.BROKER_SEARCH_RESULT_FETCH.value,
-    description='GET /search-results/next outcomes (hit / empty)',
+    description='Result-queue fetch outcomes (hit / empty), by result type',
     unit='1',
 )
 
@@ -246,9 +240,11 @@ class BrokerHttpServer(AiohttpServerBase):
         '''
         result = await self._result_queue.get_nowait()
         if result is None:
-            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
+            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty',
+                                      AttributeNaming.RESULT_TYPE.value: 'download'})
             return web.Response(status=204)
-        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
+        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit',
+                                      AttributeNaming.RESULT_TYPE.value: 'download'})
         with otel_span_wrapper('broker.next_result', context=extract(request.headers),
                                kind=SpanKind.SERVER):
             return web.json_response(result.model_dump(mode='json'))
@@ -272,9 +268,11 @@ class BrokerHttpServer(AiohttpServerBase):
         '''
         resolution = await self._search_result_queue.get_nowait()
         if resolution is None:
-            _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty'})
+            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty',
+                                          AttributeNaming.RESULT_TYPE.value: 'search'})
             return web.Response(status=204)
-        _SEARCH_RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit'})
+        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit',
+                                          AttributeNaming.RESULT_TYPE.value: 'search'})
         with otel_span_wrapper('broker.next_search_result', context=extract(request.headers),
                                kind=SpanKind.SERVER):
             return web.json_response(resolution.model_dump(mode='json'))

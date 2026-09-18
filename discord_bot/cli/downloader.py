@@ -206,7 +206,7 @@ def run(settings: dict, general_config: GeneralConfig):
         port=int(server_cfg.get('port', 8083)),
     )
 
-    health_server = build_redis_health_server(general_config, redis_manager)
+    health_server = build_redis_health_server(general_config, redis_manager, 'downloader')
 
     download_metrics = DownloadMetrics(worker)
 

@@ -43,13 +43,11 @@ class BrokerMetrics:
         self._search_queue_depth = 0
         self._entries_by_zone: dict[str, int] = {}
         self._bundle_count = 0
-        create_observable_gauge(METER_PROVIDER, MetricNaming.DOWNLOAD_RESULT_QUEUE_DEPTH.value,
-                                self.queue_depth_observations,
-                                'Pending download results on the broker bot-ready queue')
-        if self._search_result_queue is not None:
-            create_observable_gauge(METER_PROVIDER, MetricNaming.SEARCH_RESULT_QUEUE_DEPTH.value,
-                                    self.search_queue_depth_observations,
-                                    'Pending resolved searches on the broker bot-ready queue')
+        # One gauge, one callback, a result_type dimension. Both streams come from
+        # the broker, so `job` cannot separate them and a label must.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_RESULT_QUEUE_DEPTH.value,
+                                self.result_queue_depth_observations,
+                                'Pending results on the broker bot-ready queues, by result type')
         create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_ENTRIES.value,
                                 self.entry_observations,
                                 'Broker registry entries by zone')
@@ -58,17 +56,25 @@ class BrokerMetrics:
                                 'Active multi-request bundles tracked by the broker')
 
     # OTEL observable-gauge callbacks — public so they can be exercised directly.
-    def queue_depth_observations(self, _options=None):
-        '''Bot-ready result-queue depth (cached from the last refresh).'''
-        return [Observation(self._queue_depth, attributes={
-            AttributeNaming.BACKGROUND_JOB.value: 'broker',
-        })]
+    def result_queue_depth_observations(self, _options=None):
+        '''
+        Bot-ready result-queue depths, one observation per result type.
 
-    def search_queue_depth_observations(self, _options=None):
-        '''Bot-ready search-result-queue depth (cached from the last refresh).'''
-        return [Observation(self._search_queue_depth, attributes={
+        The search queue is reported only when the broker was built with one --
+        emitting a 0 for a queue that does not exist would be a real-looking
+        series saying nothing is pending, which is indistinguishable from a
+        drained queue and exactly the confusion the absent series avoids.
+        '''
+        observations = [Observation(self._queue_depth, attributes={
             AttributeNaming.BACKGROUND_JOB.value: 'broker',
+            AttributeNaming.RESULT_TYPE.value: 'download',
         })]
+        if self._search_result_queue is not None:
+            observations.append(Observation(self._search_queue_depth, attributes={
+                AttributeNaming.BACKGROUND_JOB.value: 'broker',
+                AttributeNaming.RESULT_TYPE.value: 'search',
+            }))
+        return observations
 
     def entry_observations(self, _options=None):
         '''Registry entry counts per zone; known zones always reported (even at 0).'''

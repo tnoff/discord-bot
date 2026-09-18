@@ -9,8 +9,24 @@ imports so the dispatcher can import the base without that dependency.
 import asyncio
 import json
 import logging
+from typing import ClassVar
 
 from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+
+# ONE instrument for every pod that reports its own readiness, created once.
+#
+# Not one per health server, and the reason is not just that the blocks were
+# identical. OTel meters keep the FIRST instrument registered under a name and
+# silently drop later ones, so two modules creating `pod_ready_check` in a
+# process that imported both would leave the second reporting nothing, with no
+# error anywhere. That is the #951 failure, and the fix is the same: one
+# instrument, one place.
+_POD_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.POD_READY_CHECK.value,
+    description='Pod readiness probe outcomes, by pod',
+    unit='1',
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +61,13 @@ class HealthServerBase:
     same bit, so "the alert fired" and "the pod is unhealthy" can never disagree.
     """
 
-    def __init__(self, port: int, bind_address: str):
+    # The pod this server speaks for, as it appears on pod_ready_check. Subclasses
+    # that front exactly one pod set it; the shared Redis server takes it as an
+    # argument because the downloader and the search pod both use that class.
+    POD_NAME: ClassVar[str] = 'unknown'
+
+    def __init__(self, port: int, bind_address: str, pod: str | None = None):
+        self.pod = pod or self.POD_NAME
         self.port = port
         self.bind_address = bind_address
 
@@ -56,6 +78,15 @@ class HealthServerBase:
     async def _readiness_check(self) -> tuple[bool, dict]:
         """Return (overall_ok, extra_payload_fields) for readiness; defaults to _check()."""
         return await self._check()
+
+    def record_readiness(self, ok: bool) -> str:
+        '''Record one readiness outcome for this pod, and return it.'''
+        outcome = 'ok' if ok else 'unavailable'
+        _POD_READY_CHECK_COUNTER.add(1, {
+            AttributeNaming.POD.value: self.pod,
+            AttributeNaming.OUTCOME.value: outcome,
+        })
+        return outcome
 
     @staticmethod
     def _apply_loop_health(ok: bool, extra: dict) -> tuple[bool, dict]:
@@ -102,6 +133,14 @@ class HealthServerBase:
             else:
                 ok, extra = await self._check()
             ok, extra = self._apply_loop_health(ok, extra)
+            # Recorded HERE, and the position is the point. The broker and db
+            # servers used to count inside their own _check, which runs BEFORE
+            # loop health is folded in -- so a stalled consumer loop made the
+            # endpoint return 503 while the metric still said 'ok'. Emitting
+            # after _apply_loop_health means pod_ready_check and the HTTP status
+            # can no longer disagree, and every pod reports rather than the two
+            # that happened to have an override.
+            self.record_readiness(ok)
             if ok:
                 status_line = b'HTTP/1.1 200 OK\r\n'
                 payload = {'status': 'ok'}

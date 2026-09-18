@@ -16,31 +16,77 @@ METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
 
 class MetricNaming(Enum):
     '''
-    Metric naming
+    Every metric this project emits, under one naming scheme.
+
+    The scheme, applied 2026-09-17 after the names had grown one PR at a time:
+
+    1. **Underscores, never dots.** OTLP normalises `broker.entries` to
+       `broker_entries` on the way into Mimir, so a dotted source name was a
+       second spelling of the same series that only the emitting code ever saw.
+    2. **One name per concept; dimensions are labels.** Two names for the same
+       measurement taken by different pods is redundant -- `job` already
+       separates them. Two names for the same measurement taken by ONE pod needs
+       a label, because `job` does not.
+    3. **Units in the name when they are not obvious** -- `_seconds`, `_bytes`.
+       A gauge called `cache_filesystem_max` does not say what it counts.
+    4. **No `_count` on a gauge.** Prometheus reserves `_count` for the count
+       half of a histogram or summary, so `download_failure_count` read as a
+       counter and was a gauge.
+
+    This rename is deliberately breaking. Two docker-apps alerts and several
+    dashboard panels query the old names and are fixed in a fast follow; there
+    is no dual-emission window, so between the two merges those panels are blank
+    and `discord-db-postgres-unreachable` cannot fire. That is a conscious
+    trade, not an oversight -- see the PR that introduced this.
     '''
+    # Shared by every image.
     HEARTBEAT = 'heartbeat'
-    ACTIVE_PLAYERS = 'active_players'
-    VOICE_CLIENTS_CONNECTED = 'voice_clients_connected'
-    CACHE_FILESYSTEM_MAX = 'cache_filesystem_max'
-    CACHE_FILESYSTEM_USED = 'cache_filesystem_used'
-    DISPATCHER_QUEUE_DEPTH = 'message_dispatcher_queue_depth'
-    DISPATCHER_READY_CHECK = 'dispatcher_ready_check'
-    # The bot's TCP probe of the db POD, added with MR 4b. Deliberately not
-    # 'database_ready_check': that name belongs to the db pod's own /health
-    # outcome (servers/database_health_server) and is what the
-    # discord-db-postgres-unreachable alert watches. Reusing it would make a
-    # bot-side network failure fire an alert that means 'postgres is
-    # unreachable from the db pod' -- two different faults, one page.
-    DATABASE_PEER_READY_CHECK = 'database_peer_ready_check'
+
+    # Readiness. Two metrics, not one, because a pod reporting its OWN health and
+    # the bot PROBING a peer answer different questions -- and folding them into
+    # one name would make every query depend on remembering a filter, where a
+    # forgotten filter reads as a plausible number rather than an error.
+    #
+    # Replaces broker.ready_check, database.ready_check (-> pod, by `pod` label)
+    # and dispatcher_ready_check, database_peer_ready_check (-> peer). The old
+    # dispatcher_ready_check was the sharp one: it read like a pod reporting
+    # itself and was emitted by the BOT, carrying job="discord-bot".
+    POD_READY_CHECK = 'pod_ready_check'
+    PEER_READY_CHECK = 'peer_ready_check'
+
+    # Queue workers. One set of names for the downloader and the search pod,
+    # which emit the same three measurements from different processes -- already
+    # separated by `job`, and by the `background_job` attribute the base class
+    # has always set. Two name prefixes for it bought nothing.
+    QUEUE_WORKER_DEPTH = 'queue_worker_depth'
+    QUEUE_WORKER_BACKOFF_SECONDS = 'queue_worker_backoff_seconds'
+    # A GAUGE of the current failure queue, not a counter of failures. The old
+    # name said _count and it has never been one.
+    QUEUE_WORKER_FAILURES = 'queue_worker_failures'
+
+    # Broker. These two pairs DO need a label rather than collapsing: both halves
+    # are emitted by the broker, so `job` cannot tell them apart.
+    BROKER_RESULT_QUEUE_DEPTH = 'broker_result_queue_depth'
+    BROKER_RESULT_FETCH = 'broker_result_fetch'
+    BROKER_ENTRIES = 'broker_entries'
+    BROKER_BUNDLES = 'broker_bundles'
+
+    # Bot.
+    # One metric, two ways of counting the same thing, separated by `tracked_by`.
+    # Both come from the bot, so `job` cannot tell them apart and a label must.
+    #
+    # They are NOT redundant, which is the reason to keep both halves rather than
+    # drop one: `player` counts MusicPlayer objects the cog holds, `voice_client`
+    # counts the raw discord.py sockets, and a socket with no player behind it is
+    # a stranded bot. Measured over 7 days they disagreed for 1 minute out of
+    # 10,008 -- and that minute is the entire point, because the divergence is
+    # unexpressible without both series.
+    VOICE_SESSIONS = 'voice_sessions'
+    CACHE_FILESYSTEM_MAX_BYTES = 'cache_filesystem_max_bytes'
+    CACHE_FILESYSTEM_USED_BYTES = 'cache_filesystem_used_bytes'
     DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
-    DOWNLOAD_RESULT_QUEUE_DEPTH = 'music.download_result_queue_depth'
-    SEARCH_RESULT_QUEUE_DEPTH = 'music.search_result_queue_depth'
-    DOWNLOAD_QUEUE_DEPTH = 'download_queue_depth'
-    DOWNLOAD_YOUTUBE_BACKOFF = 'download_youtube_backoff_seconds'
-    DOWNLOAD_FAILURE_COUNT = 'download_failure_count'
-    SEARCH_QUEUE_DEPTH = 'search_queue_depth'
-    SEARCH_YOUTUBE_BACKOFF = 'search_youtube_backoff_seconds'
-    SEARCH_FAILURE_COUNT = 'search_failure_count'
+
+    # Seams.
     # 1 when a peer has been missing a route this client calls for longer than
     # the grace window. Deliberately NOT named for the mismatch itself: a
     # mismatch inside the window is the normal middle of a rolling update, and a
@@ -50,17 +96,9 @@ class MetricNaming(Enum):
     # Incremented when a peer's response body fails validation. A COUNTER, not a
     # gauge: unlike the breach above there is no steady state to observe, only
     # events, and a rate() over this is what distinguishes one malformed row from
-    # a peer that has drifted wholesale. Deliberately not folded into
-    # seam_contract_breach -- that metric means "my peer is missing a route I
-    # call", and a body this build cannot parse is the opposite case, a route
-    # that is present and answering.
+    # a peer that has drifted wholesale.
     SEAM_RESPONSE_INVALID = 'seam_response_invalid'
-    BROKER_ENTRIES = 'broker.entries'
-    BROKER_BUNDLES = 'broker.bundles'
-    BROKER_RESULT_FETCH = 'broker.result_fetch'
-    BROKER_SEARCH_RESULT_FETCH = 'broker.search_result_fetch'
-    BROKER_READY_CHECK = 'broker.ready_check'
-    DATABASE_READY_CHECK = 'database.ready_check'
+
 
 class AttributeNaming(Enum):
     '''
@@ -69,6 +107,17 @@ class AttributeNaming(Enum):
     RETRY_COUNT = 'retry_count'
     BACKGROUND_JOB = 'background_job'
     OUTCOME = 'outcome'
+    # Readiness dimensions. POD names the pod reporting its own health;
+    # SOURCE/TARGET name the two ends of a peer probe.
+    POD = 'pod'
+    SOURCE = 'source'
+    TARGET = 'target'
+    # Separates the broker's download and search result streams, which share
+    # a job and so cannot be told apart by `job` alone.
+    RESULT_TYPE = 'result_type'
+    # Which side of the voice stack counted a session: the cog's player
+    # objects, or discord.py's sockets.
+    TRACKED_BY = 'tracked_by'
     ZONE = 'zone'
     # Provider-agnostic egress exit the download traffic left from (see
     # utils/integrations/egress_probe.py).  High-cardinality attribution lives on

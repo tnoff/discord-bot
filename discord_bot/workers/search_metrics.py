@@ -24,10 +24,10 @@ __all__ = ['SearchMetrics', 'DEFAULT_POLL_INTERVAL_SECONDS']
 class SearchMetrics(QueueMetricsBase):
     '''Polls Redis-backed search state into gauge-friendly cached values.'''
 
-    QUEUE_DEPTH_METRIC: ClassVar[str] = MetricNaming.SEARCH_QUEUE_DEPTH.value
+    QUEUE_DEPTH_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_DEPTH.value
     QUEUE_DEPTH_DESCRIPTION: ClassVar[str] = 'Pending searches across all guild queues'
-    BACKOFF_METRIC: ClassVar[str] = MetricNaming.SEARCH_YOUTUBE_BACKOFF.value
+    BACKOFF_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_BACKOFF_SECONDS.value
     BACKOFF_DESCRIPTION: ClassVar[str] = 'Seconds remaining on the shared search backoff window'
-    FAILURE_COUNT_METRIC: ClassVar[str] = MetricNaming.SEARCH_FAILURE_COUNT.value
+    FAILURE_COUNT_METRIC: ClassVar[str] = MetricNaming.QUEUE_WORKER_FAILURES.value
     FAILURE_COUNT_DESCRIPTION: ClassVar[str] = 'Failures in the shared search failure queue'
     JOB_LABEL: ClassVar[str] = 'youtube_music_search'

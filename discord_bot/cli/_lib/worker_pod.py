@@ -58,11 +58,17 @@ def require_broker_url(settings: dict, mode_label: str) -> str:
 
 
 def build_redis_health_server(general_config: GeneralConfig,
-                              redis_manager: RedisManager) -> RedisPingHealthServer | None:
+                              redis_manager: RedisManager,
+                              pod: str) -> RedisPingHealthServer | None:
     '''Build the /health + /ready server when monitoring.health_server is enabled.
 
     HealthServerBase folds the LoopHealth registry into the probe for free, so a
     registered-but-stalled consumer loop 503s the pod through this server.
+
+    `pod` is required rather than defaulted because this one class fronts two
+    different pods -- the downloader and the search pod -- and a default would
+    quietly file both under one name on pod_ready_check, which is the series
+    collision the whole naming scheme exists to avoid.
     '''
     if not (general_config.monitoring and general_config.monitoring.health_server
             and general_config.monitoring.health_server.enabled):
@@ -71,6 +77,7 @@ def build_redis_health_server(general_config: GeneralConfig,
         redis_manager,
         port=general_config.monitoring.health_server.port,
         bind_address=general_config.monitoring.health_server.bind_address,
+        pod=pod,
     )
 
 

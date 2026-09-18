@@ -2,6 +2,8 @@
 HTTP health server for Docker/Kubernetes liveness + readiness probes.
 Runs as an asyncio task inside the bot's event loop.
 """
+from typing import ClassVar
+
 import asyncio
 from urllib.parse import urlsplit
 
@@ -12,21 +14,19 @@ from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
 
 # Counts each dispatcher readiness probe by outcome. Only incremented from the
-# bot pod (cli.bot), which probes the remote dispatcher; a flapping outcome is an
+# bot pod (cli.bot), which probes its remote peers; a flapping outcome is an
 # early warning for the readiness-split regression class.
-_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DISPATCHER_READY_CHECK.value,
-    description='Dispatcher readiness probe outcomes from the bot pod',
-    unit='1',
-)
-
-# A SECOND counter rather than a `peer` dimension on the one above. The dashboard
-# panel in docker-apps reads `sum by (outcome) (rate(dispatcher_ready_check[5m]))`
-# and is titled for the dispatcher; adding a dimension would silently fold db-pod
-# results into it and make a correct-looking panel wrong. Two probes, two names.
-_DATABASE_PEER_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.DATABASE_PEER_READY_CHECK.value,
-    description='Bot-side TCP reachability of the discord-db pod',
+#
+# ONE counter with a `target` dimension, where this used to be two counters with
+# two names. The pair existed because a docker-apps panel titled for the
+# dispatcher read `sum by (outcome) (rate(dispatcher_ready_check[5m]))`, and a
+# dimension added without touching the panel would have folded db results into it
+# -- a correct-looking panel showing the wrong thing. The panel is being fixed in
+# the same breath as this rename, so the dimension is now the right shape and the
+# second name is not needed.
+_PEER_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
+    name=MetricNaming.PEER_READY_CHECK.value,
+    description='Peer readiness probe outcomes, by source and target pod',
     unit='1',
 )
 
@@ -50,6 +50,8 @@ class HealthServer(HealthServerBase):
     module's import chain and therefore in the bot image, which is the thing MR 4b
     exists to remove.
     """
+
+    POD_NAME: ClassVar[str] = 'bot'
 
     # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
     def __init__(self, bot, port=8080, bind_address='0.0.0.0',  # nosec B104
@@ -84,14 +86,17 @@ class HealthServer(HealthServerBase):
         # first failure would make the payload say which probe ran, not which
         # dependency is down -- and with two peers that is the difference between
         # "the dispatcher is gone" and "everything is gone".
-        for label, url, counter in (('dispatch', self._dispatch_http_url, _READY_CHECK_COUNTER),
-                                    ('database', self._database_http_url, _DATABASE_PEER_COUNTER)):
+        for target, url in (('dispatch', self._dispatch_http_url),
+                            ('database', self._database_http_url)):
             if not url:
                 continue
             peer_ok = await self._tcp_probe(url)
-            counter.add(1, {
-                AttributeNaming.OUTCOME.value: 'ok' if peer_ok else 'unavailable',
+            outcome = 'ok' if peer_ok else 'unavailable'
+            _PEER_READY_CHECK_COUNTER.add(1, {
+                AttributeNaming.SOURCE.value: 'bot',
+                AttributeNaming.TARGET.value: target,
+                AttributeNaming.OUTCOME.value: outcome,
             })
-            extra = {**extra, label: 'ok' if peer_ok else 'unavailable'}
+            extra = {**extra, target: outcome}
             ok = ok and peer_ok
         return ok, extra

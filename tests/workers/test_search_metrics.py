@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from discord_bot.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.search_metrics import SearchMetrics
 
 
@@ -93,9 +94,28 @@ async def test_run_guards_refresh_errors(mocker):
     assert calls['n'] == 2
 
 
-def test_search_gauges_are_distinct_from_the_downloader_metrics():
-    '''The search pod publishes its own metric names: the two pods share a shape
-    but not a series (their backoff windows and failure ZSETs are separate keys).'''
-    assert SearchMetrics.QUEUE_DEPTH_METRIC == 'search_queue_depth'
-    assert SearchMetrics.BACKOFF_METRIC == 'search_youtube_backoff_seconds'
-    assert SearchMetrics.FAILURE_COUNT_METRIC == 'search_failure_count'
+def test_search_series_stay_distinct_from_the_downloader_series():
+    '''
+    The two pods share a metric NAME but must never share a SERIES.
+
+    This assertion used to read the other way round -- that the search pod
+    published `search_queue_depth` while the downloader published
+    `download_queue_depth` -- and distinct names were how the separation was
+    guaranteed. The property being protected was never the names, though: the
+    two pods have separate backoff windows and separate failure ZSETs, so their
+    numbers must not merge.
+
+    That guarantee now comes from labels, which is where it belonged. Both pods
+    emit `queue_worker_depth`, and `background_job` (plus `job`, from the pod
+    itself) keeps the series apart. Asserting the labels differ is a stricter
+    check than asserting the names did: two identical labels under one name
+    would silently sum two pods' queues into one number, which is the failure
+    the original test was written to prevent and could not actually see.
+    '''
+    assert SearchMetrics.QUEUE_DEPTH_METRIC == DownloadMetrics.QUEUE_DEPTH_METRIC
+    assert SearchMetrics.BACKOFF_METRIC == DownloadMetrics.BACKOFF_METRIC
+    assert SearchMetrics.FAILURE_COUNT_METRIC == DownloadMetrics.FAILURE_COUNT_METRIC
+    assert SearchMetrics.JOB_LABEL != DownloadMetrics.JOB_LABEL, (
+        'both queue workers would report under one series and their queue depths '
+        'would sum into a single meaningless number'
+    )
