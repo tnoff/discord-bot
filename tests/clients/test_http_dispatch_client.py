@@ -18,7 +18,14 @@ from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisR
 from discord_bot.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.routes import dispatch as dispatch_routes
+from discord_bot.utils.otel import AttributeNaming
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+
+# The two label keys the request counter sets. Spelled through the enum rather
+# than as literals so that renaming either fails here, where the assertion is,
+# instead of quietly moving the series out from under the dashboards.
+OUTCOME = AttributeNaming.OUTCOME.value
+PATH = AttributeNaming.PATH.value
 
 
 def _make_setup():
@@ -350,7 +357,7 @@ async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
     # Must not raise — fire-and-forget contract
     await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/send'})
+    counter.add.assert_called_with(1, {OUTCOME: 'breaker_open', PATH: '/dispatch/send'})
 
 
 @pytest.mark.asyncio
@@ -364,7 +371,7 @@ async def test_submit_fetch_when_breaker_open_propagates(mocker):
     with pytest.raises(CircuitBreakerOpenError):
         await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/fetch_history'})
+    counter.add.assert_called_with(1, {OUTCOME: 'breaker_open', PATH: '/dispatch/fetch_history'})
 
 
 @pytest.mark.asyncio
@@ -377,12 +384,12 @@ async def test_post_success_records_metric(mocker):
         await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     assert any(c[0] == 'send_message' for c in dispatcher.calls)
     # Counter recorded a success
-    assert mocker.call(1, {'result': 'success', 'path': '/dispatch/send'}) in counter.add.call_args_list
+    assert mocker.call(1, {OUTCOME: 'success', PATH: '/dispatch/send'}) in counter.add.call_args_list
 
 
 @pytest.mark.asyncio
 async def test_post_underlying_failure_records_failure_metric(mocker):
-    '''A non-breaker exception path records result=failure and stays silent (fire-and-forget).'''
+    '''A non-breaker exception path records outcome=failure and stays silent (fire-and-forget).'''
     mocker.patch(
         'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
@@ -391,12 +398,12 @@ async def test_post_underlying_failure_records_failure_metric(mocker):
     client = HttpDispatchClient('http://localhost:9999')
     await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/send'})
+    counter.add.assert_called_with(1, {OUTCOME: 'failure', PATH: '/dispatch/send'})
 
 
 @pytest.mark.asyncio
 async def test_submit_fetch_underlying_failure_records_failure_metric_and_propagates(mocker):
-    '''_submit_fetch records result=failure and propagates non-breaker exceptions.'''
+    '''_submit_fetch records outcome=failure and propagates non-breaker exceptions.'''
     mocker.patch(
         'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
@@ -406,7 +413,7 @@ async def test_submit_fetch_underlying_failure_records_failure_metric_and_propag
     with pytest.raises(RuntimeError, match='connection refused'):
         await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/fetch_history'})
+    counter.add.assert_called_with(1, {OUTCOME: 'failure', PATH: '/dispatch/fetch_history'})
 
 
 @pytest.mark.asyncio
@@ -420,12 +427,12 @@ async def test_poll_result_when_breaker_open_propagates(mocker):
     with pytest.raises(CircuitBreakerOpenError):
         await client._poll_result('any-id')  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'breaker_open', 'path': '/dispatch/results'})
+    counter.add.assert_called_with(1, {OUTCOME: 'breaker_open', PATH: '/dispatch/results'})
 
 
 @pytest.mark.asyncio
 async def test_poll_result_underlying_failure_records_failure_metric_and_propagates(mocker):
-    '''_poll_result records result=failure and propagates non-breaker exceptions.'''
+    '''_poll_result records outcome=failure and propagates non-breaker exceptions.'''
     mocker.patch(
         'discord_bot.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('boom'),
@@ -435,4 +442,23 @@ async def test_poll_result_underlying_failure_records_failure_metric_and_propaga
     with pytest.raises(RuntimeError, match='boom'):
         await client._poll_result('any-id')  # pylint: disable=protected-access
     await client.close()
-    counter.add.assert_called_with(1, {'result': 'failure', 'path': '/dispatch/results'})
+    counter.add.assert_called_with(1, {OUTCOME: 'failure', PATH: '/dispatch/results'})
+
+
+@pytest.mark.asyncio
+async def test_poll_result_timeout_records_timeout_metric(mocker):
+    '''
+    _poll_result records outcome=timeout before raising.
+
+    The one outcome of the four with no assertion on it, which is why it was
+    also the one left spelling its label key by hand after the others moved to
+    the enum.
+    '''
+    mocker.patch('discord_bot.clients.http_dispatch_client._POLL_TIMEOUT', 0)
+    counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
+    _, server = _make_setup()
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
+        with pytest.raises(DispatchRemoteError, match='poll timeout'):
+            await client._poll_result('nonexistent-id')  # pylint: disable=protected-access
+    counter.add.assert_called_with(1, {OUTCOME: 'timeout', PATH: '/dispatch/results'})
