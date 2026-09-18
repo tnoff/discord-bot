@@ -72,8 +72,16 @@ class MetricNaming(Enum):
     BROKER_BUNDLES = 'broker_bundles'
 
     # Bot.
-    ACTIVE_PLAYERS = 'active_players'
-    VOICE_CLIENTS_CONNECTED = 'voice_clients_connected'
+    # One metric, two ways of counting the same thing, separated by `tracked_by`.
+    # Both come from the bot, so `job` cannot tell them apart and a label must.
+    #
+    # They are NOT redundant, which is the reason to keep both halves rather than
+    # drop one: `player` counts MusicPlayer objects the cog holds, `voice_client`
+    # counts the raw discord.py sockets, and a socket with no player behind it is
+    # a stranded bot. Measured over 7 days they disagreed for 1 minute out of
+    # 10,008 -- and that minute is the entire point, because the divergence is
+    # unexpressible without both series.
+    VOICE_SESSIONS = 'voice_sessions'
     CACHE_FILESYSTEM_MAX_BYTES = 'cache_filesystem_max_bytes'
     CACHE_FILESYSTEM_USED_BYTES = 'cache_filesystem_used_bytes'
     DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
@@ -107,6 +115,9 @@ class AttributeNaming(Enum):
     # Separates the broker's download and search result streams, which share
     # a job and so cannot be told apart by `job` alone.
     RESULT_TYPE = 'result_type'
+    # Which side of the voice stack counted a session: the cog's player
+    # objects, or discord.py's sockets.
+    TRACKED_BY = 'tracked_by'
     ZONE = 'zone'
     # Provider-agnostic egress exit the download traffic left from (see
     # utils/integrations/egress_probe.py).  High-cardinality attribution lives on

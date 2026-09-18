@@ -3,6 +3,8 @@ HTTP health server for the dispatcher process.
 Separate module from health_server so it doesn't pull in sqlalchemy — the
 dispatcher image installs only the base dependency set.
 """
+from typing import ClassVar
+
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 
 
@@ -13,3 +15,5 @@ class DispatchHealthServer(RedisPingHealthServer):
     Responds 200 {"status": "ok"} when Redis is reachable (ping succeeds),
     503 {"status": "unavailable"} otherwise.
     """
+
+    POD_NAME: ClassVar[str] = 'dispatcher'

@@ -5,6 +5,8 @@ A thin alias over RedisPingHealthServer: the broker pod is healthy when Redis
 (its source of truth) is reachable.  Kept in its own module/name so logs and
 telemetry distinguish it from the dispatcher's health server.
 '''
+from typing import ClassVar
+
 from discord_bot.servers.redis_health_server import RedisPingHealthServer
 
 
@@ -18,7 +20,4 @@ class BrokerHealthServer(RedisPingHealthServer):
     503 {"status": "unavailable"} otherwise, and counts each probe outcome.
     '''
 
-    async def _check(self):
-        ok, extra = await super()._check()
-        self.record_readiness('broker', ok)
-        return ok, extra
+    POD_NAME: ClassVar[str] = 'broker'

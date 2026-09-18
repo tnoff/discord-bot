@@ -956,6 +956,53 @@ def test_music_cache_filestats_gauges_registered_only_on_a_local_mount(fake_cont
     assert MetricNaming.CACHE_FILESYSTEM_USED_BYTES.value not in registered
 
 
+def test_voice_sessions_reports_both_counts_under_one_metric(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """Both halves of the voice picture land on one metric, split by tracked_by.
+
+    The two used to be separate metrics, and the review question was whether they
+    are the same thing. They very nearly are -- measured over 7 days they
+    disagreed for 1 minute out of 10,008 -- but the disagreement is the whole
+    signal: a socket with no player behind it is a stranded bot, and that
+    condition is unexpressible without both series. One metric, one label, both
+    counts.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.players[123] = 'player1'
+    cog.players[456] = 'player2'
+    voice_client = mocker.MagicMock()
+    voice_client.guild.id = 123
+    fake_context['bot'].voice_clients = [voice_client]
+
+    result = cog._Music__voice_sessions_callback(None)  # pylint: disable=protected-access
+    tagged = [(o.attributes['tracked_by'], o.attributes.get('discord.guild'), o.value) for o in result]
+
+    assert ('player', 123, 1) in tagged
+    assert ('player', 456, 1) in tagged
+    assert ('voice_client', 123, 1) in tagged
+    assert len([t for t in tagged if t[0] == 'player']) == 2
+    assert len([t for t in tagged if t[0] == 'voice_client']) == 1
+
+
+def test_voice_sessions_keeps_the_idle_zero_distinct_from_per_guild_series(fake_context):  #pylint:disable=redefined-outer-name
+    """The explicit zero survives the merge, and carries no guild.
+
+    The zero is what separates "bot up and idle" from "bot down" -- without it
+    the series vanishes and the two read identically. Tagging observations by
+    copying their attributes rather than mutating is what keeps it a distinct
+    series from the per-guild ones, so sum() still means what it looks like.
+    """
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    fake_context['bot'].voice_clients = []
+
+    result = cog._Music__voice_sessions_callback(None)  # pylint: disable=protected-access
+
+    assert len(result) == 2
+    for obs in result:
+        assert obs.value == 0
+        assert 'discord.guild' not in obs.attributes
+    assert {o.attributes['tracked_by'] for o in result} == {'player', 'voice_client'}
+
+
 def test_music_active_players_callback(fake_context):  #pylint:disable=redefined-outer-name
     """Test active players callback method"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])

@@ -21,8 +21,9 @@ class RedisPingHealthServer(HealthServerBase):
     '''
 
     # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
-    def __init__(self, redis_manager: RedisManager, port: int = 8080, bind_address: str = '0.0.0.0'):  # nosec B104
-        super().__init__(port=port, bind_address=bind_address)
+    def __init__(self, redis_manager: RedisManager, port: int = 8080,
+                 bind_address: str = '0.0.0.0', pod: str | None = None):  # nosec B104
+        super().__init__(port=port, bind_address=bind_address, pod=pod)
         self.redis_manager = redis_manager
 
     async def _check(self):

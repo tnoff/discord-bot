@@ -2,6 +2,8 @@
 HTTP health server for Docker/Kubernetes liveness + readiness probes.
 Runs as an asyncio task inside the bot's event loop.
 """
+from typing import ClassVar
+
 import asyncio
 from urllib.parse import urlsplit
 
@@ -48,6 +50,8 @@ class HealthServer(HealthServerBase):
     module's import chain and therefore in the bot image, which is the thing MR 4b
     exists to remove.
     """
+
+    POD_NAME: ClassVar[str] = 'bot'
 
     # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
     def __init__(self, bot, port=8080, bind_address='0.0.0.0',  # nosec B104

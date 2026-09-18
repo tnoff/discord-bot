@@ -216,7 +216,7 @@ def run(settings: dict, general_config: GeneralConfig):
         port=port,
     )
 
-    health_server = build_redis_health_server(general_config, redis_manager)
+    health_server = build_redis_health_server(general_config, redis_manager, 'search')
 
     search_metrics = SearchMetrics(worker)
 
