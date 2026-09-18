@@ -47,12 +47,10 @@ class MetricNaming(Enum):
     # one name would make every query depend on remembering a filter, where a
     # forgotten filter reads as a plausible number rather than an error.
     #
-    # Replaces broker.ready_check, database.ready_check (-> pod, by `pod` label)
-    # and dispatcher_ready_check, database_peer_ready_check (-> peer). The old
-    # dispatcher_ready_check was the sharp one: it read like a pod reporting
-    # itself and was emitted by the BOT, carrying job="discord-bot".
+    # Replaces broker.ready_check and database.ready_check, and every pod emits it
+    # -- which is what keeps it here. Its sibling, the bot's probe OF a peer, is
+    # bot-only and lives in utils/bot_metrics.py.
     POD_READY_CHECK = 'pod_ready_check'
-    PEER_READY_CHECK = 'peer_ready_check'
 
     # Queue workers. One set of names for the downloader and the search pod,
     # which emit the same three measurements from different processes -- already
@@ -63,28 +61,6 @@ class MetricNaming(Enum):
     # A GAUGE of the current failure queue, not a counter of failures. The old
     # name said _count and it has never been one.
     QUEUE_WORKER_FAILURES = 'queue_worker_failures'
-
-    # Broker. These two pairs DO need a label rather than collapsing: both halves
-    # are emitted by the broker, so `job` cannot tell them apart.
-    BROKER_RESULT_QUEUE_DEPTH = 'broker_result_queue_depth'
-    BROKER_RESULT_FETCH = 'broker_result_fetch'
-    BROKER_ENTRIES = 'broker_entries'
-    BROKER_BUNDLES = 'broker_bundles'
-
-    # Bot.
-    # One metric, two ways of counting the same thing, separated by `tracked_by`.
-    # Both come from the bot, so `job` cannot tell them apart and a label must.
-    #
-    # They are NOT redundant, which is the reason to keep both halves rather than
-    # drop one: `player` counts MusicPlayer objects the cog holds, `voice_client`
-    # counts the raw discord.py sockets, and a socket with no player behind it is
-    # a stranded bot. Measured over 7 days they disagreed for 1 minute out of
-    # 10,008 -- and that minute is the entire point, because the divergence is
-    # unexpressible without both series.
-    VOICE_SESSIONS = 'voice_sessions'
-    CACHE_FILESYSTEM_MAX_BYTES = 'cache_filesystem_max_bytes'
-    CACHE_FILESYSTEM_USED_BYTES = 'cache_filesystem_used_bytes'
-    DISPATCH_RESULT_QUEUE_DEPTH = 'dispatch_result_queue_depth'
 
     # Seams.
     # 1 when a peer has been missing a route this client calls for longer than
@@ -98,7 +74,6 @@ class MetricNaming(Enum):
     # events, and a rate() over this is what distinguishes one malformed row from
     # a peer that has drifted wholesale.
     SEAM_RESPONSE_INVALID = 'seam_response_invalid'
-
 
 class AttributeNaming(Enum):
     '''
@@ -206,7 +181,6 @@ def capture_span_context() -> dict | None:
         'trace_flags': int(ctx.trace_flags),
     }
 
-
 def span_links_from_context(span_context: dict | None) -> list:
     '''
     Reconstruct a list of trace.Link objects from a dict produced by
@@ -224,7 +198,6 @@ def span_links_from_context(span_context: dict | None) -> list:
     if not ctx.is_valid:
         return []
     return [trace.Link(ctx)]
-
 
 class DispatchNaming(Enum):
     '''
@@ -251,7 +224,6 @@ def _set_ok_unless_already_set(span) -> None:
     status = getattr(span, 'status', None)
     if status is None or status.status_code is StatusCode.UNSET:
         span.set_status(StatusCode.OK)
-
 
 @contextmanager
 def otel_span_wrapper(span_name: str, ctx: 'Context' = None,
@@ -283,7 +255,6 @@ def otel_span_wrapper(span_name: str, ctx: 'Context' = None,
         finally:
             pass
 
-
 @asynccontextmanager
 async def async_untraced_span():
     '''
@@ -304,7 +275,6 @@ async def async_untraced_span():
     A tolerated failure still reaches the operator: pollers log it at WARNING.
     '''
     yield trace.INVALID_SPAN
-
 
 @asynccontextmanager
 async def async_otel_span_wrapper(span_name: str, ctx: 'Context' = None,
@@ -334,7 +304,6 @@ async def async_otel_span_wrapper(span_name: str, ctx: 'Context' = None,
             span.record_exception(e)
             raise
 
-
 def create_observable_gauge(meter_provider, name: str, function, description: str, unit: str = '1'):
     '''
     Yield a loop callback method for heartbeat
@@ -345,7 +314,6 @@ def create_observable_gauge(meter_provider, name: str, function, description: st
         unit=unit,
         description=description,
     )
-
 
 def loop_heartbeat_observations(job_name: str, _options=None):
     '''

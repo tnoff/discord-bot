@@ -7,8 +7,9 @@ from typing import ClassVar
 import asyncio
 from urllib.parse import urlsplit
 
+from discord_bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.servers.health_server_base import HealthServerBase, close_writer
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER
 
 
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
@@ -25,7 +26,7 @@ _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
 # the same breath as this rename, so the dimension is now the right shape and the
 # second name is not needed.
 _PEER_READY_CHECK_COUNTER = METER_PROVIDER.create_counter(
-    name=MetricNaming.PEER_READY_CHECK.value,
+    name=BotMetricNaming.PEER_READY_CHECK.value,
     description='Peer readiness probe outcomes, by source and target pod',
     unit='1',
 )

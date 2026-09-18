@@ -13,6 +13,7 @@ Gauges (job="discord-broker"):
     broker.entries {zone="available"|"checked_out"}            — registry entries
     broker.bundles                                             — active multi-request bundles
 '''
+from enum import Enum
 import asyncio
 import logging
 from collections import Counter
@@ -20,14 +21,34 @@ from collections import Counter
 from opentelemetry.metrics import Observation
 
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
-from discord_bot.utils.otel import (create_observable_gauge, METER_PROVIDER,
-                                     MetricNaming, AttributeNaming)
+from discord_bot.utils.otel import create_observable_gauge, METER_PROVIDER, AttributeNaming
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL_SECONDS = 15.0
 # Zones always reported so a drop to zero is visible as 0, not an absent series.
+
+
+class BrokerMetricNaming(Enum):
+    '''
+    Metric names the broker emits, and nothing else.
+
+    Split out of utils/otel.py (2026-09-18). servers/broker_server.py imports
+    from here rather than owning a slice of its own: all three broker modules
+    are reached by the broker alone, so the names have one home inside the image
+    that emits them.
+
+    Both pairs carry a `result_type` label rather than separate names, because
+    both halves come from the broker process -- `job` cannot tell them apart the
+    way it separates the downloader from the search pod.
+    '''
+    BROKER_RESULT_QUEUE_DEPTH = 'broker_result_queue_depth'
+    BROKER_RESULT_FETCH = 'broker_result_fetch'
+    BROKER_ENTRIES = 'broker_entries'
+    BROKER_BUNDLES = 'broker_bundles'
+
+
 _KNOWN_ZONES = ('in_flight', 'available', 'checked_out')
 
 
@@ -45,13 +66,13 @@ class BrokerMetrics:
         self._bundle_count = 0
         # One gauge, one callback, a result_type dimension. Both streams come from
         # the broker, so `job` cannot separate them and a label must.
-        create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_RESULT_QUEUE_DEPTH.value,
+        create_observable_gauge(METER_PROVIDER, BrokerMetricNaming.BROKER_RESULT_QUEUE_DEPTH.value,
                                 self.result_queue_depth_observations,
                                 'Pending results on the broker bot-ready queues, by result type')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_ENTRIES.value,
+        create_observable_gauge(METER_PROVIDER, BrokerMetricNaming.BROKER_ENTRIES.value,
                                 self.entry_observations,
                                 'Broker registry entries by zone')
-        create_observable_gauge(METER_PROVIDER, MetricNaming.BROKER_BUNDLES.value,
+        create_observable_gauge(METER_PROVIDER, BrokerMetricNaming.BROKER_BUNDLES.value,
                                 self.bundle_observations,
                                 'Active multi-request bundles tracked by the broker')
 
