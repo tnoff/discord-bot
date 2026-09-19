@@ -23,6 +23,7 @@ from opentelemetry import trace
 from discord.ext.commands import Context
 
 from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.utils.discord_context import command_span_attributes
 
 
 def command_wrapper(function):
@@ -39,6 +40,7 @@ def command_wrapper(function):
         span_name = 'unamed_command_wrapper'
         if ctx:
             span_name = f'{ctx.command.cog.qualified_name.lower()}.{ctx.command.name}'
-        async with async_otel_span_wrapper(span_name, ctx=ctx, kind=trace.SpanKind.SERVER):
+        attributes = command_span_attributes(ctx) if ctx else None
+        async with async_otel_span_wrapper(span_name, attributes=attributes, kind=trace.SpanKind.SERVER):
             return await function(*args, **kwargs)
     return _wrapper

@@ -10,7 +10,7 @@ from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.search import SearchResult
 from discord_bot.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
-from discord_bot.utils.otel import DiscordContextNaming
+from discord_bot.utils.discord_context import DiscordContextNaming
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 

@@ -42,7 +42,8 @@ from discord_bot.types.playlist import (
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
-from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming
+from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.utils.discord_context import DiscordContextNaming
 from discord_bot.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'music.playlist_store'
