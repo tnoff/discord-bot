@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from discord.ext.commands import Context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -14,42 +13,9 @@ from discord_bot.utils.otel import (
 )
 
 
-def _make_ctx():
-    '''Return a minimal discord Context instance without calling __init__'''
-    ctx = Context.__new__(Context)
-    ctx.author = MagicMock()
-    ctx.author.id = 1001
-    ctx.channel = MagicMock()
-    ctx.channel.id = 2002
-    ctx.guild = MagicMock()
-    ctx.guild.id = 3003
-    ctx.command = MagicMock()
-    ctx.command.name = 'testcmd'
-    ctx.command.cog = MagicMock()
-    ctx.command.cog.qualified_name = 'TestCog'
-    ctx.message = MagicMock()
-    ctx.message.content = '!testcmd arg1'
-    return ctx
-
-
-def test_otel_span_wrapper_with_ctx():
-    '''otel_span_wrapper sets discord span attributes when ctx is provided'''
-    ctx = _make_ctx()
-    with otel_span_wrapper('test.span', ctx=ctx) as span:
-        assert span is not None
-
-
 def test_otel_span_wrapper_with_attributes():
     '''otel_span_wrapper sets extra attributes when provided'''
     with otel_span_wrapper('test.span', attributes={'key': 'value'}) as span:
-        assert span is not None
-
-
-@pytest.mark.asyncio
-async def test_async_otel_span_wrapper_with_ctx():
-    '''async_otel_span_wrapper sets discord span attributes when ctx is provided'''
-    ctx = _make_ctx()
-    async with async_otel_span_wrapper('test.async_span', ctx=ctx) as span:
         assert span is not None
 
 

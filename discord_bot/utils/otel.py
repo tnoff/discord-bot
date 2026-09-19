@@ -1,15 +1,10 @@
 from enum import Enum
 from contextlib import asynccontextmanager, contextmanager
-from typing import TYPE_CHECKING
-
 from opentelemetry import trace
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import get_meter_provider, Observation
 
 from discord_bot.utils.loop_health import heartbeat_observation_value
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from discord.ext.commands import Context
 
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')
@@ -155,26 +150,6 @@ class AttributeNaming(Enum):
     # Querying for false is what surfaces the next one.
     DOWNLOAD_ERROR_CLASSIFIED = 'download.error_classified'
 
-class DiscordContextNaming(Enum):
-    '''
-    Context attribute constants
-    '''
-    AUTHOR = 'discord.author'
-    CHANNEL = 'discord.channel'
-    GUILD = 'discord.guild'
-    COMMAND = 'discord.context.command'
-    MESSAGE = 'discord.context.message'
-
-class ThirdPartyNaming(Enum):
-    '''
-    Third party client naming
-    '''
-    SPOTIFY_PLAYLIST = 'spotify.playlist.id'
-    SPOTIFY_ALBUM = 'spotify.album.id'
-    SPOTIFY_TRACK = 'spotify.track.id'
-    YOUTUBE_PLAYLIST = 'youtube.playlist.id'
-    YOUTUBE_MUSIC_SEARCH = 'youtube_music.search_string'
-
 class MediaRequestNaming(Enum):
     '''
     Media request naming
@@ -253,7 +228,7 @@ def _set_ok_unless_already_set(span) -> None:
         span.set_status(StatusCode.OK)
 
 @contextmanager
-def otel_span_wrapper(span_name: str, ctx: 'Context' = None,
+def otel_span_wrapper(span_name: str,
                       kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                       attributes: dict = None,
                       context=None,
@@ -262,14 +237,6 @@ def otel_span_wrapper(span_name: str, ctx: 'Context' = None,
     Wrap a generic span
     '''
     with TRACER.start_as_current_span(span_name, kind=kind, context=context, links=links or []) as span:
-        if ctx:
-            span.set_attributes({
-                DiscordContextNaming.AUTHOR.value: ctx.author.id,
-                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
-                DiscordContextNaming.GUILD.value: ctx.guild.id,
-                DiscordContextNaming.COMMAND.value: ctx.command.name,
-                DiscordContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
-            })
         if attributes:
             span.set_attributes(attributes)
         try:
@@ -304,7 +271,7 @@ async def async_untraced_span():
     yield trace.INVALID_SPAN
 
 @asynccontextmanager
-async def async_otel_span_wrapper(span_name: str, ctx: 'Context' = None,
+async def async_otel_span_wrapper(span_name: str,
                                    kind: trace.SpanKind = trace.SpanKind.INTERNAL,
                                    attributes: dict = None,
                                    context=None,
@@ -313,14 +280,6 @@ async def async_otel_span_wrapper(span_name: str, ctx: 'Context' = None,
     Wrap a generic span in an async context manager
     '''
     with TRACER.start_as_current_span(span_name, kind=kind, context=context, links=links or []) as span:
-        if ctx:
-            span.set_attributes({
-                DiscordContextNaming.AUTHOR.value: ctx.author.id,
-                DiscordContextNaming.CHANNEL.value: ctx.channel.id,
-                DiscordContextNaming.GUILD.value: ctx.guild.id,
-                DiscordContextNaming.COMMAND.value: ctx.command.name,
-                DiscordContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
-            })
         if attributes:
             span.set_attributes(attributes)
         try:
