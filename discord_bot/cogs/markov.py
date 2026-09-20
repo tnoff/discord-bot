@@ -15,9 +15,9 @@ from pydantic import BaseModel, Field
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.cogs.common import CogHelperBase
 from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.interfaces.database_protocols import MarkovStore
+from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
-from discord_bot.types.markov import MarkovMessageWrite
+from discord_bot.seams.database.types.markov import MarkovMessageWrite
 from discord_bot.core.utils.common import return_loop_runner
 from discord_bot.core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_bot.core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context

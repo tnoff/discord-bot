@@ -14,7 +14,7 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import LifecycleEvent
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
-from discord_bot.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
+from discord_bot.seams.database.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
 from discord_bot.core.types.search import SearchResult
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer

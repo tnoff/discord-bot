@@ -66,6 +66,12 @@ _PROBE = (
 # imports exactly one route registry, and that registry's basename is the seam.
 # `route` and `contract` are excluded: every server imports them, so counting
 # them would make every pod appear to serve every seam.
+#
+# A registry is recognised by sitting in a `routes` package, NOT by a fixed
+# `discord_bot.routes.` prefix. The prefix form stopped matching the moment the
+# per-image-code-split moved a seam: `routes/database.py` becomes
+# `seams/database/routes/database.py`, and the database seam silently vanished
+# from the measured topology while every test still passed on the others.
 _SERVER_PROBE = (
     'import importlib, inspect, json, sys; '
     'importlib.import_module({entrypoint!r}); '
@@ -75,7 +81,8 @@ _SERVER_PROBE = (
     '[found.setdefault(obj.__name__, {{'
     '"seams": sorted({{v.__name__.rsplit(".", 1)[1] '
     'for v in vars(sys.modules[name]).values() if inspect.ismodule(v) '
-    'and v.__name__.startswith("discord_bot.routes.") and v.__name__ not in skip}}), '
+    'and v.__name__.startswith("discord_bot.") and v.__name__ not in skip '
+    'and v.__name__.split(".")[-2:-1] == ["routes"]}}), '
     '"prefix": getattr(getattr(obj, "ROUTES", None), "prefix", "")}}) '
     'for name in sorted(sys.modules) if name.startswith("discord_bot.") '
     'for _a, obj in sorted(vars(sys.modules[name]).items()) '

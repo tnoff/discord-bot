@@ -14,7 +14,7 @@ import pytest
 
 from discord_bot.routes import broker as broker_routes
 from discord_bot.core.routes import contract
-from discord_bot.routes import database as database_routes
+from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.routes import dispatch as dispatch_routes
 from discord_bot.routes import media_search as media_search_routes
 from discord_bot.routes import queue_worker as queue_worker_routes

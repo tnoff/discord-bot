@@ -16,15 +16,15 @@ tree.
 |---|---|
 | all 6 images | `discord_bot/core/` |
 | exactly one image | `discord_bot/services/<image>/` |
-| a group holding one `discord_bot.routes.*` module | `discord_bot/seams/<that route>/` |
+| a group holding one `routes.*` module | `discord_bot/seams/<that route>/` |
 
 The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 170 modules place. 25 do not**, and they
+**123 of 175 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**22 are package `__init__.py` files that declare no code**;
+**27 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -86,13 +86,13 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
-- `discord_bot.interfaces.database_protocols`
-- `discord_bot.routes.database`
-- `discord_bot.types.database_wire`
-- `discord_bot.types.guild_analytics`
-- `discord_bot.types.markov`
-- `discord_bot.types.playlist`
-- `discord_bot.types.video_cache`
+- `discord_bot.seams.database.interfaces.database_protocols`
+- `discord_bot.seams.database.routes.database`
+- `discord_bot.seams.database.types.database_wire`
+- `discord_bot.seams.database.types.guild_analytics`
+- `discord_bot.seams.database.types.markov`
+- `discord_bot.seams.database.types.playlist`
+- `discord_bot.seams.database.types.video_cache`
 
 ### `discord_bot/seams/dispatch/` — 2, reached by bot, broker, dispatcher
 
@@ -239,6 +239,11 @@ overstated the core by a third.
 - `discord_bot.core.utils`
 - `discord_bot.interfaces`
 - `discord_bot.routes`
+- `discord_bot.seams`
+- `discord_bot.seams.database`
+- `discord_bot.seams.database.interfaces`
+- `discord_bot.seams.database.routes`
+- `discord_bot.seams.database.types`
 - `discord_bot.servers`
 - `discord_bot.types`
 - `discord_bot.utils`

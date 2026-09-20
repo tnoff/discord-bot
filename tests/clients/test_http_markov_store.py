@@ -19,9 +19,9 @@ from sqlalchemy.exc import OperationalError
 from discord_bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.core.exceptions import DatabaseUnavailable
-from discord_bot.interfaces.database_protocols import MarkovStore
+from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
 from discord_bot.servers.database_server import DatabaseHttpServer
-from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
