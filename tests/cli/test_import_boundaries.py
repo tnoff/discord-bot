@@ -31,6 +31,7 @@ imported anything in ``VOCABULARY`` that it did not declare. A second test
 asserting that would be tautological, and a tautological test is worse than no
 test — it reads as coverage while checking nothing.
 '''
+import collections
 import json
 import os
 import re
@@ -38,8 +39,9 @@ import re
 import pytest
 
 from tests.cli._image_deps import (
-    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, OWNERSHIP_DOC, REPO_ROOT, VOCABULARY,
-    measure, render_closure, render_table,
+    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, LAYOUT_DOC, OWNERSHIP_DOC, REPO_ROOT,
+    ROUTE_PREFIX, VOCABULARY, classify_modules, measure, render_closure, render_layout,
+    render_table,
 )
 
 
@@ -191,6 +193,72 @@ def test_ownership_doc_is_current():
         'docs/image-dependencies.md is out of date. Regenerate with:\n'
         '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
     )
+
+
+def test_layout_doc_is_current():
+    '''
+    docs/module-layout.md matches a live measurement.
+
+    Criterion 7 step 1: render the target layout and assert it matches today, so
+    the shape is reviewable before any file moves.
+
+    Be clear about what this does and does not prove. Homes are DERIVED from the
+    closure, so this cannot fail on a module living in the wrong place -- there
+    is no "wrong place" until a folder is a declaration rather than a restatement
+    of what imports what. What it does catch is the doc going stale, which is the
+    failure the hand-copied figures in the spec have already hit twice.
+    '''
+    rendered = render_layout()
+    if os.environ.get('UPDATE_IMAGE_DEPS'):
+        LAYOUT_DOC.write_text(rendered, encoding='utf-8')
+    assert LAYOUT_DOC.read_text(encoding='utf-8') == rendered, (
+        'docs/module-layout.md is out of date. Regenerate with:\n'
+        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
+    )
+
+
+def test_every_module_gets_at_most_one_home():
+    '''
+    No module is claimed by two folders, and every measured module is accounted for.
+
+    The partition is by owner set, so overlap would mean a module in two groups --
+    impossible by construction today, which is exactly why it is worth pinning. The
+    rules gain cases as the layout is argued about, and the property that must
+    survive every one of them is that a file has one home.
+    '''
+    placed, unplaced = classify_modules()
+    homes = collections.Counter()
+    for _, modules in list(placed.values()) + list(unplaced.values()):
+        homes.update(modules)
+    duplicated = {m: c for m, c in homes.items() if c > 1}
+    assert not duplicated, f'modules claimed by more than one folder: {duplicated}'
+
+    measured = set()
+    for ep in IMAGE_IMPORTS:
+        measured |= set(measure(ep)['modules'])
+    measured.discard('discord_bot')
+    assert set(homes) == measured, (
+        f'layout and measurement disagree on the module set: {set(homes) ^ measured}'
+    )
+
+
+def test_seam_folders_are_named_by_exactly_one_route():
+    '''
+    Every `libs/<seam>/` takes its name from the one route module in its group.
+
+    This is the rule that keeps the seam names out of a hand-written map. If a
+    seam folder ever appears whose group holds no route -- or two -- the name came
+    from somewhere other than the tree, and this is the test that says so.
+    '''
+    placed, _ = classify_modules()
+    for _, (home, modules) in placed.items():
+        if not home.startswith('libs/') or home == 'libs/core':
+            continue
+        routes = [m for m in modules if m.startswith(ROUTE_PREFIX)]
+        assert len(routes) == 1, f'{home} is named by {len(routes)} route modules, not one'
+        assert home == f'libs/{routes[0][len(ROUTE_PREFIX):]}', (
+            f'{home} does not match the route that names it, {routes[0]}'
+        )
 
 
 # The only image whose Dockerfile may COPY the migration scripts. Declared, not
