@@ -22,15 +22,17 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**134 of 160 modules place. 26 do not**, and they
-are listed at the bottom rather than filed somewhere plausible.
+**123 of 160 modules place. 25 do not**, and they
+are listed at the bottom rather than filed somewhere plausible. A further
+**12 are package `__init__.py` files that declare no code**;
+they have no home of their own and are listed separately.
 
 ## Summary
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/core/` | 30 | bot, broker, db, dispatcher, downloader, search |
-| `discord_bot/seams/broker/` | 6 | bot, broker, downloader, search |
+| `discord_bot/core/` | 20 | bot, broker, db, dispatcher, downloader, search |
+| `discord_bot/seams/broker/` | 5 | bot, broker, downloader, search |
 | `discord_bot/seams/database/` | 7 | bot, broker, db |
 | `discord_bot/seams/dispatch/` | 2 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
@@ -41,7 +43,7 @@ are listed at the bottom rather than filed somewhere plausible.
 | `discord_bot/services/dispatcher/` | 5 | dispatcher |
 | `discord_bot/services/downloader/` | 8 | downloader |
 | `discord_bot/services/search/` | 13 | search |
-| *(unplaced)* | 26 | 11 groups, see below |
+| *(unplaced)* | 25 | 11 groups, see below |
 
 **`broker` names both a seam and a pod, and they are not the same thing.**
 `discord_bot/seams/<x>/` holds what the other images use to *talk to* that pod —
@@ -51,31 +53,21 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ## Placed
 
-### `discord_bot/core/` — 30, reached by bot, broker, db, dispatcher, downloader, search
+### `discord_bot/core/` — 20, reached by bot, broker, db, dispatcher, downloader, search
 
-- `discord_bot.cli`
-- `discord_bot.cli._lib`
 - `discord_bot.cli._lib.common`
-- `discord_bot.clients`
 - `discord_bot.clients.dispatch_client_base`
-- `discord_bot.cogs`
-- `discord_bot.cogs.music_helpers`
 - `discord_bot.cogs.music_helpers.common`
 - `discord_bot.cogs.schema`
 - `discord_bot.exceptions`
-- `discord_bot.interfaces`
-- `discord_bot.routes`
 - `discord_bot.routes.contract`
 - `discord_bot.routes.route`
-- `discord_bot.servers`
 - `discord_bot.servers.health_server_base`
-- `discord_bot.types`
 - `discord_bot.types.dispatch_request`
 - `discord_bot.types.dispatch_result`
 - `discord_bot.types.fetched_message`
 - `discord_bot.types.media_request`
 - `discord_bot.types.search`
-- `discord_bot.utils`
 - `discord_bot.utils.common`
 - `discord_bot.utils.discord_utils`
 - `discord_bot.utils.gc_census`
@@ -84,14 +76,13 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.utils.otel`
 - `discord_bot.utils.process_metrics`
 
-### `discord_bot/seams/broker/` — 6, reached by bot, broker, downloader, search
+### `discord_bot/seams/broker/` — 5, reached by bot, broker, downloader, search
 
 - `discord_bot.clients.http_client_base`
 - `discord_bot.clients.seam_contract`
 - `discord_bot.routes.broker`
 - `discord_bot.types.checkout_result`
 - `discord_bot.types.player_session`
-- `discord_bot.utils.integrations`
 
 ### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
@@ -221,6 +212,29 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.workers.search_metrics`
 - `discord_bot.workers.youtube_music_search_driver`
 
+## Scaffolding
+
+Package `__init__.py` files declaring no code. These are reported rather
+than placed because they have no position of their own: they exist wherever
+their children live. `discord_bot/cogs/__init__.py` is reached by all six
+images only because every image imports *some* cog — it cannot move to the
+core, because `discord_bot/cogs/` has to keep existing wherever cogs live,
+and every new home needs its own empty init. Counting them as core modules
+overstated the core by a third.
+
+- `discord_bot.cli`
+- `discord_bot.cli._lib`
+- `discord_bot.clients`
+- `discord_bot.cogs`
+- `discord_bot.cogs.music_helpers`
+- `discord_bot.interfaces`
+- `discord_bot.routes`
+- `discord_bot.servers`
+- `discord_bot.types`
+- `discord_bot.utils`
+- `discord_bot.utils.integrations`
+- `discord_bot.workers`
+
 ## Unplaced
 
 Shared by more than one image but fewer than all, with no single route
@@ -246,11 +260,10 @@ folder holds the client and the wire types.
 
 - `discord_bot.servers.base`
 
-### broker, dispatcher, downloader, search — 3
+### broker, dispatcher, downloader, search — 2
 
 - `discord_bot.clients.redis_client`
 - `discord_bot.servers.redis_health_server`
-- `discord_bot.workers`
 
 ### bot, broker, downloader — 3
 

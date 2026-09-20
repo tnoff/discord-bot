@@ -8,6 +8,7 @@ hand-maintained copies that agree only while someone keeps them in step.
 Everything runs in a subprocess: the test suite has already imported the cogs,
 so with the module cache pre-poisoned nothing here would be observable in-process.
 '''
+import ast
 import functools
 import json
 import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
@@ -304,6 +305,31 @@ def _owner_sets(measured):
     return owners
 
 
+def _is_scaffolding(module: str) -> bool:
+    """
+    True for a package `__init__.py` that declares no code of its own.
+
+    Such a file has no home to be assigned. `discord_bot/cogs/__init__.py` is
+    reached by all six images only because every image imports SOME cog, and it
+    cannot move to the core: `discord_bot/cogs/` has to keep existing wherever
+    cogs live, and each new home needs its own empty init. Placing these by
+    closure is a category error -- they follow their children rather than having
+    a position of their own.
+
+    Docstring-only counts as no code, which is not a technicality here:
+    `routes/__init__.py` carries a long docstring whose subject is precisely
+    that the file is deliberately empty, and that emptiness is load-bearing for
+    the seam fanouts.
+    """
+    init = REPO_ROOT / (module.replace('.', '/') + '/__init__.py')
+    if not init.is_file():
+        return False
+    body = ast.parse(init.read_text(encoding='utf-8')).body
+    if not body:
+        return True
+    return len(body) == 1 and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)
+
+
 def classify_modules():
     '''
     Assign every measured module the folder it would live in, from the closure.
@@ -327,6 +353,12 @@ def classify_modules():
     for module, images in owners.items():
         groups.setdefault(frozenset(images), []).append(module)
 
+    scaffolding = sorted(m for m in owners if _is_scaffolding(m))
+    scaffold_set = set(scaffolding)
+    groups = {images: [m for m in modules if m not in scaffold_set]
+              for images, modules in groups.items()}
+    groups = {images: modules for images, modules in groups.items() if modules}
+
     placed, unplaced = {}, {}
     for images, modules in groups.items():
         if len(images) == total:
@@ -341,7 +373,7 @@ def classify_modules():
             home = f'{PACKAGE}/seams/{routes[0][len(ROUTE_PREFIX):]}' if len(routes) == 1 else None
         target = placed if home else unplaced
         target[images] = (home, sorted(modules))
-    return placed, unplaced
+    return placed, unplaced, scaffolding
 
 
 def render_layout() -> str:
@@ -357,10 +389,10 @@ def render_layout() -> str:
     only gains content at step 6, when a module's folder becomes a declaration
     instead of a restatement of what imports it.
     '''
-    placed, unplaced = classify_modules()
+    placed, unplaced, scaffolding = classify_modules()
     total_placed = sum(len(mods) for _, mods in placed.values())
     total_unplaced = sum(len(mods) for _, mods in unplaced.values())
-    every = total_placed + total_unplaced
+    every = total_placed + total_unplaced + len(scaffolding)
 
     lines = [
         '# Where each module would live',
@@ -388,7 +420,9 @@ def render_layout() -> str:
         'name — rename the route and this doc follows.',
         '',
         f'**{total_placed} of {every} modules place. {total_unplaced} do not**, and they',
-        'are listed at the bottom rather than filed somewhere plausible.',
+        'are listed at the bottom rather than filed somewhere plausible. A further',
+        f'**{len(scaffolding)} are package `__init__.py` files that declare no code**;',
+        'they have no home of their own and are listed separately.',
         '',
         '## Summary',
         '',
@@ -429,6 +463,20 @@ def render_layout() -> str:
         lines.append('')
 
     lines += [
+        '## Scaffolding',
+        '',
+        'Package `__init__.py` files declaring no code. These are reported rather',
+        'than placed because they have no position of their own: they exist wherever',
+        'their children live. `discord_bot/cogs/__init__.py` is reached by all six',
+        'images only because every image imports *some* cog — it cannot move to the',
+        'core, because `discord_bot/cogs/` has to keep existing wherever cogs live,',
+        'and every new home needs its own empty init. Counting them as core modules',
+        'overstated the core by a third.',
+        '',
+    ]
+    lines += [f'- `{m}`' for m in scaffolding]
+    lines += [
+        '',
         '## Unplaced',
         '',
         'Shared by more than one image but fewer than all, with no single route',
