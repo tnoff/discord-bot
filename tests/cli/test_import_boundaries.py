@@ -40,8 +40,8 @@ import pytest
 
 from tests.cli._image_deps import (
     CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, LAYOUT_DOC, OWNERSHIP_DOC, REPO_ROOT,
-    ROUTE_PREFIX, VOCABULARY, classify_modules, measure, render_closure, render_layout,
-    render_table,
+    PACKAGE, ROUTE_PREFIX, VOCABULARY, classify_modules, measure, render_closure,
+    render_layout, render_table,
 )
 
 
@@ -244,21 +244,29 @@ def test_every_module_gets_at_most_one_home():
 
 def test_seam_folders_are_named_by_exactly_one_route():
     '''
-    Every `libs/<seam>/` takes its name from the one route module in its group.
+    Every seam folder takes its name from the one route module in its group.
 
     This is the rule that keeps the seam names out of a hand-written map. If a
     seam folder ever appears whose group holds no route -- or two -- the name came
     from somewhere other than the tree, and this is the test that says so.
+
+    The checked count is asserted because this test is a filter over homes, and a
+    filter that matches nothing passes while checking nothing. That is how the
+    first version of it went quiet when the folder prefix changed.
     '''
     placed, _ = classify_modules()
+    prefix = f'{PACKAGE}/seams/'
+    checked = 0
     for _, (home, modules) in placed.items():
-        if not home.startswith('libs/') or home == 'libs/core':
+        if not home.startswith(prefix):
             continue
+        checked += 1
         routes = [m for m in modules if m.startswith(ROUTE_PREFIX)]
         assert len(routes) == 1, f'{home} is named by {len(routes)} route modules, not one'
-        assert home == f'libs/{routes[0][len(ROUTE_PREFIX):]}', (
+        assert home == f'{prefix}{routes[0][len(ROUTE_PREFIX):]}', (
             f'{home} does not match the route that names it, {routes[0]}'
         )
+    assert checked, f'no home started with {prefix!r} -- this test checked nothing'
 
 
 # The only image whose Dockerfile may COPY the migration scripts. Declared, not

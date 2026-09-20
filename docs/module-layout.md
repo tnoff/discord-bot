@@ -7,11 +7,16 @@ The target layout of criterion 7 in `per-image-code-split`, rendered against
 the tree as it stands. **No file has moved.** Homes come from the measured
 import closure, by three rules that consult no list of names:
 
+`discord_bot` stays the single import root and the layout nests inside it, so
+every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,
+setuptools' `packages.find` — keeps working unchanged through a half-moved
+tree.
+
 | a module reached by | goes to |
 |---|---|
-| all 6 images | `libs/core/` |
-| exactly one image | `services/<image>/` |
-| a group holding one `discord_bot.routes.*` module | `libs/<that route>/` |
+| all 6 images | `discord_bot/core/` |
+| exactly one image | `discord_bot/services/<image>/` |
+| a group holding one `discord_bot.routes.*` module | `discord_bot/seams/<that route>/` |
 
 The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
@@ -24,37 +29,29 @@ are listed at the bottom rather than filed somewhere plausible.
 
 | folder | modules | reached by |
 |---|---|---|
-| `libs/broker/` | 6 | bot, broker, downloader, search |
-| `libs/core/` | 30 | bot, broker, db, dispatcher, downloader, search |
-| `libs/database/` | 7 | bot, broker, db |
-| `libs/dispatch/` | 2 | bot, broker, dispatcher |
-| `libs/media_search/` | 6 | bot, search |
-| `libs/queue_worker/` | 6 | bot, downloader, search |
-| `services/bot/` | 27 | bot |
-| `services/broker/` | 10 | broker |
-| `services/db/` | 14 | db |
-| `services/dispatcher/` | 5 | dispatcher |
-| `services/downloader/` | 8 | downloader |
-| `services/search/` | 13 | search |
+| `discord_bot/core/` | 30 | bot, broker, db, dispatcher, downloader, search |
+| `discord_bot/seams/broker/` | 6 | bot, broker, downloader, search |
+| `discord_bot/seams/database/` | 7 | bot, broker, db |
+| `discord_bot/seams/dispatch/` | 2 | bot, broker, dispatcher |
+| `discord_bot/seams/media_search/` | 6 | bot, search |
+| `discord_bot/seams/queue_worker/` | 6 | bot, downloader, search |
+| `discord_bot/services/bot/` | 27 | bot |
+| `discord_bot/services/broker/` | 10 | broker |
+| `discord_bot/services/db/` | 14 | db |
+| `discord_bot/services/dispatcher/` | 5 | dispatcher |
+| `discord_bot/services/downloader/` | 8 | downloader |
+| `discord_bot/services/search/` | 13 | search |
 | *(unplaced)* | 26 | 11 groups, see below |
 
 **`broker` names both a seam and a pod, and they are not the same thing.**
-The seam folder holds what the other images use to *talk to* that pod —
-client, routes, wire types — and the service folder holds the pod itself.
-Anything reading these paths, CI filter included, has to tell them apart.
+`discord_bot/seams/<x>/` holds what the other images use to *talk to* that pod —
+client, routes, wire types — and `discord_bot/services/<x>/` holds the pod itself.
+The two prefixes keep the paths distinct, so nothing reading a path can
+confuse them; it is the prose and the review conversation that need the care.
 
 ## Placed
 
-### `libs/broker/` — 6, reached by bot, broker, downloader, search
-
-- `discord_bot.clients.http_client_base`
-- `discord_bot.clients.seam_contract`
-- `discord_bot.routes.broker`
-- `discord_bot.types.checkout_result`
-- `discord_bot.types.player_session`
-- `discord_bot.utils.integrations`
-
-### `libs/core/` — 30, reached by bot, broker, db, dispatcher, downloader, search
+### `discord_bot/core/` — 30, reached by bot, broker, db, dispatcher, downloader, search
 
 - `discord_bot.cli`
 - `discord_bot.cli._lib`
@@ -87,7 +84,16 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.utils.otel`
 - `discord_bot.utils.process_metrics`
 
-### `libs/database/` — 7, reached by bot, broker, db
+### `discord_bot/seams/broker/` — 6, reached by bot, broker, downloader, search
+
+- `discord_bot.clients.http_client_base`
+- `discord_bot.clients.seam_contract`
+- `discord_bot.routes.broker`
+- `discord_bot.types.checkout_result`
+- `discord_bot.types.player_session`
+- `discord_bot.utils.integrations`
+
+### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
 - `discord_bot.interfaces.database_protocols`
 - `discord_bot.routes.database`
@@ -97,12 +103,12 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.types.playlist`
 - `discord_bot.types.video_cache`
 
-### `libs/dispatch/` — 2, reached by bot, broker, dispatcher
+### `discord_bot/seams/dispatch/` — 2, reached by bot, broker, dispatcher
 
 - `discord_bot.routes.dispatch`
 - `discord_bot.utils.dispatch_queue`
 
-### `libs/media_search/` — 6, reached by bot, search
+### `discord_bot/seams/media_search/` — 6, reached by bot, search
 
 - `discord_bot.interfaces.media_search_protocols`
 - `discord_bot.interfaces.youtube_music_search_protocols`
@@ -111,7 +117,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.types.media_search`
 - `discord_bot.utils.integrations.common`
 
-### `libs/queue_worker/` — 6, reached by bot, downloader, search
+### `discord_bot/seams/queue_worker/` — 6, reached by bot, downloader, search
 
 - `discord_bot.clients.http_broker_client`
 - `discord_bot.clients.http_player_session`
@@ -120,7 +126,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.types.queue`
 - `discord_bot.utils.failure_queue`
 
-### `services/bot/` — 27, reached by bot
+### `discord_bot/services/bot/` — 27, reached by bot
 
 - `discord_bot.cli._lib.cog_registry`
 - `discord_bot.cli.bot`
@@ -150,7 +156,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.utils.bot_metrics`
 - `discord_bot.utils.otel_command`
 
-### `services/broker/` — 10, reached by broker
+### `discord_bot/services/broker/` — 10, reached by broker
 
 - `discord_bot.cli.broker`
 - `discord_bot.clients.http_video_cache_store`
@@ -163,7 +169,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.workers.media_bundle`
 - `discord_bot.workers.redis_broker`
 
-### `services/db/` — 14, reached by db
+### `discord_bot/services/db/` — 14, reached by db
 
 - `discord_bot.cli._lib.db`
 - `discord_bot.cli._lib.migrations`
@@ -180,7 +186,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.servers.db_probe`
 - `discord_bot.utils.sql_retry`
 
-### `services/dispatcher/` — 5, reached by dispatcher
+### `discord_bot/services/dispatcher/` — 5, reached by dispatcher
 
 - `discord_bot.cli.dispatcher`
 - `discord_bot.servers.dispatch_health_server`
@@ -188,7 +194,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.utils.discord_retry`
 - `discord_bot.workers.message_dispatcher`
 
-### `services/downloader/` — 8, reached by downloader
+### `discord_bot/services/downloader/` — 8, reached by downloader
 
 - `discord_bot.cli.downloader`
 - `discord_bot.interfaces.download_protocols`
@@ -199,7 +205,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 - `discord_bot.workers.download_metrics`
 - `discord_bot.workers.redis_download_worker`
 
-### `services/search/` — 13, reached by search
+### `discord_bot/services/search/` — 13, reached by search
 
 - `discord_bot.cli.search`
 - `discord_bot.clients.media_search_client`
@@ -219,7 +225,7 @@ Anything reading these paths, CI filter included, has to tell them apart.
 
 Shared by more than one image but fewer than all, with no single route
 module to name them. Each needs a decision, and the decision is not the
-generator's to make. Widening one into `libs/core/` costs the images that
+generator's to make. Widening one into `discord_bot/core/` costs the images that
 do not reach it; inventing a seam folder claims a contract that has not been
 written. The groups are small and several are recognisably the *other half*
 of a seam already named above — the implementation side, where the seam
