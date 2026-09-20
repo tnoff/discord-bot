@@ -5,18 +5,18 @@ import logging
 import aiohttp
 from opentelemetry import trace
 
-from discord_bot.types.dispatch_request import (
+from discord_bot.core.types.dispatch_request import (
     DeleteRequest,
     SendRequest,
 )
 from discord_bot.routes import dispatch as dispatch_routes
-from discord_bot.routes.route import Route
-from discord_bot.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.core.routes.route import Route
+from discord_bot.core.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.retry import async_retry_broker_command
 from discord_bot.clients.http_client_base import HttpClientMixin
-from discord_bot.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
+from discord_bot.core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 
 logger = logging.getLogger(__name__)
 

@@ -11,14 +11,14 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.cogs.music import Music
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.interfaces import download_protocols
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.types.search import SearchResult
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.core.types.search import SearchResult
+from discord_bot.core.cogs.music_helpers.common import SearchType
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_download_worker_download_exception, yield_fake_download_worker, yield_download_worker_download_error
@@ -295,7 +295,7 @@ async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_context,
     await cog.download_client.submit(fake_context['guild'].id, req)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
+    from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
     assert req.lifecycle_stage == MediaRequestLifecycleStage.FAILED
 
 
@@ -380,7 +380,7 @@ async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_cont
 
     result = await cog._Music__ensure_video_download_result(media_request, None)  # pylint: disable=protected-access
 
-    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
+    from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
     assert result is False
     assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
     assert media_request.failure_reason is not None
@@ -452,7 +452,7 @@ async def test_download_video_too_long_marks_request_rejected(mocker, fake_conte
     await cog.download_client.run(cog.bot_shutdown_event)
     exporter = _consumer_span_exporter(mocker)
     await cog.process_download_results()
-    from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
+    from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
     assert s.lifecycle_stage == MediaRequestLifecycleStage.FAILED
     assert s.rejected is True
     # A declined video is not a fault — the consumer span the error-rate alert
@@ -489,7 +489,7 @@ def _consumer_span_exporter(mocker):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    mocker.patch('discord_bot.core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
 
 

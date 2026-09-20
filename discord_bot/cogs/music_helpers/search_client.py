@@ -5,14 +5,14 @@ from time import time
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.exceptions import (
+from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_bot.core.exceptions import (
     InvalidSearchURL, MediaSearchError, SearchException, ThirdPartyException,
 )
 from discord_bot.interfaces.media_search_protocols import MediaSearchClient
 from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
-from discord_bot.types.search import SearchResult, SearchCollection
-from discord_bot.utils.otel import async_otel_span_wrapper, MediaRequestNaming
+from discord_bot.core.types.search import SearchResult, SearchCollection
+from discord_bot.core.utils.otel import async_otel_span_wrapper, MediaRequestNaming
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
@@ -23,7 +23,7 @@ YOUTUBE_VIDEO_REGEX = r'^https://(www\.)?youtu(\.)?be(\.com)?/(watch\?v=)?(?P<vi
 YOUTUBE_SHORT_REGEX = r'^https://(www\.)?youtube\.com/shorts/(?P<video_id>[a-zA-Z0-9_-]{11})'
 
 # SearchException / ThirdPartyException / InvalidSearchURL are defined in
-# discord_bot.exceptions and imported above. They are re-exported from here
+# discord_bot.core.exceptions and imported above. They are re-exported from here
 # because this is where they were defined and cogs/music.py and the tests still
 # import them from this path.
 __all__ = [

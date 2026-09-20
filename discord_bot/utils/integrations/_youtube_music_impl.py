@@ -14,8 +14,8 @@ the heavy import lives in its own module so lighter consumers can skip it.
 from opentelemetry.trace import SpanKind
 from ytmusicapi import YTMusic
 from ytmusicapi.exceptions import YTMusicServerError
-from discord_bot.exceptions import YoutubeMusicRetryException
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.core.exceptions import YoutubeMusicRetryException
+from discord_bot.core.utils.otel import otel_span_wrapper
 from discord_bot.utils.integrations.third_party_naming import ThirdPartyNaming
 
 __all__ = ['YoutubeMusicClient', 'YoutubeMusicRetryException']

@@ -21,7 +21,7 @@ from collections import Counter
 from opentelemetry.metrics import Observation
 
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
-from discord_bot.utils.otel import create_observable_gauge, METER_PROVIDER, AttributeNaming, MetricNaming
+from discord_bot.core.utils.otel import create_observable_gauge, METER_PROVIDER, AttributeNaming, MetricNaming
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 
 logger = logging.getLogger(__name__)

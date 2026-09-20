@@ -26,7 +26,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.types.database_wire import DatabaseResponse
-from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 

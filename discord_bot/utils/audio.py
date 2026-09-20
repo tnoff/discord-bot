@@ -4,8 +4,8 @@ from pathlib import Path
 
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.utils.otel import otel_span_wrapper
-from discord_bot.utils.common import get_logger, LoggingConfig
+from discord_bot.core.utils.otel import otel_span_wrapper
+from discord_bot.core.utils.common import get_logger, LoggingConfig
 
 class AudioProcessingError(Exception):
     '''Raised when audio conversion to PCM fails'''

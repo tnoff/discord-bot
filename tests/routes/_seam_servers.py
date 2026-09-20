@@ -18,7 +18,7 @@ server that needed a real store to answer that would be a server whose route set
 depends on runtime state.
 '''
 from discord_bot.routes import broker as broker_routes
-from discord_bot.routes import contract
+from discord_bot.core.routes import contract
 from discord_bot.routes import database as database_routes
 from discord_bot.routes import dispatch as dispatch_routes
 from discord_bot.routes import media_search as media_search_routes

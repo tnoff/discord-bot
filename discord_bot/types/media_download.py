@@ -2,8 +2,8 @@ from dataclasses import dataclass, field, InitVar
 from pathlib import Path
 from uuid import uuid4
 
-from discord_bot.types.media_request import MediaRequest
-from discord_bot.utils.otel import MediaRequestNaming, MusicMediaDownloadNaming
+from discord_bot.core.types.media_request import MediaRequest
+from discord_bot.core.utils.otel import MediaRequestNaming, MusicMediaDownloadNaming
 
 @dataclass
 class MediaDownload():

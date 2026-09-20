@@ -33,11 +33,11 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
-from discord_bot.types.media_request import MediaRequest, media_request_attributes
+from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
-from discord_bot.exceptions import YoutubeMusicRetryException
-from discord_bot.utils.otel import (
+from discord_bot.core.exceptions import YoutubeMusicRetryException
+from discord_bot.core.utils.otel import (
     async_otel_span_wrapper, capture_span_context, span_links_from_context,
 )
 

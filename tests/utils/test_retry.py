@@ -141,7 +141,7 @@ def _recording_tracer():
 async def test_broker_retry_is_traced_by_default():
     '''Callers that lose work on failure keep their span -- the flag is opt-in.'''
     tracer, exporter = _recording_tracer()
-    with patch('discord_bot.utils.otel.TRACER', tracer):
+    with patch('discord_bot.core.utils.otel.TRACER', tracer):
         await async_retry_broker_command(AsyncMock(return_value='ok'))
     assert [s.name for s in exporter.get_finished_spans()] == ['utils.retry_broker_command']
 
@@ -150,7 +150,7 @@ async def test_broker_retry_is_traced_by_default():
 async def test_broker_retry_untraced_emits_no_span():
     '''traced=False starts no span, and still returns the result.'''
     tracer, exporter = _recording_tracer()
-    with patch('discord_bot.utils.otel.TRACER', tracer):
+    with patch('discord_bot.core.utils.otel.TRACER', tracer):
         result = await async_retry_broker_command(AsyncMock(return_value='ok'), traced=False)
     assert result == 'ok'
     assert not exporter.get_finished_spans()
@@ -162,7 +162,7 @@ async def test_broker_retry_untraced_emits_no_span_on_exhausted_failure():
     restart, so it must emit nothing too -- and must still raise.'''
     tracer, exporter = _recording_tracer()
     func = AsyncMock(side_effect=ClientConnectionError())
-    with patch('discord_bot.utils.otel.TRACER', tracer):
+    with patch('discord_bot.core.utils.otel.TRACER', tracer):
         with patch('discord_bot.utils.retry.async_sleep', new_callable=AsyncMock):
             with pytest.raises(ClientConnectionError):
                 await async_retry_broker_command(func, max_retries=2, traced=False)

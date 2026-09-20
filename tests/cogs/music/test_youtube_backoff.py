@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.cogs.music import Music
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.utils.failure_queue import FailureStatus

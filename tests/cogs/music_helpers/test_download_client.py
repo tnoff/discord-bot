@@ -20,13 +20,13 @@ from discord_bot.interfaces import download_protocols
 from discord_bot.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
 from discord_bot.utils.audio import AudioProcessingError
-from discord_bot.exceptions import DiscordBotException, ExitEarlyException
+from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
 from discord_bot.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.types.search import SearchResult
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.core.types.search import SearchResult
+from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.types.queue import PutsBlocked
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
@@ -625,7 +625,7 @@ def _recording_exporter(mocker):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    mocker.patch('discord_bot.core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
 
 

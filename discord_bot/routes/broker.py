@@ -18,7 +18,7 @@ persistence route, but `clients/http_player_session.py` is a MIXIN into
 broker seam, and filing it by name rather than by peer is a mistake that has
 already been made once while scoping this work.
 '''
-from discord_bot.routes.route import Route, collect
+from discord_bot.core.routes.route import Route, collect
 
 # Request lifecycle.
 REGISTER_REQUEST = Route('POST', '/requests/{uuid}')

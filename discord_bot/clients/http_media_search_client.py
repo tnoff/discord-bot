@@ -24,10 +24,10 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.routes import media_search as media_search_routes
-from discord_bot.routes.route import Route
+from discord_bot.core.routes.route import Route
 from discord_bot.types.catalog import CatalogResponse
 from discord_bot.types.media_search import MediaSearchResponse
-from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 

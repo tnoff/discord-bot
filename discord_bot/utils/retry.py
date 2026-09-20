@@ -18,7 +18,7 @@ from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.utils.otel import async_otel_span_wrapper, async_untraced_span, AttributeNaming
+from discord_bot.core.utils.otel import async_otel_span_wrapper, async_untraced_span, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'utils'
 

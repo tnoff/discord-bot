@@ -26,7 +26,7 @@ producing a 404 against a route that never existed.
 '''
 from dataclasses import dataclass
 
-from discord_bot.routes.route import Route
+from discord_bot.core.routes.route import Route
 
 ROUTE_PREFIX = '/database'
 

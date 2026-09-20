@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from discord_bot.clients.http_client_base import HttpClientMixin
 from discord_bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.exceptions import SeamResponseInvalid
+from discord_bot.core.exceptions import SeamResponseInvalid
 
 CLIENTS_DIR = Path(__file__).resolve().parents[2] / 'discord_bot' / 'clients'
 

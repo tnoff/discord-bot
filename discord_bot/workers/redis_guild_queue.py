@@ -17,7 +17,7 @@ import uuid as uuid_module
 from contextlib import asynccontextmanager
 from typing import Awaitable, Callable
 
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.queue import PutsBlocked
 

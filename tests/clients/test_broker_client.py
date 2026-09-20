@@ -12,7 +12,7 @@ from opentelemetry.trace import SpanKind
 
 import aiohttp
 from aiohttp import web
-from discord_bot.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_bot.types.player_session import PlayerSession

@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from discord_bot.utils.loop_health import (DEFAULT_STALE_AFTER_SECONDS, health_aware_queue_get,
+from discord_bot.core.utils.loop_health import (DEFAULT_STALE_AFTER_SECONDS, health_aware_queue_get,
                                            heartbeat_observation_value, LOOP_HEALTH, LoopHealth,
                                            LoopHealthRegistry, LoopStatus)
 

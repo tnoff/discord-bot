@@ -7,9 +7,9 @@ from opentelemetry.propagate import inject
 from pydantic import ValidationError
 
 from discord_bot.clients.seam_contract import SeamContractCheck
-from discord_bot.exceptions import SeamResponseInvalid
-from discord_bot.routes.route import Route
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.core.exceptions import SeamResponseInvalid
+from discord_bot.core.routes.route import Route
+from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 from discord_bot.utils.retry import async_retry_broker_command
 
 logger = logging.getLogger(__name__)

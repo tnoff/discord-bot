@@ -51,8 +51,8 @@ from discord_bot.types.clear_guild_result import ClearGuildResult
 # same move, same reason, as BrokerClient before them.
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult']
 from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.types.media_request import MediaRequest, media_request_attributes
+from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
     is_known_transient, normalize_ytdlp_error,
@@ -66,11 +66,11 @@ from discord_bot.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
     ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
 )
-from discord_bot.utils.otel import (
+from discord_bot.core.utils.otel import (
     AttributeNaming, capture_span_context,
     otel_span_wrapper, span_links_from_context,
 )
-from discord_bot.utils.common import get_logger, LoggingConfig
+from discord_bot.core.utils.common import get_logger, LoggingConfig
 
 
 class DirectItemAvailableException(Exception):

@@ -33,7 +33,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.clients.session_store import SessionStoreBase
-from discord_bot.cogs.music_helpers.common import PLAYHISTORY_PREFIX
+from discord_bot.core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
 from discord_bot.database import Playlist, PlaylistItem, utcnow
 from discord_bot.types.playlist import (
     PlaylistEntry,
@@ -42,7 +42,7 @@ from discord_bot.types.playlist import (
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
-from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.core.utils.otel import async_otel_span_wrapper
 from discord_bot.utils.discord_context import DiscordContextNaming
 from discord_bot.utils.sql_retry import async_retry_database_commands
 

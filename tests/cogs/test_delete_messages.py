@@ -7,11 +7,11 @@ import pytest
 
 from discord_bot.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
                                                LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
-from discord_bot.utils.loop_health import LOOP_HEALTH
-from discord_bot.utils.otel import loop_heartbeat_observations
-from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.types.dispatch_result import ChannelHistoryResult
-from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.core.utils.loop_health import LOOP_HEALTH
+from discord_bot.core.utils.otel import loop_heartbeat_observations
+from discord_bot.core.exceptions import CogMissingRequiredArg
+from discord_bot.core.types.dispatch_result import ChannelHistoryResult
+from discord_bot.core.types.fetched_message import FetchedMessage
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 from tests.helpers import FakeMessage

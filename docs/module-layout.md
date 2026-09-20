@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 160 modules place. 25 do not**, and they
+**123 of 170 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**12 are package `__init__.py` files that declare no code**;
+**22 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -55,26 +55,26 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/core/` — 20, reached by bot, broker, db, dispatcher, downloader, search
 
-- `discord_bot.cli._lib.common`
-- `discord_bot.clients.dispatch_client_base`
-- `discord_bot.cogs.music_helpers.common`
-- `discord_bot.cogs.schema`
-- `discord_bot.exceptions`
-- `discord_bot.routes.contract`
-- `discord_bot.routes.route`
-- `discord_bot.servers.health_server_base`
-- `discord_bot.types.dispatch_request`
-- `discord_bot.types.dispatch_result`
-- `discord_bot.types.fetched_message`
-- `discord_bot.types.media_request`
-- `discord_bot.types.search`
-- `discord_bot.utils.common`
-- `discord_bot.utils.discord_utils`
-- `discord_bot.utils.gc_census`
-- `discord_bot.utils.loop_health`
-- `discord_bot.utils.memory_profiler`
-- `discord_bot.utils.otel`
-- `discord_bot.utils.process_metrics`
+- `discord_bot.core.cli._lib.common`
+- `discord_bot.core.clients.dispatch_client_base`
+- `discord_bot.core.cogs.music_helpers.common`
+- `discord_bot.core.cogs.schema`
+- `discord_bot.core.exceptions`
+- `discord_bot.core.routes.contract`
+- `discord_bot.core.routes.route`
+- `discord_bot.core.servers.health_server_base`
+- `discord_bot.core.types.dispatch_request`
+- `discord_bot.core.types.dispatch_result`
+- `discord_bot.core.types.fetched_message`
+- `discord_bot.core.types.media_request`
+- `discord_bot.core.types.search`
+- `discord_bot.core.utils.common`
+- `discord_bot.core.utils.discord_utils`
+- `discord_bot.core.utils.gc_census`
+- `discord_bot.core.utils.loop_health`
+- `discord_bot.core.utils.memory_profiler`
+- `discord_bot.core.utils.otel`
+- `discord_bot.core.utils.process_metrics`
 
 ### `discord_bot/seams/broker/` — 5, reached by bot, broker, downloader, search
 
@@ -227,6 +227,16 @@ overstated the core by a third.
 - `discord_bot.clients`
 - `discord_bot.cogs`
 - `discord_bot.cogs.music_helpers`
+- `discord_bot.core`
+- `discord_bot.core.cli`
+- `discord_bot.core.cli._lib`
+- `discord_bot.core.clients`
+- `discord_bot.core.cogs`
+- `discord_bot.core.cogs.music_helpers`
+- `discord_bot.core.routes`
+- `discord_bot.core.servers`
+- `discord_bot.core.types`
+- `discord_bot.core.utils`
 - `discord_bot.interfaces`
 - `discord_bot.routes`
 - `discord_bot.servers`

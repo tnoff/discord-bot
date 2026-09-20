@@ -11,7 +11,7 @@ Gauges (job="discord-downloader", background_job="downloader"):
 '''
 from typing import ClassVar
 
-from discord_bot.utils.otel import MetricNaming
+from discord_bot.core.utils.otel import MetricNaming
 from discord_bot.workers.queue_metrics import DEFAULT_POLL_INTERVAL_SECONDS, QueueMetricsBase
 
 __all__ = ['DownloadMetrics', 'DEFAULT_POLL_INTERVAL_SECONDS']

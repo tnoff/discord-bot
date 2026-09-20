@@ -44,13 +44,13 @@ from discord_bot.clients.redis_client import RedisManager
 from discord_bot.servers.broker_health_server import BrokerHealthServer
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.video_cache import MusicCacheConfig
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.utils.common import GeneralConfig
 from discord_bot.workers.broker_metrics import BrokerMetrics
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker
 from discord_bot.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 
-from discord_bot.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
+from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 
 logger = logging.getLogger(__name__)
 

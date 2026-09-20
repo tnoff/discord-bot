@@ -29,10 +29,10 @@ from random import randint, seed
 from time import time
 from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
-from discord_bot.exceptions import ExitEarlyException, YoutubeMusicRetryException
+from discord_bot.core.exceptions import ExitEarlyException, YoutubeMusicRetryException
 from discord_bot.types.clear_guild_result import ClearGuildResult
-from discord_bot.types.media_request import MediaRequest
-from discord_bot.utils.common import LoggingConfig, get_logger
+from discord_bot.core.types.media_request import MediaRequest
+from discord_bot.core.utils.common import LoggingConfig, get_logger
 from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
 
 if TYPE_CHECKING:  # pragma: no cover

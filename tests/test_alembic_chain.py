@@ -38,7 +38,7 @@ from sqlalchemy.pool import NullPool
 from discord_bot.cli._lib.db import setup_db
 from discord_bot.cli._lib.migrations import run_pending_migrations
 from discord_bot.database import BASE
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.utils.common import GeneralConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

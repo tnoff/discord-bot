@@ -23,13 +23,13 @@ Both access styles work and both are correct:
   constructs one.
 
 `YoutubeMusicRetryException` is a plain re-export: it is a bare stdlib exception
-and lives in `discord_bot.exceptions`, so catching it costs nothing. Import it
+and lives in `discord_bot.core.exceptions`, so catching it costs nothing. Import it
 from there in new code.
 '''
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from discord_bot.exceptions import YoutubeMusicRetryException
+from discord_bot.core.exceptions import YoutubeMusicRetryException
 
 if TYPE_CHECKING:  # pragma: no cover
     # Never executed. Present so static analysis (pylint, IDEs) can resolve the
