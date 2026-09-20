@@ -51,12 +51,12 @@ from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.clients.playlist_client import PlaylistClient
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.types.video_cache import MusicCacheConfig
-from discord_bot.exceptions import DiscordBotException
+from discord_bot.core.exceptions import DiscordBotException
 from discord_bot.servers.database_health_server import DatabasePingHealthServer
 from discord_bot.servers.database_server import DEFAULT_PORT, DatabaseHttpServer
-from discord_bot.utils.common import GeneralConfig, resolve_tracing_config
+from discord_bot.core.utils.common import GeneralConfig, resolve_tracing_config
 
-from discord_bot.cli._lib.common import (parse_and_validate_config, run_loop,
+from discord_bot.core.cli._lib.common import (parse_and_validate_config, run_loop,
                                          setup_observability, shutdown_event_signals)
 from discord_bot.cli._lib.db import instrument_sqlalchemy, managed_db
 from discord_bot.cli._lib.migrations import run_pending_migrations

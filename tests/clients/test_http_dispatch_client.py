@@ -8,17 +8,17 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.servers.dispatch_server import DispatchHttpServer
-from discord_bot.types.dispatch_request import (
+from discord_bot.core.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
 )
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.routes import dispatch as dispatch_routes
-from discord_bot.utils.otel import AttributeNaming
+from discord_bot.core.utils.otel import AttributeNaming
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 # The two label keys the request counter sets. Spelled through the enum rather

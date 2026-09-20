@@ -6,7 +6,7 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
 from discord_bot.cogs.music import Music
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload

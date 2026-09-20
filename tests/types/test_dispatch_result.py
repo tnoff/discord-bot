@@ -1,8 +1,8 @@
 '''Tests for dispatch result error encoding and classification.'''
 from discord.errors import NotFound
 
-from discord_bot.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.types.dispatch_result import (
+from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.core.types.dispatch_result import (
     UNKNOWN_MESSAGE_CODE,
     encode_error,
     is_not_found_error,

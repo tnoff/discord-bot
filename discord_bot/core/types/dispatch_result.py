@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.core.types.fetched_message import FetchedMessage
 
 # HTTP status Discord returns for a resource that no longer exists.
 NOT_FOUND_STATUS = 404

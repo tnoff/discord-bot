@@ -8,7 +8,7 @@ import pytest
 
 from discord.errors import ClientException
 
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_bot.interfaces.broker_protocols import CheckoutResult

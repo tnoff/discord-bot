@@ -5,8 +5,8 @@ from pydantic import BaseModel
 
 from discord_bot.clients.database_stores import DatabaseStores
 from discord_bot.cogs.common import CogHelperBase
-from discord_bot.exceptions import CogMissingRequiredArg
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.core.exceptions import CogMissingRequiredArg
+from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.helpers import FakeMessage, FakeMessageDispatcher

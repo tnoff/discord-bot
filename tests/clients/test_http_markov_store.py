@@ -18,7 +18,7 @@ from sqlalchemy.exc import OperationalError
 
 from discord_bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.clients.markov_client import MarkovClient
-from discord_bot.exceptions import DatabaseUnavailable
+from discord_bot.core.exceptions import DatabaseUnavailable
 from discord_bot.interfaces.database_protocols import MarkovStore
 from discord_bot.servers.database_server import DatabaseHttpServer
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite

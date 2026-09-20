@@ -11,8 +11,8 @@ import logging
 import pytest
 
 from discord_bot.cli._lib import migrations
-from discord_bot.exceptions import DiscordBotException
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.exceptions import DiscordBotException
+from discord_bot.core.utils.common import GeneralConfig
 
 DSN = 'postgresql://user:pass@postgres.example:5432/discord'
 

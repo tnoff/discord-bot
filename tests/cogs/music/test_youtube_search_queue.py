@@ -13,11 +13,11 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.exceptions import ExitEarlyException
-from discord_bot.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.exceptions import ExitEarlyException
+from discord_bot.core.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
+from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.types.search import SearchResult
+from discord_bot.core.types.search import SearchResult
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.utils.failure_queue import FailureStatus
 from discord_bot.types.queue import PutsBlocked

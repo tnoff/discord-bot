@@ -10,7 +10,7 @@ every consumer of these strings lives in another repository.
 import pytest
 
 from discord_bot.utils.bot_metrics import BotMetricNaming
-from discord_bot.utils.otel import AttributeNaming, MetricNaming
+from discord_bot.core.utils.otel import AttributeNaming, MetricNaming
 from discord_bot.workers.broker_metrics import BrokerMetricNaming
 
 # The scheme applies to every metric this project emits, and they no longer live

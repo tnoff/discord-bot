@@ -54,15 +54,15 @@ from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.utils.common import GeneralConfig
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
-from discord_bot.utils.loop_health import LoopHealth
+from discord_bot.core.utils.loop_health import LoopHealth
 from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
 from discord_bot.workers.search_metrics import SearchMetrics
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
-from discord_bot.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
+from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 from discord_bot.cli._lib.worker_pod import (
     build_redis_health_server, drive_loop, require_broker_url, require_redis_manager,
     worker_pod_main_loop,

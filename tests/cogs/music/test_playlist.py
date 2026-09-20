@@ -15,8 +15,8 @@ from discord_bot.types.download import LifecycleEvent
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
-from discord_bot.types.search import SearchResult
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.core.types.search import SearchResult
+from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception

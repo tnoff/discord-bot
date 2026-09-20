@@ -4,7 +4,7 @@ from opentelemetry import trace
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import get_meter_provider, Observation
 
-from discord_bot.utils.loop_health import heartbeat_observation_value
+from discord_bot.core.utils.loop_health import heartbeat_observation_value
 
 TRACER = trace.get_tracer(__name__)
 METER_PROVIDER = get_meter_provider().get_meter(__name__, '0.0.1')

@@ -17,10 +17,10 @@ from discord_bot.clients.database_stores import build_http_stores
 from discord_bot.clients.http_client_base import start_seam_checks
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.cogs.error import CommandErrorHandler
-from discord_bot.exceptions import DiscordBotException
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.exceptions import DiscordBotException
+from discord_bot.core.utils.common import GeneralConfig
 
-from discord_bot.cli._lib.common import (
+from discord_bot.core.cli._lib.common import (
     bot_lifecycle, load_cogs, run_loop,
     setup_observability, register_on_ready,
     parse_and_validate_config, require_discord_token,

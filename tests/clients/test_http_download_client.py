@@ -20,11 +20,11 @@ from opentelemetry.trace import StatusCode
 from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_queue_worker_client import _exception_detail
 from discord_bot.servers.download_server import DownloadHttpServer
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
-from discord_bot.types.search import SearchResult
+from discord_bot.core.types.search import SearchResult
 
 
 def _media_request(guild_id: int = 1) -> MediaRequest:
@@ -418,7 +418,7 @@ async def test_submit_rejection_leaves_both_seam_spans_ok():
     worker, server = _make_server()
     worker.submit = AsyncMock(side_effect=PutsBlocked('blocked'))
     tracer, exporter = _recording_tracer()
-    with patch('discord_bot.utils.otel.TRACER', tracer):
+    with patch('discord_bot.core.utils.otel.TRACER', tracer):
         async with TestClient(TestServer(server.build_app())) as tc:
             client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
             with pytest.raises(PutsBlocked):
@@ -457,7 +457,7 @@ async def test_status_poll_emits_no_spans_on_either_half():
     tracer, exporter = _recording_tracer()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
-        with patch('discord_bot.utils.otel.TRACER', tracer):
+        with patch('discord_bot.core.utils.otel.TRACER', tracer):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     assert _span_names(exporter) == []
     assert client.failure_summary == '0 failures in queue'
@@ -469,7 +469,7 @@ async def test_status_poll_failure_emits_no_spans():
     traces and leaves the cached values in place.'''
     tracer, exporter = _recording_tracer()
     client = HttpDownloadClient('http://127.0.0.1:1')
-    with patch('discord_bot.utils.otel.TRACER', tracer):
+    with patch('discord_bot.core.utils.otel.TRACER', tracer):
         with patch('discord_bot.utils.retry.async_sleep', new_callable=AsyncMock):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     await client.close()
@@ -485,7 +485,7 @@ async def test_real_work_is_still_traced_on_both_halves():
     tracer, exporter = _recording_tracer()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
-        with patch('discord_bot.utils.otel.TRACER', tracer):
+        with patch('discord_bot.core.utils.otel.TRACER', tracer):
             await client.submit(7, _media_request(guild_id=7))
     names = _span_names(exporter)
     assert 'utils.retry_broker_command' in names
@@ -575,7 +575,7 @@ async def test_status_poller_is_untraced_by_default():
     tracer, exporter = _recording_tracer()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session)
-        with patch('discord_bot.utils.otel.TRACER', tracer):
+        with patch('discord_bot.core.utils.otel.TRACER', tracer):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     assert not exporter.get_finished_spans()
 
@@ -597,6 +597,6 @@ async def test_status_poller_is_traced_when_the_toggle_is_on():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDownloadClient(str(tc.make_url('')), session=tc.session,
                                     trace_status_poll=True)
-        with patch('discord_bot.utils.otel.TRACER', tracer):
+        with patch('discord_bot.core.utils.otel.TRACER', tracer):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     assert [s.name for s in exporter.get_finished_spans()] == ['utils.retry_broker_command']

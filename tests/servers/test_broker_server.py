@@ -43,7 +43,7 @@ def _span_exporter(mocker) -> InMemorySpanExporter:
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_bot.utils.otel.TRACER', provider.get_tracer('test'))
+    mocker.patch('discord_bot.core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
 
 

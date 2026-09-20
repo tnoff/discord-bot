@@ -6,9 +6,9 @@ from discord.ext.commands import Bot, command, Context
 from requests import get as requests_get
 
 from discord_bot.cogs.common import CogHelperBase
-from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.utils.otel_command import command_wrapper
-from discord_bot.clients.dispatch_client_base import DispatchClientBase
+from discord_bot.core.clients.dispatch_client_base import DispatchClientBase
 
 BASE_URL = 'https://www.urbandictionary.com/'
 

@@ -126,7 +126,7 @@ helpers live on the base, so both subclasses get them. See
 
 ```python
 from discord_bot.cogs.common import CogHelper
-from discord_bot.exceptions import CogMissingRequiredArg
+from discord_bot.core.exceptions import CogMissingRequiredArg
 from pydantic import BaseModel
 
 class MyCogConfig(BaseModel):
@@ -178,7 +178,7 @@ raises `RuntimeError`.
 ### Background loop
 
 ```python
-from discord_bot.utils.common import return_loop_runner
+from discord_bot.core.utils.common import return_loop_runner
 
 async def cog_load(self):
     self._task = self.bot.loop.create_task(

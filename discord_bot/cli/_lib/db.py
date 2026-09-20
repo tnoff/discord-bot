@@ -12,7 +12,7 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.utils.common import GeneralConfig
 
 
 def setup_db(general_config: GeneralConfig):

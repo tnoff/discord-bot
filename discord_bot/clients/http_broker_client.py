@@ -27,9 +27,9 @@ from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
                                               media_download_to_dict)
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.search_resolution import SearchResolution
-from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 

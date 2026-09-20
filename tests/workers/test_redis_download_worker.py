@@ -20,11 +20,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.cogs.music_helpers.common import SearchType
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_bot.types.media_request import MediaRequest
-from discord_bot.types.search import SearchResult
+from discord_bot.core.types.media_request import MediaRequest
+from discord_bot.core.types.search import SearchResult
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 from discord_bot.workers.redis_download_worker import (
