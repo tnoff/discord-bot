@@ -59,7 +59,8 @@ from discord_bot.clients.youtube_music_search_client import (
 )
 from discord_bot.types.queue import Queue
 from discord_bot.utils.loop_health import LOOP_HEALTH
-from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, DiscordContextNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_bot.utils.discord_context import DiscordContextNaming
 from discord_bot.utils.otel_command import command_wrapper
 from discord_bot.clients.dispatch_client_base import DispatchClientBase
 

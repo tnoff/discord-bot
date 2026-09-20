@@ -30,7 +30,8 @@ from sqlalchemy.sql.functions import random as sql_random
 from discord_bot.clients.session_store import SessionStoreBase
 from discord_bot.database import MarkovChannel, MarkovRelation
 from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
-from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming
+from discord_bot.utils.otel import async_otel_span_wrapper
+from discord_bot.utils.discord_context import DiscordContextNaming
 from discord_bot.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'markov.store'

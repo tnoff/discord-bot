@@ -25,7 +25,8 @@ from discord_bot.types.queue import Queue
 from discord_bot.utils.common import return_loop_runner
 from discord_bot.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.integrations.s3 import get_file
-from discord_bot.utils.otel import async_otel_span_wrapper, DiscordContextNaming, span_links_from_context
+from discord_bot.utils.otel import async_otel_span_wrapper, span_links_from_context
+from discord_bot.utils.discord_context import DiscordContextNaming
 
 
 # Staging a track for playback (broker checkout + S3 fetch) happens between a
