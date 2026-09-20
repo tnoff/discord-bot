@@ -11,8 +11,8 @@ import json
 import logging
 from typing import ClassVar
 
-from discord_bot.utils.loop_health import LOOP_HEALTH
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_bot.core.utils.loop_health import LOOP_HEALTH
+from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
 
 # ONE instrument for every pod that reports its own readiness, created once.
 #

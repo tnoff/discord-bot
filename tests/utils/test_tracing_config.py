@@ -12,7 +12,7 @@ this module covers the model and the two resolvers.
 '''
 import pytest
 
-from discord_bot.utils.common import (
+from discord_bot.core.utils.common import (
     GeneralConfig, MonitoringTracingConfig, resolve_tracing_config,
     tracing_config_from_settings,
 )

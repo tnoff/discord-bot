@@ -19,7 +19,7 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from discord_bot.clients.seam_contract import (DEFAULT_GRACE_SECONDS, GAUGE_REGISTRY,
                                                PeerContractStatus, SeamContractCheck)
 from discord_bot.routes import broker as broker_routes
-from discord_bot.routes import contract
+from discord_bot.core.routes import contract
 
 
 class _Clock:

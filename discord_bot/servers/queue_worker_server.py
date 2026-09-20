@@ -26,7 +26,7 @@ from discord_bot.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.queue import PutsBlocked, QueueFull, submit_rejection_status
-from discord_bot.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
+from discord_bot.core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
 
 logger = logging.getLogger(__name__)

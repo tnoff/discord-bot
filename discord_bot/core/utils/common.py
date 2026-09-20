@@ -11,9 +11,9 @@ from opentelemetry.instrumentation.logging.handler import LoggingHandler
 from pydantic import BaseModel, Field, model_validator
 
 
-from discord_bot.cogs.schema import StorageConfig
-from discord_bot.exceptions import ExitEarlyException
-from discord_bot.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
+from discord_bot.core.cogs.schema import StorageConfig
+from discord_bot.core.exceptions import ExitEarlyException
+from discord_bot.core.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from discord.ext.commands import Bot

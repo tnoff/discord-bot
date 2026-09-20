@@ -22,21 +22,21 @@ from discord_bot.clients.database_stores import DatabaseStores
 from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.clients.playlist_client import PlaylistClient
-from discord_bot.cogs.music_helpers.common import SearchType
+from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import BASE
-from discord_bot.types.dispatch_request import (
+from discord_bot.core.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
     DeleteRequest,
 )
-from discord_bot.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
-from discord_bot.types.fetched_message import FetchedMessage
+from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
+from discord_bot.core.types.fetched_message import FetchedMessage
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.media_request import MediaRequest
-from discord_bot.types.search import SearchResult
+from discord_bot.core.types.media_request import MediaRequest
+from discord_bot.core.types.search import SearchResult
 from discord_bot.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver

@@ -24,7 +24,7 @@ from discord_bot.interfaces.dispatch_protocols import WorkQueue
 from discord_bot.routes import dispatch as dispatch_routes
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.utils.dispatch_queue import dispatch_request_id
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.core.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 

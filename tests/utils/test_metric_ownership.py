@@ -22,7 +22,7 @@ import pytest
 
 from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
 
-SHARED_ENUM = REPO_ROOT / 'discord_bot' / 'utils' / 'otel.py'
+SHARED_ENUM = REPO_ROOT / 'discord_bot' / 'core' / 'utils' / 'otel.py'
 
 
 def _members(path: Path, class_name: str) -> list:

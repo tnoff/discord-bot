@@ -95,9 +95,9 @@ from discord_bot.types.database_wire import DatabaseErrorBody, DatabaseResponse
 from discord_bot.types.markov import MarkovMessageWrite
 from discord_bot.types.media_download import (media_download_from_dict,
                                               media_download_to_dict)
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist import PlaylistItemWrite
-from discord_bot.utils.otel import otel_span_wrapper
+from discord_bot.core.utils.otel import otel_span_wrapper
 
 logger = logging.getLogger(__name__)
 

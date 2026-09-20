@@ -226,10 +226,11 @@ def test_every_module_gets_at_most_one_home():
     rules gain cases as the layout is argued about, and the property that must
     survive every one of them is that a file has one home.
     '''
-    placed, unplaced = classify_modules()
+    placed, unplaced, scaffolding = classify_modules()
     homes = collections.Counter()
     for _, modules in list(placed.values()) + list(unplaced.values()):
         homes.update(modules)
+    homes.update(scaffolding)
     duplicated = {m: c for m, c in homes.items() if c > 1}
     assert not duplicated, f'modules claimed by more than one folder: {duplicated}'
 
@@ -239,6 +240,28 @@ def test_every_module_gets_at_most_one_home():
     measured.discard('discord_bot')
     assert set(homes) == measured, (
         f'layout and measurement disagree on the module set: {set(homes) ^ measured}'
+    )
+
+
+def test_no_placed_module_is_a_codeless_package_init():
+    """
+    A package `__init__.py` with no code is never given a home.
+
+    It has no position of its own -- it exists wherever its children live -- so
+    placing one by closure is a category error. `discord_bot/cogs/__init__.py`
+    reads as all-six because every image imports some cog, and it cannot move to
+    the core while `discord_bot/cogs/` still has to exist for the cogs that stay.
+
+    Pinned because the first version of the layout counted all ten of them as
+    core modules, which overstated the core by a third and would have moved ten
+    empty files into a folder where they meant nothing.
+    """
+    placed, unplaced, scaffolding = classify_modules()
+    assert scaffolding, 'no scaffolding found at all -- the detector matched nothing'
+    given_a_home = {m for _, modules in list(placed.values()) + list(unplaced.values())
+                    for m in modules}
+    assert not given_a_home & set(scaffolding), (
+        f'codeless package inits were given homes: {sorted(given_a_home & set(scaffolding))}'
     )
 
 
@@ -254,7 +277,7 @@ def test_seam_folders_are_named_by_exactly_one_route():
     filter that matches nothing passes while checking nothing. That is how the
     first version of it went quiet when the folder prefix changed.
     '''
-    placed, _ = classify_modules()
+    placed, _, _ = classify_modules()
     prefix = f'{PACKAGE}/seams/'
     checked = 0
     for _, (home, modules) in placed.items():

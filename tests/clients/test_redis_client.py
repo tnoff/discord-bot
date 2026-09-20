@@ -7,7 +7,7 @@ from redis.backoff import ExponentialBackoff
 
 from discord_bot.clients import redis_client as redis_client_module
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.utils.common import GeneralConfig, RedisSentinelConfig
+from discord_bot.core.utils.common import GeneralConfig, RedisSentinelConfig
 from discord_bot.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
     save_bundle,

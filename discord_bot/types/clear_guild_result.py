@@ -10,7 +10,7 @@ working.
 '''
 from dataclasses import dataclass, field
 
-from discord_bot.types.media_request import MediaRequest
+from discord_bot.core.types.media_request import MediaRequest
 
 
 @dataclass(frozen=True)

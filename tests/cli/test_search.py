@@ -7,13 +7,13 @@ import pytest
 
 from discord_bot.cli import search as search_cli
 from discord_bot.servers.composite_server import CompositeHttpServer
-from discord_bot.cli._lib import common as cli_common
+from discord_bot.core.cli._lib import common as cli_common
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.
 from discord_bot.cli._lib import worker_pod
-from discord_bot.exceptions import DiscordBotException, ExitEarlyException
-from discord_bot.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
-from discord_bot.utils.common import SeamContractConfig
+from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
+from discord_bot.core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
+from discord_bot.core.utils.common import SeamContractConfig
 
 
 def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_general=None):

@@ -14,18 +14,18 @@ from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.music_helpers.common import MultipleMutableType
-from discord_bot.exceptions import ExitEarlyException
+from discord_bot.core.cogs.music_helpers.common import MultipleMutableType
+from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.types.checkout_result import CheckoutResult
 from discord_bot.types.queue import Queue
-from discord_bot.utils.common import return_loop_runner
-from discord_bot.utils.common import get_logger, LoggingConfig
+from discord_bot.core.utils.common import return_loop_runner
+from discord_bot.core.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.integrations.s3 import get_file
-from discord_bot.utils.otel import async_otel_span_wrapper, span_links_from_context
+from discord_bot.core.utils.otel import async_otel_span_wrapper, span_links_from_context
 from discord_bot.utils.discord_context import DiscordContextNaming
 
 

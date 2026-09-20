@@ -1,7 +1,7 @@
 '''
 HealthServer factory for the bot/full entry-points.
 
-Lives in its own module because importing ``discord_bot.cli._lib.common`` used
+Lives in its own module because importing ``discord_bot.core.cli._lib.common`` used
 to pull sqlalchemy in transitively via ``servers.health_server``. As of MR 4b
 that chain is gone -- HealthServer probes the db POD over TCP instead of pinging
 an engine -- so the split no longer earns its keep on those grounds. It stays
@@ -11,7 +11,7 @@ has no reason to import a factory for a server it does not use.
 from discord.ext.commands import Bot
 
 from discord_bot.servers.health_server import HealthServer
-from discord_bot.utils.common import GeneralConfig
+from discord_bot.core.utils.common import GeneralConfig
 
 
 def setup_health_server(bot: Bot, general_config: GeneralConfig,

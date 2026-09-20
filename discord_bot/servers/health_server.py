@@ -8,8 +8,8 @@ import asyncio
 from urllib.parse import urlsplit
 
 from discord_bot.utils.bot_metrics import BotMetricNaming
-from discord_bot.servers.health_server_base import HealthServerBase, close_writer
-from discord_bot.utils.otel import AttributeNaming, METER_PROVIDER
+from discord_bot.core.servers.health_server_base import HealthServerBase, close_writer
+from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER
 
 
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0

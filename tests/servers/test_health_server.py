@@ -12,8 +12,8 @@ import pytest
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.servers.health_server import HealthServer
-from discord_bot.servers.health_server_base import HealthServerBase, close_writer
-from discord_bot.utils.loop_health import LOOP_HEALTH
+from discord_bot.core.servers.health_server_base import HealthServerBase, close_writer
+from discord_bot.core.utils.loop_health import LOOP_HEALTH
 
 
 class _FakeClock:
