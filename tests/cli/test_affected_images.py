@@ -50,10 +50,56 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
     ('tests/helpers.py', None),
     ('discord_bot/data.txt', None),
     ('README.md', None),
+    # The post-split layout (criterion 7). These are not hypothetical spellings:
+    # the folder classes are generated into docs/module-layout.md, and keeping
+    # `discord_bot` as the import root is what lets one rule serve both layouts
+    # while the tree is half-moved.
+    ('discord_bot/core/utils/otel.py', 'discord_bot.core.utils.otel'),
+    ('discord_bot/core/__init__.py', 'discord_bot.core'),
+    ('discord_bot/seams/database/routes.py', 'discord_bot.seams.database.routes'),
+    ('discord_bot/services/bot/cogs/music.py', 'discord_bot.services.bot.cogs.music'),
+    ('discord_bot/services/downloader/__init__.py', 'discord_bot.services.downloader'),
 ])
 def test_module_for(path, expected):
     '''Paths map to module names, and non-modules map to nothing.'''
     assert module_for(path) == expected
+
+
+def test_a_move_without_a_regenerated_closure_fails_loudly():
+    """
+    Moving a module without regenerating the closure is an orphan, not silence.
+
+    This is the hazard criterion 7 step 2 exists to prevent, and it is worth a
+    test rather than an argument. A filter that did not recognise the new path
+    would contribute no images for it and the move would build NOTHING -- the
+    silent under-build criterion 3 exists to stop, arriving through the back
+    door. Because the layout keeps `discord_bot` as the import root, the new
+    path maps to a module name like any other; it is simply a name the stale
+    closure does not claim, so it lands in the orphan list and CI stops.
+
+    The old path is attributed by the base closure, which is what tells a move
+    apart from a deletion.
+    """
+    images, orphans = _affected(
+        ['discord_bot/cogs/music.py', 'discord_bot/services/bot/cogs/music.py'],
+        deleted=['discord_bot/cogs/music.py'], base_closure=CLOSURE)
+    assert orphans == ['discord_bot/services/bot/cogs/music.py']
+    assert images == {'bot'}
+
+
+def test_a_move_with_a_regenerated_closure_builds_only_the_owning_image():
+    """The same move, done properly, is an ordinary one-image change."""
+    moved = {'images': [
+        {**image,
+         'modules': ['discord_bot.services.bot.cogs.music' if m == 'discord_bot.cogs.music' else m
+                     for m in image['modules']]}
+        for image in CLOSURE['images']
+    ]}
+    images, orphans = affected(
+        ['discord_bot/cogs/music.py', 'discord_bot/services/bot/cogs/music.py'],
+        ['discord_bot/cogs/music.py'], moved, CLOSURE, PYPROJECT, PYPROJECT)
+    assert not orphans
+    assert images == {'bot'}
 
 
 def test_a_bot_only_module_builds_only_the_bot():

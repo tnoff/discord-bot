@@ -277,6 +277,15 @@ def render_closure() -> str:
 # hand-written map that would go stale the first time a seam is renamed.
 ROUTE_PREFIX = 'discord_bot.routes.'
 
+# The split keeps `discord_bot` as the single import root and puts the layout
+# INSIDE it, rather than hoisting libs/ and services/ to the repo root. That is
+# what makes the move invisible to everything keyed on a path: the CI filter's
+# `discord_bot/` prefix, every Dockerfile COPY, and setuptools' packages.find
+# all keep working through a half-moved tree, and no part of the package becomes
+# an __init__-less directory that setuptools would treat as a namespace package
+# -- the trap pyproject.toml already documents for alembic/.
+PACKAGE = 'discord_bot'
+
 
 def _owner_sets(measured):
     '''Map every measured module to the set of images that reach it.'''
@@ -287,7 +296,8 @@ def _owner_sets(measured):
             # The root package is excluded deliberately. render_closure() unions
             # it into every image so a change to __init__.py rebuilds all six,
             # but it is the package root itself -- it has no home to be assigned
-            # in a layout that replaces the single root with libs/ and services/.
+            # in a layout that keeps discord_bot/ as the root and nests the
+            # classes beneath it.
             if module == 'discord_bot':
                 continue
             owners.setdefault(module, set()).add(image)
@@ -300,9 +310,9 @@ def classify_modules():
 
     Three rules, in order, and none of them consults a list of names:
 
-      * reached by every image            -> `libs/core/`
-      * reached by exactly one            -> `services/<image>/`
-      * the group holds one route module  -> `libs/<route leaf>/`
+      * reached by every image            -> `discord_bot/core/`
+      * reached by exactly one            -> `discord_bot/services/<image>/`
+      * the group holds one route module  -> `discord_bot/seams/<route leaf>/`
 
     Anything left is returned UNPLACED rather than filed somewhere plausible.
     A generated layout that silently invents a home for the modules the rule
@@ -320,15 +330,15 @@ def classify_modules():
     placed, unplaced = {}, {}
     for images, modules in groups.items():
         if len(images) == total:
-            home = 'libs/core'
+            home = f'{PACKAGE}/core'
         elif len(images) == 1:
-            home = f'services/{next(iter(images))}'
+            home = f'{PACKAGE}/services/{next(iter(images))}'
         else:
             routes = [m for m in modules if m.startswith(ROUTE_PREFIX)]
             # Exactly one: a group with two route modules names no single seam,
             # and a group with none is a sharing pattern nobody has written a
             # contract for yet. Both are honest UNPLACED answers.
-            home = f'libs/{routes[0][len(ROUTE_PREFIX):]}' if len(routes) == 1 else None
+            home = f'{PACKAGE}/seams/{routes[0][len(ROUTE_PREFIX):]}' if len(routes) == 1 else None
         target = placed if home else unplaced
         target[images] = (home, sorted(modules))
     return placed, unplaced
@@ -362,11 +372,16 @@ def render_layout() -> str:
         'the tree as it stands. **No file has moved.** Homes come from the measured',
         'import closure, by three rules that consult no list of names:',
         '',
+        f'`{PACKAGE}` stays the single import root and the layout nests inside it, so',
+        'every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,',
+        "setuptools' `packages.find` — keeps working unchanged through a half-moved",
+        'tree.',
+        '',
         '| a module reached by | goes to |',
         '|---|---|',
-        f'| all {len(IMAGE_NAMES)} images | `libs/core/` |',
-        '| exactly one image | `services/<image>/` |',
-        f'| a group holding one `{ROUTE_PREFIX}*` module | `libs/<that route>/` |',
+        f'| all {len(IMAGE_NAMES)} images | `{PACKAGE}/core/` |',
+        f'| exactly one image | `{PACKAGE}/services/<image>/` |',
+        f'| a group holding one `{ROUTE_PREFIX}*` module | `{PACKAGE}/seams/<that route>/` |',
         '',
         'The third rule is why the seam names below are not invented here. A seam is',
         'a contract, the route module *is* the contract, and so the folder takes its',
@@ -384,22 +399,23 @@ def render_layout() -> str:
         lines.append(f'| `{home}/` | {len(modules)} | {", ".join(sorted(images))} |')
     lines.append(f'| *(unplaced)* | {total_unplaced} | {len(unplaced)} groups, see below |')
 
-    # Flagged because it is a collision a person would only notice at move time.
     # A seam takes its name from a route, and a route may be named after the pod
-    # it talks TO -- so `libs/<x>/` and `services/<x>/` can both exist and mean
-    # different things. Derived rather than written down so a future rename that
-    # introduces or removes one is reported either way.
+    # it talks TO, so the same word can name both. Derived rather than written
+    # down, so a future rename that introduces or removes one is reported either
+    # way -- a hand-written note here would go quietly wrong.
+    seam_prefix, service_prefix = f'{PACKAGE}/seams/', f'{PACKAGE}/services/'
     pods = {short_name(ep) for ep in IMAGE_IMPORTS}
-    collisions = sorted(home.split('/', 1)[1] for home, _ in placed.values()
-                        if home.startswith('libs/') and home.split('/', 1)[1] in pods)
+    collisions = sorted(home[len(seam_prefix):] for home, _ in placed.values()
+                        if home.startswith(seam_prefix) and home[len(seam_prefix):] in pods)
     if collisions:
         shared = ', '.join(f'`{c}`' for c in collisions)
         lines += [
             '',
             f'**{shared} names both a seam and a pod, and they are not the same thing.**',
-            'The seam folder holds what the other images use to *talk to* that pod —',
-            'client, routes, wire types — and the service folder holds the pod itself.',
-            'Anything reading these paths, CI filter included, has to tell them apart.',
+            f'`{seam_prefix}<x>/` holds what the other images use to *talk to* that pod —',
+            f'client, routes, wire types — and `{service_prefix}<x>/` holds the pod itself.',
+            'The two prefixes keep the paths distinct, so nothing reading a path can',
+            'confuse them; it is the prose and the review conversation that need the care.',
         ]
 
     lines += [
@@ -417,7 +433,7 @@ def render_layout() -> str:
         '',
         'Shared by more than one image but fewer than all, with no single route',
         'module to name them. Each needs a decision, and the decision is not the',
-        "generator's to make. Widening one into `libs/core/` costs the images that",
+        f"generator's to make. Widening one into `{PACKAGE}/core/` costs the images that",
         'do not reach it; inventing a seam folder claims a contract that has not been',
         'written. The groups are small and several are recognisably the *other half*',
         'of a seam already named above — the implementation side, where the seam',
