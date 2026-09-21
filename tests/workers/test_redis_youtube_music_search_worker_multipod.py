@@ -37,7 +37,7 @@ from discord_bot.clients.redis_client import RedisManager
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
 from discord_bot.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, GUILDS_KEY,
 )

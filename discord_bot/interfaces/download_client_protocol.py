@@ -18,7 +18,7 @@ to it, which would otherwise drag the engine in through a default value.
 import asyncio
 from typing import Callable, Protocol
 
-from discord_bot.types.clear_guild_result import ClearGuildResult
+from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
 from discord_bot.core.types.media_request import MediaRequest
 
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM']

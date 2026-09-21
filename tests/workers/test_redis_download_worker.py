@@ -25,7 +25,7 @@ from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 from discord_bot.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,

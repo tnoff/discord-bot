@@ -23,7 +23,7 @@ from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
 from discord_bot.core.types.search import SearchResult
 
 

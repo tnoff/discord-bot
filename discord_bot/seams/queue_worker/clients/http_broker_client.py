@@ -21,7 +21,7 @@ import aiohttp
 from opentelemetry.trace import SpanKind
 
 from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
-from discord_bot.clients.http_player_session import HttpPlayerSessionMixin
+from discord_bot.seams.queue_worker.clients.http_player_session import HttpPlayerSessionMixin
 from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate

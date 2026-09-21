@@ -21,7 +21,7 @@ from discord_bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult
-from discord_bot.types.queue import Queue
+from discord_bot.seams.queue_worker.types.queue import Queue
 from discord_bot.core.utils.common import return_loop_runner
 from discord_bot.core.utils.common import get_logger, LoggingConfig
 from discord_bot.utils.integrations.s3 import get_file

@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 188 modules place. 25 do not**, and they
+**123 of 192 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**40 are package `__init__.py` files that declare no code**;
+**44 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -110,12 +110,12 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/queue_worker/` — 6, reached by bot, downloader, search
 
-- `discord_bot.clients.http_broker_client`
-- `discord_bot.clients.http_player_session`
-- `discord_bot.routes.queue_worker`
-- `discord_bot.types.clear_guild_result`
-- `discord_bot.types.queue`
-- `discord_bot.utils.failure_queue`
+- `discord_bot.seams.queue_worker.clients.http_broker_client`
+- `discord_bot.seams.queue_worker.clients.http_player_session`
+- `discord_bot.seams.queue_worker.routes.queue_worker`
+- `discord_bot.seams.queue_worker.types.clear_guild_result`
+- `discord_bot.seams.queue_worker.types.queue`
+- `discord_bot.seams.queue_worker.utils.failure_queue`
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 
@@ -238,7 +238,6 @@ overstated the core by a third.
 - `discord_bot.core.types`
 - `discord_bot.core.utils`
 - `discord_bot.interfaces`
-- `discord_bot.routes`
 - `discord_bot.seams`
 - `discord_bot.seams.broker`
 - `discord_bot.seams.broker.clients`
@@ -257,6 +256,11 @@ overstated the core by a third.
 - `discord_bot.seams.media_search.types`
 - `discord_bot.seams.media_search.utils`
 - `discord_bot.seams.media_search.utils.integrations`
+- `discord_bot.seams.queue_worker`
+- `discord_bot.seams.queue_worker.clients`
+- `discord_bot.seams.queue_worker.routes`
+- `discord_bot.seams.queue_worker.types`
+- `discord_bot.seams.queue_worker.utils`
 - `discord_bot.servers`
 - `discord_bot.types`
 - `discord_bot.utils`

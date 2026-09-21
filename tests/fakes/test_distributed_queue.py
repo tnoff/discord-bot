@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 
 from tests.fakes.distributed_queue import DistributedQueue, DistributedQueueItem
 

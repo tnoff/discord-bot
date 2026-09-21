@@ -19,8 +19,8 @@ from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
-from discord_bot.utils.failure_queue import FailureStatus
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureStatus
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.workers.media_bundle import BundleRenderer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG

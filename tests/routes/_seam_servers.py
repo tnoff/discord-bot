@@ -22,7 +22,7 @@ from discord_bot.core.routes import contract
 from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.media_search.routes import media_search as media_search_routes
-from discord_bot.routes import queue_worker as queue_worker_routes
+from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
 from discord_bot.servers.dispatch_server import DispatchHttpServer

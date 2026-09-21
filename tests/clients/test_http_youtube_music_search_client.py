@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 
 from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer

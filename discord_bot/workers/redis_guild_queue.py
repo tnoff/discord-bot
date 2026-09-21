@@ -19,7 +19,7 @@ from typing import Awaitable, Callable
 
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 
 GUILD_BLOCKED_SUFFIX = ':blocked'
 
