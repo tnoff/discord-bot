@@ -19,9 +19,10 @@ import logging
 from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
-
 from discord_bot.interfaces.dispatch_protocols import WorkQueue
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
+from discord_bot.seams.dispatch.types import requests as dispatch_requests
+from discord_bot.seams.dispatch.types import responses as dispatch_responses
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
 from discord_bot.core.utils.otel import otel_span_wrapper
@@ -76,79 +77,62 @@ class DispatchHttpServer(AiohttpServerBase):
     # Fire-and-forget handlers
     # ------------------------------------------------------------------
 
-    async def _handle_send(self, request: web.Request) -> web.Response:
-        ctx = extract(request.headers)
+    @staticmethod
+    async def _body(request: web.Request, model):
+        """
+        Parse and validate a request body, or raise the seam's 422.
+
+        Every handler used to do this inline with int()/str() coercion under a
+        bare `except Exception`. The catch stays exactly as broad, because it
+        has to cover both a non-JSON body (raised by `request.json()`) and a
+        `ValidationError` from the model, and the 422 is the part that matters:
+        `async_retry_broker_command` propagates 4xx immediately rather than
+        laddering, so a malformed body must NOT become a retried 5xx.
+        """
         try:
-            body = await request.json()
-            guild_id = int(body['guild_id'])
-            channel_id = int(body['channel_id'])
-            content = str(body['content'])
-            delete_after = body.get('delete_after')
-            allow_404 = bool(body.get('allow_404', False))
-            span_context = body.get('span_context')
+            return model.model_validate(await request.json())
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
+
+    async def _handle_send(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        body = await self._body(request, dispatch_requests.SendRequestBody)
         with otel_span_wrapper('dispatch.send', context=ctx, kind=SpanKind.SERVER):
-            self._dispatcher.send_message(guild_id, channel_id, content,
-                                          delete_after=delete_after, allow_404=allow_404,
-                                          span_context=span_context)
-        return web.json_response({'status': 'ok'}, status=202)
+            self._dispatcher.send_message(body.guild_id, body.channel_id, body.content,
+                                          delete_after=body.delete_after, allow_404=body.allow_404,
+                                          span_context=body.span_context)
+        return web.json_response(dispatch_responses.SendResponse().model_dump(), status=202)
 
     async def _handle_delete(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            guild_id = int(body['guild_id'])
-            channel_id = int(body['channel_id'])
-            message_id = int(body['message_id'])
-            span_context = body.get('span_context')
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
+        body = await self._body(request, dispatch_requests.DeleteRequestBody)
         with otel_span_wrapper('dispatch.delete', context=ctx, kind=SpanKind.SERVER):
-            self._dispatcher.delete_message(guild_id, channel_id, message_id,
-                                            span_context=span_context)
-        return web.json_response({'status': 'ok'}, status=202)
+            self._dispatcher.delete_message(body.guild_id, body.channel_id, body.message_id,
+                                            span_context=body.span_context)
+        return web.json_response(dispatch_responses.DeleteResponse().model_dump(), status=202)
 
     async def _handle_update_mutable(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            key = str(body['key'])
-            guild_id = int(body['guild_id'])
-            content = list(body['content'])
-            channel_id = int(body['channel_id']) if body.get('channel_id') is not None else None
-            sticky = bool(body.get('sticky', True))
-            delete_after = body.get('delete_after')
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
+        body = await self._body(request, dispatch_requests.UpdateMutableRequestBody)
         with otel_span_wrapper('dispatch.update_mutable', context=ctx, kind=SpanKind.SERVER):
-            self._dispatcher.update_mutable(key, guild_id, content, channel_id,
-                                            sticky=sticky, delete_after=delete_after)
-        return web.json_response({'status': 'ok'}, status=202)
+            self._dispatcher.update_mutable(body.key, body.guild_id, body.content, body.channel_id,
+                                            sticky=body.sticky, delete_after=body.delete_after)
+        return web.json_response(dispatch_responses.UpdateMutableResponse().model_dump(), status=202)
 
     async def _handle_remove_mutable(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            key = str(body['key'])
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
+        body = await self._body(request, dispatch_requests.RemoveMutableRequestBody)
         with otel_span_wrapper('dispatch.remove_mutable', context=ctx, kind=SpanKind.SERVER):
-            self._dispatcher.remove_mutable(key)
-        return web.json_response({'status': 'ok'}, status=202)
+            self._dispatcher.remove_mutable(body.key)
+        return web.json_response(dispatch_responses.RemoveMutableResponse().model_dump(), status=202)
 
     async def _handle_update_mutable_channel(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            key = str(body['key'])
-            guild_id = int(body['guild_id'])
-            new_channel_id = int(body['new_channel_id'])
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
+        body = await self._body(request, dispatch_requests.UpdateMutableChannelRequestBody)
         with otel_span_wrapper('dispatch.update_mutable_channel', context=ctx, kind=SpanKind.SERVER):
-            self._dispatcher.update_mutable_channel(key, guild_id, new_channel_id)
-        return web.json_response({'status': 'ok'}, status=202)
+            self._dispatcher.update_mutable_channel(body.key, body.guild_id, body.new_channel_id)
+        return web.json_response(
+            dispatch_responses.UpdateMutableChannelResponse().model_dump(), status=202)
 
     # ------------------------------------------------------------------
     # Awaitable fetch handlers
@@ -156,46 +140,46 @@ class DispatchHttpServer(AiohttpServerBase):
 
     async def _handle_fetch_history(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            guild_id = int(body['guild_id'])
-            channel_id = int(body['channel_id'])
-            limit = int(body['limit'])
-            after = body.get('after')
-            after_message_id = int(body['after_message_id']) if body.get('after_message_id') is not None else None
-            oldest_first = bool(body.get('oldest_first', True))
-            span_context = body.get('span_context')
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
-        params = {'guild_id': guild_id, 'channel_id': channel_id, 'limit': limit,
-                  'after': after, 'after_message_id': after_message_id, 'oldest_first': oldest_first}
+        body = await self._body(request, dispatch_requests.FetchHistoryRequestBody)
+        span_context = body.span_context
+        # Built explicitly rather than from model_dump() so the hashed key SET is
+        # visible here: dispatch_request_id folds this dict into the request_id,
+        # and model_dump() would silently add span_context the moment the model
+        # gains or loses a field. The exclusion below is the whole point.
+        params = {'guild_id': body.guild_id, 'channel_id': body.channel_id, 'limit': body.limit,
+                  'after': body.after, 'after_message_id': body.after_message_id,
+                  'oldest_first': body.oldest_first}
         # span_context is deliberately excluded from the request_id hash: it differs
         # per trace, so folding it in would make every identical fetch a distinct
         # request and defeat result reuse.
         request_id = dispatch_request_id(params)
         with otel_span_wrapper('dispatch.fetch_history', context=ctx, kind=SpanKind.SERVER):
             await self._dispatcher.enqueue_fetch_history(request_id, **params, span_context=span_context)
-        return web.json_response({'request_id': request_id}, status=202)
+        return web.json_response(
+            dispatch_responses.FetchHistoryResponse(request_id=request_id).model_dump(), status=202)
 
     async def _handle_fetch_emojis(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
-        try:
-            body = await request.json()
-            guild_id = int(body['guild_id'])
-            max_retries = int(body.get('max_retries', 3))
-            span_context = body.get('span_context')
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
-        params = {'guild_id': guild_id, 'max_retries': max_retries}
+        body = await self._body(request, dispatch_requests.FetchEmojisRequestBody)
+        span_context = body.span_context
+        # Same explicit build, same reason, as _handle_fetch_history above.
+        params = {'guild_id': body.guild_id, 'max_retries': body.max_retries}
         # Excluded from the hash for the same reason as fetch_history above.
         request_id = dispatch_request_id(params)
         with otel_span_wrapper('dispatch.fetch_emojis', context=ctx, kind=SpanKind.SERVER):
             await self._dispatcher.enqueue_fetch_emojis(request_id, **params, span_context=span_context)
-        return web.json_response({'request_id': request_id}, status=202)
+        return web.json_response(
+            dispatch_responses.FetchEmojisResponse(request_id=request_id).model_dump(), status=202)
 
     async def _handle_get_result(self, request: web.Request) -> web.Response:
         request_id = request.match_info['request_id']
         result = await self._redis_queue.get_result(request_id)
         if result is None:
-            return web.json_response({'status': 'pending'}, status=202)
+            return web.json_response(
+                dispatch_responses.ResultPendingResponse().model_dump(), status=202)
+        # The 200 body is the worker's stored result, returned verbatim: a
+        # history payload, an emoji payload, or {'error', 'error_detail'}. It is
+        # the one dispatch body still untyped, because it is produced in
+        # message_dispatcher rather than here -- typing it means typing the
+        # worker's result path, which is its own change.
         return web.json_response(result)

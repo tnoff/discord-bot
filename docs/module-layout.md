@@ -23,8 +23,8 @@ than a description of where it ended up.
 every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,
 setuptools' `packages.find` — keeps working unchanged.
 
-**123 modules are homed and checked. 25 are not split
-yet** and are listed at the bottom. A further **85 are package
+**125 modules are homed and checked. 25 are not split
+yet** and are listed at the bottom. A further **86 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -36,7 +36,7 @@ own account.
 | `discord_bot/core/` | 20 | all 6 |
 | `discord_bot/seams/broker/` | 5 | bot, broker, downloader, search |
 | `discord_bot/seams/database/` | 7 | bot, broker, db |
-| `discord_bot/seams/dispatch/` | 2 | bot, broker, dispatcher |
+| `discord_bot/seams/dispatch/` | 4 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
 | `discord_bot/seams/queue_worker/` | 6 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
@@ -96,9 +96,11 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.database.types.playlist`
 - `discord_bot.seams.database.types.video_cache`
 
-### `discord_bot/seams/dispatch/` — 2, reached by bot, broker, dispatcher
+### `discord_bot/seams/dispatch/` — 4, reached by bot, broker, dispatcher
 
 - `discord_bot.seams.dispatch.routes.dispatch`
+- `discord_bot.seams.dispatch.types.requests`
+- `discord_bot.seams.dispatch.types.responses`
 - `discord_bot.seams.dispatch.utils.dispatch_queue`
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search

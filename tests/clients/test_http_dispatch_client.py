@@ -16,6 +16,7 @@ from discord_bot.core.types.dispatch_request import (
 )
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.seams.dispatch.types.responses import FetchHistoryResponse
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.core.utils.otel import AttributeNaming
@@ -369,7 +370,8 @@ async def test_submit_fetch_when_breaker_open_propagates(mocker):
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(CircuitBreakerOpenError):
-        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
+        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1},  # pylint: disable=protected-access
+                                   FetchHistoryResponse)
     await client.close()
     counter.add.assert_called_with(1, {OUTCOME: 'breaker_open', PATH: '/dispatch/fetch_history'})
 
@@ -411,7 +413,8 @@ async def test_submit_fetch_underlying_failure_records_failure_metric_and_propag
     counter = mocker.patch('discord_bot.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(RuntimeError, match='connection refused'):
-        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1})  # pylint: disable=protected-access
+        await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1},  # pylint: disable=protected-access
+                                   FetchHistoryResponse)
     await client.close()
     counter.add.assert_called_with(1, {OUTCOME: 'failure', PATH: '/dispatch/fetch_history'})
 
