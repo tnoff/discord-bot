@@ -37,7 +37,7 @@ import signal
 
 import click
 
-from discord_bot.clients.http_client_base import start_seam_checks
+from discord_bot.seams.broker.clients.http_client_base import start_seam_checks
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_bot.clients.redis_client import RedisManager

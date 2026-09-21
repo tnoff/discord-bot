@@ -9,7 +9,7 @@ RedisYoutubeMusicSearchWorker will supply the same surface backed by Redis for H
 '''
 from typing import Callable
 
-from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
+from discord_bot.seams.media_search.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.core.types.media_request import MediaRequest
 
 from tests.fakes.distributed_queue import DistributedQueue

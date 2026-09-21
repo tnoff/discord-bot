@@ -37,7 +37,7 @@ from time import time
 from typing import Callable
 
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
+from discord_bot.seams.media_search.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.core.exceptions import YoutubeMusicRetryException

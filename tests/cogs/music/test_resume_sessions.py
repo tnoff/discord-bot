@@ -8,7 +8,7 @@ import pytest
 from discord_bot.cogs.music import Music
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.player_session import PlayerSession
+from discord_bot.seams.broker.types.player_session import PlayerSession
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import (attach_in_process_broker, attach_in_process_download,  #pylint:disable=unused-import

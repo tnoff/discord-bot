@@ -42,7 +42,7 @@ from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
-from discord_bot.types.clear_guild_result import ClearGuildResult
+from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
 
 # DownloadClient and RETRY_BACKOFF_SECONDS_MINIMUM moved to
 # interfaces/download_client_protocol so that annotating a download handle does
@@ -57,7 +57,7 @@ from discord_bot.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
     is_known_transient, normalize_ytdlp_error,
 )
-from discord_bot.utils.failure_queue import FailureQueue, FailureStatus
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
 from discord_bot.utils.integrations.egress_probe import (
     cached_exit_attributes, cached_exit_hostname, PoolExitIpProbe, UNKNOWN_EXIT,

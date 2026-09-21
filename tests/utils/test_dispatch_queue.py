@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_bot.utils.dispatch_queue import RedisDispatchQueue, dispatch_request_id
+from discord_bot.seams.dispatch.utils.dispatch_queue import RedisDispatchQueue, dispatch_request_id
 
 _QUEUE_KEY = 'discord_bot:dispatch:queue:0'
 

@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult

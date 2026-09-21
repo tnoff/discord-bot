@@ -18,7 +18,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.core.exceptions import MediaSearchError
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
-from discord_bot.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
 
 from tests.cli._image_deps import measure
 
@@ -217,6 +217,6 @@ def test_http_client_pulls_in_no_provider_sdk():
 
 def test_wire_types_pull_in_no_provider_sdk():
     '''Same guarantee for the types both sides serialise through.'''
-    imported = set(measure('discord_bot.types.media_search')['packages'])
+    imported = set(measure('discord_bot.seams.media_search.types.media_search')['packages'])
     assert 'spotipy' not in imported
     assert 'googleapiclient' not in imported

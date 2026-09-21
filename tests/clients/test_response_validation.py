@@ -17,14 +17,34 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.core.exceptions import SeamResponseInvalid
 
-CLIENTS_DIR = Path(__file__).resolve().parents[2] / 'discord_bot' / 'clients'
+#: Every `clients` package in the tree, not one hard-coded directory. The
+#: per-image-code-split moved the helper and two more clients into
+#: `seams/*/clients/`, and a scan pinned to `discord_bot/clients/` silently
+#: stopped covering them -- a guard that keeps passing while checking less is
+#: the failure this file exists to prevent.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CLIENT_DIRS = sorted(REPO_ROOT.glob('discord_bot/**/clients'))
 
 #: The one module allowed to call model_validate directly -- it is the helper.
 VALIDATION_HOME = 'http_client_base.py'
+
+
+def _client_modules():
+    '''Every client module in the tree, helper excluded.'''
+    return sorted(path for directory in CLIENT_DIRS for path in directory.glob('*.py')
+                  if path.name not in {VALIDATION_HOME, '__init__.py'})
+
+
+def _validation_home():
+    '''The helper, wherever it currently lives.'''
+    found = [directory / VALIDATION_HOME for directory in CLIENT_DIRS
+             if (directory / VALIDATION_HOME).is_file()]
+    assert len(found) == 1, f'expected exactly one {VALIDATION_HOME}, found {found}'
+    return found[0]
 
 
 class _Body(BaseModel):
@@ -68,13 +88,13 @@ def test_no_client_validates_a_response_outside_the_helper():
     That is the same shape as the eight dark gauges: correct code, quietly not
     doing the thing it was written for.
     '''
+    scanned = _client_modules()
+    assert len(scanned) > 10, f'only {len(scanned)} client modules scanned -- the glob missed some'
     offenders = {}
-    for path in sorted(CLIENTS_DIR.glob('*.py')):
-        if path.name == VALIDATION_HOME:
-            continue
+    for path in scanned:
         lines = _direct_validate_calls(path)
         if lines:
-            offenders[path.name] = lines
+            offenders[str(path.relative_to(REPO_ROOT))] = lines
     assert not offenders, (
         f'call self._validate(Model, payload) instead of Model.model_validate: '
         f'{offenders}')
@@ -82,7 +102,7 @@ def test_no_client_validates_a_response_outside_the_helper():
 
 def test_the_helper_is_the_only_exemption_and_still_validates():
     '''Guards the guard: an exemption that stopped being used would hide a gap.'''
-    assert _direct_validate_calls(CLIENTS_DIR / VALIDATION_HOME), \
+    assert _direct_validate_calls(_validation_home()), \
         'the exemption is unused -- delete it or find where validation moved'
 
 
@@ -123,7 +143,7 @@ def test_the_counter_is_labelled_per_seam(monkeypatch):
     '''Attribution has to reach Mimir, not only the log line.'''
     recorded = []
     monkeypatch.setattr(
-        'discord_bot.clients.http_client_base._RESPONSE_INVALID_COUNTER',
+        'discord_bot.seams.broker.clients.http_client_base._RESPONSE_INVALID_COUNTER',
         type('_C', (), {'add': lambda _self, amount, attrs: recorded.append((amount, attrs))})())
     with pytest.raises(SeamResponseInvalid):
         _Double().parse(_Body, {})

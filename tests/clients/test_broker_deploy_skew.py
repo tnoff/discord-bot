@@ -21,7 +21,7 @@ from aiohttp import web
 from aiohttp.client_exceptions import ClientResponseError
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.core.utils.common import return_loop_runner

@@ -14,8 +14,8 @@ import gc
 
 import pytest
 
-from discord_bot.clients.http_broker_client import HttpBrokerClient
-from discord_bot.clients.http_client_base import (HttpClientMixin, SEAM_CLIENTS,
+from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_bot.seams.broker.clients.http_client_base import (HttpClientMixin, SEAM_CLIENTS,
                                                   start_seam_checks)
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.core.utils.common import SeamContractConfig

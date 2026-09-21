@@ -14,7 +14,7 @@ ClearGuildResult.
 '''
 from typing import Callable
 
-from discord_bot.types.clear_guild_result import ClearGuildResult
+from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
 from discord_bot.core.types.media_request import MediaRequest
 
 

@@ -22,7 +22,7 @@ from discord_bot.core.types.search import SearchResult, SearchCollection
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient

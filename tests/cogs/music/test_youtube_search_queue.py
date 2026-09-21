@@ -19,8 +19,8 @@ from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
-from discord_bot.utils.failure_queue import FailureStatus
-from discord_bot.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureStatus
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.workers.media_bundle import BundleRenderer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
@@ -965,7 +965,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_bot.seams.media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -997,7 +997,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_bot.seams.media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1028,7 +1028,7 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_bot.seams.media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1063,7 +1063,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     })
     mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_bot.seams.media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)

@@ -16,8 +16,8 @@ like persistence.
 import aiohttp
 from opentelemetry.trace import SpanKind
 
-from discord_bot.routes import broker as broker_routes
-from discord_bot.types.player_session import PlayerSession
+from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 # A broker that 404s a session route is running a build from before the route

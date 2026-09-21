@@ -47,7 +47,7 @@ import logging
 
 import click
 
-from discord_bot.clients.http_broker_client import HttpBrokerClient
+from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.clients.media_search_client import build_media_search_client
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.servers.base import AiohttpServerBase
@@ -55,7 +55,7 @@ from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 from discord_bot.core.utils.common import GeneralConfig
-from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
 from discord_bot.core.utils.loop_health import LoopHealth
 from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker

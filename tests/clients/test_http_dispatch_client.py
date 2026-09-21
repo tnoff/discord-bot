@@ -17,7 +17,7 @@ from discord_bot.core.types.dispatch_request import (
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
-from discord_bot.routes import dispatch as dispatch_routes
+from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.core.utils.otel import AttributeNaming
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 

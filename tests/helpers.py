@@ -37,7 +37,7 @@ from discord_bot.core.types.fetched_message import FetchedMessage
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.utils.failure_queue import FailureQueue
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
 from discord_bot.utils.integrations import youtube_music
 from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
