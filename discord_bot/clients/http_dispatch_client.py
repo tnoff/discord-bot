@@ -10,6 +10,13 @@ from discord_bot.core.types.dispatch_request import (
     SendRequest,
 )
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
+from discord_bot.seams.dispatch.types.requests import (
+    DeleteRequestBody, RemoveMutableRequestBody, SendRequestBody,
+    UpdateMutableChannelRequestBody, UpdateMutableRequestBody,
+)
+from discord_bot.seams.dispatch.types.responses import (
+    FetchEmojisResponse, FetchHistoryResponse,
+)
 from discord_bot.core.routes.route import Route
 from discord_bot.core.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
@@ -77,17 +84,24 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
     # ------------------------------------------------------------------
 
     def _handle_send(self, request: SendRequest) -> None:
-        asyncio.create_task(self._post(dispatch_routes.SEND, {
-            'guild_id': request.guild_id, 'channel_id': request.channel_id,
-            'content': request.content, 'delete_after': request.delete_after,
-            'span_context': request.span_context,
-        }))
+        # NOTE: this body now carries `allow_404: false`, which it did not before.
+        # There were two client paths to POST /dispatch/send sending DIFFERENT
+        # bodies -- this one omitted allow_404, send_message() included it -- and
+        # the server reads `body.get('allow_404', False)`, so this path always got
+        # False anyway. Sending it explicitly is the same behaviour and one body
+        # shape instead of two. It is the only deliberate byte change in this
+        # seam; see projects/seam-body-typing.
+        asyncio.create_task(self._post(dispatch_routes.SEND, SendRequestBody(
+            guild_id=request.guild_id, channel_id=request.channel_id,
+            content=request.content, delete_after=request.delete_after,
+            span_context=request.span_context,
+        ).model_dump()))
 
     def _handle_delete(self, request: DeleteRequest) -> None:
-        asyncio.create_task(self._post(dispatch_routes.DELETE, {
-            'guild_id': request.guild_id, 'channel_id': request.channel_id,
-            'message_id': request.message_id, 'span_context': request.span_context,
-        }))
+        asyncio.create_task(self._post(dispatch_routes.DELETE, DeleteRequestBody(
+            guild_id=request.guild_id, channel_id=request.channel_id,
+            message_id=request.message_id, span_context=request.span_context,
+        ).model_dump()))
 
     # ------------------------------------------------------------------
     # Fire-and-forget methods
@@ -102,53 +116,57 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         req_id = dispatch_request_id({'key': key, 'guild_id': guild_id, 't': str(asyncio.get_running_loop().time())})
         trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, req_id)
         logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, req_id)
-        asyncio.create_task(self._post(dispatch_routes.UPDATE_MUTABLE, {
-            'key': key, 'guild_id': guild_id, 'content': content,
-            'channel_id': channel_id, 'sticky': sticky, 'delete_after': delete_after,
-        }))
+        asyncio.create_task(self._post(dispatch_routes.UPDATE_MUTABLE, UpdateMutableRequestBody(
+            key=key, guild_id=guild_id, content=content,
+            channel_id=channel_id, sticky=sticky, delete_after=delete_after,
+        ).model_dump()))
         return req_id
 
     def remove_mutable(self, key: str):
         '''Fire-and-forget: POST /dispatch/remove_mutable.'''
         logger.debug('remove_mutable: key=%s', key)
-        asyncio.create_task(self._post(dispatch_routes.REMOVE_MUTABLE, {'key': key}))
+        asyncio.create_task(self._post(dispatch_routes.REMOVE_MUTABLE,
+                                       RemoveMutableRequestBody(key=key).model_dump()))
 
     def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int):
         '''Fire-and-forget: POST /dispatch/update_mutable_channel.'''
-        asyncio.create_task(self._post(dispatch_routes.UPDATE_MUTABLE_CHANNEL, {
-            'key': key, 'guild_id': guild_id, 'new_channel_id': new_channel_id,
-        }))
+        asyncio.create_task(self._post(
+            dispatch_routes.UPDATE_MUTABLE_CHANNEL, UpdateMutableChannelRequestBody(
+                key=key, guild_id=guild_id, new_channel_id=new_channel_id,
+            ).model_dump()))
 
     def send_message(self, guild_id: int, channel_id: int, content: str,
                      delete_after: int | None = None, allow_404: bool = False,
                      span_context: dict | None = None):
         '''Fire-and-forget: POST /dispatch/send.'''
-        asyncio.create_task(self._post(dispatch_routes.SEND, {
-            'guild_id': guild_id, 'channel_id': channel_id, 'content': content,
-            'delete_after': delete_after, 'allow_404': allow_404, 'span_context': span_context,
-        }))
+        asyncio.create_task(self._post(dispatch_routes.SEND, SendRequestBody(
+            guild_id=guild_id, channel_id=channel_id, content=content,
+            delete_after=delete_after, allow_404=allow_404, span_context=span_context,
+        ).model_dump()))
 
     def delete_message(self, guild_id: int, channel_id: int, message_id: int,
                        span_context: dict | None = None):
         '''Fire-and-forget: POST /dispatch/delete.'''
-        asyncio.create_task(self._post(dispatch_routes.DELETE, {
-            'guild_id': guild_id, 'channel_id': channel_id,
-            'message_id': message_id, 'span_context': span_context,
-        }))
+        asyncio.create_task(self._post(dispatch_routes.DELETE, DeleteRequestBody(
+            guild_id=guild_id, channel_id=channel_id,
+            message_id=message_id, span_context=span_context,
+        ).model_dump()))
 
     # ------------------------------------------------------------------
     # Transport implementations for DispatchClientBase
     # ------------------------------------------------------------------
 
     async def _do_fetch_history(self, params: dict) -> dict:
-        request_id = await self._submit_fetch(dispatch_routes.FETCH_HISTORY, params)
+        request_id = await self._submit_fetch(dispatch_routes.FETCH_HISTORY, params,
+                                              FetchHistoryResponse)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
             raise DispatchRemoteError.from_payload(payload)
         return payload
 
     async def _do_fetch_emojis(self, params: dict) -> dict:
-        request_id = await self._submit_fetch(dispatch_routes.FETCH_EMOJIS, params)
+        request_id = await self._submit_fetch(dispatch_routes.FETCH_EMOJIS, params,
+                                              FetchEmojisResponse)
         payload = await self._poll_result(request_id)
         if 'error' in payload:
             raise DispatchRemoteError.from_payload(payload)
@@ -184,8 +202,15 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'failure', AttributeNaming.PATH.value: path})
             logger.error('HttpDispatchClient :: POST %s failed: %s', path, exc)
 
-    async def _submit_fetch(self, route: Route, params: dict) -> str:
-        '''POST *params* on *route* and return the request_id from the 202 response.'''
+    async def _submit_fetch(self, route: Route, params: dict, response_model) -> str:
+        '''
+        POST *params* on *route* and return the request_id from the 202 response.
+
+        `response_model` is passed in rather than looked up because the seam has
+        one response model per route: FETCH_HISTORY and FETCH_EMOJIS happen to
+        answer the same shape today, and the day one of them gains a field, the
+        caller that asked for it is the one that should have to change.
+        '''
         path = route.template
         session = self._get_session()
         async def _call():
@@ -205,7 +230,11 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'failure', AttributeNaming.PATH.value: path})
             raise
         _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: path})
-        return data['request_id']
+        # Through `self._validate`, not `model_validate` directly: the helper
+        # reads `seam`/`prefix` off the client and emits seam_response_invalid,
+        # which is the attribution #953 built. tests/clients/test_response_
+        # validation.py enforces that every client response goes through it.
+        return self._validate(response_model, data).request_id
 
     async def _poll_result(self, request_id: str) -> dict:
         '''Poll GET /dispatch/results/{request_id} with exponential backoff until available.'''
@@ -235,7 +264,11 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
             if status == 200:
                 _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: '/dispatch/results'})
                 return data
-            # 202 means still pending — back off and retry
+            # 202 means still pending -- back off and retry. Deliberately keyed on
+            # the STATUS CODE, not on validating the body as ResultPendingResponse:
+            # today an unrecognised 202 body backs off harmlessly, and validating
+            # would turn it into a raise. The model documents that body; it does
+            # not gate the loop.
             if asyncio.get_running_loop().time() >= deadline:
                 _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'timeout', AttributeNaming.PATH.value: '/dispatch/results'})
                 raise DispatchRemoteError(f'poll timeout for request_id={request_id}')
