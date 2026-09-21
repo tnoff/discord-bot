@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from discord_bot.services.downloader.workers.download_metrics import DownloadMetrics
-from discord_bot.workers.search_metrics import SearchMetrics
+from discord_bot.services.search.workers.search_metrics import SearchMetrics
 
 
 def _snapshot(*, queue_sizes=None, backoff=None, failure_count=0):

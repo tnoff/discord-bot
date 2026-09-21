@@ -38,8 +38,8 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
-from discord_bot.utils.integrations import youtube_music
-from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+from discord_bot.services.search.utils.integrations import youtube_music
+from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient

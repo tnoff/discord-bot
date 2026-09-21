@@ -16,8 +16,8 @@ from discord_bot.types.download import LifecycleEvent
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
-from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
-from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicRetryException
+from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 
 def _media_request(guild_id=1234, search_string='test search') -> MediaRequest:
@@ -153,7 +153,7 @@ async def test_run_once_idle_sleeps_when_queue_empty(mocker):
     '''An empty queue sleeps the idle backoff and reports a completed iteration.'''
     client = FakeSearchClient(queued=[])
     broker = FakeBroker()
-    sleep_mock = mocker.patch('discord_bot.workers.youtube_music_search_driver.asyncio.sleep',
+    sleep_mock = mocker.patch('discord_bot.services.search.workers.youtube_music_search_driver.asyncio.sleep',
                               new=mocker.AsyncMock())
     driver = _driver(client, broker, mocker, idle_sleep_seconds=0.25)
 

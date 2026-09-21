@@ -35,7 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # Never executed. Present so static analysis (pylint, IDEs) can resolve the
     # name that __getattr__ supplies at runtime — without it, every
     # `from ...youtube_music import YoutubeMusicClient` reads as no-name-in-module.
-    from discord_bot.utils.integrations._youtube_music_impl import YoutubeMusicClient
+    from discord_bot.services.search.utils.integrations._youtube_music_impl import YoutubeMusicClient
 
 __all__ = ['YoutubeMusicClient', 'YoutubeMusicRetryException']
 
@@ -49,5 +49,5 @@ def __getattr__(name: str):
     pylint suppression rather than a design.
     '''
     if name == 'YoutubeMusicClient':
-        return getattr(import_module('discord_bot.utils.integrations._youtube_music_impl'), name)
+        return getattr(import_module('discord_bot.services.search.utils.integrations._youtube_music_impl'), name)
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

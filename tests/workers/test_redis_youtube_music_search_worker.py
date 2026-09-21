@@ -22,8 +22,8 @@ from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
 from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
-from discord_bot.utils.integrations.youtube_music import YoutubeMusicRetryException
-from discord_bot.workers.redis_youtube_music_search_worker import (
+from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicRetryException
+from discord_bot.services.search.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, FAILURES_KEY, GUILDS_KEY, POP_LOCK_KEY, WAIT_UNTIL_KEY,
 )
 

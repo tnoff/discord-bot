@@ -27,8 +27,8 @@ from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
 from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
-from discord_bot.servers.media_search_server import MediaSearchHttpServer
-from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
+from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 

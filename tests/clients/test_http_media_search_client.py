@@ -17,7 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.core.exceptions import MediaSearchError
-from discord_bot.servers.media_search_server import MediaSearchHttpServer
+from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
 
 from tests.cli._image_deps import measure

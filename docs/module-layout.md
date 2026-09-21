@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 211 modules place. 25 do not**, and they
+**123 of 218 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**63 are package `__init__.py` files that declare no code**;
+**70 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -198,19 +198,19 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/search/` — 13, reached by search
 
-- `discord_bot.cli.search`
-- `discord_bot.clients.media_search_client`
-- `discord_bot.servers.composite_server`
-- `discord_bot.servers.media_search_server`
-- `discord_bot.servers.youtube_music_search_server`
-- `discord_bot.utils.integrations._youtube_music_impl`
-- `discord_bot.utils.integrations.spotify`
-- `discord_bot.utils.integrations.third_party_naming`
-- `discord_bot.utils.integrations.youtube`
-- `discord_bot.utils.integrations.youtube_music`
-- `discord_bot.workers.redis_youtube_music_search_worker`
-- `discord_bot.workers.search_metrics`
-- `discord_bot.workers.youtube_music_search_driver`
+- `discord_bot.services.search.cli.search`
+- `discord_bot.services.search.clients.media_search_client`
+- `discord_bot.services.search.servers.composite_server`
+- `discord_bot.services.search.servers.media_search_server`
+- `discord_bot.services.search.servers.youtube_music_search_server`
+- `discord_bot.services.search.utils.integrations._youtube_music_impl`
+- `discord_bot.services.search.utils.integrations.spotify`
+- `discord_bot.services.search.utils.integrations.third_party_naming`
+- `discord_bot.services.search.utils.integrations.youtube`
+- `discord_bot.services.search.utils.integrations.youtube_music`
+- `discord_bot.services.search.workers.redis_youtube_music_search_worker`
+- `discord_bot.services.search.workers.search_metrics`
+- `discord_bot.services.search.workers.youtube_music_search_driver`
 
 ## Scaffolding
 
@@ -281,6 +281,13 @@ overstated the core by a third.
 - `discord_bot.services.downloader.utils`
 - `discord_bot.services.downloader.utils.integrations`
 - `discord_bot.services.downloader.workers`
+- `discord_bot.services.search`
+- `discord_bot.services.search.cli`
+- `discord_bot.services.search.clients`
+- `discord_bot.services.search.servers`
+- `discord_bot.services.search.utils`
+- `discord_bot.services.search.utils.integrations`
+- `discord_bot.services.search.workers`
 - `discord_bot.types`
 - `discord_bot.utils`
 - `discord_bot.utils.integrations`

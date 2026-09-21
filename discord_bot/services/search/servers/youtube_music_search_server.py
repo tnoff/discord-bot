@@ -16,7 +16,7 @@ import logging
 from typing import ClassVar
 
 from discord_bot.servers.queue_worker_server import QueueWorkerHttpServer
-from discord_bot.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
+from discord_bot.services.search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
 from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
 
