@@ -11,9 +11,9 @@ from sqlalchemy.pool import NullPool
 from yaml import dump
 
 from discord_bot.cli.bot import main, main_loop
-from discord_bot.cli.dispatcher import main as dispatcher_main
-from discord_bot.cli.dispatcher import main_loop as dispatcher_main_loop
-from discord_bot.cli.dispatcher import run_bot as dispatcher_run_bot
+from discord_bot.services.dispatcher.cli.dispatcher import main as dispatcher_main
+from discord_bot.services.dispatcher.cli.dispatcher import main_loop as dispatcher_main_loop
+from discord_bot.services.dispatcher.cli.dispatcher import run_bot as dispatcher_run_bot
 from discord_bot.core.cli._lib.common import read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
@@ -532,7 +532,7 @@ async def test_dispatcher_main_loop_drains_http_server_before_closing_redis():
 
 def test_dispatcher_run_bot_schedules_main_loop(mocker):
     '''dispatcher.run_bot schedules main_loop on the event loop via run_loop().'''
-    mock_run_loop = mocker.patch('discord_bot.cli.dispatcher.run_loop')
+    mock_run_loop = mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.run_loop')
 
     general_config = MagicMock()
     general_config.discord_token = 'token'
@@ -815,9 +815,9 @@ async def test_dispatcher_main_with_health_server(mocker):
             dump(config_data, writer)
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
-        mocker.patch('discord_bot.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
+        mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
-        mocker.patch('discord_bot.cli.dispatcher.run_bot')
+        mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.run_bot')
         runner = CliRunner()
         result = runner.invoke(dispatcher_main, [temp_config.name])
         await asyncio.sleep(.01)

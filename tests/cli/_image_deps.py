@@ -61,7 +61,7 @@ IMAGE_IMPORTS = {
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
-    'discord_bot.cli.dispatcher': frozenset({'discord'}),
+    'discord_bot.services.dispatcher.cli.dispatcher': frozenset({'discord'}),
     # The S3 checkout (boto3); dappertable renders bundles. sqlalchemy left with
     # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
     # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
@@ -84,7 +84,7 @@ IMAGE_IMPORTS = {
 
 IMAGE_NAMES = {
     'discord_bot.cli.bot': 'discord-bot',
-    'discord_bot.cli.dispatcher': 'discord-dispatcher',
+    'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_bot.cli.broker': 'discord-broker',
     'discord_bot.cli.downloader': 'discord-downloader',
     'discord_bot.cli.search': 'discord-search',
@@ -101,7 +101,7 @@ IMAGE_NAMES = {
 # test_every_dockerfile_exists keeps these honest against the filesystem.
 IMAGE_DOCKERFILES = {
     'discord_bot.cli.bot': 'docker/Dockerfile',
-    'discord_bot.cli.dispatcher': 'docker/Dockerfile.dispatcher',
+    'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
     'discord_bot.cli.broker': 'docker/Dockerfile.broker',
     'discord_bot.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_bot.cli.search': 'docker/Dockerfile.search',

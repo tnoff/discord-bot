@@ -11,7 +11,7 @@ import pytest
 from aiohttp.client_exceptions import ServerDisconnectedError
 from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimited
 
-from discord_bot.utils.discord_retry import async_retry_discord_message_command
+from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
 
 from tests.helpers import FakeResponse
 

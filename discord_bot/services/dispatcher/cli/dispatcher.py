@@ -11,10 +11,10 @@ from discord.ext.commands import Bot
 
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.workers.redis_queues import RedisBundleStore, RedisWorkQueue
-from discord_bot.workers.message_dispatcher import MessageDispatcher
+from discord_bot.services.dispatcher.workers.message_dispatcher import MessageDispatcher
 from discord_bot.core.exceptions import DiscordBotException
-from discord_bot.servers.dispatch_server import DispatchHttpServer
-from discord_bot.servers.dispatch_health_server import DispatchHealthServer
+from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
+from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.core.utils.common import GeneralConfig
 
 from discord_bot.core.cli._lib.common import (

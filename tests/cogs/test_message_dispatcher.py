@@ -7,7 +7,7 @@ import redis
 
 from discord.errors import NotFound
 
-from discord_bot.workers.message_dispatcher import (
+from discord_bot.services.dispatcher.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,
     LOOP_MESSAGE_DISPATCHER,
 )
@@ -146,7 +146,7 @@ async def test_worker_heartbeat_drops_when_workers_stop_progressing():
 async def test_stop_cancels_stuck_workers(mocker):
     '''stop() cancels workers that exceed the drain timeout.'''
     dispatcher = make_dispatcher()
-    mocker.patch('discord_bot.workers.message_dispatcher._DRAIN_TIMEOUT_SECONDS', 0.05)
+    mocker.patch('discord_bot.services.dispatcher.workers.message_dispatcher._DRAIN_TIMEOUT_SECONDS', 0.05)
 
     async def _blocking():
         await asyncio.sleep(9999)
@@ -220,7 +220,7 @@ async def test_stop_flushes_accepted_enqueues_into_the_work_queue(fake_context):
 async def test_stop_warns_when_enqueue_flush_times_out(mocker):
     '''A wedged enqueue is reported as lost rather than silently swallowed.'''
     dispatcher = make_dispatcher()
-    mocker.patch('discord_bot.workers.message_dispatcher._ENQUEUE_DRAIN_TIMEOUT_SECONDS', 0.05)
+    mocker.patch('discord_bot.services.dispatcher.workers.message_dispatcher._ENQUEUE_DRAIN_TIMEOUT_SECONDS', 0.05)
 
     async def _blocking():
         await asyncio.sleep(9999)
@@ -1446,7 +1446,7 @@ async def test_worker_loop_survives_transient_error_and_keeps_looping(mocker):
     '''
     dispatcher = make_dispatcher()
     mocker.patch(
-        'discord_bot.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
+        'discord_bot.services.dispatcher.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
     )
 
     calls = {'n': 0}
@@ -1491,7 +1491,7 @@ async def test_worker_loop_records_errors_and_successes_on_loop_health(mocker):
     '''
     dispatcher = make_dispatcher()
     mocker.patch(
-        'discord_bot.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
+        'discord_bot.services.dispatcher.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.0,
     )
     health = LOOP_HEALTH.register(LOOP_MESSAGE_DISPATCHER)
     dispatcher._worker_health = health  # pylint: disable=protected-access
@@ -1637,7 +1637,7 @@ async def test_expired_tombstone_no_longer_blocks(fake_context, mocker):  # pyli
     key = 'request_bundle-expired'
     dispatcher = make_dispatcher(channels=[channel])
     mocker.patch(
-        'discord_bot.workers.message_dispatcher._TOMBSTONE_TTL_SECONDS', 0.0,
+        'discord_bot.services.dispatcher.workers.message_dispatcher._TOMBSTONE_TTL_SECONDS', 0.0,
     )
 
     await dispatcher._remove_mutable(key)  # pylint: disable=protected-access
@@ -1657,7 +1657,7 @@ async def test_tombstone_prunes_expired_entries_when_over_threshold(mocker):
     '''_tombstone prunes expired entries once the dict grows past the threshold.'''
     dispatcher = make_dispatcher()
     mocker.patch(
-        'discord_bot.workers.message_dispatcher._TOMBSTONE_PRUNE_THRESHOLD', 2,
+        'discord_bot.services.dispatcher.workers.message_dispatcher._TOMBSTONE_PRUNE_THRESHOLD', 2,
     )
     loop_time = asyncio.get_running_loop().time()
     # Seed two already-expired entries so the dict is at the threshold.

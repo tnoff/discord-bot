@@ -13,8 +13,8 @@ import pytest
 from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.core.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig
 from discord_bot.core.utils.common import get_logger
-from discord_bot.utils.discord_retry import async_retry_command
-from discord_bot.utils.discord_retry import async_retry_discord_message_command
+from discord_bot.services.dispatcher.utils.discord_retry import async_retry_command
+from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.core.utils.discord_utils import discord_format_string_embed
 from discord_bot.core.utils.common import rm_tree
 from discord_bot.core.utils.common import return_loop_runner, _LOOP_ERROR_BACKOFF_MAX_SECONDS

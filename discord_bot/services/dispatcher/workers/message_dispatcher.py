@@ -19,7 +19,7 @@ from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.core.types.fetched_message import FetchedMessage
 from discord_bot.core.types.dispatch_request import DeleteRequest, SendRequest
 from discord_bot.core.types.dispatch_result import encode_error
-from discord_bot.utils.discord_retry import async_retry_discord_message_command
+from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import (async_otel_span_wrapper, create_observable_gauge,
                                      DispatchNaming, loop_heartbeat_observations, METER_PROVIDER, MetricNaming,

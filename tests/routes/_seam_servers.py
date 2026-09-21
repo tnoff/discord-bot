@@ -25,7 +25,7 @@ from discord_bot.seams.media_search.routes import media_search as media_search_r
 from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.servers.broker_server import BrokerHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
-from discord_bot.servers.dispatch_server import DispatchHttpServer
+from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_bot.servers.download_server import DownloadHttpServer
 from discord_bot.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer

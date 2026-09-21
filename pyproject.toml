@@ -231,7 +231,7 @@ test = [
 
 [project.scripts]
 discord-bot = "discord_bot.cli.bot:main"
-discord-dispatcher = "discord_bot.cli.dispatcher:main"
+discord-dispatcher = "discord_bot.services.dispatcher.cli.dispatcher:main"
 discord-broker = "discord_bot.cli.broker:main"
 discord-downloader = "discord_bot.cli.downloader:main"
 discord-search = "discord_bot.cli.search:main"

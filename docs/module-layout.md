@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 192 modules place. 25 do not**, and they
+**123 of 198 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**44 are package `__init__.py` files that declare no code**;
+**50 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -179,11 +179,11 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/dispatcher/` — 5, reached by dispatcher
 
-- `discord_bot.cli.dispatcher`
-- `discord_bot.servers.dispatch_health_server`
-- `discord_bot.servers.dispatch_server`
-- `discord_bot.utils.discord_retry`
-- `discord_bot.workers.message_dispatcher`
+- `discord_bot.services.dispatcher.cli.dispatcher`
+- `discord_bot.services.dispatcher.servers.dispatch_health_server`
+- `discord_bot.services.dispatcher.servers.dispatch_server`
+- `discord_bot.services.dispatcher.utils.discord_retry`
+- `discord_bot.services.dispatcher.workers.message_dispatcher`
 
 ### `discord_bot/services/downloader/` — 8, reached by downloader
 
@@ -262,6 +262,12 @@ overstated the core by a third.
 - `discord_bot.seams.queue_worker.types`
 - `discord_bot.seams.queue_worker.utils`
 - `discord_bot.servers`
+- `discord_bot.services`
+- `discord_bot.services.dispatcher`
+- `discord_bot.services.dispatcher.cli`
+- `discord_bot.services.dispatcher.servers`
+- `discord_bot.services.dispatcher.utils`
+- `discord_bot.services.dispatcher.workers`
 - `discord_bot.types`
 - `discord_bot.utils`
 - `discord_bot.utils.integrations`
