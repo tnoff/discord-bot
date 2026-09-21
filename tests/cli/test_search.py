@@ -5,8 +5,8 @@ import logging
 import pytest
 
 
-from discord_bot.cli import search as search_cli
-from discord_bot.servers.composite_server import CompositeHttpServer
+from discord_bot.services.search.cli import search as search_cli
+from discord_bot.services.search.servers.composite_server import CompositeHttpServer
 from discord_bot.core.cli._lib import common as cli_common
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.

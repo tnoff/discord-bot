@@ -10,7 +10,7 @@ import logging
 
 import pytest
 
-from discord_bot.cli._lib import migrations
+from discord_bot.services.db.cli._lib import migrations
 from discord_bot.core.exceptions import DiscordBotException
 from discord_bot.core.utils.common import GeneralConfig
 

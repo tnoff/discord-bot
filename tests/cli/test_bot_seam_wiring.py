@@ -10,7 +10,7 @@ See docs/projects/http-seam-contract.md, acceptance criterion five.
 '''
 import pytest
 
-from discord_bot.cli.bot import register_seam_checks
+from discord_bot.services.bot.cli.bot import register_seam_checks
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.core.utils.common import SeamContractConfig
 

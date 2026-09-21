@@ -11,7 +11,7 @@ from googleapiclient.errors import HttpError
 import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
-from discord_bot.clients.media_search_client import (
+from discord_bot.services.search.clients.media_search_client import (
     InMemoryMediaSearchClient, build_media_search_client,
 )
 from discord_bot.core.exceptions import MediaSearchError
@@ -160,8 +160,8 @@ async def test_no_provider_sdk_exception_escapes_the_client():
 
 def test_factory_builds_both_providers(mocker):
     '''Credentials present -> both provider clients constructed and injected.'''
-    spotify = mocker.patch('discord_bot.clients.media_search_client.SpotifyClient')
-    youtube = mocker.patch('discord_bot.clients.media_search_client.YoutubeClient')
+    spotify = mocker.patch('discord_bot.services.search.clients.media_search_client.SpotifyClient')
+    youtube = mocker.patch('discord_bot.services.search.clients.media_search_client.YoutubeClient')
     client = build_media_search_client(spotify_client_id='cid',
                                        spotify_client_secret='secret',
                                        youtube_api_key='ytkey')
@@ -184,7 +184,7 @@ def test_factory_needs_both_spotify_halves(kwargs, mocker):
     the first request, as an auth error the user sees -- rather than here, as an
     absent provider whose route answers MISSING_CREDENTIALS.
     '''
-    spotify = mocker.patch('discord_bot.clients.media_search_client.SpotifyClient')
+    spotify = mocker.patch('discord_bot.services.search.clients.media_search_client.SpotifyClient')
     client = build_media_search_client(**kwargs)
     spotify.assert_not_called()
     assert client.spotify_client is None
@@ -192,7 +192,7 @@ def test_factory_needs_both_spotify_halves(kwargs, mocker):
 
 def test_factory_without_a_youtube_key(mocker):
     '''No key -> no client, and the route answers MISSING_CREDENTIALS instead.'''
-    youtube = mocker.patch('discord_bot.clients.media_search_client.YoutubeClient')
+    youtube = mocker.patch('discord_bot.services.search.clients.media_search_client.YoutubeClient')
     client = build_media_search_client(spotify_client_id='cid', spotify_client_secret='s')
     youtube.assert_not_called()
     assert client.youtube_client is None

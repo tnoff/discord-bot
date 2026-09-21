@@ -10,11 +10,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
 
-from discord_bot.interfaces import download_protocols
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.downloader.interfaces import download_protocols
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
@@ -32,7 +32,7 @@ async def test_download_queue(mocker, fake_context, fake_stores):  #pylint:disab
     config = BASE_MUSIC_CONFIG
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+            mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
@@ -60,7 +60,7 @@ async def test_download_queue_hits_cache(mocker, fake_context, fake_stores):  #p
     })
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+            mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
             cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
@@ -92,7 +92,7 @@ def yield_download_worker_bot_flagged():
 
 @pytest.mark.asyncio()
 async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -109,7 +109,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     async def _bump_value():
         return True
 
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -125,7 +125,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -140,7 +140,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
 
 @pytest.mark.asyncio()
 async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     s = fake_source_dict(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -155,7 +155,7 @@ async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=
 
 @pytest.mark.asyncio()
 async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
@@ -172,7 +172,7 @@ async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:di
 
 @pytest.mark.asyncio()
 async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
@@ -189,7 +189,7 @@ async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:di
 @pytest.mark.asyncio()
 async def test_download_files_bot_shutdown(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """process_download_results raises ExitEarlyException immediately when bot_shutdown_event is set."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.bot_shutdown_event.set()
     with pytest.raises(ExitEarlyException):
@@ -199,7 +199,7 @@ async def test_download_files_bot_shutdown(mocker, fake_context):  # pylint: dis
 @pytest.mark.asyncio()
 async def test_download_files_empty_queue(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """process_download_results returns early without error when result queue is empty."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     # Result queue is empty — should return at the QueueEmpty guard
@@ -231,7 +231,7 @@ def yield_download_worker_retry_limit_exceeded():
 @pytest.mark.asyncio()
 async def test_download_retry_limit_exceeded(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """download_files handles RETRY_LIMIT_EXCEEDED by returning a bad video message."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -283,7 +283,7 @@ def yield_download_worker_success_no_data():
 @pytest.mark.asyncio()
 async def test_download_playlist_add_request_no_ytdlp_data(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """download_files marks PlaylistAddRequest as failed when ytdlp_data is None."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     attach_in_process_download(cog, worker_cls=yield_download_worker_success_no_data())
@@ -314,7 +314,7 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_context, fak
             }
         }
     })
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
 
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
@@ -350,7 +350,7 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_context, fake_stor
     '''process_download_results triggers broker_client.cache_cleanup after adding the source.'''
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+            mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
             attach_in_process_broker(cog)
@@ -371,7 +371,7 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_context, fake_stor
 async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """__ensure_video_download_result pushes FAILED to the broker when the
     MediaDownload is None (download produced nothing)."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -390,7 +390,7 @@ async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_cont
 async def test_run_idle_empty_queue_backs_off(mocker):
     """run() sleeps the idle backoff (not every iteration) when both input queues
     are empty and no backoff is active — cutting idle busy-loop churn."""
-    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    sleep_mock = mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep')
     worker = AsyncioDownloadWorker(None, Path('/tmp'))
     assert worker.backoff_seconds_remaining is None  # else-branch (no backoff)
     await worker.run(asyncio.Event())
@@ -401,7 +401,7 @@ async def test_run_idle_empty_queue_backs_off(mocker):
 async def test_run_idle_backoff_active_empty_queue_backs_off(mocker):
     """With backoff active but nothing queued, run() reaches the merged-empty path
     after the backoff wait and applies the idle backoff sleep before returning."""
-    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    sleep_mock = mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep')
     worker = AsyncioDownloadWorker(None, Path('/tmp'))
     # Future timestamp → backoff_seconds_remaining truthy → backoff branch taken.
     worker.wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600
@@ -439,7 +439,7 @@ def yield_download_worker_video_too_long():
 @pytest.mark.asyncio()
 async def test_download_video_too_long_marks_request_rejected(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """A content-check terminal error (TOO_LONG) lands as a rejection, not a plain failure."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -463,7 +463,7 @@ async def test_download_video_too_long_marks_request_rejected(mocker, fake_conte
 @pytest.mark.asyncio()
 async def test_download_retry_limit_exceeded_keeps_consumer_span_error(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """A genuine terminal failure still marks the consumer span ERROR."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from discord.ext.commands import Context
 
-from discord_bot.utils.otel_command import command_wrapper
+from discord_bot.services.bot.utils.otel_command import command_wrapper
 
 
 def _make_ctx():

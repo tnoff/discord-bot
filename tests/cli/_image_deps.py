@@ -56,21 +56,21 @@ IMAGE_IMPORTS = {
     # bs4 is the urban cog's and stays; spotipy and googleapiclient left with the
     # media_search cutover, and the forbidden set derived from VOCABULARY is now
     # what stops them coming back through an import chain.
-    'discord_bot.cli.bot': frozenset({
+    'discord_bot.services.bot.cli.bot': frozenset({
         'discord', 'boto3', 'bs4', 'dappertable',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
-    'discord_bot.cli.dispatcher': frozenset({'discord'}),
+    'discord_bot.services.dispatcher.cli.dispatcher': frozenset({'discord'}),
     # The S3 checkout (boto3); dappertable renders bundles. sqlalchemy left with
     # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
     # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
     # not follow it out.
-    'discord_bot.cli.broker': frozenset({'boto3', 'dappertable'}),
+    'discord_bot.services.broker.cli.broker': frozenset({'boto3', 'dappertable'}),
     # Downloads (yt_dlp) and uploads finished media (boto3).
-    'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
+    'discord_bot.services.downloader.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
-    'discord_bot.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
+    'discord_bot.services.search.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
     # Owns the schema and the engine. dappertable is not a leak and not a
     # copy-paste from the broker: PlaylistClient shortens playlist names with
     # shorten_string, so the pod serving those routes imports it. No boto3 --
@@ -79,16 +79,16 @@ IMAGE_IMPORTS = {
     # alembic arrived with the migration runner (cli/_lib/migrations.py). Only
     # this image installs it and only this image ships the revisions, so this is
     # the one declaration that may name it.
-    'discord_bot.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
+    'discord_bot.services.db.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
 }
 
 IMAGE_NAMES = {
-    'discord_bot.cli.bot': 'discord-bot',
-    'discord_bot.cli.dispatcher': 'discord-dispatcher',
-    'discord_bot.cli.broker': 'discord-broker',
-    'discord_bot.cli.downloader': 'discord-downloader',
-    'discord_bot.cli.search': 'discord-search',
-    'discord_bot.cli.database': 'discord-db',
+    'discord_bot.services.bot.cli.bot': 'discord-bot',
+    'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
+    'discord_bot.services.broker.cli.broker': 'discord-broker',
+    'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
+    'discord_bot.services.search.cli.search': 'discord-search',
+    'discord_bot.services.db.cli.database': 'discord-db',
 }
 
 # The Dockerfile that builds each image. Declared here rather than in the CI
@@ -100,12 +100,12 @@ IMAGE_NAMES = {
 #
 # test_every_dockerfile_exists keeps these honest against the filesystem.
 IMAGE_DOCKERFILES = {
-    'discord_bot.cli.bot': 'docker/Dockerfile',
-    'discord_bot.cli.dispatcher': 'docker/Dockerfile.dispatcher',
-    'discord_bot.cli.broker': 'docker/Dockerfile.broker',
-    'discord_bot.cli.downloader': 'docker/Dockerfile.downloader',
-    'discord_bot.cli.search': 'docker/Dockerfile.search',
-    'discord_bot.cli.database': 'docker/Dockerfile.db',
+    'discord_bot.services.bot.cli.bot': 'docker/Dockerfile',
+    'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
+    'discord_bot.services.broker.cli.broker': 'docker/Dockerfile.broker',
+    'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',
+    'discord_bot.services.search.cli.search': 'docker/Dockerfile.search',
+    'discord_bot.services.db.cli.database': 'docker/Dockerfile.db',
 }
 
 

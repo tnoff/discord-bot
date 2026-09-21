@@ -7,7 +7,7 @@ import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.servers.dispatch_server import DispatchHttpServer
+from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_bot.core.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,

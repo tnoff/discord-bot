@@ -27,7 +27,7 @@ from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
-from discord_bot.workers.redis_download_worker import (
+from discord_bot.services.downloader.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,
     DEFERRED_RETRIES_KEY, FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
     youtube_failures_key, youtube_wait_until_key,
@@ -389,7 +389,7 @@ async def test_backoff_wait_shutdown_mid_wait(monkeypatch):
     async def _sleep_then_shutdown(_seconds):
         ev.set()
         await real_sleep(0)
-    monkeypatch.setattr('discord_bot.workers.redis_download_worker.sleep', _sleep_then_shutdown)
+    monkeypatch.setattr('discord_bot.services.downloader.workers.redis_download_worker.sleep', _sleep_then_shutdown)
     with pytest.raises(ExitEarlyException):
         await w.backoff_wait(ev)
 

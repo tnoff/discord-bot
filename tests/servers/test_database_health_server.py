@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy import text
 
-from discord_bot.servers.database_health_server import DatabasePingHealthServer
+from discord_bot.services.db.servers.database_health_server import DatabasePingHealthServer
 
 from tests.helpers import fake_engine  # pylint: disable=unused-import
 

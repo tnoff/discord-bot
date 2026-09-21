@@ -13,7 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from discord_bot.servers.broker_server import BrokerHttpServer, _QueueItemProxy
+from discord_bot.services.broker.servers.broker_server import BrokerHttpServer, _QueueItemProxy
 from discord_bot.types.download import LifecycleEvent, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 
@@ -79,7 +79,7 @@ class TestHeartbeatObservations:
 class TestNextResultCounter:
     async def test_empty_increments_empty_outcome(self, mocker):
         '''GET /results/next with nothing queued returns 204 and counts "empty".'''
-        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        counter = mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
         server = BrokerHttpServer(_make_broker(), result_queue=queue)
@@ -90,7 +90,7 @@ class TestNextResultCounter:
 
     async def test_hit_increments_hit_outcome(self, mocker):
         '''GET /results/next with a result queued returns 200 and counts "hit".'''
-        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        counter = mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         result = MagicMock()
         result.model_dump.return_value = {'ok': True}
         queue = MagicMock()
@@ -104,7 +104,7 @@ class TestNextResultCounter:
     async def test_empty_poll_emits_no_span(self, mocker):
         '''An empty poll mints no span at all — it is polled ~1/s while idle.'''
         exporter = _span_exporter(mocker)
-        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
         server = BrokerHttpServer(_make_broker(), result_queue=queue)
@@ -116,7 +116,7 @@ class TestNextResultCounter:
     async def test_hit_emits_the_span(self, mocker):
         '''A poll that hands back a result still gets its broker.next_result span.'''
         exporter = _span_exporter(mocker)
-        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         result = MagicMock()
         result.model_dump.return_value = {'ok': True}
         queue = MagicMock()
@@ -132,7 +132,7 @@ class TestNextResultCounter:
 class TestNextSearchResultCounter:
     async def test_empty_increments_empty_outcome(self, mocker):
         '''GET /search-results/next with nothing queued returns 204 and counts "empty".'''
-        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        counter = mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
         server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
@@ -143,7 +143,7 @@ class TestNextSearchResultCounter:
 
     async def test_hit_increments_hit_outcome(self, mocker):
         '''GET /search-results/next with a resolution queued returns 200 and counts "hit".'''
-        counter = mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        counter = mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         resolution = MagicMock()
         resolution.model_dump.return_value = {'ok': True}
         queue = MagicMock()
@@ -157,7 +157,7 @@ class TestNextSearchResultCounter:
     async def test_empty_poll_emits_no_span(self, mocker):
         '''Same as /results/next — an empty search poll mints no span.'''
         exporter = _span_exporter(mocker)
-        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
         server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
@@ -169,7 +169,7 @@ class TestNextSearchResultCounter:
     async def test_hit_emits_the_span(self, mocker):
         '''A search poll that hands back a resolution still gets its span.'''
         exporter = _span_exporter(mocker)
-        mocker.patch('discord_bot.servers.broker_server._RESULT_FETCH_COUNTER')
+        mocker.patch('discord_bot.services.broker.servers.broker_server._RESULT_FETCH_COUNTER')
         resolution = MagicMock()
         resolution.model_dump.return_value = {'ok': True}
         queue = MagicMock()

@@ -22,11 +22,11 @@ from aiohttp.client_exceptions import ClientResponseError
 from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
-from discord_bot.servers.broker_server import BrokerHttpServer
+from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.core.utils.common import return_loop_runner
 from discord_bot.core.utils.loop_health import LoopHealth
-from discord_bot.workers.asyncio_queues import AsyncioSearchResultQueue
+from discord_bot.services.broker.workers.asyncio_queues import AsyncioSearchResultQueue
 
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context

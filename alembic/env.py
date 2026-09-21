@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
-from discord_bot.database import BASE
+from discord_bot.services.db.database import BASE
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -17,7 +17,7 @@ config = context.config
 # Convert the URL to the asyncpg driver. PostgreSQL is the only supported backend.
 #
 # config.attributes first, then the environment. The in-process runner
-# (discord_bot/cli/_lib/migrations.py) passes the DSN the pod is already
+# (discord_bot/services/db/cli/_lib/migrations.py) passes the DSN the pod is already
 # configured with, so the schema is upgraded on the same database the process is
 # about to serve -- taking it from the environment there would let
 # general.sql_connection_statement and DATABASE_URL disagree, and the migration

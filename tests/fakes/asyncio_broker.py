@@ -10,14 +10,14 @@ from typing import List
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
+from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.utils.integrations.s3 import delete_file, get_file
 from discord_bot.core.utils.otel import async_otel_span_wrapper, otel_span_wrapper
-from discord_bot.workers.media_bundle import BundleRenderer, BundleState
+from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState
 
 logger = logging.getLogger(__name__)
 

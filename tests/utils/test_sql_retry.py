@@ -2,7 +2,7 @@ import pytest
 from pytest import raises
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
 
 
 class FakeAsyncSession():

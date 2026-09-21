@@ -18,14 +18,14 @@ from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.media_search.routes import media_search as media_search_routes
 from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
-from discord_bot.clients.http_download_client import HttpDownloadClient
-from discord_bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.clients.http_playlist_store import HttpPlaylistStore
-from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.servers.composite_server import CompositeHttpServer
-from discord_bot.servers.database_server import DatabaseHttpServer
-from discord_bot.servers.media_search_server import MediaSearchHttpServer
-from discord_bot.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
+from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
+from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
+from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
+from discord_bot.services.search.servers.composite_server import CompositeHttpServer
+from discord_bot.services.db.servers.database_server import DatabaseHttpServer
+from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
+from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 
 from tests.routes._seam_servers import SEAMS, served as _served
 

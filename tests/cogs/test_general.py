@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_bot.cogs.general import General
+from discord_bot.services.bot.cogs.general import General
 from discord_bot.core.exceptions import CogMissingRequiredArg
 
 from tests.helpers import fake_context #pylint:disable=unused-import
@@ -28,7 +28,7 @@ async def test_hello(fake_context):  #pylint:disable=redefined-outer-name
 @pytest.mark.asyncio
 async def test_roll(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    mocker.patch('discord_bot.cogs.general.randint', return_value=3)
+    mocker.patch('discord_bot.services.bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, fake_context['context'], input_value='5') #pylint:disable=too-many-function-args
     assert result == f'{fake_context["author"].display_name} rolled a 3'
     result = await cog.roll(cog, fake_context['context'], input_value='d5') #pylint:disable=too-many-function-args
@@ -39,7 +39,7 @@ async def test_roll(mocker, fake_context):  #pylint:disable=redefined-outer-name
 @pytest.mark.asyncio
 async def test_roll_invalid_input(mocker, fake_context):  #pylint:disable=redefined-outer-name
     cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    mocker.patch('discord_bot.cogs.general.randint', return_value=3)
+    mocker.patch('discord_bot.services.bot.cogs.general.randint', return_value=3)
     result = await cog.roll(cog, fake_context['context'], input_value='foo') #pylint:disable=too-many-function-args
     assert result == 'Invalid input given "foo"'
     result = await cog.roll(cog, fake_context['context'], input_value='21d5') #pylint:disable=too-many-function-args
@@ -59,6 +59,6 @@ async def test_roll_value_error(mocker, fake_context):  #pylint:disable=redefine
     cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
     mock_matcher = MagicMock()
     mock_matcher.group.side_effect = lambda key: 'abc' if key == 'sides' else None
-    mocker.patch('discord_bot.cogs.general.match', return_value=mock_matcher)
+    mocker.patch('discord_bot.services.bot.cogs.general.match', return_value=mock_matcher)
     result = await cog.roll(cog, fake_context['context'], input_value='abc')  #pylint:disable=too-many-function-args
     assert 'Non integer value given' in result

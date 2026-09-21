@@ -18,13 +18,13 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
-from discord_bot.clients.database_stores import DatabaseStores
-from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.clients.markov_client import MarkovClient
-from discord_bot.clients.playlist_client import PlaylistClient
+from discord_bot.services.bot.clients.database_stores import DatabaseStores
+from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_bot.services.db.clients.markov_client import MarkovClient
+from discord_bot.services.db.clients.playlist_client import PlaylistClient
 from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.database import BASE
+from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.services.db.database import BASE
 from discord_bot.core.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
@@ -38,8 +38,8 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
-from discord_bot.utils.integrations import youtube_music
-from discord_bot.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+from discord_bot.services.search.utils.integrations import youtube_music
+from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient
@@ -275,7 +275,7 @@ def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> I
     downloader pod.
 
     worker_cls swaps in a fake worker subclass — what the tests used to get by
-    patching discord_bot.cogs.music.AsyncioDownloadWorker, which no longer exists
+    patching discord_bot.services.bot.cogs.music.AsyncioDownloadWorker, which no longer exists
     to patch.
     '''
     bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None

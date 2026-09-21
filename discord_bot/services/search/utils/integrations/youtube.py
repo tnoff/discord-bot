@@ -1,0 +1,51 @@
+
+from googleapiclient.discovery import build
+from opentelemetry.trace import SpanKind
+
+from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_bot.core.utils.otel import otel_span_wrapper
+from discord_bot.services.search.utils.integrations.third_party_naming import ThirdPartyNaming
+
+class YoutubeClient():
+    '''
+    Youtube API Functions
+    '''
+    def __init__(self, google_api_token: str):
+        self.google_api_token = google_api_token
+        self.client = build('youtube', 'v3', developerKey=self.google_api_token)
+
+    def playlist_get(self, playlist_id: str, pagination_limit: int = 50) -> CatalogResponse:
+        '''
+        Youtube Playlist Get
+
+        playlist_id : ID of youtube playlist
+        pagination_limit : Pagination limit for each API call
+        '''
+        with otel_span_wrapper('youtube.playlist_get', attributes={ThirdPartyNaming.YOUTUBE_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT):
+            items = []
+            page_token = None
+
+            playlist_request = self.client.playlists().list( #pylint:disable=no-member
+                part="snippet",
+                id=playlist_id
+            )
+            playlist_response = playlist_request.execute()
+            playlist_title = playlist_response["items"][0]["snippet"]["title"]
+
+            while True:
+                data_inputs = {
+                    'part': 'snippet',
+                    'playlistId': playlist_id,
+                    'maxResults': pagination_limit,
+                    'pageToken': page_token 
+                }
+                req = self.client.playlistItems().list(**data_inputs).execute() #pylint:disable=no-member
+                for item in req['items']:
+                    items.append(CatalogItem(search_string=f'{YOUTUBE_VIDEO_PREFIX}{item["snippet"]["resourceId"]["videoId"]}', title=item['snippet']['title']))
+                try:
+                    if req['nextPageToken'] is None:
+                        return CatalogResponse(items=items, collection_name=playlist_title)
+                    page_token = req['nextPageToken']
+                except KeyError:
+                    return CatalogResponse(items=items, collection_name=playlist_title)

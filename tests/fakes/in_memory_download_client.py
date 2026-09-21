@@ -10,7 +10,7 @@ only run() -- the download consumer loop, which has no search-side equivalent
 '''
 import asyncio
 
-from discord_bot.interfaces.download_protocols import DownloadWorkerBase
+from discord_bot.services.downloader.interfaces.download_protocols import DownloadWorkerBase
 
 from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient
 

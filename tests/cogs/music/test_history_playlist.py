@@ -4,13 +4,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.database import Playlist, PlaylistItem, GuildVideoAnalytics
-from discord_bot.cogs.music import Music
+from discord_bot.services.db.database import Playlist, PlaylistItem, GuildVideoAnalytics
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
 
-from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
@@ -20,7 +20,7 @@ from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable
 @pytest.mark.asyncio
 async def test_history_playlist_update(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
@@ -59,7 +59,7 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
@@ -85,7 +85,7 @@ async def test_history_playlist_update_delete_extra_items(mocker, fake_engine, f
 async def test_post_play_processing_empty_queue_returns_early(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """post_play_processing returns early when queue is empty and bot is not shutting down."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     # Empty queue, no shutdown → should just return at line 459
     await cog.post_play_processing()
 
@@ -94,7 +94,7 @@ async def test_post_play_processing_empty_queue_returns_early(mocker, fake_conte
 async def test_post_play_processing_empty_queue_bot_shutdown(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """post_play_processing raises ExitEarlyException when queue is empty and shutdown is set."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     cog.bot_shutdown_event.set()
     with pytest.raises(ExitEarlyException):
         await cog.post_play_processing()
@@ -104,7 +104,7 @@ async def test_post_play_processing_empty_queue_bot_shutdown(mocker, fake_contex
 async def test_post_play_processing_added_from_history(mocker, fake_engine, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """post_play_processing skips history DB insert when added_from_history is True."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:

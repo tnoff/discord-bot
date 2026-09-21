@@ -39,7 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # Annotation only — importing it for real would pull ytmusicapi into every
     # process that touches this base, including the HA bot, which never builds a
     # client (it is injected by the caller; see the constructor docstring).
-    from discord_bot.utils.integrations.youtube_music import YoutubeMusicClient
+    from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicClient
 
 
 class YoutubeMusicSearchWorkerBase(ABC):

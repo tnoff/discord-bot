@@ -139,13 +139,13 @@ def test_extra_names_are_normalised_and_self_references_resolve():
 # serves it -- so it cannot be moved out of reach, which is exactly why it still
 # needs asserting.
 BOT_FORBIDDEN_MODULES = (
-    'discord_bot.servers.broker_server',
+    'discord_bot.services.broker.servers.broker_server',
 )
 
 
 def test_bot_imports_no_in_process_tier_modules():
     '''The bot process imports none of the in-process engine modules.'''
-    imported = set(measure('discord_bot.cli.bot')['modules'])
+    imported = set(measure('discord_bot.services.bot.cli.bot')['modules'])
     leaked = sorted(imported & set(BOT_FORBIDDEN_MODULES))
     assert not leaked, (
         f'the bot process imported {leaked} — these are test doubles, not deployable '

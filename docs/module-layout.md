@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 192 modules place. 25 do not**, and they
+**123 of 233 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**44 are package `__init__.py` files that declare no code**;
+**85 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -119,98 +119,98 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 
-- `discord_bot.cli._lib.cog_registry`
-- `discord_bot.cli.bot`
-- `discord_bot.cli.health`
-- `discord_bot.clients.database_stores`
-- `discord_bot.clients.http_download_client`
-- `discord_bot.clients.http_guild_analytics_store`
-- `discord_bot.clients.http_markov_store`
-- `discord_bot.clients.http_media_search_client`
-- `discord_bot.clients.http_playlist_store`
-- `discord_bot.clients.http_queue_worker_client`
-- `discord_bot.clients.youtube_music_search_client`
-- `discord_bot.cogs.common`
-- `discord_bot.cogs.delete_messages`
-- `discord_bot.cogs.error`
-- `discord_bot.cogs.general`
-- `discord_bot.cogs.markov`
-- `discord_bot.cogs.music`
-- `discord_bot.cogs.music_helpers.music_player`
-- `discord_bot.cogs.music_helpers.search_client`
-- `discord_bot.cogs.role`
-- `discord_bot.cogs.urban`
-- `discord_bot.servers.health_server`
-- `discord_bot.types.cleanup_reason`
-- `discord_bot.types.history_playlist_item`
-- `discord_bot.types.playlist_add_result`
-- `discord_bot.utils.bot_metrics`
-- `discord_bot.utils.otel_command`
+- `discord_bot.services.bot.cli._lib.cog_registry`
+- `discord_bot.services.bot.cli.bot`
+- `discord_bot.services.bot.cli.health`
+- `discord_bot.services.bot.clients.database_stores`
+- `discord_bot.services.bot.clients.http_download_client`
+- `discord_bot.services.bot.clients.http_guild_analytics_store`
+- `discord_bot.services.bot.clients.http_markov_store`
+- `discord_bot.services.bot.clients.http_media_search_client`
+- `discord_bot.services.bot.clients.http_playlist_store`
+- `discord_bot.services.bot.clients.http_queue_worker_client`
+- `discord_bot.services.bot.clients.youtube_music_search_client`
+- `discord_bot.services.bot.cogs.common`
+- `discord_bot.services.bot.cogs.delete_messages`
+- `discord_bot.services.bot.cogs.error`
+- `discord_bot.services.bot.cogs.general`
+- `discord_bot.services.bot.cogs.markov`
+- `discord_bot.services.bot.cogs.music`
+- `discord_bot.services.bot.cogs.music_helpers.music_player`
+- `discord_bot.services.bot.cogs.music_helpers.search_client`
+- `discord_bot.services.bot.cogs.role`
+- `discord_bot.services.bot.cogs.urban`
+- `discord_bot.services.bot.servers.health_server`
+- `discord_bot.services.bot.types.cleanup_reason`
+- `discord_bot.services.bot.types.history_playlist_item`
+- `discord_bot.services.bot.types.playlist_add_result`
+- `discord_bot.services.bot.utils.bot_metrics`
+- `discord_bot.services.bot.utils.otel_command`
 
 ### `discord_bot/services/broker/` — 10, reached by broker
 
-- `discord_bot.cli.broker`
-- `discord_bot.clients.http_video_cache_store`
-- `discord_bot.interfaces.broker_protocols`
-- `discord_bot.servers.broker_health_server`
-- `discord_bot.servers.broker_server`
-- `discord_bot.workers.asyncio_queues`
-- `discord_bot.workers.broker_metrics`
-- `discord_bot.workers.broker_registry`
-- `discord_bot.workers.media_bundle`
-- `discord_bot.workers.redis_broker`
+- `discord_bot.services.broker.cli.broker`
+- `discord_bot.services.broker.clients.http_video_cache_store`
+- `discord_bot.services.broker.interfaces.broker_protocols`
+- `discord_bot.services.broker.servers.broker_health_server`
+- `discord_bot.services.broker.servers.broker_server`
+- `discord_bot.services.broker.workers.asyncio_queues`
+- `discord_bot.services.broker.workers.broker_metrics`
+- `discord_bot.services.broker.workers.broker_registry`
+- `discord_bot.services.broker.workers.media_bundle`
+- `discord_bot.services.broker.workers.redis_broker`
 
 ### `discord_bot/services/db/` — 14, reached by db
 
-- `discord_bot.cli._lib.db`
-- `discord_bot.cli._lib.migrations`
-- `discord_bot.cli.database`
-- `discord_bot.clients.guild_analytics_client`
-- `discord_bot.clients.markov_client`
-- `discord_bot.clients.playlist_client`
-- `discord_bot.clients.session_store`
-- `discord_bot.cogs.music_helpers.database_functions`
-- `discord_bot.cogs.music_helpers.video_cache_client`
-- `discord_bot.database`
-- `discord_bot.servers.database_health_server`
-- `discord_bot.servers.database_server`
-- `discord_bot.servers.db_probe`
-- `discord_bot.utils.sql_retry`
+- `discord_bot.services.db.cli._lib.db`
+- `discord_bot.services.db.cli._lib.migrations`
+- `discord_bot.services.db.cli.database`
+- `discord_bot.services.db.clients.guild_analytics_client`
+- `discord_bot.services.db.clients.markov_client`
+- `discord_bot.services.db.clients.playlist_client`
+- `discord_bot.services.db.clients.session_store`
+- `discord_bot.services.db.cogs.music_helpers.database_functions`
+- `discord_bot.services.db.cogs.music_helpers.video_cache_client`
+- `discord_bot.services.db.database`
+- `discord_bot.services.db.servers.database_health_server`
+- `discord_bot.services.db.servers.database_server`
+- `discord_bot.services.db.servers.db_probe`
+- `discord_bot.services.db.utils.sql_retry`
 
 ### `discord_bot/services/dispatcher/` — 5, reached by dispatcher
 
-- `discord_bot.cli.dispatcher`
-- `discord_bot.servers.dispatch_health_server`
-- `discord_bot.servers.dispatch_server`
-- `discord_bot.utils.discord_retry`
-- `discord_bot.workers.message_dispatcher`
+- `discord_bot.services.dispatcher.cli.dispatcher`
+- `discord_bot.services.dispatcher.servers.dispatch_health_server`
+- `discord_bot.services.dispatcher.servers.dispatch_server`
+- `discord_bot.services.dispatcher.utils.discord_retry`
+- `discord_bot.services.dispatcher.workers.message_dispatcher`
 
 ### `discord_bot/services/downloader/` — 8, reached by downloader
 
-- `discord_bot.cli.downloader`
-- `discord_bot.interfaces.download_protocols`
-- `discord_bot.servers.download_server`
-- `discord_bot.utils.audio`
-- `discord_bot.utils.integrations.egress_pool`
-- `discord_bot.utils.integrations.egress_probe`
-- `discord_bot.workers.download_metrics`
-- `discord_bot.workers.redis_download_worker`
+- `discord_bot.services.downloader.cli.downloader`
+- `discord_bot.services.downloader.interfaces.download_protocols`
+- `discord_bot.services.downloader.servers.download_server`
+- `discord_bot.services.downloader.utils.audio`
+- `discord_bot.services.downloader.utils.integrations.egress_pool`
+- `discord_bot.services.downloader.utils.integrations.egress_probe`
+- `discord_bot.services.downloader.workers.download_metrics`
+- `discord_bot.services.downloader.workers.redis_download_worker`
 
 ### `discord_bot/services/search/` — 13, reached by search
 
-- `discord_bot.cli.search`
-- `discord_bot.clients.media_search_client`
-- `discord_bot.servers.composite_server`
-- `discord_bot.servers.media_search_server`
-- `discord_bot.servers.youtube_music_search_server`
-- `discord_bot.utils.integrations._youtube_music_impl`
-- `discord_bot.utils.integrations.spotify`
-- `discord_bot.utils.integrations.third_party_naming`
-- `discord_bot.utils.integrations.youtube`
-- `discord_bot.utils.integrations.youtube_music`
-- `discord_bot.workers.redis_youtube_music_search_worker`
-- `discord_bot.workers.search_metrics`
-- `discord_bot.workers.youtube_music_search_driver`
+- `discord_bot.services.search.cli.search`
+- `discord_bot.services.search.clients.media_search_client`
+- `discord_bot.services.search.servers.composite_server`
+- `discord_bot.services.search.servers.media_search_server`
+- `discord_bot.services.search.servers.youtube_music_search_server`
+- `discord_bot.services.search.utils.integrations._youtube_music_impl`
+- `discord_bot.services.search.utils.integrations.spotify`
+- `discord_bot.services.search.utils.integrations.third_party_naming`
+- `discord_bot.services.search.utils.integrations.youtube`
+- `discord_bot.services.search.utils.integrations.youtube_music`
+- `discord_bot.services.search.workers.redis_youtube_music_search_worker`
+- `discord_bot.services.search.workers.search_metrics`
+- `discord_bot.services.search.workers.youtube_music_search_driver`
 
 ## Scaffolding
 
@@ -225,8 +225,6 @@ overstated the core by a third.
 - `discord_bot.cli`
 - `discord_bot.cli._lib`
 - `discord_bot.clients`
-- `discord_bot.cogs`
-- `discord_bot.cogs.music_helpers`
 - `discord_bot.core`
 - `discord_bot.core.cli`
 - `discord_bot.core.cli._lib`
@@ -262,6 +260,49 @@ overstated the core by a third.
 - `discord_bot.seams.queue_worker.types`
 - `discord_bot.seams.queue_worker.utils`
 - `discord_bot.servers`
+- `discord_bot.services`
+- `discord_bot.services.bot`
+- `discord_bot.services.bot.cli`
+- `discord_bot.services.bot.cli._lib`
+- `discord_bot.services.bot.clients`
+- `discord_bot.services.bot.cogs`
+- `discord_bot.services.bot.cogs.music_helpers`
+- `discord_bot.services.bot.servers`
+- `discord_bot.services.bot.types`
+- `discord_bot.services.bot.utils`
+- `discord_bot.services.broker`
+- `discord_bot.services.broker.cli`
+- `discord_bot.services.broker.clients`
+- `discord_bot.services.broker.interfaces`
+- `discord_bot.services.broker.servers`
+- `discord_bot.services.broker.workers`
+- `discord_bot.services.db`
+- `discord_bot.services.db.cli`
+- `discord_bot.services.db.cli._lib`
+- `discord_bot.services.db.clients`
+- `discord_bot.services.db.cogs`
+- `discord_bot.services.db.cogs.music_helpers`
+- `discord_bot.services.db.servers`
+- `discord_bot.services.db.utils`
+- `discord_bot.services.dispatcher`
+- `discord_bot.services.dispatcher.cli`
+- `discord_bot.services.dispatcher.servers`
+- `discord_bot.services.dispatcher.utils`
+- `discord_bot.services.dispatcher.workers`
+- `discord_bot.services.downloader`
+- `discord_bot.services.downloader.cli`
+- `discord_bot.services.downloader.interfaces`
+- `discord_bot.services.downloader.servers`
+- `discord_bot.services.downloader.utils`
+- `discord_bot.services.downloader.utils.integrations`
+- `discord_bot.services.downloader.workers`
+- `discord_bot.services.search`
+- `discord_bot.services.search.cli`
+- `discord_bot.services.search.clients`
+- `discord_bot.services.search.servers`
+- `discord_bot.services.search.utils`
+- `discord_bot.services.search.utils.integrations`
+- `discord_bot.services.search.workers`
 - `discord_bot.types`
 - `discord_bot.utils`
 - `discord_bot.utils.integrations`

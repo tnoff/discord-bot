@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.clients.database_stores import DatabaseStores
+from discord_bot.services.bot.clients.database_stores import DatabaseStores
 from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
+from discord_bot.services.bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import loop_heartbeat_observations
 from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
@@ -17,7 +17,7 @@ from discord_bot.core.types.dispatch_request import FetchChannelHistoryRequest
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
 from discord_bot.core.types.fetched_message import FetchedMessage
 
-from discord_bot.database import MarkovChannel, MarkovRelation
+from discord_bot.services.db.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine, fake_stores #pylint:disable=unused-import
 from tests.helpers import async_mock_session
@@ -162,7 +162,7 @@ async def test_turn_on_and_off(fake_context, fake_stores):  #pylint:disable=rede
 
 async def _run_markov_request_and_result(cog, mocker):
     '''Helper: run the request loop once, then drain all queued results.'''
-    mocker.patch('discord_bot.cogs.markov.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.markov.sleep', return_value=True)
     await cog._markov_request_loop()  #pylint:disable=protected-access
     # Drain all items from the result queue
     while not cog._result_queue.empty():  #pylint:disable=protected-access

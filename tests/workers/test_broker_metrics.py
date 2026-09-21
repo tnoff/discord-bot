@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.workers.broker_metrics import BrokerMetrics
+from discord_bot.services.broker.workers.broker_metrics import BrokerMetrics
 
 
 def _metrics(depth=0, entries=None, bundles=0):

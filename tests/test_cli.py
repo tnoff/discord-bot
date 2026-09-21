@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 from yaml import dump
 
-from discord_bot.cli.bot import main, main_loop
-from discord_bot.cli.dispatcher import main as dispatcher_main
-from discord_bot.cli.dispatcher import main_loop as dispatcher_main_loop
-from discord_bot.cli.dispatcher import run_bot as dispatcher_run_bot
+from discord_bot.services.bot.cli.bot import main, main_loop
+from discord_bot.services.dispatcher.cli.dispatcher import main as dispatcher_main
+from discord_bot.services.dispatcher.cli.dispatcher import main_loop as dispatcher_main_loop
+from discord_bot.services.dispatcher.cli.dispatcher import run_bot as dispatcher_run_bot
 from discord_bot.core.cli._lib.common import read_config
 
 from tests.helpers import fake_bot_yielder, FakeGuild
@@ -532,7 +532,7 @@ async def test_dispatcher_main_loop_drains_http_server_before_closing_redis():
 
 def test_dispatcher_run_bot_schedules_main_loop(mocker):
     '''dispatcher.run_bot schedules main_loop on the event loop via run_loop().'''
-    mock_run_loop = mocker.patch('discord_bot.cli.dispatcher.run_loop')
+    mock_run_loop = mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.run_loop')
 
     general_config = MagicMock()
     general_config.discord_token = 'token'
@@ -616,8 +616,8 @@ def _patch_otlp(mocker):
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
         mocker.patch(f'discord_bot.core.cli._lib.common.{name}')
-    mocker.patch('discord_bot.cli._lib.db.SQLAlchemyInstrumentor')
-    mocker.patch('discord_bot.cli._lib.db.trace')
+    mocker.patch('discord_bot.services.db.cli._lib.db.SQLAlchemyInstrumentor')
+    mocker.patch('discord_bot.services.db.cli._lib.db.trace')
     mocker.patch('discord_bot.core.cli._lib.common.trace')
     # LoggingHandler mock is added to the root logger; .level must be an int or
     # callHandlers() raises TypeError on "record.levelno >= hdlr.level"
@@ -789,7 +789,7 @@ async def test_main_with_health_server_monitoring(mocker):
             dump(config_data, writer)
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
-        mocker.patch('discord_bot.cli.health.HealthServer', return_value=mock_hs)
+        mocker.patch('discord_bot.services.bot.cli.health.HealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
@@ -815,9 +815,9 @@ async def test_dispatcher_main_with_health_server(mocker):
             dump(config_data, writer)
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
-        mocker.patch('discord_bot.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
+        mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
         mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
-        mocker.patch('discord_bot.cli.dispatcher.run_bot')
+        mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.run_bot')
         runner = CliRunner()
         result = runner.invoke(dispatcher_main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -839,12 +839,12 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
     no loop of its own. close=False is asserted because passing close=True there
     is what logged a traceback per pooled connection on every shutdown.
     '''
-    from discord_bot.cli._lib.db import managed_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.services.db.cli._lib.db import managed_db  # pylint: disable=import-outside-toplevel
     from discord_bot.core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
 
     mock_async_engine = AsyncMock()
     mock_async_engine.sync_engine = MagicMock()
-    create_async_engine_mock = mocker.patch('discord_bot.cli._lib.db.create_async_engine',
+    create_async_engine_mock = mocker.patch('discord_bot.services.db.cli._lib.db.create_async_engine',
                                             return_value=mock_async_engine)
 
     general_config = GeneralConfig(
@@ -884,7 +884,7 @@ def test_setup_db_opens_no_connection(pg_test_db_url):
     bound to the loop that filled it and production has exactly one serving loop
     for the life of the process.
     """
-    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.services.db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
 
@@ -914,7 +914,7 @@ def test_setup_db_reuses_pooled_connections(pg_test_db_url):
     the pool's own counters rather than on constructor kwargs so it stays true
     however the engine comes to be built.
     """
-    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.services.db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
 
@@ -946,7 +946,7 @@ def test_setup_db_survives_postgres_dropping_every_connection(pg_test_db_url):
     test reproduces that by terminating the backends from a second connection,
     which is what postgres does to itself on restart.
     """
-    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.services.db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     from sqlalchemy import text as sql_text  # pylint: disable=import-outside-toplevel
 
@@ -977,7 +977,7 @@ def test_setup_db_survives_postgres_dropping_every_connection(pg_test_db_url):
 
 def test_setup_db_rejects_non_postgres():
     '''Only postgresql drivers are supported; everything else raises.'''
-    from discord_bot.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
+    from discord_bot.services.db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_bot.core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     with pytest.raises(ValueError, match='Unsupported database driver'):
         setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))

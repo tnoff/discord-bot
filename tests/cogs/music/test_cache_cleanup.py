@@ -5,11 +5,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.database import VideoCache
-from discord_bot.cogs.music import Music
+from discord_bot.services.db.database import VideoCache
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import DiscordBotException
 
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config
 from tests.helpers import async_mock_session, fake_media_download
@@ -53,10 +53,10 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog, db_engine=fake_engine)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    upload_mock = mocker.patch('discord_bot.interfaces.download_protocols.upload_file', return_value=True)
+    upload_mock = mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.upload_file', return_value=True)
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             # Simulate what InMemoryDownloadClient does: upload then register with S3 key
@@ -88,13 +88,13 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_sto
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog, db_engine=fake_engine)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
-                delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
+                delete_mock = mocker.patch('discord_bot.services.broker.interfaces.broker_protocols.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
                 await cog.broker_client.local_broker.video_cache.iterate_file(sd)
                 await cog.broker_client.local_broker.video_cache.iterate_file(sd2)

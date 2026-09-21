@@ -15,11 +15,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from yt_dlp.utils import DownloadError
 
-from discord_bot.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
-from discord_bot.interfaces import download_protocols
-from discord_bot.utils.integrations.egress_pool import (
+from discord_bot.services.downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
+from discord_bot.services.downloader.interfaces import download_protocols
+from discord_bot.services.downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
-from discord_bot.utils.audio import AudioProcessingError
+from discord_bot.services.downloader.utils.audio import AudioProcessingError
 from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
 from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
@@ -171,7 +171,7 @@ async def test_create_source_pool_mode_isolates_scratch_and_cleans_up(mocker):
         x._egress = PoolEgress(ExitPool(['us-lax-wg-001']),
                                ExitClients({}, MullvadSocks5Resolver(),
                                            client_factory=lambda _opts: _PoolClient()))
-        mocker.patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+        mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file',
                      side_effect=lambda path, *_a: path)
         mocker.patch.object(x, '_DownloadWorkerBase__upload_s3',
                             side_effect=lambda path: Path('cache/youtube.vid123.pcm'))
@@ -264,7 +264,7 @@ async def test_prepare_source():
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.foo.com'
@@ -288,7 +288,7 @@ async def test_prepare_source_records_pcm_size_not_download_size():
 
     x = make_download_client(MockYTDLP(fake_file_path=download_path))
     y = fake_source_dict(generate_fake_context())
-    with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
         result = await x.create_source(y, 3)
 
     assert result.status.success
@@ -323,7 +323,7 @@ async def test_prepare_source_single_video_no_entries():
         x = make_download_client(MockYTDLPSingleVideo(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.single.com'
@@ -342,8 +342,8 @@ async def test_prepare_source_s3_mode():
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
     expected_s3_key = f'cache/{pcm_path.name}'
-    with patch('discord_bot.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path) as edit_mock:
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path) as edit_mock:
             result = await x.create_source(y, 3)
     assert result.status.success
     # edit_audio_file was called with the local download file, not an S3 key
@@ -370,8 +370,8 @@ async def test_prepare_source_s3_mode_audio_processing_error():
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
     expected_s3_key = f'cache/{download_path.name}'
-    with patch('discord_bot.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
             result = await x.create_source(y, 3)
     assert not result.status.success
@@ -443,7 +443,7 @@ async def test_prepare_source_md5_match_no_warning(mocker):
     x = make_download_client(MockYTDLPWithMd5())
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
-    with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file',
                return_value=make_pcm(file_path)):
         result = await x.create_source(y, 3)
     assert result.status.success
@@ -469,7 +469,7 @@ async def test_prepare_source_md5_mismatch_logs_warning(mocker):
     x = make_download_client(MockYTDLPWithWrongMd5())
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
-    with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file',
                return_value=make_pcm(file_path)):
         result = await x.create_source(y, 3)
     assert result.status.success
@@ -487,7 +487,7 @@ async def test_prepare_source_no_md5_no_warning(mocker):
         mock_logger = mocker.patch.object(x, 'logger')
         y = fake_source_dict(fake_context)
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             result = await x.create_source(y, 3)
         assert result.status.success
         mock_logger.warning.assert_not_called()
@@ -731,7 +731,7 @@ async def test_prepare_source_audio_processing_error():
         fake_context = generate_fake_context()
         x = make_download_client(MockYTDLP(fake_file_path=Path(tmp_file.name)))
         y = fake_source_dict(fake_context)
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file',
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):
             result = await x.create_source(y, 3)
     assert not result.status.success
@@ -1432,7 +1432,7 @@ async def test_run_success_reports_result_to_broker():
         await client.submit(mr.guild_id, mr)
         shutdown = asyncio.Event()
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
     assert len(results) == 1
@@ -1630,7 +1630,7 @@ async def test_run_direct_item_bypasses_active_backoff():
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
     results = _reported_results(mock_broker)
     assert len(results) == 1
@@ -1653,7 +1653,7 @@ async def test_run_direct_item_interrupts_mid_wait():
             mr = fake_source_dict(fake_context, is_direct_search=True)
             await client.submit(mr.guild_id, mr)
 
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await asyncio.gather(client.run(shutdown), submit_after_delay())
 
     results = _reported_results(mock_broker)
@@ -1706,7 +1706,7 @@ async def test_run_three_direct_items_all_processed_with_backoff():
         client.wait_timestamp = datetime.now(timezone.utc).timestamp() + 9999
         shutdown = asyncio.Event()
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             for _ in range(3):
                 await client.run(shutdown)
     assert len(_reported_results(mock_broker)) == 3
@@ -1731,7 +1731,7 @@ async def test_run_three_direct_items_arriving_mid_backoff():
                 await client.submit(mr.guild_id, mr)
 
         async def run_until_three_results():
-            with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+            with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
                 while len(_reported_results(mock_broker)) < 3:
                     await client.run(shutdown)
 
@@ -1802,7 +1802,7 @@ async def test_run_no_backoff_preserves_submission_order():
         await client.submit(mr_direct.guild_id, mr_direct)
         shutdown = asyncio.Event()
         pcm_path = make_pcm(Path(tmp_file.name))
-        with patch('discord_bot.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        with patch('discord_bot.services.downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
             await client.run(shutdown)
             await client.run(shutdown)
     results = _reported_results(mock_broker)

@@ -1,0 +1,442 @@
+'''
+HTTP server exposing MediaBroker over aiohttp for cross-process communication.
+Schedule with asyncio.create_task(server.serve()).
+'''
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
+from aiohttp import web
+from opentelemetry.propagate import extract
+from opentelemetry.trace import SpanKind
+
+from discord_bot.services.broker.workers.broker_metrics import BrokerMetricNaming
+from discord_bot.services.broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
+                                                     MediaBrokerBase)
+from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_bot.core.routes.route import Route
+from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
+from discord_bot.types.media_download import MediaDownload
+from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.types.search_resolution import SearchResolution
+from discord_bot.core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
+                                     MetricNaming, AttributeNaming)
+from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+
+logger = logging.getLogger(__name__)
+
+# Counts GET /results/next outcomes: 'hit' when a result was handed to the bot,
+# 'empty' on a 204. A healthy system alternates; a rising 'hit' rate with the
+# result-queue depth climbing means the bot side has stopped draining.
+_RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
+    name=BrokerMetricNaming.RESULT_FETCH.value,
+    description='Result-queue fetch outcomes (hit / empty), by result type',
+    unit='1',
+)
+
+
+@dataclass
+class _QueueItemProxy:
+    '''
+    Minimal stand-in for queue items passed to MediaBroker.prefetch.
+    The broker only accesses item.media_request.uuid, so we return self
+    as media_request and expose uuid directly.
+    '''
+    uuid: str
+
+    @property
+    def media_request(self):
+        '''Return self so item.media_request.uuid resolves to self.uuid.'''
+        return self
+
+
+class BrokerHttpServer(AiohttpServerBase):
+    '''
+    aiohttp HTTP server wrapping a MediaBroker instance.  Exposes the full
+    BrokerClient surface so a remote bot pod (HttpBrokerClient) can drive the
+    broker over HTTP.  All endpoints respond with JSON.
+
+    Routes:
+        POST   /requests/{uuid}           register_request
+        PUT    /requests/{uuid}/status    update_request_status
+        POST   /downloads                 register_download_result (worker)
+        POST   /downloads/register        register_download (MediaDownload)
+        GET    /results/next              next_result (204 when empty)
+        POST   /search-results            register_search_result (search worker)
+        GET    /search-results/next       next_search_result (204 when empty)
+        POST   /requests/{uuid}/checkout  checkout
+        POST   /requests/{uuid}/release   release
+        POST   /requests/{uuid}/remove    remove
+        POST   /requests/{uuid}/discard   discard
+        POST   /prefetch                  prefetch
+        POST   /cache/check               check_cache
+        POST   /cache/cleanup             cache_cleanup
+        GET    /cache/count               get_cache_count
+        GET    /bundles?guild_id=N        list_bundles_for_guild
+        POST   /bundles                   create_bundle
+        POST   /bundles/{uuid}/finalize   finalize_bundle
+        DELETE /bundles/{uuid}            delete_bundle
+
+    checkout serialises whatever the engine returns: an in-process AsyncioBroker
+    stages the file and yields CheckoutResult(local_path) -> guild_file_path; an
+    HA RedisBroker yields CheckoutResult(s3_key) -> s3_key (the bot fetches it).
+    No mode flag is needed — the CheckoutResult drives the response shape.
+    '''
+
+    # bandit B104: '0.0.0.0' default is intentional — worker/bot pods reach the broker across the docker/k8s network; callers override host via constructor arg
+    def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,  # nosec B104
+                 result_queue: DownloadResultQueue | None = None,
+                 search_result_queue: SearchResultQueue | None = None):
+        super().__init__()
+        self._broker = broker
+        self._host = host
+        self._port = port
+        # Always have a queue.  In single-process embedded mode the cog passes
+        # its InMemoryBrokerClient's AsyncioDownloadResultQueue so HTTP-arriving
+        # results land where the cog drains them.  In HA the broker pod passes a
+        # RedisDownloadResultQueue so multiple broker pods share a bot-ready queue.
+        self._result_queue: DownloadResultQueue = (
+            result_queue if result_queue is not None else AsyncioDownloadResultQueue()
+        )
+        # Same story for the bot-ready search-result queue (Redis in HA so the
+        # search pod's POSTs and the bot's polls meet on a shared list).
+        self._search_result_queue: SearchResultQueue = (
+            search_result_queue if search_result_queue is not None else AsyncioSearchResultQueue()
+        )
+        # Heartbeat so the broker pod has a first-class liveness series like the
+        # bot cogs and the dispatcher. The broker previously emitted no heartbeat
+        # at all, so a broker that was down (or not yet accepting connections at
+        # startup) was invisible on the dashboard — its outage only surfaced
+        # indirectly as the bot's process_download_results loop dying. Emitted
+        # under job="discord-broker" in HA, or job="discord-bot" for the embedded
+        # broker in single-process mode.
+        create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
+                                self.heartbeat_observations,
+                                'Broker HTTP server heartbeat')
+
+    def heartbeat_observations(self, _options=None):
+        '''OTEL observable-gauge callback: 1 while the HTTP server is up and
+        accepting requests, else 0. Public so it can be exercised directly.'''
+        return self._serving_heartbeat_observations('broker')
+
+    def route_handlers(self) -> dict[Route, object]:
+        '''Map every route on the broker seam to the handler that serves it.
+
+        Keyed by the shared `routes/broker.py` symbols rather than by literal
+        strings, so a route the client calls and a route this server registers
+        are the same object. Split out of `build_app()` so the completeness
+        test can compare these keys against the registry without standing up
+        an Application.
+        '''
+        return {
+            broker_routes.REGISTER_REQUEST: self._handle_register_request,
+            broker_routes.UPDATE_STATUS: self._handle_update_status,
+            broker_routes.CHECKOUT: self._handle_checkout,
+            broker_routes.RELEASE: self._handle_release,
+            broker_routes.REMOVE: self._handle_remove,
+            broker_routes.DISCARD: self._handle_discard,
+            broker_routes.REGISTER_DOWNLOAD: self._handle_register_download,
+            broker_routes.REGISTER_DOWNLOAD_DIRECT: self._handle_register_download_direct,
+            broker_routes.NEXT_RESULT: self._handle_next_result,
+            broker_routes.REGISTER_SEARCH_RESULT: self._handle_register_search_result,
+            broker_routes.NEXT_SEARCH_RESULT: self._handle_next_search_result,
+            broker_routes.PREFETCH: self._handle_prefetch,
+            broker_routes.CHECK_CACHE: self._handle_check_cache,
+            broker_routes.CACHE_CLEANUP: self._handle_cache_cleanup,
+            broker_routes.CACHE_COUNT: self._handle_get_cache_count,
+            broker_routes.LIST_BUNDLES: self._handle_list_bundles_for_guild,
+            broker_routes.CREATE_BUNDLE: self._handle_create_bundle,
+            broker_routes.FINALIZE_BUNDLE: self._handle_finalize_bundle,
+            broker_routes.DELETE_BUNDLE: self._handle_delete_bundle,
+            broker_routes.LIST_SESSIONS: self._handle_list_player_sessions,
+            broker_routes.SAVE_SESSION: self._handle_save_player_session,
+            broker_routes.DELETE_SESSION: self._handle_delete_player_session,
+        }
+
+    def build_app(self) -> web.Application:
+        '''Build and return the aiohttp Application. Exposed for testing.'''
+        app = web.Application(middlewares=[self._get_drain_middleware()])
+        self.register_seam_routes(app, self.route_handlers())
+        self.add_contract_route(app)
+        return app
+
+    # ------------------------------------------------------------------
+    # Route handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_register_request(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            media_request = parse_media_request(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.register_request', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.register_request(media_request)
+        return web.json_response({'status': 'ok'}, status=201)
+
+    async def _handle_update_status(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        uuid = request.match_info['uuid']
+        try:
+            update = LifecycleStatusUpdate.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.update_status', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.update_request_status(uuid, update)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_register_download(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            result = DownloadResult.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        # Persist successful media downloads (zone=AVAILABLE) so checkout finds
+        # them; push every result onto the bot-ready queue for next_result —
+        # failures and metadata-only PlaylistAddRequest results still need to
+        # reach the bot's process_download_results router.
+        with otel_span_wrapper('broker.register_download', context=ctx, kind=SpanKind.SERVER):
+            if result.status.success and result.file_name is not None:
+                await self._broker.register_download_result(result)
+            await self._result_queue.put(result)
+        return web.json_response({'status': 'ok'}, status=202)
+
+    async def _handle_register_download_direct(self, request: web.Request) -> web.Response:
+        '''POST /downloads/register — persist a MediaDownload built bot-side.'''
+        ctx, body = await self._read_body(request)
+        try:
+            media_request = parse_media_request(body['request'])
+            file_path = Path(body['file_path']) if body.get('file_path') else None
+            ytdl_data = body.get('ytdl_data', {})
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        media_download = MediaDownload(file_path, ytdl_data, media_request,
+                                       cache_hit=bool(body.get('cache_hit', False)))
+        media_download.file_size_bytes = body.get('file_size_bytes')
+        with otel_span_wrapper('broker.register_download_direct', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.register_download(media_download)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_next_result(self, request: web.Request) -> web.Response:
+        '''GET /results/next — pop the next bot-ready DownloadResult, or 204.
+
+        The empty (204) path intentionally mints NO span, mirroring the client
+        half in BrokerClient.next_result, which has skipped it since it was
+        written. This endpoint is polled ~1/second even while idle, and because
+        an empty poll leaves no active span on the client there is no context to
+        attach to — every one landed in Tempo as its own single-span root trace.
+        Measured 2026-08-22: 0.99 spans/s here, the same again on
+        /search-results/next, together 22% of everything reaching Tempo and none
+        of it attached to a real request.
+
+        This has to be fixed here rather than at the collector: SERVER spans are
+        exempt from filter/drop-ok-high-volume-spans by design (dropping the OK
+        half of a SERVER span leaves trace-error-rate-server dividing errors by
+        errors), so nothing downstream will take these.
+
+        Hit/empty accounting is unchanged — _RESULT_FETCH_COUNTER records both
+        outcomes and is what the queue-depth panels read.
+        '''
+        result = await self._result_queue.get_nowait()
+        if result is None:
+            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty',
+                                      AttributeNaming.RESULT_TYPE.value: 'download'})
+            return web.Response(status=204)
+        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit',
+                                      AttributeNaming.RESULT_TYPE.value: 'download'})
+        with otel_span_wrapper('broker.next_result', context=extract(request.headers),
+                               kind=SpanKind.SERVER):
+            return web.json_response(result.model_dump(mode='json'))
+
+    async def _handle_register_search_result(self, request: web.Request) -> web.Response:
+        '''POST /search-results — push a resolved search onto the bot-ready queue.'''
+        ctx, body = await self._read_body(request)
+        try:
+            resolution = SearchResolution.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.register_search_result', context=ctx, kind=SpanKind.SERVER):
+            await self._search_result_queue.put(resolution)
+        return web.json_response({'status': 'ok'}, status=202)
+
+    async def _handle_next_search_result(self, request: web.Request) -> web.Response:
+        '''GET /search-results/next — pop the next bot-ready SearchResolution, or 204.
+
+        Empty polls mint no span, for the reasons spelled out on
+        _handle_next_result above.
+        '''
+        resolution = await self._search_result_queue.get_nowait()
+        if resolution is None:
+            _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'empty',
+                                          AttributeNaming.RESULT_TYPE.value: 'search'})
+            return web.Response(status=204)
+        _RESULT_FETCH_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'hit',
+                                          AttributeNaming.RESULT_TYPE.value: 'search'})
+        with otel_span_wrapper('broker.next_search_result', context=extract(request.headers),
+                               kind=SpanKind.SERVER):
+            return web.json_response(resolution.model_dump(mode='json'))
+
+    async def _handle_checkout(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        uuid = request.match_info['uuid']
+        try:
+            guild_id = int(body['guild_id'])
+            guild_path = body.get('guild_path')
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
+            result = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+        if result is None:
+            return web.json_response({'guild_file_path': None})
+        if result.s3_key:
+            return web.json_response({'s3_key': result.s3_key})
+        return web.json_response({'guild_file_path': str(result.local_path) if result.local_path else None})
+
+    async def _handle_release(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.release', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.release(uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_remove(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.remove', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.remove(uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_discard(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.discard', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.discard(uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_prefetch(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            uuids = list(body['uuids'])
+            guild_id = int(body['guild_id'])
+            guild_path = body.get('guild_path')
+            limit = int(body['limit'])
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        items = [_QueueItemProxy(uuid=u) for u in uuids]
+        with otel_span_wrapper('broker.prefetch', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_check_cache(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            media_request = parse_media_request(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.check_cache', context=ctx, kind=SpanKind.SERVER):
+            cached = await self._broker.check_cache(media_request)
+        if cached is None:
+            return web.json_response({'hit': False})
+        return web.json_response({
+            'hit': True,
+            'download': {
+                'request': cached.media_request.model_dump(mode='json'),
+                'file_path': str(cached.file_path) if cached.file_path else None,
+                'file_size_bytes': cached.file_size_bytes,
+                'cache_hit': cached.cache_hit,
+                'ytdl_data': {
+                    'id': cached.id, 'title': cached.title,
+                    'webpage_url': cached.webpage_url, 'uploader': cached.uploader,
+                    'duration': cached.duration, 'extractor': cached.extractor,
+                },
+            },
+        })
+
+    async def _handle_cache_cleanup(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        with otel_span_wrapper('broker.cache_cleanup', context=ctx, kind=SpanKind.SERVER):
+            removed = await self._broker.cache_cleanup()
+        return web.json_response({'removed': bool(removed)})
+
+    async def _handle_get_cache_count(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        with otel_span_wrapper('broker.get_cache_count', context=ctx, kind=SpanKind.SERVER):
+            count = await self._broker.get_cache_count()
+        return web.json_response({'count': int(count)})
+
+    async def _handle_create_bundle(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            guild_id = int(body['guild_id'])
+            channel_id = int(body['channel_id'])
+            input_string = body.get('input_string')
+            has_search_banner = bool(body.get('has_search_banner', False))
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.create_bundle', context=ctx, kind=SpanKind.SERVER):
+            uuid = await self._broker.create_bundle(
+                guild_id, channel_id,
+                input_string=input_string, has_search_banner=has_search_banner,
+            )
+        return web.json_response({'uuid': uuid}, status=201)
+
+    async def _handle_finalize_bundle(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        bundle_uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.finalize_bundle', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.finalize_bundle(bundle_uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_delete_bundle(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        bundle_uuid = request.match_info['uuid']
+        with otel_span_wrapper('broker.delete_bundle', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.delete_bundle(bundle_uuid)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_list_player_sessions(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        with otel_span_wrapper('broker.list_player_sessions', context=ctx, kind=SpanKind.SERVER):
+            sessions = await self._broker.list_player_sessions()
+        return web.json_response({'sessions': [s.model_dump(mode='json') for s in sessions]})
+
+    async def _handle_save_player_session(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            session = PlayerSession.model_validate(body)
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        # The path segment is the addressable identity of the record, so a body
+        # that disagrees with it is a caller bug, not something to silently
+        # resolve in favour of one side.
+        try:
+            guild_id = int(request.match_info['guild_id'])
+        except ValueError as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        if guild_id != session.guild_id:
+            raise web.HTTPUnprocessableEntity()
+        with otel_span_wrapper('broker.save_player_session', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.save_player_session(session)
+        return web.json_response({'status': 'ok'}, status=201)
+
+    async def _handle_delete_player_session(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        try:
+            guild_id = int(request.match_info['guild_id'])
+        except ValueError as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.delete_player_session', context=ctx, kind=SpanKind.SERVER):
+            await self._broker.delete_player_session(guild_id)
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_list_bundles_for_guild(self, request: web.Request) -> web.Response:
+        ctx = extract(request.headers)
+        try:
+            guild_id = int(request.query['guild_id'])
+        except (KeyError, ValueError) as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.list_bundles_for_guild', context=ctx, kind=SpanKind.SERVER):
+            uuids = await self._broker.list_bundles_for_guild(guild_id)
+        return web.json_response({'uuids': uuids})

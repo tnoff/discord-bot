@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from freezegun import freeze_time
 import pytest
 
-from discord_bot.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
+from discord_bot.services.bot.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
                                                LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import loop_heartbeat_observations
@@ -248,7 +248,7 @@ async def test_delete_request_loop_submits_history_request(mocker, fake_context)
             ]
         }
     } | BASE_CONFIG
-    mocker.patch('discord_bot.cogs.delete_messages.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     cog.register_result_queue()
     await cog._delete_request_loop()  #pylint:disable=protected-access

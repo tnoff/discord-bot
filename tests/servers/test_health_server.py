@@ -10,8 +10,8 @@ import fakeredis.aioredis
 import pytest
 
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.servers.dispatch_health_server import DispatchHealthServer
-from discord_bot.servers.health_server import HealthServer
+from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
+from discord_bot.services.bot.servers.health_server import HealthServer
 from discord_bot.core.servers.health_server_base import HealthServerBase, close_writer
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 
@@ -88,7 +88,7 @@ class TestHealthServerInit:
         bot = _make_bot()
         hs = HealthServer(bot, port=9090)
         assert hs.bot is bot
-        assert logging.getLogger('discord_bot.servers.health_server').name == 'discord_bot.servers.health_server'
+        assert logging.getLogger('discord_bot.services.bot.servers.health_server').name == 'discord_bot.services.bot.servers.health_server'
         assert hs.port == 9090
 
     def test_init_default_port(self):
@@ -337,7 +337,7 @@ class TestHealthServerReadiness:
 
     async def test_ready_check_increments_counter_by_outcome(self, mocker):
         '''_readiness_check records the probe outcome, tagged with its target.'''
-        counter = mocker.patch('discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
+        counter = mocker.patch('discord_bot.services.bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18110, dispatch_http_url='http://dispatcher:8082')
 
@@ -365,7 +365,7 @@ class TestHealthServerReadiness:
         result must never arrive unlabelled or labelled as the dispatcher.
         '''
         counter = mocker.patch(
-            'discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
+            'discord_bot.services.bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18112, database_http_url='http://discord-db:8085')
 
@@ -401,7 +401,7 @@ class TestHealthServerReadiness:
 
     async def test_ready_check_skips_counter_without_dispatch_url(self, mocker):
         '''No probe and no counter increment when dispatch_http_url is unset.'''
-        counter = mocker.patch('discord_bot.servers.health_server._PEER_READY_CHECK_COUNTER')
+        counter = mocker.patch('discord_bot.services.bot.servers.health_server._PEER_READY_CHECK_COUNTER')
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18111)
         await hs._readiness_check()  # pylint: disable=protected-access

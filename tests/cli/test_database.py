@@ -16,12 +16,12 @@ import asyncio
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.cli import database as database_cli
+from discord_bot.services.db.cli import database as database_cli
 from discord_bot.core.cli._lib import common as cli_common
-from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.clients.markov_client import MarkovClient
-from discord_bot.clients.playlist_client import PlaylistClient
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_bot.services.db.clients.markov_client import MarkovClient
+from discord_bot.services.db.clients.playlist_client import PlaylistClient
+from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.core.exceptions import DiscordBotException
 
 from tests.helpers import fake_engine  # pylint: disable=unused-import

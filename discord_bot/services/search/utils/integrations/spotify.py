@@ -1,0 +1,116 @@
+from typing import List
+
+from opentelemetry.trace import SpanKind
+from opentelemetry.trace.status import StatusCode
+from spotipy import Spotify
+from spotipy.cache_handler import MemoryCacheHandler
+from spotipy.exceptions import SpotifyException
+from spotipy.oauth2 import SpotifyClientCredentials
+
+from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.core.utils.otel import otel_span_wrapper
+from discord_bot.services.search.utils.integrations.third_party_naming import ThirdPartyNaming
+
+class SpotifyClient():
+    '''
+    Spotify client for API
+    '''
+    def __init__(self, client_id: str, client_secret: str):
+        auth_manager = SpotifyClientCredentials(client_id=client_id,
+                                                client_secret=client_secret,
+                                                cache_handler=MemoryCacheHandler())
+        self.client = Spotify(auth_manager=auth_manager)
+
+
+    def __get_response_items(self, resp: List[dict]) -> List[CatalogItem]:
+        '''
+        Get items from spotify response
+
+        resp : Response from spotify client
+        '''
+        items = []
+        for item in resp:
+            # Depending on type of result, may include 'track' key or may not
+            try:
+                track = item['track']
+            except KeyError:
+                track = item
+
+            items.append(CatalogItem(search_string=f'{track["name"]} {" ".join(i["name"] for i in track["artists"])}', title=track['name']))
+        return items
+
+
+    def playlist_get(self, playlist_id: str,
+                     pagination_limit: int = 50) -> CatalogResponse:
+        '''
+        Get all playlist tracks
+
+        playlist_id : Playlist id from spotify
+        pagination_limit : Limit of each API call
+        '''
+        with otel_span_wrapper('spotify.playlist_get', attributes={ThirdPartyNaming.SPOTIFY_PLAYLIST.value: playlist_id}, kind=SpanKind.CLIENT) as span:
+            offset = 0
+            items = []
+            # Get playlist id info
+            try:
+                resp = self.client.playlist(playlist_id)
+            except SpotifyException as exc:
+                if exc.http_status in [404]:
+                    span.set_status(StatusCode.OK)
+                raise exc
+            playlist_name = resp['name']
+            while True:
+                try:
+                    resp = self.client.playlist_tracks(playlist_id, limit=pagination_limit, offset=offset)
+                except SpotifyException as exc:
+                    if exc.http_status in [404]:
+                        span.set_status(StatusCode.OK)
+                    raise exc
+                items += self.__get_response_items(resp['items'])
+                try:
+                    if not resp['next']:
+                        return CatalogResponse(items=items, collection_name=playlist_name)
+                except KeyError:
+                    return CatalogResponse(items=items, collection_name=playlist_name)
+                offset += pagination_limit
+
+    def album_get(self, album_id: str,
+                  pagination_limit: int = 50) -> CatalogResponse:
+        '''
+        Get all album tracks
+        
+        album_id : Album id from spotify
+        pagination_limit : Limit of each API call
+        '''
+        with otel_span_wrapper('spotify.album_get', attributes={ThirdPartyNaming.SPOTIFY_ALBUM.value: album_id}, kind=SpanKind.CLIENT) as span:
+            offset = 0
+            items = []
+            try:
+                resp = self.client.album(album_id)
+            except SpotifyException as exc:
+                if exc.http_status in [404]:
+                    span.set_status(StatusCode.OK)
+                raise exc
+            album_name = f'{",".join(i["name"] for i in resp["artists"])} - {resp["name"]}'
+            while True:
+                try:
+                    resp = self.client.album_tracks(album_id, limit=pagination_limit, offset=offset)
+                except SpotifyException as exc:
+                    if exc.http_status in [404]:
+                        span.set_status(StatusCode.OK)
+                    raise exc
+                items += self.__get_response_items(resp['items'])
+                if not resp['next']:
+                    return CatalogResponse(items=items, collection_name=album_name)
+                offset += pagination_limit
+
+    def track_get(self, track_id: str) -> CatalogResponse:
+        '''
+        Get single track
+
+        track_id : Track id from spotify
+        '''
+        with otel_span_wrapper('spotify.track_get', attributes={ThirdPartyNaming.SPOTIFY_TRACK.value: track_id}, kind=SpanKind.CLIENT):
+            resp = self.client.track(track_id)
+            item =  self.__get_response_items([resp])
+            return CatalogResponse(items=item)

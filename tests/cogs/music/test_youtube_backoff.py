@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureStatus
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_worker
@@ -29,7 +29,7 @@ async def test_backoff_wait_no_timestamp(fake_context):  #pylint:disable=redefin
 @pytest.mark.freeze_time
 async def test_backoff_wait_elapsed(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """backoff_wait returns normally when backoff period has already elapsed."""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_download(cog)
     freezer.move_to('2025-01-01 12:00:00 UTC')
@@ -42,7 +42,7 @@ async def test_backoff_wait_elapsed(freezer, fake_context, mocker):  #pylint:dis
 @pytest.mark.freeze_time
 async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """backoff_wait raises ExitEarlyException when bot_shutdown is set."""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_download(cog)
     freezer.move_to('2025-01-01 12:00:00 UTC')
@@ -58,7 +58,7 @@ async def test_backoff_wait_raises_on_shutdown(freezer, fake_context, mocker):  
 @pytest.mark.freeze_time
 async def test_set_wait_timestamp_backoff_multiplier(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """set_wait_timestamp with backoff_multiplier=2 sets correct timestamp."""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_download(cog)
     freezer.move_to('2025-01-01 12:00:00 UTC')
@@ -73,7 +73,7 @@ async def test_set_wait_timestamp_backoff_multiplier(freezer, fake_context, mock
 @pytest.mark.freeze_time
 async def test_set_wait_timestamp_basic(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """set_wait_timestamp sets correct timestamp with default multiplier."""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_download(cog)
 
@@ -129,9 +129,9 @@ def yield_download_worker_bot_flagged():
 @pytest.mark.freeze_time
 async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that RetryableException adds a failure to the download failure queue"""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch('discord_bot.interfaces.download_protocols.sleep', return_value=None)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -155,9 +155,9 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
 @pytest.mark.freeze_time
 async def test_retryable_exception_applies_exponential_backoff(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that RetryableException applies exponential backoff based on failure queue size"""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch('discord_bot.interfaces.download_protocols.sleep', return_value=None)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -188,9 +188,9 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
 @pytest.mark.freeze_time
 async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that BotDownloadFlagged (a RetryableException) applies proper backoff"""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch('discord_bot.interfaces.download_protocols.sleep', return_value=None)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -216,9 +216,9 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
 @pytest.mark.freeze_time
 async def test_successful_download_clears_failure_from_queue(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that successful download removes one item from failure queue"""
-    mocker.patch('discord_bot.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
-    mocker.patch('discord_bot.interfaces.download_protocols.sleep', return_value=None)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.random.randint', return_value=5000)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     with TemporaryDirectory() as tmp_dir:

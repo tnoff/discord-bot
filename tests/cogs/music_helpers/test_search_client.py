@@ -3,9 +3,9 @@ from googleapiclient.errors import HttpError
 import pytest
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
-from discord_bot.clients.media_search_client import InMemoryMediaSearchClient
+from discord_bot.services.search.clients.media_search_client import InMemoryMediaSearchClient
 from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
+from discord_bot.services.bot.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
 from discord_bot.core.types.search import SearchResult, SearchCollection
 from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
 from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
