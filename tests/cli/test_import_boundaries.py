@@ -4,10 +4,18 @@ Per-image import boundaries — what each published image is allowed to import.
 Each entry in ``IMAGE_IMPORTS`` (tests/cli/_image_deps.py) is a contract: importing
 that image's entrypoint must pull EXACTLY those tier-defining packages into
 ``sys.modules``. The check is the enforcement mechanism for the per-image
-dependency split (projects/discord-bot-ha-only) — a folder layout cannot prevent
-``from discord_bot.utils.integrations.youtube_music import ...``, but this can,
-and this is what caught the ytmusicapi leak during the search-pod work before it
-could CrashLoop a pod (see reference_slim_pod_import_chain_leak).
+dependency split (projects/discord-bot-ha-only) — a folder layout *on its own*
+cannot prevent ``from discord_bot.utils.integrations.youtube_music import ...``,
+but this can, and this is what caught the ytmusicapi leak during the search-pod
+work before it could CrashLoop a pod (see reference_slim_pod_import_chain_leak).
+
+"On its own" is a qualification criterion 7 step 6 earned. A folder plus a test
+comparing it to the measured closure does now constrain first-party imports --
+see test_every_module_lives_where_its_closure_says. The two checks are still
+different facts and neither subsumes the other: this one is about THIRD-PARTY
+packages an image must not install, that one is about FIRST-PARTY modules an
+image must not reach. A leak of the first kind is an ImportError at pod start; a
+leak of the second kind runs fine and quietly rebuilds an image it should not.
 
 Two things make these tests worth their weight:
 
@@ -39,9 +47,10 @@ import re
 import pytest
 
 from tests.cli._image_deps import (
-    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, LAYOUT_DOC, OWNERSHIP_DOC, REPO_ROOT,
-    PACKAGE, VOCABULARY, classify_modules, measure, render_closure, route_leaf,
-    render_layout, render_table,
+    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
+    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, SEAMS_DIR, VOCABULARY, classify_modules,
+    codeless_inits, declared_home, layout_violations, measure, measured_owners,
+    render_closure, route_leaf, render_layout, render_table,
 )
 
 
@@ -120,38 +129,113 @@ def test_extra_names_are_normalised_and_self_references_resolve():
     )
 
 
-# Internal modules the bot process must not import. Unlike the package lists
-# above, none of these would ImportError on the bot image — [bot] installs
-# everything they need. They are here because importing them is the signature of
-# a reintroduced in-process fallback, and a fallback is silent: the bot would run
-# its own private broker registry while the downloader and search pods talked to
-# the real one, and the symptom is "audio never plays", not a crash.
-#
-# This list has shrunk from five entries to one, and the shrinking is the point.
-# The three asyncio_* engines and clients/broker_client left discord_bot/ rather
-# than being listed here: a module under tests/ cannot reach an image, so "the
-# bot must not import them" became a property of the build instead of a rule
-# this tuple has to keep restating. A rule enforced by the filesystem does not
-# need remembering; a rule enforced by a tuple does.
-#
-# What remains is the one module that genuinely ships and must still stay out of
-# the bot's import graph. servers/broker_server is deployable -- the broker pod
-# serves it -- so it cannot be moved out of reach, which is exactly why it still
-# needs asserting.
-BOT_FORBIDDEN_MODULES = (
-    'discord_bot.services.broker.servers.broker_server',
-)
+def test_every_module_lives_where_its_closure_says():
+    """
+    A module's folder is a declaration, and the closure has to agree with it.
+
+    This is criterion 7 step 6, and it is the first version of this check with
+    any content in it. While homes were DERIVED from the closure -- steps 1
+    through 5 -- a test comparing the two could not fail: the layout was computed
+    from what imports what, so it agreed with what imports what by construction.
+    That is the "passes because it no longer finds anything to check" shape, and
+    it passed green for five steps while checking nothing.
+
+    Now the folder comes off the tree and the closure comes off a live import, so
+    the two are independent facts and can contradict each other. A module in
+    ``services/bot/`` that the downloader starts reaching is a contradiction. So
+    is one in ``core/`` that only five images reach.
+
+    This REPLACES ``BOT_FORBIDDEN_MODULES``, which was the hand-maintained
+    version of exactly this rule, narrowed to one importer and one module. That
+    tuple's last entry was ``services/broker/servers/broker_server``, and the
+    rule above covers it strictly more tightly: the tuple asserted the bot does
+    not import it, while this asserts that nothing but the broker does, for every
+    module in every service folder, without anyone maintaining a list. The
+    diagnostic that made the tuple worth having is kept in the failure message --
+    an in-process tier coming back, or an annotation against a concrete type
+    where the client Protocol was meant.
+    """
+    owners = measured_owners()
+    exempt = codeless_inits(owners)
+
+    # Both populations are asserted before the rule runs, because this check is
+    # two filters deep and either one swallowing everything would leave it
+    # passing while looking at nothing -- the exact failure it was written to
+    # end. If the codeless-init detector ever matched every module, or every
+    # module lost its home, the assertion below would still be green.
+    assert exempt, 'the codeless-init detector matched nothing -- it is broken, not the tree'
+    checked = [m for m in owners if m not in exempt and declared_home(m)]
+    assert checked, 'no homed module survived the exemption -- this test checked nothing'
+
+    violations = layout_violations(owners, exempt=exempt)
+    assert not violations, (
+        'the tree and the closure disagree about where code lives:\n  '
+        + '\n  '.join(violations)
+    )
 
 
-def test_bot_imports_no_in_process_tier_modules():
-    '''The bot process imports none of the in-process engine modules.'''
-    imported = set(measure('discord_bot.services.bot.cli.bot')['modules'])
-    leaked = sorted(imported & set(BOT_FORBIDDEN_MODULES))
-    assert not leaked, (
-        f'the bot process imported {leaked} — these are test doubles, not deployable '
-        f'code. Something re-introduced an in-process tier, or annotated against an '
-        f'engine type instead of the client Protocol (which is how '
-        f'interfaces/broker_protocols kept reaching music_player).'
+def test_a_misplaced_module_is_actually_caught():
+    """
+    The declared check reports a contradiction that is really there.
+
+    A rule whose whole purpose is to be able to fail has to be shown failing,
+    and against a constructed closure rather than the real one -- the real one
+    passes, which is the outcome that proves nothing. Each case below is one of
+    the three rules, with the violation built by hand.
+
+    This test is the reason ``layout_violations`` takes its owner map as an
+    argument instead of measuring one itself. A check that can only be run
+    against the live tree can only be observed passing.
+    """
+    images = sorted(short for short in (n.replace('discord-', '') for n in IMAGE_NAMES.values()))
+    assert len(images) == 6, f'expected six images, found {images}'
+    all_six = set(images)
+
+    core_short = set(images[:5])
+    cases = {
+        f'{PACKAGE}.core.thing': core_short,
+        f'{PACKAGE}.services.bot.thing': {'bot', 'downloader'},
+        f'{PACKAGE}.seams.database.thing': all_six,
+        f'{PACKAGE}.seams.database.other': {'bot'},
+    }
+    for module, reached in cases.items():
+        found = layout_violations({module: reached})
+        assert len(found) == 1, f'{module} reached by {sorted(reached)} produced {found}'
+        assert module in found[0]
+
+    # And the same modules, placed consistently, produce nothing -- otherwise the
+    # check above would pass by reporting everything.
+    clean = {
+        f'{PACKAGE}.core.thing': all_six,
+        f'{PACKAGE}.services.bot.thing': {'bot'},
+        f'{PACKAGE}.seams.database.thing': {'bot', 'db'},
+        f'{PACKAGE}.unsplit.thing': {'bot', 'db'},
+    }
+    assert not layout_violations(clean)
+
+
+def test_the_unsplit_packages_are_exactly_declared():
+    """
+    ``NOT_YET_SPLIT`` names every top-level package criterion 7 has not homed.
+
+    Equality, not containment, and for the same reason the import boundaries
+    above are equality: containment catches a new flat package arriving but not a
+    finished one still listed. The second is how a list stops meaning anything --
+    it reads as remaining work long after the work is done, and nothing says so.
+
+    The check is at package granularity on purpose. A new module under ``utils/``
+    is honest, because ``utils/`` has no home yet either. A new top-level package
+    is the split running backwards, and that is what this fails on.
+    """
+    owners = measured_owners()
+    exempt = codeless_inits(owners)
+    unsplit = {m.split('.')[1] for m in owners
+               if m not in exempt and declared_home(m) is None}
+    assert unsplit == set(NOT_YET_SPLIT), (
+        f'NOT_YET_SPLIT and the tree disagree: {sorted(unsplit ^ set(NOT_YET_SPLIT))}. '
+        f'Added a top-level package under {PACKAGE}/? Give it a home instead. '
+        f'Finished emptying one? Drop it from NOT_YET_SPLIT, so the list keeps '
+        f'shrinking rather than carrying an entry nothing is left in.'
     )
 
 
@@ -199,14 +283,18 @@ def test_layout_doc_is_current():
     '''
     docs/module-layout.md matches a live measurement.
 
-    Criterion 7 step 1: render the target layout and assert it matches today, so
-    the shape is reviewable before any file moves.
+    This test's SCOPE has not changed and its docstring's caveat has. Through
+    steps 1 to 5 it carried a warning that the doc could not fail on a module
+    living in the wrong place, because homes were derived from the closure and
+    so agreed with it by construction. Step 6 removed the reason for the warning
+    rather than the warning itself, and it is deleted here rather than softened:
+    a stale caveat is the same failure as a stale figure, and it is worse for
+    telling a reader not to trust a check that now works.
 
-    Be clear about what this does and does not prove. Homes are DERIVED from the
-    closure, so this cannot fail on a module living in the wrong place -- there
-    is no "wrong place" until a folder is a declaration rather than a restatement
-    of what imports what. What it does catch is the doc going stale, which is the
-    failure the hand-copied figures in the spec have already hit twice.
+    What this test catches is still only the doc going stale. The check with
+    teeth is test_every_module_lives_where_its_closure_says; this one keeps the
+    rendering of it honest, which is the failure the hand-copied figures in the
+    spec have already hit twice.
     '''
     rendered = render_layout()
     if os.environ.get('UPDATE_IMAGE_DEPS'):
@@ -225,6 +313,14 @@ def test_every_module_gets_at_most_one_home():
     impossible by construction today, which is exactly why it is worth pinning. The
     rules gain cases as the layout is argued about, and the property that must
     survive every one of them is that a file has one home.
+
+    This and test_no_placed_module_is_a_codeless_package_init are now the only
+    callers of classify_modules(): step 6 moved the generated doc onto the
+    declared homes, and for a module that already has one the derived rule and
+    the tree agree by construction. The derivation is kept because it is still
+    the honest answer to "where would an unhomed module go", and it is still the
+    rule the remaining 25 will be argued about with. If those 25 are ever placed
+    it goes, and these two tests go with it.
     '''
     placed, unplaced, scaffolding = classify_modules()
     homes = collections.Counter()
@@ -267,29 +363,37 @@ def test_no_placed_module_is_a_codeless_package_init():
 
 def test_seam_folders_are_named_by_exactly_one_route():
     '''
-    Every seam folder takes its name from the one route module in its group.
+    Every seam folder on disk holds exactly the one route module that names it.
 
-    This is the rule that keeps the seam names out of a hand-written map. If a
-    seam folder ever appears whose group holds no route -- or two -- the name came
-    from somewhere other than the tree, and this is the test that says so.
+    This used to run over the DERIVED groups, where it was a check on the naming
+    rule. It runs over the tree now, where it is a check on the tree: a seam
+    folder is a contract, the route module IS the contract, and a folder holding
+    two routes or none has a name that came from somewhere other than what it
+    contains.
 
-    The checked count is asserted because this test is a filter over homes, and a
-    filter that matches nothing passes while checking nothing. That is how the
-    first version of it went quiet when the folder prefix changed.
+    The checked count is asserted because this test is a filter, and a filter
+    that matches nothing passes while checking nothing. That is how the first
+    version went quiet when the folder prefix changed -- twice, in two different
+    files, which is why the rule is structural now rather than a string prefix.
     '''
-    placed, _, _ = classify_modules()
-    prefix = f'{PACKAGE}/seams/'
-    checked = 0
-    for _, (home, modules) in placed.items():
-        if not home.startswith(prefix):
-            continue
-        checked += 1
-        routes = [m for m in modules if route_leaf(m)]
-        assert len(routes) == 1, f'{home} is named by {len(routes)} route modules, not one'
-        assert home == f'{prefix}{route_leaf(routes[0])}', (
-            f'{home} does not match the route that names it, {routes[0]}'
+    owners = measured_owners()
+    seams = {}
+    for module in owners:
+        home = declared_home(module)
+        if home and home[0] == SEAMS_DIR:
+            seams.setdefault(home[1], []).append(module)
+    assert seams, f'no {SEAMS_DIR}/ folders found on disk -- this test checked nothing'
+
+    for seam, modules in sorted(seams.items()):
+        routes = sorted(m for m in modules if route_leaf(m))
+        assert len(routes) == 1, (
+            f'{PACKAGE}/{SEAMS_DIR}/{seam}/ holds {len(routes)} route modules, not one: '
+            f'{routes}. A seam is named by its contract; two contracts are two seams.'
         )
-    assert checked, f'no home started with {prefix!r} -- this test checked nothing'
+        assert route_leaf(routes[0]) == seam, (
+            f'{PACKAGE}/{SEAMS_DIR}/{seam}/ is named {seam!r} but its route is '
+            f'{routes[0]!r}. Rename the folder to follow the route, not the other way.'
+        )
 
 
 # The only image whose Dockerfile may COPY the migration scripts. Declared, not
