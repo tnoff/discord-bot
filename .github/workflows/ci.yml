@@ -66,7 +66,7 @@ jobs:
     name: Scan for secrets
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@9a761bd46ce4938adc39ec1e93b7a79d42b434bf
 
   # The suite has no sqlite fallback. tox.ini sets
   # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
@@ -83,7 +83,7 @@ jobs:
     name: Tox
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    uses: tnoff/github-workflows/.github/workflows/tox.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@9a761bd46ce4938adc39ec1e93b7a79d42b434bf
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
       # ci-base-images base. Two tests shell out to it directly
@@ -172,7 +172,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
-    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
+    uses: tnoff/github-workflows/.github/workflows/docker-build-check.yml@9a761bd46ce4938adc39ec1e93b7a79d42b434bf
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
@@ -181,7 +181,7 @@ jobs:
     if: startsWith(github.head_ref, 'renovate/dev-')
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@9a761bd46ce4938adc39ec1e93b7a79d42b434bf
     with:
       bump_changelog: true
     secrets:
@@ -197,7 +197,7 @@ jobs:
     name: Workflow contracts
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    uses: tnoff/github-workflows/.github/workflows/check-workflow-contracts.yml@0d92c3c09cf7dd78ce36cb5f40618e7fc296e6a2
+    uses: tnoff/github-workflows/.github/workflows/check-workflow-contracts.yml@9a761bd46ce4938adc39ec1e93b7a79d42b434bf
 
   result:
     name: CI result
