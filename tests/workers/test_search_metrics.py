@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_bot.workers.download_metrics import DownloadMetrics
+from discord_bot.services.downloader.workers.download_metrics import DownloadMetrics
 from discord_bot.workers.search_metrics import SearchMetrics
 
 

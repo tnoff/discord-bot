@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 198 modules place. 25 do not**, and they
+**123 of 205 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**50 are package `__init__.py` files that declare no code**;
+**57 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -187,14 +187,14 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/downloader/` — 8, reached by downloader
 
-- `discord_bot.cli.downloader`
-- `discord_bot.interfaces.download_protocols`
-- `discord_bot.servers.download_server`
-- `discord_bot.utils.audio`
-- `discord_bot.utils.integrations.egress_pool`
-- `discord_bot.utils.integrations.egress_probe`
-- `discord_bot.workers.download_metrics`
-- `discord_bot.workers.redis_download_worker`
+- `discord_bot.services.downloader.cli.downloader`
+- `discord_bot.services.downloader.interfaces.download_protocols`
+- `discord_bot.services.downloader.servers.download_server`
+- `discord_bot.services.downloader.utils.audio`
+- `discord_bot.services.downloader.utils.integrations.egress_pool`
+- `discord_bot.services.downloader.utils.integrations.egress_probe`
+- `discord_bot.services.downloader.workers.download_metrics`
+- `discord_bot.services.downloader.workers.redis_download_worker`
 
 ### `discord_bot/services/search/` — 13, reached by search
 
@@ -268,6 +268,13 @@ overstated the core by a third.
 - `discord_bot.services.dispatcher.servers`
 - `discord_bot.services.dispatcher.utils`
 - `discord_bot.services.dispatcher.workers`
+- `discord_bot.services.downloader`
+- `discord_bot.services.downloader.cli`
+- `discord_bot.services.downloader.interfaces`
+- `discord_bot.services.downloader.servers`
+- `discord_bot.services.downloader.utils`
+- `discord_bot.services.downloader.utils.integrations`
+- `discord_bot.services.downloader.workers`
 - `discord_bot.types`
 - `discord_bot.utils`
 - `discord_bot.utils.integrations`

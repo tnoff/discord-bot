@@ -26,7 +26,7 @@ from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBroker
 from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.interfaces.download_protocols import ClearGuildResult
+from discord_bot.services.downloader.interfaces.download_protocols import ClearGuildResult
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.cogs.music_helpers.search_client import SearchException
 from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
@@ -1139,7 +1139,7 @@ def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=red
         }
     })
 
-    with patch('discord_bot.interfaces.download_protocols.YoutubeDL') as mock_ytdl:
+    with patch('discord_bot.services.downloader.interfaces.download_protocols.YoutubeDL') as mock_ytdl:
         cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
         # The cog builds no worker any more, so the merge happens where the
         # downloader pod does it. attach_in_process_download stands in for the pod

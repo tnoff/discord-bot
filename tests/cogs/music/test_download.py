@@ -13,7 +13,7 @@ from opentelemetry.trace.status import StatusCode
 from discord_bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
 
-from discord_bot.interfaces import download_protocols
+from discord_bot.services.downloader.interfaces import download_protocols
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
@@ -390,7 +390,7 @@ async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_cont
 async def test_run_idle_empty_queue_backs_off(mocker):
     """run() sleeps the idle backoff (not every iteration) when both input queues
     are empty and no backoff is active — cutting idle busy-loop churn."""
-    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    sleep_mock = mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep')
     worker = AsyncioDownloadWorker(None, Path('/tmp'))
     assert worker.backoff_seconds_remaining is None  # else-branch (no backoff)
     await worker.run(asyncio.Event())
@@ -401,7 +401,7 @@ async def test_run_idle_empty_queue_backs_off(mocker):
 async def test_run_idle_backoff_active_empty_queue_backs_off(mocker):
     """With backoff active but nothing queued, run() reaches the merged-empty path
     after the backoff wait and applies the idle backoff sleep before returning."""
-    sleep_mock = mocker.patch('discord_bot.interfaces.download_protocols.sleep')
+    sleep_mock = mocker.patch('discord_bot.services.downloader.interfaces.download_protocols.sleep')
     worker = AsyncioDownloadWorker(None, Path('/tmp'))
     # Future timestamp → backoff_seconds_remaining truthy → backoff branch taken.
     worker.wait_timestamp = datetime.now(timezone.utc).timestamp() + 3600

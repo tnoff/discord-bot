@@ -19,7 +19,7 @@ from opentelemetry.trace import StatusCode
 
 from discord_bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.clients.http_queue_worker_client import _exception_detail
-from discord_bot.servers.download_server import DownloadHttpServer
+from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.playlist_add_request import PlaylistAddRequest

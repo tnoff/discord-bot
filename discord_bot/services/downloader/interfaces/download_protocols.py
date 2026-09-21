@@ -50,7 +50,7 @@ from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildRe
 # Re-exported here so existing imports keep working —
 # same move, same reason, as BrokerClient before them.
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult']
-from discord_bot.utils.audio import edit_audio_file, AudioProcessingError
+from discord_bot.services.downloader.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.types.download import (
@@ -59,10 +59,10 @@ from discord_bot.types.download import (
 )
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue, FailureStatus
 from discord_bot.utils.integrations.s3 import upload_file
-from discord_bot.utils.integrations.egress_probe import (
+from discord_bot.services.downloader.utils.integrations.egress_probe import (
     cached_exit_attributes, cached_exit_hostname, PoolExitIpProbe, UNKNOWN_EXIT,
 )
-from discord_bot.utils.integrations.egress_pool import (
+from discord_bot.services.downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
     ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
 )

@@ -1,8 +1,8 @@
 import pytest
 
-from discord_bot.interfaces.download_protocols import match_generator
+from discord_bot.services.downloader.interfaces.download_protocols import match_generator
 
-from discord_bot.interfaces.download_protocols import VideoTooLong, VideoBanned
+from discord_bot.services.downloader.interfaces.download_protocols import VideoTooLong, VideoBanned
 
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 

@@ -38,7 +38,7 @@ from typing import Callable, List
 from discord_bot.clients.redis_client import RedisManager
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.interfaces.download_protocols import (
+from discord_bot.services.downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
 from discord_bot.types.download import DownloadErrorType, DownloadResult

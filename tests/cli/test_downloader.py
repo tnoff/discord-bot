@@ -5,7 +5,7 @@ import logging
 import pytest
 
 
-from discord_bot.cli import downloader as downloader_cli
+from discord_bot.services.downloader.cli import downloader as downloader_cli
 from discord_bot.core.cli._lib import common as cli_common
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.

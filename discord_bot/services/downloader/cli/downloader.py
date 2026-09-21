@@ -38,14 +38,14 @@ import click
 
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.clients.redis_client import RedisManager
-from discord_bot.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
-from discord_bot.servers.download_server import DownloadHttpServer
+from discord_bot.services.downloader.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
+from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
 from discord_bot.core.utils.common import GeneralConfig, resolve_tracing_config
 from discord_bot.core.utils.loop_health import LoopHealth
-from discord_bot.utils.integrations.egress_probe import build_exit_probe, ExitProbe
-from discord_bot.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
-from discord_bot.workers.download_metrics import DownloadMetrics
-from discord_bot.workers.redis_download_worker import RedisDownloadWorker
+from discord_bot.services.downloader.utils.integrations.egress_probe import build_exit_probe, ExitProbe
+from discord_bot.services.downloader.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
+from discord_bot.services.downloader.workers.download_metrics import DownloadMetrics
+from discord_bot.services.downloader.workers.redis_download_worker import RedisDownloadWorker
 
 from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 from discord_bot.cli._lib.worker_pod import (

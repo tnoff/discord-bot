@@ -68,7 +68,7 @@ IMAGE_IMPORTS = {
     # not follow it out.
     'discord_bot.cli.broker': frozenset({'boto3', 'dappertable'}),
     # Downloads (yt_dlp) and uploads finished media (boto3).
-    'discord_bot.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
+    'discord_bot.services.downloader.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
     'discord_bot.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
     # Owns the schema and the engine. dappertable is not a leak and not a
@@ -86,7 +86,7 @@ IMAGE_NAMES = {
     'discord_bot.cli.bot': 'discord-bot',
     'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_bot.cli.broker': 'discord-broker',
-    'discord_bot.cli.downloader': 'discord-downloader',
+    'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
     'discord_bot.cli.search': 'discord-search',
     'discord_bot.cli.database': 'discord-db',
 }
@@ -103,7 +103,7 @@ IMAGE_DOCKERFILES = {
     'discord_bot.cli.bot': 'docker/Dockerfile',
     'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
     'discord_bot.cli.broker': 'docker/Dockerfile.broker',
-    'discord_bot.cli.downloader': 'docker/Dockerfile.downloader',
+    'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_bot.cli.search': 'docker/Dockerfile.search',
     'discord_bot.cli.database': 'docker/Dockerfile.db',
 }

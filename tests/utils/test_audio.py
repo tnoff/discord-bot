@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from discord_bot.utils.audio import get_editing_path, get_finished_path, edit_audio_file, AudioProcessingError
+from discord_bot.services.downloader.utils.audio import get_editing_path, get_finished_path, edit_audio_file, AudioProcessingError
 
 
 @contextmanager
@@ -66,7 +66,7 @@ def test_edit_audio_file_converts_to_pcm(mocker, tmp_path):
     def create_pcm(*_args, **_kwargs):
         editing_path.write_bytes(bytes(400))  # 400 bytes, divisible by 4
 
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_pcm)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=create_pcm)
 
     result = edit_audio_file(audio_file, False, None)
 
@@ -88,7 +88,7 @@ def test_edit_audio_file_normalize_includes_loudnorm(mocker, tmp_path):
         captured['args'] = args[0]
         editing_path.write_bytes(bytes(400))
 
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=capture_args)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=capture_args)
     edit_audio_file(audio_file, True, None)
 
     assert 'loudnorm' in captured['args']
@@ -107,7 +107,7 @@ def test_edit_audio_file_no_normalize_excludes_loudnorm(mocker, tmp_path):
         captured['args'] = args[0]
         editing_path.write_bytes(bytes(400))
 
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=capture_args)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=capture_args)
     edit_audio_file(audio_file, False, None)
 
     assert 'loudnorm' not in captured['args']
@@ -116,9 +116,9 @@ def test_edit_audio_file_no_normalize_excludes_loudnorm(mocker, tmp_path):
 def test_edit_audio_file_subprocess_error(mocker, tmp_path):
     '''subprocess.CalledProcessError raises AudioProcessingError and logs an error.'''
     error = subprocess.CalledProcessError(1, 'ffmpeg', stderr=b'Invalid data found')
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=error)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=error)
     mock_logger = MagicMock()
-    mocker.patch('discord_bot.utils.audio.get_logger', return_value=mock_logger)
+    mocker.patch('discord_bot.services.downloader.utils.audio.get_logger', return_value=mock_logger)
     audio_file = tmp_path / 'test.mp3'
     audio_file.touch()
     with pytest.raises(AudioProcessingError):
@@ -135,7 +135,7 @@ def test_edit_audio_file_empty_output(mocker, tmp_path):
     def create_empty_pcm(*_args, **_kwargs):
         editing_path.write_bytes(b'')
 
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_empty_pcm)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=create_empty_pcm)
 
     with pytest.raises(AudioProcessingError, match='empty output'):
         edit_audio_file(audio_file, False, None)
@@ -150,7 +150,7 @@ def test_edit_audio_file_size_not_divisible_by_4(mocker, tmp_path):
     def create_odd_pcm(*_args, **_kwargs):
         editing_path.write_bytes(bytes(3))
 
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=create_odd_pcm)
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=create_odd_pcm)
 
     with pytest.raises(AudioProcessingError, match='not divisible by 4'):
         edit_audio_file(audio_file, False, None)
@@ -159,10 +159,10 @@ def test_edit_audio_file_size_not_divisible_by_4(mocker, tmp_path):
 def test_edit_audio_file_subprocess_error_records_otel_span(mocker, tmp_path):
     '''CalledProcessError is recorded on the otel span and span status set to ERROR.'''
     error = subprocess.CalledProcessError(1, 'ffmpeg', stderr=b'error')
-    mocker.patch('discord_bot.utils.audio.subprocess.run', side_effect=error)
-    mocker.patch('discord_bot.utils.audio.get_logger', return_value=MagicMock())
+    mocker.patch('discord_bot.services.downloader.utils.audio.subprocess.run', side_effect=error)
+    mocker.patch('discord_bot.services.downloader.utils.audio.get_logger', return_value=MagicMock())
     mock_span = MagicMock()
-    with patch('discord_bot.utils.audio.otel_span_wrapper') as mock_wrapper:
+    with patch('discord_bot.services.downloader.utils.audio.otel_span_wrapper') as mock_wrapper:
         mock_wrapper.return_value.__enter__ = MagicMock(return_value=mock_span)
         mock_wrapper.return_value.__exit__ = MagicMock(return_value=False)
         audio_file = tmp_path / 'test.mp3'
