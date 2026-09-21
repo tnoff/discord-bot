@@ -388,71 +388,217 @@ def classify_modules():
     return placed, unplaced, scaffolding
 
 
+
+# ---------------------------------------------------------------------------
+# Criterion 7 step 6 -- the layout as a DECLARATION rather than a restatement.
+#
+# Everything above derives a module's home from the closure, which is why the
+# doc it generates could never fail: a layout computed FROM what imports what
+# agrees with what imports what by construction. The functions below read the
+# home a module actually has -- its path on disk -- and check the closure
+# against it. That check can fail, and the difference is the whole of step 6.
+# ---------------------------------------------------------------------------
+
+CORE_DIR = 'core'
+SEAMS_DIR = 'seams'
+SERVICES_DIR = 'services'
+
+# Top-level packages under discord_bot/ that criterion 7 has not split yet.
+# DECLARED, not derived, and checked for equality rather than containment: a
+# derived version of this set is the same tautology step 6 exists to escape,
+# and containment would let the set quietly stop shrinking.
+#
+# Equality buys both directions. A brand new flat package -- the most likely way
+# the split gets walked back, one plausible file at a time -- is not in here and
+# fails. A package that has been fully emptied by a move is still in here and
+# also fails, so finishing a package forces the list to shrink rather than
+# leaving a spent entry behind to be read as work remaining.
+#
+# The granularity is the package, not the module, and that is deliberate. A new
+# module under utils/ is honest: utils/ genuinely has no home yet, and making
+# every such PR edit a list here would be friction with no signal in it. What is
+# NOT honest is a new top-level package, because that is the split going
+# backwards.
+NOT_YET_SPLIT = frozenset({
+    'cli',
+    'clients',
+    'common',
+    'interfaces',
+    'servers',
+    'types',
+    'utils',
+    'workers',
+})
+
+
+def declared_home(module: str) -> tuple | None:
+    """The folder a module actually lives in: `('core', None)`, `('seams', 'database')`.
+
+    None for a module that criterion 7 has not homed yet. Read from the dotted
+    path, so this is a fact about the tree rather than about the closure -- which
+    is what lets the two be compared at all.
+    """
+    parts = module.split('.')
+    if len(parts) >= 2 and parts[1] == CORE_DIR:
+        return (CORE_DIR, None)
+    if len(parts) >= 3 and parts[1] in (SEAMS_DIR, SERVICES_DIR):
+        return (parts[1], parts[2])
+    return None
+
+
+def measured_owners() -> dict:
+    """Every measured module mapped to the set of images that reach it."""
+    return _owner_sets({ep: measure(ep) for ep in IMAGE_IMPORTS})
+
+
+def codeless_inits(owners) -> set:
+    """The package `__init__.py` files in `owners` that declare no code.
+
+    Exempt from the declared check for the same reason step 3 refused to place
+    them: an init's fanout is its children's, unioned, not its own. A seam init
+    can read as all-six with no child reaching all six -- two children reached by
+    complementary halves are enough -- so checking it would report a violation
+    that exists in no module. Every child IS checked individually, so a real
+    misplacement always surfaces on the module that declares the code.
+    """
+    return {m for m in owners if _is_scaffolding(m)}
+
+
+def layout_violations(owners, exempt=()) -> list:
+    """Modules whose declared folder contradicts the closure that reaches them.
+
+    Pure in `owners` so it can be exercised against a constructed map as well as
+    a measured one -- see test_a_misplaced_module_is_actually_caught, which is
+    the guard against this returning [] because it stopped looking.
+    """
+    total = len(IMAGE_NAMES)
+    exempt = set(exempt)
+    violations = []
+    for module in sorted(owners):
+        if module in exempt:
+            continue
+        home = declared_home(module)
+        if home is None:
+            continue
+        kind, name = home
+        images = owners[module]
+        if kind == CORE_DIR and len(images) != total:
+            missing = sorted({short_name(ep) for ep in IMAGE_IMPORTS} - images)
+            violations.append(
+                f'{module} is in {PACKAGE}/{CORE_DIR}/ but {missing} do not reach it. '
+                f'The core is what every image carries; a module only some images '
+                f'reach is costing the rest their image size for nothing. Move it to '
+                f'a seam, or find what stopped importing it.'
+            )
+        elif kind == SERVICES_DIR and images != {name}:
+            intruders = sorted(images - {name})
+            violations.append(
+                f'{module} is in {PACKAGE}/{SERVICES_DIR}/{name}/ but {intruders} '
+                f'reach it too. A service folder is that pod\'s private code. Either '
+                f'an in-process tier came back, or something annotated against a '
+                f'concrete type where the client Protocol was meant -- which is how '
+                f'interfaces/broker_protocols kept reaching music_player. Move the '
+                f'shared part to a seam; do not widen the folder.'
+            )
+        elif kind == SEAMS_DIR and (len(images) < 2 or len(images) == total):
+            reached = sorted(images)
+            violations.append(
+                f'{module} is in {PACKAGE}/{SEAMS_DIR}/{name}/ but is reached by '
+                f'{reached}. A seam is shared by some images and not all: reached by '
+                f'one, it belongs to that service; reached by all {total}, it belongs '
+                f'to the core.'
+            )
+    return violations
+
+
 def render_layout() -> str:
-    '''
-    Render the folder each module would live in under criterion 7's layout.
+    """
+    Render the layout as it stands, and check the closure against it.
 
-    Nothing moves. This is the target rendered against today's tree so it can be
-    argued with before a single file is touched, and regenerated after each step
-    so "where does this file go" stays a measurement.
+    Step 6 changed what this doc IS. It used to render a target derived from the
+    closure, which meant it agreed with the closure by construction and the test
+    asserting so could not fail. It now reads homes off the tree and reports the
+    closure beside them, so the two can disagree -- and when they do,
+    test_every_module_lives_where_its_closure_says is what says so. This doc's
+    job is to make that check legible, not to be the check.
 
-    Note what this doc CANNOT tell you, because it will read as if it can: while
-    homes are derived from the closure, a test comparing the two cannot fail. It
-    only gains content at step 6, when a module's folder becomes a declaration
-    instead of a restatement of what imports it.
-    '''
-    placed, unplaced, scaffolding = classify_modules()
-    total_placed = sum(len(mods) for _, mods in placed.values())
-    total_unplaced = sum(len(mods) for _, mods in unplaced.values())
-    every = total_placed + total_unplaced + len(scaffolding)
+    The derived rule has not been thrown away; it is at the bottom, pointed at
+    the modules that have no home yet, which is the only place it still has
+    anything to say.
+    """
+    owners = measured_owners()
+    exempt = codeless_inits(owners)
+    total = len(IMAGE_NAMES)
+    every_image = {short_name(ep) for ep in IMAGE_IMPORTS}
+
+    homes = {}
+    unsplit = {}
+    for module, images in owners.items():
+        if module in exempt:
+            continue
+        home = declared_home(module)
+        if home is None:
+            unsplit.setdefault(frozenset(images), []).append(module)
+            continue
+        kind, name = home
+        folder = f'{PACKAGE}/{kind}' if name is None else f'{PACKAGE}/{kind}/{name}'
+        homes.setdefault(folder, []).append(module)
+
+    homed_count = sum(len(v) for v in homes.values())
+    unsplit_count = sum(len(v) for v in unsplit.values())
+    unsplit_packages = {m.split('.')[1] for mods in unsplit.values() for m in mods}
 
     lines = [
-        '# Where each module would live',
+        '# Where each module lives',
         '',
         '<!-- GENERATED by tests/cli/test_import_boundaries.py. Do not edit by hand.',
         '     Regenerate with: UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py -->',
         '',
-        'The target layout of criterion 7 in `per-image-code-split`, rendered against',
-        'the tree as it stands. **No file has moved.** Homes come from the measured',
-        'import closure, by three rules that consult no list of names:',
+        'The layout of criterion 7 in `per-image-code-split`, **read from the tree** and',
+        'checked against the measured import closure. A folder is a declaration now: the',
+        'table below is enforced by `test_every_module_lives_where_its_closure_says`, and',
+        'a module whose closure contradicts its folder fails the suite.',
+        '',
+        '| a module in | must be reached by |',
+        '|---|---|',
+        f'| `{PACKAGE}/{CORE_DIR}/` | all {total} images |',
+        f'| `{PACKAGE}/{SERVICES_DIR}/<image>/` | that one image, and no other |',
+        f'| `{PACKAGE}/{SEAMS_DIR}/<seam>/` | more than one, fewer than all {total} |',
+        '',
+        'Until step 6 these rules ran the other way — a home was *computed* from the',
+        'closure, so no module could be in the wrong one. The rules read the same and',
+        'mean the opposite: they are now a constraint on where code may live rather',
+        'than a description of where it ended up.',
         '',
         f'`{PACKAGE}` stays the single import root and the layout nests inside it, so',
         'every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,',
-        "setuptools' `packages.find` — keeps working unchanged through a half-moved",
-        'tree.',
+        "setuptools' `packages.find` — keeps working unchanged.",
         '',
-        '| a module reached by | goes to |',
-        '|---|---|',
-        f'| all {len(IMAGE_NAMES)} images | `{PACKAGE}/core/` |',
-        f'| exactly one image | `{PACKAGE}/services/<image>/` |',
-        f'| a group holding one `{ROUTE_PACKAGE}.*` module | `{PACKAGE}/seams/<that route>/` |',
-        '',
-        'The third rule is why the seam names below are not invented here. A seam is',
-        'a contract, the route module *is* the contract, and so the folder takes its',
-        'name — rename the route and this doc follows.',
-        '',
-        f'**{total_placed} of {every} modules place. {total_unplaced} do not**, and they',
-        'are listed at the bottom rather than filed somewhere plausible. A further',
-        f'**{len(scaffolding)} are package `__init__.py` files that declare no code**;',
-        'they have no home of their own and are listed separately.',
+        f'**{homed_count} modules are homed and checked. {unsplit_count} are not split',
+        f'yet** and are listed at the bottom. A further **{len(exempt)} are package',
+        '`__init__.py` files that declare no code**; they are exempt, because an init\'s',
+        "fanout is its children's rather than its own, and every child is checked on its",
+        'own account.',
         '',
         '## Summary',
         '',
         '| folder | modules | reached by |',
         '|---|---|---|',
     ]
-    for images, (home, modules) in sorted(placed.items(), key=lambda kv: kv[1][0]):
-        lines.append(f'| `{home}/` | {len(modules)} | {", ".join(sorted(images))} |')
-    lines.append(f'| *(unplaced)* | {total_unplaced} | {len(unplaced)} groups, see below |')
+    for folder in sorted(homes):
+        reached = set().union(*(owners[m] for m in homes[folder]))
+        label = f'all {total}' if reached == every_image else ', '.join(sorted(reached))
+        lines.append(f'| `{folder}/` | {len(homes[folder])} | {label} |')
+    lines.append(f'| *(not split yet)* | {unsplit_count} | '
+                 f'{len(unsplit_packages)} packages, see below |')
 
     # A seam takes its name from a route, and a route may be named after the pod
     # it talks TO, so the same word can name both. Derived rather than written
     # down, so a future rename that introduces or removes one is reported either
     # way -- a hand-written note here would go quietly wrong.
-    seam_prefix, service_prefix = f'{PACKAGE}/seams/', f'{PACKAGE}/services/'
-    pods = {short_name(ep) for ep in IMAGE_IMPORTS}
-    collisions = sorted(home[len(seam_prefix):] for home, _ in placed.values()
-                        if home.startswith(seam_prefix) and home[len(seam_prefix):] in pods)
+    seam_prefix, service_prefix = f'{PACKAGE}/{SEAMS_DIR}/', f'{PACKAGE}/{SERVICES_DIR}/'
+    collisions = sorted(f[len(seam_prefix):] for f in homes
+                        if f.startswith(seam_prefix) and f[len(seam_prefix):] in every_image)
     if collisions:
         shared = ', '.join(f'`{c}`' for c in collisions)
         lines += [
@@ -464,45 +610,35 @@ def render_layout() -> str:
             'confuse them; it is the prose and the review conversation that need the care.',
         ]
 
-    lines += [
-        '',
-        '## Placed',
-        '',
-    ]
-    for images, (home, modules) in sorted(placed.items(), key=lambda kv: kv[1][0]):
-        lines += [f'### `{home}/` — {len(modules)}, reached by {", ".join(sorted(images))}', '']
-        lines += [f'- `{m}`' for m in modules]
+    lines += ['', '## Homed', '']
+    for folder in sorted(homes):
+        reached = set().union(*(owners[m] for m in homes[folder]))
+        label = f'all {total}' if reached == every_image else ', '.join(sorted(reached))
+        lines += [f'### `{folder}/` — {len(homes[folder])}, reached by {label}', '']
+        lines += [f'- `{m}`' for m in sorted(homes[folder])]
         lines.append('')
 
     lines += [
-        '## Scaffolding',
+        '## Not split yet',
         '',
-        'Package `__init__.py` files declaring no code. These are reported rather',
-        'than placed because they have no position of their own: they exist wherever',
-        'their children live. `discord_bot/cogs/__init__.py` is reached by all six',
-        'images only because every image imports *some* cog — it cannot move to the',
-        'core, because `discord_bot/cogs/` has to keep existing wherever cogs live,',
-        'and every new home needs its own empty init. Counting them as core modules',
-        'overstated the core by a third.',
+        f'{unsplit_count} modules across {len(unsplit_packages)} top-level packages still sit',
+        'where they always did. They are not a backlog of mechanical moves: **every',
+        'one of them is a module the derived rule could not place**, which is why the',
+        'split stopped here rather than running out of steam. Each is shared by more than',
+        'one image and fewer than all, with no single route module to name a seam after —',
+        'so giving it a home is a decision about what the sharing MEANS, and that is not',
+        "the generator's to make.",
         '',
-    ]
-    lines += [f'- `{m}`' for m in scaffolding]
-    lines += [
+        'Grouped by the set of images that reach them, because that is the grouping the',
+        'decision turns on: modules sharing an owner set are the candidates for sharing a',
+        'seam. The package each one sits in today is in its name.',
         '',
-        '## Unplaced',
-        '',
-        'Shared by more than one image but fewer than all, with no single route',
-        'module to name them. Each needs a decision, and the decision is not the',
-        f"generator's to make. Widening one into `{PACKAGE}/core/` costs the images that",
-        'do not reach it; inventing a seam folder claims a contract that has not been',
-        'written. The groups are small and several are recognisably the *other half*',
-        'of a seam already named above — the implementation side, where the seam',
-        'folder holds the client and the wire types.',
+        'The package names are declared in `NOT_YET_SPLIT` and checked for equality, so a',
+        'new top-level package fails the suite rather than quietly reopening the flat tree.',
         '',
     ]
-    for images, (_, modules) in sorted(unplaced.items(),
-                                       key=lambda kv: (-len(kv[0]), sorted(kv[0]))):
-        lines += [f'### {", ".join(sorted(images))} — {len(modules)}', '']
-        lines += [f'- `{m}`' for m in modules]
+    for images in sorted(unsplit, key=lambda s: (-len(s), sorted(s))):
+        lines += [f'### {", ".join(sorted(images))} — {len(unsplit[images])}', '']
+        lines += [f'- `{m}`' for m in sorted(unsplit[images])]
         lines.append('')
     return '\n'.join(lines)
