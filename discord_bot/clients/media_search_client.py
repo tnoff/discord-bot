@@ -20,7 +20,7 @@ from googleapiclient.errors import HttpError
 from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_bot.core.exceptions import MediaSearchError
-from discord_bot.types.catalog import CatalogResponse
+from discord_bot.seams.media_search.types.catalog import CatalogResponse
 from discord_bot.utils.integrations.spotify import SpotifyClient
 from discord_bot.utils.integrations.youtube import YoutubeClient
 

@@ -8,7 +8,7 @@ half of the surface to the search pod.
 '''
 import asyncio
 
-from discord_bot.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
+from discord_bot.seams.media_search.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 from discord_bot.core.types.media_request import MediaRequest
 
 from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient

@@ -9,8 +9,8 @@ from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.exceptions import (
     InvalidSearchURL, MediaSearchError, SearchException, ThirdPartyException,
 )
-from discord_bot.interfaces.media_search_protocols import MediaSearchClient
-from discord_bot.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_bot.seams.media_search.interfaces.media_search_protocols import MediaSearchClient
+from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 from discord_bot.core.types.search import SearchResult, SearchCollection
 from discord_bot.core.utils.otel import async_otel_span_wrapper, MediaRequestNaming
 

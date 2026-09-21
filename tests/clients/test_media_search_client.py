@@ -15,7 +15,7 @@ from discord_bot.clients.media_search_client import (
     InMemoryMediaSearchClient, build_media_search_client,
 )
 from discord_bot.core.exceptions import MediaSearchError
-from discord_bot.types.catalog import CatalogResponse, CatalogItem
+from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
 
 
 class MockSpotify():

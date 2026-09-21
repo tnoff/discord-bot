@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 182 modules place. 25 do not**, and they
+**123 of 188 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**34 are package `__init__.py` files that declare no code**;
+**40 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -101,12 +101,12 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search
 
-- `discord_bot.interfaces.media_search_protocols`
-- `discord_bot.interfaces.youtube_music_search_protocols`
-- `discord_bot.routes.media_search`
-- `discord_bot.types.catalog`
-- `discord_bot.types.media_search`
-- `discord_bot.utils.integrations.common`
+- `discord_bot.seams.media_search.interfaces.media_search_protocols`
+- `discord_bot.seams.media_search.interfaces.youtube_music_search_protocols`
+- `discord_bot.seams.media_search.routes.media_search`
+- `discord_bot.seams.media_search.types.catalog`
+- `discord_bot.seams.media_search.types.media_search`
+- `discord_bot.seams.media_search.utils.integrations.common`
 
 ### `discord_bot/seams/queue_worker/` — 6, reached by bot, downloader, search
 
@@ -251,6 +251,12 @@ overstated the core by a third.
 - `discord_bot.seams.dispatch`
 - `discord_bot.seams.dispatch.routes`
 - `discord_bot.seams.dispatch.utils`
+- `discord_bot.seams.media_search`
+- `discord_bot.seams.media_search.interfaces`
+- `discord_bot.seams.media_search.routes`
+- `discord_bot.seams.media_search.types`
+- `discord_bot.seams.media_search.utils`
+- `discord_bot.seams.media_search.utils.integrations`
 - `discord_bot.servers`
 - `discord_bot.types`
 - `discord_bot.utils`
