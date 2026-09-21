@@ -8,14 +8,14 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
-from discord_bot.core.types.dispatch_request import (
+from discord_bot.seams.dispatch.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
 )
-from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.seams.dispatch.types.responses import FetchHistoryResponse
 from discord_bot.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes

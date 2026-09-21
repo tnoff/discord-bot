@@ -10,13 +10,13 @@ import logging
 
 from opentelemetry import trace
 
-from discord_bot.core.types.dispatch_request import (
+from discord_bot.seams.dispatch.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
 )
-from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, decode_history_result, decode_emojis_result
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, decode_history_result, decode_emojis_result
 from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 logger = logging.getLogger(__name__)

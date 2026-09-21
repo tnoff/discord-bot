@@ -3,11 +3,11 @@ import asyncio
 from discord.ext.commands import Cog, Bot
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
-from discord_bot.core.clients.dispatch_client_base import DispatchClientBase
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.core.utils.common import get_logger, LoggingConfig
 from discord_bot.core.utils.otel import capture_span_context
-from discord_bot.core.types.dispatch_request import (
+from discord_bot.seams.dispatch.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,

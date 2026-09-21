@@ -10,8 +10,8 @@ from discord_bot.services.bot.cogs.delete_messages import (DeleteMessages, DELET
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import loop_heartbeat_observations
 from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.core.types.dispatch_result import ChannelHistoryResult
-from discord_bot.core.types.fetched_message import FetchedMessage
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 from tests.helpers import FakeMessage

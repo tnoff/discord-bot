@@ -12,10 +12,10 @@ from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.services.bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import loop_heartbeat_observations
-from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.core.types.dispatch_request import FetchChannelHistoryRequest
-from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
-from discord_bot.core.types.fetched_message import FetchedMessage
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.seams.dispatch.types.dispatch_request import FetchChannelHistoryRequest
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 
 from discord_bot.services.db.database import MarkovChannel, MarkovRelation
 

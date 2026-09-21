@@ -26,7 +26,6 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from pydantic import ValidationError as PydanticValidationError
 
-from discord_bot.core.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.core.exceptions import DiscordBotException, CogMissingRequiredArg
 from discord_bot.core.utils.common import get_logger, GeneralConfig
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
@@ -39,6 +38,13 @@ from discord_bot.core.utils.gc_census import GcCensusProfiler
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from discord.ext.commands import Bot
+    # Annotation-only, and that is the whole point: importing it at module
+    # scope put DispatchClientBase -- and through it dispatch_result,
+    # dispatch_request and fetched_message -- into the closure of every image,
+    # because this module is the shared CLI plumbing all six entrypoints load.
+    # The db, downloader and search pods carried dispatch machinery they never
+    # call. Same shape as utils/otel.py in criterion 5 of per-image-code-split.
+    from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
 
 
 def read_config(config_file: str) -> dict:
@@ -315,7 +321,7 @@ def register_on_ready(bot: 'Bot', general_config: GeneralConfig, logger) -> None
 
 
 def load_cogs(bot: 'Bot', cog_classes: list, settings: dict, stores,
-              dispatcher: DispatchClientBase, redis_manager=None) -> list:
+              dispatcher: 'DispatchClientBase', redis_manager=None) -> list:
     '''Attempt to instantiate each cog class; skip those missing required args.
 
     stores is the DatabaseStores bundle, in the slot db_engine occupied before

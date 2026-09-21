@@ -5,7 +5,7 @@ import logging
 import aiohttp
 from opentelemetry import trace
 
-from discord_bot.core.types.dispatch_request import (
+from discord_bot.seams.dispatch.types.dispatch_request import (
     DeleteRequest,
     SendRequest,
 )
@@ -18,7 +18,7 @@ from discord_bot.seams.dispatch.types.responses import (
     FetchEmojisResponse, FetchHistoryResponse,
 )
 from discord_bot.core.routes.route import Route
-from discord_bot.core.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.retry import async_retry_broker_command
