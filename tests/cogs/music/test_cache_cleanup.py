@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.database import VideoCache
+from discord_bot.services.db.database import VideoCache
 from discord_bot.cogs.music import Music
 from discord_bot.core.exceptions import DiscordBotException
 

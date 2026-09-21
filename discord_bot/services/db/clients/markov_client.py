@@ -27,12 +27,12 @@ from opentelemetry.trace import SpanKind
 from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.sql.functions import random as sql_random
 
-from discord_bot.clients.session_store import SessionStoreBase
-from discord_bot.database import MarkovChannel, MarkovRelation
+from discord_bot.services.db.clients.session_store import SessionStoreBase
+from discord_bot.services.db.database import MarkovChannel, MarkovRelation
 from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.core.utils.otel import async_otel_span_wrapper
 from discord_bot.utils.discord_context import DiscordContextNaming
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'markov.store'
 

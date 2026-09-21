@@ -17,7 +17,7 @@ from discord_bot.core.types.dispatch_request import FetchChannelHistoryRequest
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
 from discord_bot.core.types.fetched_message import FetchedMessage
 
-from discord_bot.database import MarkovChannel, MarkovRelation
+from discord_bot.services.db.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine, fake_stores #pylint:disable=unused-import
 from tests.helpers import async_mock_session

@@ -16,7 +16,7 @@ from sqlalchemy import select, asc
 from sqlalchemy.sql.functions import count as sql_count
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from discord_bot.database import VideoCache
+from discord_bot.services.db.database import VideoCache
 
 async def list_video_cache_where_delete_ready(db_session: AsyncSession):
     """List cache files ready for processing"""

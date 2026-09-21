@@ -79,7 +79,7 @@ IMAGE_IMPORTS = {
     # alembic arrived with the migration runner (cli/_lib/migrations.py). Only
     # this image installs it and only this image ships the revisions, so this is
     # the one declaration that may name it.
-    'discord_bot.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
+    'discord_bot.services.db.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
 }
 
 IMAGE_NAMES = {
@@ -88,7 +88,7 @@ IMAGE_NAMES = {
     'discord_bot.services.broker.cli.broker': 'discord-broker',
     'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
     'discord_bot.services.search.cli.search': 'discord-search',
-    'discord_bot.cli.database': 'discord-db',
+    'discord_bot.services.db.cli.database': 'discord-db',
 }
 
 # The Dockerfile that builds each image. Declared here rather than in the CI
@@ -105,7 +105,7 @@ IMAGE_DOCKERFILES = {
     'discord_bot.services.broker.cli.broker': 'docker/Dockerfile.broker',
     'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_bot.services.search.cli.search': 'docker/Dockerfile.search',
-    'discord_bot.cli.database': 'docker/Dockerfile.db',
+    'discord_bot.services.db.cli.database': 'docker/Dockerfile.db',
 }
 
 

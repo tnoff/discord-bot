@@ -10,7 +10,7 @@ import pytest
 from opentelemetry.instrumentation.utils import is_instrumentation_enabled
 from sqlalchemy import text
 
-from discord_bot.servers.db_probe import db_ping
+from discord_bot.services.db.servers.db_probe import db_ping
 
 from tests.helpers import fake_engine  # pylint: disable=unused-import
 

@@ -35,9 +35,9 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import NullPool
 
-from discord_bot.cli._lib.db import setup_db
-from discord_bot.cli._lib.migrations import run_pending_migrations
-from discord_bot.database import BASE
+from discord_bot.services.db.cli._lib.db import setup_db
+from discord_bot.services.db.cli._lib.migrations import run_pending_migrations
+from discord_bot.services.db.database import BASE
 from discord_bot.core.utils.common import GeneralConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -369,7 +369,7 @@ def test_in_process_upgrade_leaves_application_logging_alone(postgresql_proc, mo
     '''
     monkeypatch.setenv('ALEMBIC_CONFIG', str(REPO_ROOT / 'alembic.ini'))
 
-    app_logger = logging.getLogger('discord_bot.cli.database')
+    app_logger = logging.getLogger('discord_bot.services.db.cli.database')
     alembic_logger = logging.getLogger('alembic')
     previous_level = alembic_logger.level
 

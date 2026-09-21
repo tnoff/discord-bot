@@ -19,12 +19,12 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_bot.clients.database_stores import DatabaseStores
-from discord_bot.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.clients.markov_client import MarkovClient
-from discord_bot.clients.playlist_client import PlaylistClient
+from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_bot.services.db.clients.markov_client import MarkovClient
+from discord_bot.services.db.clients.playlist_client import PlaylistClient
 from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.database import BASE
+from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_bot.services.db.database import BASE
 from discord_bot.core.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,

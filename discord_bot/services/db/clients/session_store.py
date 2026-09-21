@@ -16,7 +16,7 @@ this entirely, and nothing it promised its callers changes.
 '''
 from typing import Callable, List
 
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
 
 
 class SessionStoreBase():

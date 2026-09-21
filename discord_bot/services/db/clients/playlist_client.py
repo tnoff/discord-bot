@@ -32,9 +32,9 @@ from opentelemetry.trace import SpanKind
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.clients.session_store import SessionStoreBase
+from discord_bot.services.db.clients.session_store import SessionStoreBase
 from discord_bot.core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
-from discord_bot.database import Playlist, PlaylistItem, utcnow
+from discord_bot.services.db.database import Playlist, PlaylistItem, utcnow
 from discord_bot.seams.database.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
@@ -44,7 +44,7 @@ from discord_bot.seams.database.types.playlist import (
 )
 from discord_bot.core.utils.otel import async_otel_span_wrapper
 from discord_bot.utils.discord_context import DiscordContextNaming
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'music.playlist_store'
 

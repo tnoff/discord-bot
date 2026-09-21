@@ -31,8 +31,8 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.clients.markov_client import MarkovClient
-from discord_bot.servers.database_server import DatabaseHttpServer
+from discord_bot.services.db.clients.markov_client import MarkovClient
+from discord_bot.services.db.servers.database_server import DatabaseHttpServer
 
 from tests.helpers import assert_one_connected_trace
 from tests.helpers import fake_engine  # pylint:disable=unused-import

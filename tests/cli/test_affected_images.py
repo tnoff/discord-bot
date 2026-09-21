@@ -23,7 +23,7 @@ from tests.cli._image_deps import CLOSURE_DOC
 CLOSURE = {'images': [
     {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
      'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.cogs.music', 'discord_bot.shared']},
-    {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
+    {'image': 'db', 'entrypoint': 'discord_bot.services.db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
      'extra': 'db', 'modules': ['discord_bot', 'discord_bot.shared', 'discord_bot.store']},
 ]}
 
@@ -144,7 +144,7 @@ def test_a_deleted_module_is_attributed_to_its_old_owners():
     base = {'images': [
         {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
          'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.gone']},
-        {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
+        {'image': 'db', 'entrypoint': 'discord_bot.services.db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'extra': 'db', 'modules': ['discord_bot']},
     ]}
     images, orphans = _affected(['discord_bot/gone.py'], base_closure=base,

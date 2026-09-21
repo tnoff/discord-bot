@@ -29,7 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from discord_bot.database import BASE
+from discord_bot.services.db.database import BASE
 from discord_bot.seams.broker.clients.http_client_base import SEAM_CLIENTS
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 

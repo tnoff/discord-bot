@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 218 modules place. 25 do not**, and they
+**123 of 226 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**70 are package `__init__.py` files that declare no code**;
+**78 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -162,20 +162,20 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/db/` — 14, reached by db
 
-- `discord_bot.cli._lib.db`
-- `discord_bot.cli._lib.migrations`
-- `discord_bot.cli.database`
-- `discord_bot.clients.guild_analytics_client`
-- `discord_bot.clients.markov_client`
-- `discord_bot.clients.playlist_client`
-- `discord_bot.clients.session_store`
-- `discord_bot.cogs.music_helpers.database_functions`
-- `discord_bot.cogs.music_helpers.video_cache_client`
-- `discord_bot.database`
-- `discord_bot.servers.database_health_server`
-- `discord_bot.servers.database_server`
-- `discord_bot.servers.db_probe`
-- `discord_bot.utils.sql_retry`
+- `discord_bot.services.db.cli._lib.db`
+- `discord_bot.services.db.cli._lib.migrations`
+- `discord_bot.services.db.cli.database`
+- `discord_bot.services.db.clients.guild_analytics_client`
+- `discord_bot.services.db.clients.markov_client`
+- `discord_bot.services.db.clients.playlist_client`
+- `discord_bot.services.db.clients.session_store`
+- `discord_bot.services.db.cogs.music_helpers.database_functions`
+- `discord_bot.services.db.cogs.music_helpers.video_cache_client`
+- `discord_bot.services.db.database`
+- `discord_bot.services.db.servers.database_health_server`
+- `discord_bot.services.db.servers.database_server`
+- `discord_bot.services.db.servers.db_probe`
+- `discord_bot.services.db.utils.sql_retry`
 
 ### `discord_bot/services/dispatcher/` — 5, reached by dispatcher
 
@@ -269,6 +269,14 @@ overstated the core by a third.
 - `discord_bot.services.broker.interfaces`
 - `discord_bot.services.broker.servers`
 - `discord_bot.services.broker.workers`
+- `discord_bot.services.db`
+- `discord_bot.services.db.cli`
+- `discord_bot.services.db.cli._lib`
+- `discord_bot.services.db.clients`
+- `discord_bot.services.db.cogs`
+- `discord_bot.services.db.cogs.music_helpers`
+- `discord_bot.services.db.servers`
+- `discord_bot.services.db.utils`
 - `discord_bot.services.dispatcher`
 - `discord_bot.services.dispatcher.cli`
 - `discord_bot.services.dispatcher.servers`
