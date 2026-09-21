@@ -7,8 +7,8 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.database import VideoCache
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.interfaces.database_protocols import VideoCacheStore
-from discord_bot.types.video_cache import VideoCacheEntry
+from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
+from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download, generate_fake_context
 from tests.helpers import fake_engine #pylint:disable=unused-import

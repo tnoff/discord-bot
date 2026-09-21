@@ -7,8 +7,8 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.clients.playlist_client import PlaylistClient
 from discord_bot.database import Playlist, PlaylistItem
-from discord_bot.interfaces.database_protocols import PlaylistStore
-from discord_bot.types.playlist import (
+from discord_bot.seams.database.interfaces.database_protocols import PlaylistStore
+from discord_bot.seams.database.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddStatus,
     PlaylistItemEntry,

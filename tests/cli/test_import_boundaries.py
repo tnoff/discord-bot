@@ -40,7 +40,7 @@ import pytest
 
 from tests.cli._image_deps import (
     CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, LAYOUT_DOC, OWNERSHIP_DOC, REPO_ROOT,
-    PACKAGE, ROUTE_PREFIX, VOCABULARY, classify_modules, measure, render_closure,
+    PACKAGE, VOCABULARY, classify_modules, measure, render_closure, route_leaf,
     render_layout, render_table,
 )
 
@@ -284,9 +284,9 @@ def test_seam_folders_are_named_by_exactly_one_route():
         if not home.startswith(prefix):
             continue
         checked += 1
-        routes = [m for m in modules if m.startswith(ROUTE_PREFIX)]
+        routes = [m for m in modules if route_leaf(m)]
         assert len(routes) == 1, f'{home} is named by {len(routes)} route modules, not one'
-        assert home == f'{prefix}{routes[0][len(ROUTE_PREFIX):]}', (
+        assert home == f'{prefix}{route_leaf(routes[0])}', (
             f'{home} does not match the route that names it, {routes[0]}'
         )
     assert checked, f'no home started with {prefix!r} -- this test checked nothing'

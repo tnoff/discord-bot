@@ -15,7 +15,7 @@ from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.types.video_cache import VideoCacheEntry
+from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 from discord_bot.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
 

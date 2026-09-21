@@ -43,8 +43,8 @@ from discord_bot.clients.http_store_base import HttpStoreBase
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
                                               media_download_to_dict)
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.routes import database as database_routes
-from discord_bot.types.video_cache import VideoCacheEntry
+from discord_bot.seams.database.routes import database as database_routes
+from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 from discord_bot.core.utils.otel import MusicMediaDownloadNaming
 
 logger = logging.getLogger(__name__)

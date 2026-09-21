@@ -35,7 +35,7 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_bot.clients.session_store import SessionStoreBase
 from discord_bot.core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
 from discord_bot.database import Playlist, PlaylistItem, utcnow
-from discord_bot.types.playlist import (
+from discord_bot.seams.database.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
     PlaylistItemAddStatus,

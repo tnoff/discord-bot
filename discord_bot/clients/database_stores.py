@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from discord_bot.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.clients.http_playlist_store import HttpPlaylistStore
-from discord_bot.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
+from discord_bot.seams.database.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
                                                        PlaylistStore)
 
 

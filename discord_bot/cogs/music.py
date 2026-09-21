@@ -44,8 +44,8 @@ from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
-from discord_bot.types.video_cache import MusicCacheConfig
+from discord_bot.seams.database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
+from discord_bot.seams.database.types.video_cache import MusicCacheConfig
 
 from discord_bot.core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_bot.core.utils.common import (rm_tree, return_loop_runner,
@@ -53,7 +53,7 @@ from discord_bot.core.utils.common import (rm_tree, return_loop_runner,
                                       tracing_config_from_settings)
 from discord_bot.types.queue import PutsBlocked
 from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
-from discord_bot.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
+from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
 from discord_bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )

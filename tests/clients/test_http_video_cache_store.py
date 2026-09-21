@@ -27,12 +27,12 @@ from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_bot.core.exceptions import DatabaseUnavailable
-from discord_bot.interfaces.database_protocols import VideoCacheStore
+from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
 from discord_bot.servers.database_server import DatabaseHttpServer
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.types.video_cache import VideoCacheEntry
+from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

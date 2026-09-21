@@ -276,7 +276,19 @@ def render_closure() -> str:
 # exactly one of these is a seam with a contract already written down; the route
 # module IS the contract, so the name comes out of the tree rather than out of a
 # hand-written map that would go stale the first time a seam is renamed.
-ROUTE_PREFIX = 'discord_bot.routes.'
+# A seam is named by the route module in it, found STRUCTURALLY rather than by a
+# fixed prefix. The first version of this matched `discord_bot.routes.` literally,
+# which stopped matching the moment a seam moved -- `routes/database.py` becomes
+# `seams/database/routes/database.py`, and the rule written to guide the move did
+# not survive it. Matching on the `routes` package wherever it sits works before
+# and after, so the doc keeps naming a seam through its own migration.
+ROUTE_PACKAGE = 'routes'
+
+
+def route_leaf(module: str) -> str | None:
+    """`...routes.database` -> `database`; None if the module is not a route."""
+    parts = module.split('.')
+    return parts[-1] if len(parts) > 1 and parts[-2] == ROUTE_PACKAGE else None
 
 # The split keeps `discord_bot` as the single import root and puts the layout
 # INSIDE it, rather than hoisting libs/ and services/ to the repo root. That is
@@ -366,11 +378,11 @@ def classify_modules():
         elif len(images) == 1:
             home = f'{PACKAGE}/services/{next(iter(images))}'
         else:
-            routes = [m for m in modules if m.startswith(ROUTE_PREFIX)]
+            routes = [m for m in modules if route_leaf(m)]
             # Exactly one: a group with two route modules names no single seam,
             # and a group with none is a sharing pattern nobody has written a
             # contract for yet. Both are honest UNPLACED answers.
-            home = f'{PACKAGE}/seams/{routes[0][len(ROUTE_PREFIX):]}' if len(routes) == 1 else None
+            home = f'{PACKAGE}/seams/{route_leaf(routes[0])}' if len(routes) == 1 else None
         target = placed if home else unplaced
         target[images] = (home, sorted(modules))
     return placed, unplaced, scaffolding
@@ -413,7 +425,7 @@ def render_layout() -> str:
         '|---|---|',
         f'| all {len(IMAGE_NAMES)} images | `{PACKAGE}/core/` |',
         f'| exactly one image | `{PACKAGE}/services/<image>/` |',
-        f'| a group holding one `{ROUTE_PREFIX}*` module | `{PACKAGE}/seams/<that route>/` |',
+        f'| a group holding one `{ROUTE_PACKAGE}.*` module | `{PACKAGE}/seams/<that route>/` |',
         '',
         'The third rule is why the seam names below are not invented here. A seam is',
         'a contract, the route module *is* the contract, and so the folder takes its',

@@ -7,8 +7,8 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_bot.clients.markov_client import MarkovClient
 from discord_bot.database import MarkovChannel, MarkovRelation
-from discord_bot.interfaces.database_protocols import MarkovStore
-from discord_bot.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
+from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
