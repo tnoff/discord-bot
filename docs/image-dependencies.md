@@ -23,9 +23,9 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 | image | `discord_bot` modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 114 | 27 |
-| `discord-dispatcher` | 57 | 5 |
-| `discord-broker` | 86 | 10 |
+| `discord-bot` | 117 | 27 |
+| `discord-dispatcher` | 60 | 5 |
+| `discord-broker` | 89 | 10 |
 | `discord-downloader` | 75 | 8 |
 | `discord-search` | 82 | 13 |
 | `discord-db` | 67 | 14 |
@@ -38,12 +38,12 @@ Modules by how many of the 6 entrypoints import them:
 |---|---|
 | 1 of 6 | 77 |
 | 2 of 6 | 22 |
-| 3 of 6 | 23 |
-| 4 of 6 | 9 |
-| 5 of 6 | 9 |
+| 3 of 6 | 25 |
+| 4 of 6 | 11 |
+| 5 of 6 | 8 |
 | 6 of 6 | 35 |
 
-98 of 175 modules (56%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
+101 of 178 modules (56%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
 installable distribution per tier would force every one of those into a shared
 `core` distribution — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)
 would land back on all 6 images. That is strictly worse than the per-image

@@ -14,7 +14,7 @@ from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult
 from discord_bot.types.search_resolution import SearchResolution
-from discord_bot.utils.dispatch_queue import RedisDispatchQueue
+from discord_bot.seams.dispatch.utils.dispatch_queue import RedisDispatchQueue
 
 BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'
 BUNDLE_TTL_SECONDS = 86400  # 1 day — fallback expiry for orphaned bundles
