@@ -85,8 +85,8 @@ def test_no_shared_metric_name_is_emitted_by_one_image(claims):
 
 
 @pytest.mark.parametrize('module, class_name, image', [
-    ('discord_bot/utils/bot_metrics.py', 'BotMetricNaming', 'bot'),
-    ('discord_bot/workers/broker_metrics.py', 'BrokerMetricNaming', 'broker'),
+    ('discord_bot/services/bot/utils/bot_metrics.py', 'BotMetricNaming', 'bot'),
+    ('discord_bot/services/broker/workers/broker_metrics.py', 'BrokerMetricNaming', 'broker'),
 ])
 def test_tier_enums_hold_only_their_own_tiers_names(module, class_name, image, claims):
     '''

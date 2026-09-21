@@ -125,7 +125,7 @@ helpers live on the base, so both subclasses get them. See
 [docs/common.md](docs/common.md) for the full API.
 
 ```python
-from discord_bot.cogs.common import CogHelper
+from discord_bot.services.bot.cogs.common import CogHelper
 from discord_bot.core.exceptions import CogMissingRequiredArg
 from pydantic import BaseModel
 
@@ -228,7 +228,7 @@ async with self.with_db_session() as db:
 up to 3 attempts:
 
 ```python
-from discord_bot.utils.sql_retry import async_retry_database_commands
+from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
 
 result = await async_retry_database_commands(
     db_session,
