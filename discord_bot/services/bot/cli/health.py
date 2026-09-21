@@ -10,7 +10,7 @@ has no reason to import a factory for a server it does not use.
 '''
 from discord.ext.commands import Bot
 
-from discord_bot.servers.health_server import HealthServer
+from discord_bot.services.bot.servers.health_server import HealthServer
 from discord_bot.core.utils.common import GeneralConfig
 
 

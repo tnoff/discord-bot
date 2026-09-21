@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
-from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_engine, fake_context, FakeChannel  # pylint: disable=unused-import
@@ -121,7 +121,7 @@ async def test_skip_not_playing(fake_context, mocker):  # pylint: disable=redefi
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     # Create player with voice channel so check_voice_client_active passes
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
@@ -166,7 +166,7 @@ async def test_clear_empty_queue(fake_context, mocker):  # pylint: disable=redef
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     await cog.clear.callback(cog, fake_context['context'])
@@ -195,7 +195,7 @@ async def test_history_empty(fake_context, mocker):  # pylint: disable=redefined
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     # history_ uses get_player without check_voice_client_active so it creates a player
     await cog.history_.callback(cog, fake_context['context'])
     sent = [c[0][2] for c in cog.dispatcher.send_message.call_args_list]
@@ -235,7 +235,7 @@ async def test_shuffle_empty_queue(fake_context, mocker):  # pylint: disable=red
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     await cog.shuffle_.callback(cog, fake_context['context'])
@@ -276,7 +276,7 @@ async def test_remove_item_empty_queue(fake_context, mocker):  # pylint: disable
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     await cog.remove_item.callback(cog, fake_context['context'], '1')
@@ -291,7 +291,7 @@ async def test_remove_item_invalid_index(fake_context, mocker):  # pylint: disab
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     player = cog.players[fake_context['guild'].id]
@@ -308,7 +308,7 @@ async def test_remove_item_not_found(fake_context, mocker):  # pylint: disable=r
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     player = cog.players[fake_context['guild'].id]
@@ -352,7 +352,7 @@ async def test_bump_item_empty_queue(fake_context, mocker):  # pylint: disable=r
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     await cog.bump_item.callback(cog, fake_context['context'], '1')
@@ -367,7 +367,7 @@ async def test_bump_item_invalid_index(fake_context, mocker):  # pylint: disable
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     player = cog.players[fake_context['guild'].id]
@@ -384,7 +384,7 @@ async def test_bump_item_not_found(fake_context, mocker):  # pylint: disable=red
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     player = cog.players[fake_context['guild'].id]
@@ -442,7 +442,7 @@ async def test_move_messages_here_same_channel(fake_context, mocker):  # pylint:
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          join_channel=fake_context['channel'])
     # text_channel is set to ctx.channel during get_player; command is invoked

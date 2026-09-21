@@ -16,8 +16,8 @@ from opentelemetry.trace import SpanKind
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.core.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.services.bot.types.cleanup_reason import CleanupReason
+from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult

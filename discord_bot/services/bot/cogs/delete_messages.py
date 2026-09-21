@@ -8,7 +8,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel
 
-from discord_bot.cogs.common import CogHelperBase
+from discord_bot.services.bot.cogs.common import CogHelperBase
 from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.core.types.dispatch_result import ChannelHistoryResult
 from discord_bot.core.utils.common import return_loop_runner

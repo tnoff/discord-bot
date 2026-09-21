@@ -4,15 +4,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.types.cleanup_reason import CleanupReason
+from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.core.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
 from discord_bot.utils.discord_context import DiscordContextNaming
 
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context, fake_source_dict #pylint:disable=unused-import
@@ -27,7 +27,7 @@ async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True, join_channel=fake_context['channel'])
     fake_context['channel'].members = [fake_context['bot'].user]
@@ -53,7 +53,7 @@ async def test_cleanup_players_bot_shutdown(fake_context):  # pylint: disable=re
 @pytest.mark.asyncio
 async def test_cleanup_players_no_players(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup_players returns early without doing anything when there are no players."""
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     assert not cog.players
     await cog.cleanup_players()
@@ -68,7 +68,7 @@ async def test_cleanup_marks_search_queue_items_discarded(mocker, fake_context):
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -97,7 +97,7 @@ async def test_cleanup_marks_download_queue_items_discarded(mocker, fake_context
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -124,7 +124,7 @@ async def test_cleanup_bot_shutdown_parks_download_queue(mocker, fake_context): 
     attach_in_process_broker(cog)
     attach_in_process_download(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -150,7 +150,7 @@ async def test_cleanup_bot_shutdown_parks_search_queue(mocker, fake_context):  #
     attach_in_process_broker(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -176,7 +176,7 @@ async def test_cleanup_bot_shutdown_keeps_bundle(mocker, fake_context):  # pylin
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -193,7 +193,7 @@ async def test_cleanup_bot_shutdown_clears_queue_message(mocker, fake_context): 
     listing in the channel that describes a play queue no process owns."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -214,7 +214,7 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -236,7 +236,7 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -275,7 +275,7 @@ async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -297,7 +297,7 @@ async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  
     """cleanup does not remove guild player dir on BOT_SHUTDOWN (cog_unload handles it)."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -321,7 +321,7 @@ async def test_cleanup_disconnect_error_still_reaps_player(mocker, fake_context)
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          create_player=True, join_channel=fake_context['channel'])
@@ -356,7 +356,7 @@ async def test_cleanup_orphaned_skips_backed_and_guildless(mocker, fake_context)
     """The sweep leaves alone clients backed by a player, or with no guild."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True)
 

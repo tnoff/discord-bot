@@ -19,7 +19,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy.exc import OperationalError
 
-from discord_bot.clients.http_playlist_store import HttpPlaylistStore
+from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
 from discord_bot.services.db.clients.playlist_client import PlaylistClient
 from discord_bot.core.exceptions import DatabaseUnavailable
 from discord_bot.seams.database.interfaces.database_protocols import PlaylistStore

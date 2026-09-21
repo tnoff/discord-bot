@@ -10,7 +10,7 @@ from discord.errors import ClientException
 
 from discord_bot.core.exceptions import ExitEarlyException
 
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_bot.services.broker.interfaces.broker_protocols import CheckoutResult
 from discord_bot.seams.queue_worker.types.queue import Queue
 
@@ -37,8 +37,8 @@ def _fast_voice_client_wait():
     introduced, and nothing failed to say so. Scoping this to the module rather
     than patching per test means the next such test is fast by default.
     '''
-    with patch('discord_bot.cogs.music_helpers.music_player.VOICE_CLIENT_WAIT_SECONDS', 0.05), \
-         patch('discord_bot.cogs.music_helpers.music_player.VOICE_CLIENT_POLL_SECONDS', 0.01):
+    with patch('discord_bot.services.bot.cogs.music_helpers.music_player.VOICE_CLIENT_WAIT_SECONDS', 0.05), \
+         patch('discord_bot.services.bot.cogs.music_helpers.music_player.VOICE_CLIENT_POLL_SECONDS', 0.01):
         yield
 
 
@@ -84,7 +84,7 @@ async def test_music_player_loop_waits_for_a_late_voice_client(fake_context): #p
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.add_to_play_queue(media_download)
-            with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_connect_on_poll):
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_connect_on_poll):
                 await player.player_loop()
     assert player.shutdown_called is False
     assert player._play_queue.empty() #pylint:disable=protected-access
@@ -99,7 +99,7 @@ async def test_music_player_wait_for_voice_client_returns_none_on_shutdown(fake_
         async def _shutdown_on_poll(_seconds):
             player.shutdown_called = True
 
-        with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_shutdown_on_poll):
+        with patch('discord_bot.services.bot.cogs.music_helpers.music_player.asyncio.sleep', side_effect=_shutdown_on_poll):
             assert await player._wait_for_voice_client() is None #pylint:disable=protected-access
 
 
@@ -109,7 +109,7 @@ async def test_music_player_wait_for_voice_client_returns_existing(fake_context)
     voice_client = FakeVoiceClient()
     fake_context['guild'].voice_client = voice_client
     with with_music_player(fake_context) as player:
-        with patch('discord_bot.cogs.music_helpers.music_player.asyncio.sleep') as mock_sleep:
+        with patch('discord_bot.services.bot.cogs.music_helpers.music_player.asyncio.sleep') as mock_sleep:
             assert await player._wait_for_voice_client() is voice_client #pylint:disable=protected-access
         mock_sleep.assert_not_called()
 
@@ -279,7 +279,7 @@ def test_voice_channel_inactive_timeout_first_check(fake_context, mocker): #pyli
         # Mock voice_channel_active to return False (channel is inactive)
         player.voice_channel_active = Mock(return_value=False)
         # Mock time to return consistent value
-        mock_time = mocker.patch('discord_bot.cogs.music_helpers.music_player.time', return_value=1000)
+        mock_time = mocker.patch('discord_bot.services.bot.cogs.music_helpers.music_player.time', return_value=1000)
 
         result = player.voice_channel_inactive_timeout(timeout_seconds=60)
 
@@ -296,7 +296,7 @@ def test_voice_channel_inactive_timeout_within_limit(fake_context, mocker): #pyl
         # Set initial timestamp
         player.inactive_timestamp = 1000
         # Mock time to return value within timeout
-        mocker.patch('discord_bot.cogs.music_helpers.music_player.time', return_value=1030)  # 30 seconds later
+        mocker.patch('discord_bot.services.bot.cogs.music_helpers.music_player.time', return_value=1030)  # 30 seconds later
 
         result = player.voice_channel_inactive_timeout(timeout_seconds=60)
 
@@ -311,7 +311,7 @@ def test_voice_channel_inactive_timeout_exceeded(fake_context, mocker): #pylint:
         # Set initial timestamp
         player.inactive_timestamp = 1000
         # Mock time to return value exceeding timeout
-        mocker.patch('discord_bot.cogs.music_helpers.music_player.time', return_value=1070)  # 70 seconds later
+        mocker.patch('discord_bot.services.bot.cogs.music_helpers.music_player.time', return_value=1070)  # 70 seconds later
 
         result = player.voice_channel_inactive_timeout(timeout_seconds=60)
 
@@ -429,7 +429,7 @@ async def test_music_player_cleans_up_on_voice_exception(fake_context): #pylint:
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             # Patch FFmpegPCMAudio to track cleanup calls
-            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_ffmpeg.return_value = mock_audio_source
@@ -469,7 +469,7 @@ async def test_music_player_cleanup_calls_audio_cleanup(fake_context): #pylint:d
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             # Patch FFmpegPCMAudio to track cleanup
-            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_audio_source.volume = 0.5
@@ -506,7 +506,7 @@ async def test_player_cleanup_with_active_source(fake_context): #pylint:disable=
     fake_context['guild'].voice_client = FakeVoiceClient()
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            with patch('discord_bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.PCMAudio') as mock_ffmpeg:
                 mock_audio_source = Mock()
                 mock_audio_source.cleanup = Mock()
                 mock_audio_source.volume = 0.5
@@ -685,7 +685,7 @@ def test_get_queue_order_messages_render_returns_non_list(fake_context): #pylint
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as sd:
             player.add_to_play_queue(sd)
-            with patch('discord_bot.cogs.music_helpers.music_player.DapperTable') as mock_table_cls:
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.DapperTable') as mock_table_cls:
                 mock_table = Mock()
                 mock_table.render.return_value = 'rendered string'
                 mock_table_cls.return_value = mock_table
@@ -838,7 +838,7 @@ async def test_player_loop_checkout_s3_key_downloads(fake_context): #pylint:disa
             def _fake_get_file(_bucket, _key, dest):
                 Path(dest).write_bytes(b'audio')
 
-            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.get_file',
                        side_effect=_fake_get_file) as mock_get:
                 player.add_to_play_queue(media_download)
                 await player.player_loop()
@@ -864,9 +864,9 @@ async def test_player_loop_slow_staging_logs_warning(fake_context): #pylint:disa
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.broker.checkout, fake_get_file = _s3_checkout_get_file()
             player.logger = Mock()
-            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.get_file',
                        side_effect=fake_get_file), \
-                 patch('discord_bot.cogs.music_helpers.music_player.monotonic',
+                 patch('discord_bot.services.bot.cogs.music_helpers.music_player.monotonic',
                        side_effect=[0.0, 1.0, 1.0, 7.0]):
                 player.add_to_play_queue(media_download)
                 await player.player_loop()
@@ -885,9 +885,9 @@ async def test_player_loop_fast_staging_logs_debug_not_warning(fake_context): #p
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
             player.broker.checkout, fake_get_file = _s3_checkout_get_file()
             player.logger = Mock()
-            with patch('discord_bot.cogs.music_helpers.music_player.get_file',
+            with patch('discord_bot.services.bot.cogs.music_helpers.music_player.get_file',
                        side_effect=fake_get_file), \
-                 patch('discord_bot.cogs.music_helpers.music_player.monotonic',
+                 patch('discord_bot.services.bot.cogs.music_helpers.music_player.monotonic',
                        side_effect=[0.0, 0.1, 0.1, 0.3]):
                 player.add_to_play_queue(media_download)
                 await player.player_loop()

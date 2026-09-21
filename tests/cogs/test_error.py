@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from discord.ext import commands
 
-from discord_bot.cogs.error import CommandErrorHandler
+from discord_bot.services.bot.cogs.error import CommandErrorHandler
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 

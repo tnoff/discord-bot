@@ -21,7 +21,7 @@ import pytest
 from discord_bot.services.db.cli import database as database_cli
 from discord_bot.services.downloader.cli import downloader as downloader_cli
 from discord_bot.cli._lib import worker_pod
-from discord_bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.utils.common import GeneralConfig
 
 from tests.helpers import fake_context, fake_engine, fake_stores  # pylint: disable=unused-import

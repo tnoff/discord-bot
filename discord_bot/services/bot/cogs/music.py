@@ -21,29 +21,29 @@ from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 
-from discord_bot.utils.bot_metrics import BotMetricNaming
+from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.cogs.common import CogHelperBase
+from discord_bot.services.bot.cogs.common import CogHelperBase
 from discord_bot.core.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
-from discord_bot.clients.http_download_client import HttpDownloadClient
+from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
-from discord_bot.types.cleanup_reason import CleanupReason
+from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.seams.broker.clients.http_client_base import start_seam_checks
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_bot.core.types.search import SearchResult
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.types.playlist_add_result import PlaylistAddResult
+from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.types.media_download import MediaDownload, media_download_attributes
-from discord_bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.seams.database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.seams.database.types.video_cache import MusicCacheConfig
 
@@ -52,16 +52,16 @@ from discord_bot.core.utils.common import (rm_tree, return_loop_runner,
                                       seam_contract_from_settings,
                                       tracing_config_from_settings)
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked
-from discord_bot.clients.http_media_search_client import HttpMediaSearchClient
+from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
-from discord_bot.clients.youtube_music_search_client import (
+from discord_bot.services.bot.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
 from discord_bot.seams.queue_worker.types.queue import Queue
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_bot.utils.discord_context import DiscordContextNaming
-from discord_bot.utils.otel_command import command_wrapper
+from discord_bot.services.bot.utils.otel_command import command_wrapper
 from discord_bot.core.clients.dispatch_client_base import DispatchClientBase
 
 # GLOBALS

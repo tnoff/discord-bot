@@ -22,7 +22,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy.exc import OperationalError
 
 from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
+from discord_bot.services.bot.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_bot.core.exceptions import DatabaseUnavailable
 from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore
 from discord_bot.services.db.servers.database_server import DatabaseHttpServer

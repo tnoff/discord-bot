@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_bot.cogs.music import Music
-from discord_bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.cogs.music import Music
+from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from tests.helpers import fake_media_download
@@ -79,7 +79,7 @@ async def test_add_source_to_player_caches_video(fake_engine, mocker, fake_conte
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog, db_engine=fake_engine)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -95,7 +95,7 @@ async def test_add_source_to_player_puts_blocked(mocker, fake_context, fake_stor
     """Test adding source to player when queue is blocked"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     cog.players[fake_context['guild'].id]._play_queue.block()  # pylint: disable=protected-access
@@ -112,7 +112,7 @@ async def test_player_message_queue_integration(mocker, fake_context):  # pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = Mock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with TemporaryDirectory() as tmp_dir:
@@ -129,7 +129,7 @@ async def test_player_message_queue_integration(mocker, fake_context):  # pylint
 async def test_player_queue_management(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """Test basic player queue management functionality"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -155,7 +155,7 @@ async def test_add_source_to_player_queue_full(mocker, fake_context, fake_stores
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'add_to_play_queue', side_effect=QueueFull())
@@ -204,7 +204,7 @@ async def test_add_source_triggers_prefetch(mocker, fake_context):  # pylint: di
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     prefetch_mock = mocker.patch.object(player, 'trigger_prefetch')
@@ -219,7 +219,7 @@ async def test_add_source_to_player_queue_full_with_bundle(mocker, fake_context,
     """add_source_to_player sets failure_reason on the bundle when queue is full."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
-    mocker.patch('discord_bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     player = await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     mocker.patch.object(player, 'add_to_play_queue', side_effect=QueueFull())

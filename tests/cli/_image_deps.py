@@ -56,7 +56,7 @@ IMAGE_IMPORTS = {
     # bs4 is the urban cog's and stays; spotipy and googleapiclient left with the
     # media_search cutover, and the forbidden set derived from VOCABULARY is now
     # what stops them coming back through an import chain.
-    'discord_bot.cli.bot': frozenset({
+    'discord_bot.services.bot.cli.bot': frozenset({
         'discord', 'boto3', 'bs4', 'dappertable',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
@@ -83,7 +83,7 @@ IMAGE_IMPORTS = {
 }
 
 IMAGE_NAMES = {
-    'discord_bot.cli.bot': 'discord-bot',
+    'discord_bot.services.bot.cli.bot': 'discord-bot',
     'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_bot.services.broker.cli.broker': 'discord-broker',
     'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
@@ -100,7 +100,7 @@ IMAGE_NAMES = {
 #
 # test_every_dockerfile_exists keeps these honest against the filesystem.
 IMAGE_DOCKERFILES = {
-    'discord_bot.cli.bot': 'docker/Dockerfile',
+    'discord_bot.services.bot.cli.bot': 'docker/Dockerfile',
     'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
     'discord_bot.services.broker.cli.broker': 'docker/Dockerfile.broker',
     'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',

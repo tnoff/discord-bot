@@ -13,7 +13,7 @@ Re-exported from clients/download_client, so existing imports keep working.
 '''
 from typing import ClassVar
 
-from discord_bot.clients.http_queue_worker_client import HttpQueueWorkerClient
+from discord_bot.services.bot.clients.http_queue_worker_client import HttpQueueWorkerClient
 from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
 

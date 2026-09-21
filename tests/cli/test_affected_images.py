@@ -21,8 +21,8 @@ from tests.cli._image_deps import CLOSURE_DOC
 
 
 CLOSURE = {'images': [
-    {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
-     'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.cogs.music', 'discord_bot.shared']},
+    {'image': 'bot', 'entrypoint': 'discord_bot.services.bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
+     'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.services.bot.cogs.music', 'discord_bot.shared']},
     {'image': 'db', 'entrypoint': 'discord_bot.services.db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
      'extra': 'db', 'modules': ['discord_bot', 'discord_bot.shared', 'discord_bot.store']},
 ]}
@@ -44,7 +44,7 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
 
 
 @pytest.mark.parametrize('path, expected', [
-    ('discord_bot/cogs/music.py', 'discord_bot.cogs.music'),
+    ('discord_bot/cogs/music.py', 'discord_bot.services.bot.cogs.music'),
     ('discord_bot/__init__.py', 'discord_bot'),
     ('discord_bot/cogs/__init__.py', 'discord_bot.cogs'),
     ('tests/helpers.py', None),
@@ -91,7 +91,7 @@ def test_a_move_with_a_regenerated_closure_builds_only_the_owning_image():
     """The same move, done properly, is an ordinary one-image change."""
     moved = {'images': [
         {**image,
-         'modules': ['discord_bot.services.bot.cogs.music' if m == 'discord_bot.cogs.music' else m
+         'modules': ['discord_bot.services.bot.cogs.music' if m == 'discord_bot.services.bot.cogs.music' else m
                      for m in image['modules']]}
         for image in CLOSURE['images']
     ]}
@@ -142,7 +142,7 @@ def test_a_deleted_module_is_attributed_to_its_old_owners():
     image claims. The base closure is what tells them apart.
     '''
     base = {'images': [
-        {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
+        {'image': 'bot', 'entrypoint': 'discord_bot.services.bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
          'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.gone']},
         {'image': 'db', 'entrypoint': 'discord_bot.services.db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'extra': 'db', 'modules': ['discord_bot']},

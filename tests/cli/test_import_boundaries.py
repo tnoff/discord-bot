@@ -145,7 +145,7 @@ BOT_FORBIDDEN_MODULES = (
 
 def test_bot_imports_no_in_process_tier_modules():
     '''The bot process imports none of the in-process engine modules.'''
-    imported = set(measure('discord_bot.cli.bot')['modules'])
+    imported = set(measure('discord_bot.services.bot.cli.bot')['modules'])
     leaked = sorted(imported & set(BOT_FORBIDDEN_MODULES))
     assert not leaked, (
         f'the bot process imported {leaked} — these are test doubles, not deployable '

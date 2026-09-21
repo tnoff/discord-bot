@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 226 modules place. 25 do not**, and they
+**123 of 233 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**78 are package `__init__.py` files that declare no code**;
+**85 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -119,33 +119,33 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 
-- `discord_bot.cli._lib.cog_registry`
-- `discord_bot.cli.bot`
-- `discord_bot.cli.health`
-- `discord_bot.clients.database_stores`
-- `discord_bot.clients.http_download_client`
-- `discord_bot.clients.http_guild_analytics_store`
-- `discord_bot.clients.http_markov_store`
-- `discord_bot.clients.http_media_search_client`
-- `discord_bot.clients.http_playlist_store`
-- `discord_bot.clients.http_queue_worker_client`
-- `discord_bot.clients.youtube_music_search_client`
-- `discord_bot.cogs.common`
-- `discord_bot.cogs.delete_messages`
-- `discord_bot.cogs.error`
-- `discord_bot.cogs.general`
-- `discord_bot.cogs.markov`
-- `discord_bot.cogs.music`
-- `discord_bot.cogs.music_helpers.music_player`
-- `discord_bot.cogs.music_helpers.search_client`
-- `discord_bot.cogs.role`
-- `discord_bot.cogs.urban`
-- `discord_bot.servers.health_server`
-- `discord_bot.types.cleanup_reason`
-- `discord_bot.types.history_playlist_item`
-- `discord_bot.types.playlist_add_result`
-- `discord_bot.utils.bot_metrics`
-- `discord_bot.utils.otel_command`
+- `discord_bot.services.bot.cli._lib.cog_registry`
+- `discord_bot.services.bot.cli.bot`
+- `discord_bot.services.bot.cli.health`
+- `discord_bot.services.bot.clients.database_stores`
+- `discord_bot.services.bot.clients.http_download_client`
+- `discord_bot.services.bot.clients.http_guild_analytics_store`
+- `discord_bot.services.bot.clients.http_markov_store`
+- `discord_bot.services.bot.clients.http_media_search_client`
+- `discord_bot.services.bot.clients.http_playlist_store`
+- `discord_bot.services.bot.clients.http_queue_worker_client`
+- `discord_bot.services.bot.clients.youtube_music_search_client`
+- `discord_bot.services.bot.cogs.common`
+- `discord_bot.services.bot.cogs.delete_messages`
+- `discord_bot.services.bot.cogs.error`
+- `discord_bot.services.bot.cogs.general`
+- `discord_bot.services.bot.cogs.markov`
+- `discord_bot.services.bot.cogs.music`
+- `discord_bot.services.bot.cogs.music_helpers.music_player`
+- `discord_bot.services.bot.cogs.music_helpers.search_client`
+- `discord_bot.services.bot.cogs.role`
+- `discord_bot.services.bot.cogs.urban`
+- `discord_bot.services.bot.servers.health_server`
+- `discord_bot.services.bot.types.cleanup_reason`
+- `discord_bot.services.bot.types.history_playlist_item`
+- `discord_bot.services.bot.types.playlist_add_result`
+- `discord_bot.services.bot.utils.bot_metrics`
+- `discord_bot.services.bot.utils.otel_command`
 
 ### `discord_bot/services/broker/` — 10, reached by broker
 
@@ -225,8 +225,6 @@ overstated the core by a third.
 - `discord_bot.cli`
 - `discord_bot.cli._lib`
 - `discord_bot.clients`
-- `discord_bot.cogs`
-- `discord_bot.cogs.music_helpers`
 - `discord_bot.core`
 - `discord_bot.core.cli`
 - `discord_bot.core.cli._lib`
@@ -263,6 +261,15 @@ overstated the core by a third.
 - `discord_bot.seams.queue_worker.utils`
 - `discord_bot.servers`
 - `discord_bot.services`
+- `discord_bot.services.bot`
+- `discord_bot.services.bot.cli`
+- `discord_bot.services.bot.cli._lib`
+- `discord_bot.services.bot.clients`
+- `discord_bot.services.bot.cogs`
+- `discord_bot.services.bot.cogs.music_helpers`
+- `discord_bot.services.bot.servers`
+- `discord_bot.services.bot.types`
+- `discord_bot.services.bot.utils`
 - `discord_bot.services.broker`
 - `discord_bot.services.broker.cli`
 - `discord_bot.services.broker.clients`

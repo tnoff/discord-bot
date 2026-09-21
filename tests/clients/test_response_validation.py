@@ -18,7 +18,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
-from discord_bot.clients.http_markov_store import HttpMarkovStore
+from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.core.exceptions import SeamResponseInvalid
 
 #: Every `clients` package in the tree, not one hard-coded directory. The

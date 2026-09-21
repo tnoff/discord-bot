@@ -1,5 +1,5 @@
 from discord.ext import commands
-from discord_bot.cogs.common import CogHelperBase
+from discord_bot.services.bot.cogs.common import CogHelperBase
 
 # https://gist.github.com/EvieePy/7822af90858ef65012ea500bcecf1612
 class CommandErrorHandler(CogHelperBase):

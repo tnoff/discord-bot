@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
 
-from discord_bot.clients.database_stores import DatabaseStores
+from discord_bot.services.bot.clients.database_stores import DatabaseStores
 from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.services.db.clients.markov_client import MarkovClient
 from discord_bot.services.db.clients.playlist_client import PlaylistClient
@@ -275,7 +275,7 @@ def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> I
     downloader pod.
 
     worker_cls swaps in a fake worker subclass — what the tests used to get by
-    patching discord_bot.cogs.music.AsyncioDownloadWorker, which no longer exists
+    patching discord_bot.services.bot.cogs.music.AsyncioDownloadWorker, which no longer exists
     to patch.
     '''
     bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None

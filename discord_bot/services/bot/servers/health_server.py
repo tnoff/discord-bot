@@ -7,7 +7,7 @@ from typing import ClassVar
 import asyncio
 from urllib.parse import urlsplit
 
-from discord_bot.utils.bot_metrics import BotMetricNaming
+from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
 from discord_bot.core.servers.health_server_base import HealthServerBase, close_writer
 from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER
 
