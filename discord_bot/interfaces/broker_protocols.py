@@ -22,7 +22,7 @@ from opentelemetry.trace import SpanKind
 
 from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
 from discord_bot.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.types.checkout_result import CheckoutResult
+from discord_bot.seams.broker.types.checkout_result import CheckoutResult
 from discord_bot.interfaces.player_session_store import PlayerSessionStore
 from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate

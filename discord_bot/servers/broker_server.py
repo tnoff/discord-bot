@@ -13,12 +13,12 @@ from opentelemetry.trace import SpanKind
 from discord_bot.workers.broker_metrics import BrokerMetricNaming
 from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
-from discord_bot.routes import broker as broker_routes
+from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.core.routes.route import Route
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.player_session import PlayerSession
+from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,

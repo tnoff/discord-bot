@@ -17,7 +17,7 @@ here calls a handler; the question is only which routes get registered, and a
 server that needed a real store to answer that would be a server whose route set
 depends on runtime state.
 '''
-from discord_bot.routes import broker as broker_routes
+from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.core.routes import contract
 from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes

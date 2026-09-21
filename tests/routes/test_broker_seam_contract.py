@@ -22,7 +22,7 @@ from aiohttp import web
 
 from discord_bot.clients import http_broker_client, http_player_session
 from discord_bot.clients.http_broker_client import HttpBrokerClient
-from discord_bot.routes import broker as broker_routes
+from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.core.routes import contract
 from discord_bot.core.routes.route import Route, collect
 from discord_bot.servers.broker_server import BrokerHttpServer

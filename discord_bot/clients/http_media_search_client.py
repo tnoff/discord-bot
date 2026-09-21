@@ -22,7 +22,7 @@ import logging
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.routes import media_search as media_search_routes
 from discord_bot.core.routes.route import Route
 from discord_bot.types.catalog import CatalogResponse

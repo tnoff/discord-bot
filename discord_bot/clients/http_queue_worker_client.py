@@ -29,7 +29,7 @@ from typing import Callable, ClassVar
 from aiohttp import ClientResponseError
 from opentelemetry.trace import SpanKind
 
-from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.types.clear_guild_result import ClearGuildResult
 from discord_bot.core.types.media_request import MediaRequest

@@ -20,10 +20,10 @@ from pathlib import Path
 import aiohttp
 from opentelemetry.trace import SpanKind
 
-from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.clients.http_player_session import HttpPlayerSessionMixin
-from discord_bot.routes import broker as broker_routes
-from discord_bot.types.checkout_result import CheckoutResult
+from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_bot.seams.broker.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
                                               media_download_to_dict)

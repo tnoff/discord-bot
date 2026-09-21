@@ -14,7 +14,7 @@ from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult,
 from discord_bot.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.player_session import PlayerSession
+from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.utils.integrations.s3 import delete_file
 from discord_bot.workers.broker_registry import RedisBrokerRegistry

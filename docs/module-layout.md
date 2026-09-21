@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 178 modules place. 25 do not**, and they
+**123 of 182 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**30 are package `__init__.py` files that declare no code**;
+**34 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -78,11 +78,11 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/broker/` — 5, reached by bot, broker, downloader, search
 
-- `discord_bot.clients.http_client_base`
-- `discord_bot.clients.seam_contract`
-- `discord_bot.routes.broker`
-- `discord_bot.types.checkout_result`
-- `discord_bot.types.player_session`
+- `discord_bot.seams.broker.clients.http_client_base`
+- `discord_bot.seams.broker.clients.seam_contract`
+- `discord_bot.seams.broker.routes.broker`
+- `discord_bot.seams.broker.types.checkout_result`
+- `discord_bot.seams.broker.types.player_session`
 
 ### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
@@ -240,6 +240,10 @@ overstated the core by a third.
 - `discord_bot.interfaces`
 - `discord_bot.routes`
 - `discord_bot.seams`
+- `discord_bot.seams.broker`
+- `discord_bot.seams.broker.clients`
+- `discord_bot.seams.broker.routes`
+- `discord_bot.seams.broker.types`
 - `discord_bot.seams.database`
 - `discord_bot.seams.database.interfaces`
 - `discord_bot.seams.database.routes`

@@ -15,7 +15,7 @@ from discord_bot.core.clients.dispatch_client_base import DispatchClientBase, Di
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
 from discord_bot.utils.retry import async_retry_broker_command
-from discord_bot.clients.http_client_base import HttpClientMixin
+from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 
 logger = logging.getLogger(__name__)
