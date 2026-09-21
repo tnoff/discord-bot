@@ -1,8 +1,8 @@
 '''Tests for the standalone broker CLI entrypoint.'''
 import pytest
 
-from discord_bot.cli import broker as broker_cli
-from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
+from discord_bot.services.broker.cli import broker as broker_cli
+from discord_bot.services.broker.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_bot.cogs.music import MusicGeneralConfig
 from discord_bot.core.utils.common import SeamContractConfig
 

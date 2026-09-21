@@ -11,7 +11,7 @@ from discord.errors import ClientException
 from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
-from discord_bot.interfaces.broker_protocols import CheckoutResult
+from discord_bot.services.broker.interfaces.broker_protocols import CheckoutResult
 from discord_bot.seams.queue_worker.types.queue import Queue
 
 from tests.fakes.asyncio_broker import AsyncioBroker

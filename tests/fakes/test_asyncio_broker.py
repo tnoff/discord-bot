@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
+from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.seams.broker.types.player_session import PlayerSession
 from discord_bot.types.playlist_add_request import parse_media_request

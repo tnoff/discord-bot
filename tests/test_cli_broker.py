@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.cli import broker as broker_cli
-from discord_bot.clients.http_video_cache_store import HttpVideoCacheStore
+from discord_bot.services.broker.cli import broker as broker_cli
+from discord_bot.services.broker.clients.http_video_cache_store import HttpVideoCacheStore
 
 
 def _general_config(health_enabled=True):
@@ -34,18 +34,18 @@ def _settings(dispatch_url='http://disp'):
 def _patch_run_deps(mocker, video_cache=None):
     '''Patch every heavy dependency cli.broker.run touches; return the mocks.'''
     return {
-        'observability': mocker.patch('discord_bot.cli.broker.setup_observability'),
-        'redis_manager': mocker.patch('discord_bot.cli.broker.RedisManager', return_value=MagicMock()),
-        'registry': mocker.patch('discord_bot.cli.broker.RedisBrokerRegistry', return_value=MagicMock()),
-        'result_queue': mocker.patch('discord_bot.cli.broker.RedisDownloadResultQueue', return_value=MagicMock()),
-        'search_result_queue': mocker.patch('discord_bot.cli.broker.RedisSearchResultQueue', return_value=MagicMock()),
-        'metrics': mocker.patch('discord_bot.cli.broker.BrokerMetrics', return_value=MagicMock()),
-        'video_cache': mocker.patch('discord_bot.cli.broker._build_video_cache', return_value=video_cache),
-        'dispatch': mocker.patch('discord_bot.cli.broker.HttpDispatchClient', return_value=MagicMock()),
-        'broker': mocker.patch('discord_bot.cli.broker.RedisBroker', return_value=MagicMock()),
-        'server': mocker.patch('discord_bot.cli.broker.BrokerHttpServer', return_value=MagicMock()),
-        'health': mocker.patch('discord_bot.cli.broker.BrokerHealthServer', return_value=MagicMock()),
-        'run_broker': mocker.patch('discord_bot.cli.broker.run_broker'),
+        'observability': mocker.patch('discord_bot.services.broker.cli.broker.setup_observability'),
+        'redis_manager': mocker.patch('discord_bot.services.broker.cli.broker.RedisManager', return_value=MagicMock()),
+        'registry': mocker.patch('discord_bot.services.broker.cli.broker.RedisBrokerRegistry', return_value=MagicMock()),
+        'result_queue': mocker.patch('discord_bot.services.broker.cli.broker.RedisDownloadResultQueue', return_value=MagicMock()),
+        'search_result_queue': mocker.patch('discord_bot.services.broker.cli.broker.RedisSearchResultQueue', return_value=MagicMock()),
+        'metrics': mocker.patch('discord_bot.services.broker.cli.broker.BrokerMetrics', return_value=MagicMock()),
+        'video_cache': mocker.patch('discord_bot.services.broker.cli.broker._build_video_cache', return_value=video_cache),
+        'dispatch': mocker.patch('discord_bot.services.broker.cli.broker.HttpDispatchClient', return_value=MagicMock()),
+        'broker': mocker.patch('discord_bot.services.broker.cli.broker.RedisBroker', return_value=MagicMock()),
+        'server': mocker.patch('discord_bot.services.broker.cli.broker.BrokerHttpServer', return_value=MagicMock()),
+        'health': mocker.patch('discord_bot.services.broker.cli.broker.BrokerHealthServer', return_value=MagicMock()),
+        'run_broker': mocker.patch('discord_bot.services.broker.cli.broker.run_broker'),
     }
 
 
@@ -113,7 +113,7 @@ def test_build_video_cache_constructs_the_http_store():
 @pytest.mark.asyncio
 async def test_main_loop_drains_on_signal(mocker):
     captured = {}
-    mocker.patch('discord_bot.cli.broker.signal.signal', side_effect=captured.__setitem__)
+    mocker.patch('discord_bot.services.broker.cli.broker.signal.signal', side_effect=captured.__setitem__)
     broker_server = MagicMock()
     broker_server.serve = AsyncMock()
     broker_server.drain_and_stop = AsyncMock()
@@ -138,17 +138,17 @@ async def test_main_loop_drains_on_signal(mocker):
 
 
 def test_run_broker_invokes_run_loop(mocker):
-    mock_run_loop = mocker.patch('discord_bot.cli.broker.run_loop')
+    mock_run_loop = mocker.patch('discord_bot.services.broker.cli.broker.run_loop')
     sentinel = object()
     # Force a sync mock so main_loop(...) returns the sentinel rather than a coroutine.
-    mocker.patch('discord_bot.cli.broker.main_loop', new=MagicMock(return_value=sentinel))
+    mocker.patch('discord_bot.services.broker.cli.broker.main_loop', new=MagicMock(return_value=sentinel))
     broker_cli.run_broker(MagicMock(), MagicMock(), MagicMock(), MagicMock())
     mock_run_loop.assert_called_once_with(sentinel)
 
 
 def test_main_parses_config_and_runs(mocker):
-    mocker.patch('discord_bot.cli.broker.parse_and_validate_config',
+    mocker.patch('discord_bot.services.broker.cli.broker.parse_and_validate_config',
                  return_value=({'k': 'v'}, 'gc'))
-    mock_run = mocker.patch('discord_bot.cli.broker.run')
+    mock_run = mocker.patch('discord_bot.services.broker.cli.broker.run')
     broker_cli.main.callback('config.cnf')
     mock_run.assert_called_once_with({'k': 'v'}, 'gc')

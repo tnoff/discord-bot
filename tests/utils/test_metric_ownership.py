@@ -115,7 +115,7 @@ def test_the_tier_modules_are_reached_by_their_own_image_alone(claims):
     rebuild it was meant to avoid comes straight back with the file renamed.
     '''
     for module, image in (('discord_bot.utils.bot_metrics', 'bot'),
-                          ('discord_bot.workers.broker_metrics', 'broker')):
+                          ('discord_bot.services.broker.workers.broker_metrics', 'broker')):
         reached = sorted(i for i, modules in claims.items() if module in modules)
         assert reached == [image], f'{module} is reached by {reached}, not just {image}'
 

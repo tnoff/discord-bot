@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.interfaces.broker_protocols import Zone
+from discord_bot.services.broker.interfaces.broker_protocols import Zone
 from discord_bot.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.database import VideoCache
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
@@ -216,7 +216,7 @@ async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_mode(mocker, fake_engine):  #pylint:disable=redefined-outer-name
     '''cache_cleanup in S3 mode deletes S3 objects and removes DB records'''
-    delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
+    delete_mock = mocker.patch('discord_bot.services.broker.interfaces.broker_protocols.delete_file', return_value=True)
     fake_context = generate_fake_context()
     vc = VideoCacheClient(1, partial(async_mock_session, fake_engine))
     broker = AsyncioBroker(video_cache=vc, bucket_name='my-bucket')

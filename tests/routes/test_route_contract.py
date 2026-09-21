@@ -16,7 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_bot.core.routes import contract
 from discord_bot.servers.base import AiohttpServerBase
-from discord_bot.servers.broker_server import BrokerHttpServer
+from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 from discord_bot.servers.composite_server import CompositeHttpServer
 from discord_bot.servers.database_server import DatabaseHttpServer
 

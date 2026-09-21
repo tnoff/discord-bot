@@ -25,7 +25,7 @@ from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBroker
 from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.core.routes import contract
 from discord_bot.core.routes.route import Route, collect
-from discord_bot.servers.broker_server import BrokerHttpServer
+from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 

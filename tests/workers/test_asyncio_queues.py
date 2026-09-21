@@ -5,7 +5,7 @@ import pytest
 
 from discord_bot.types.download import DownloadResult, DownloadStatus
 from discord_bot.types.search_resolution import SearchResolution
-from discord_bot.workers.asyncio_queues import (
+from discord_bot.services.broker.workers.asyncio_queues import (
     AsyncioBundleStore,
     AsyncioDownloadResultQueue,
     AsyncioSearchResultQueue,

@@ -22,9 +22,9 @@ The third rule is why the seam names below are not invented here. A seam is
 a contract, the route module *is* the contract, and so the folder takes its
 name — rename the route and this doc follows.
 
-**123 of 205 modules place. 25 do not**, and they
+**123 of 211 modules place. 25 do not**, and they
 are listed at the bottom rather than filed somewhere plausible. A further
-**57 are package `__init__.py` files that declare no code**;
+**63 are package `__init__.py` files that declare no code**;
 they have no home of their own and are listed separately.
 
 ## Summary
@@ -149,16 +149,16 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/services/broker/` — 10, reached by broker
 
-- `discord_bot.cli.broker`
-- `discord_bot.clients.http_video_cache_store`
-- `discord_bot.interfaces.broker_protocols`
-- `discord_bot.servers.broker_health_server`
-- `discord_bot.servers.broker_server`
-- `discord_bot.workers.asyncio_queues`
-- `discord_bot.workers.broker_metrics`
-- `discord_bot.workers.broker_registry`
-- `discord_bot.workers.media_bundle`
-- `discord_bot.workers.redis_broker`
+- `discord_bot.services.broker.cli.broker`
+- `discord_bot.services.broker.clients.http_video_cache_store`
+- `discord_bot.services.broker.interfaces.broker_protocols`
+- `discord_bot.services.broker.servers.broker_health_server`
+- `discord_bot.services.broker.servers.broker_server`
+- `discord_bot.services.broker.workers.asyncio_queues`
+- `discord_bot.services.broker.workers.broker_metrics`
+- `discord_bot.services.broker.workers.broker_registry`
+- `discord_bot.services.broker.workers.media_bundle`
+- `discord_bot.services.broker.workers.redis_broker`
 
 ### `discord_bot/services/db/` — 14, reached by db
 
@@ -263,6 +263,12 @@ overstated the core by a third.
 - `discord_bot.seams.queue_worker.utils`
 - `discord_bot.servers`
 - `discord_bot.services`
+- `discord_bot.services.broker`
+- `discord_bot.services.broker.cli`
+- `discord_bot.services.broker.clients`
+- `discord_bot.services.broker.interfaces`
+- `discord_bot.services.broker.servers`
+- `discord_bot.services.broker.workers`
 - `discord_bot.services.dispatcher`
 - `discord_bot.services.dispatcher.cli`
 - `discord_bot.services.dispatcher.servers`

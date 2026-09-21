@@ -94,7 +94,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_sto
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
-                delete_mock = mocker.patch('discord_bot.interfaces.broker_protocols.delete_file', return_value=True)
+                delete_mock = mocker.patch('discord_bot.services.broker.interfaces.broker_protocols.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
                 await cog.broker_client.local_broker.video_cache.iterate_file(sd)
                 await cog.broker_client.local_broker.video_cache.iterate_file(sd2)

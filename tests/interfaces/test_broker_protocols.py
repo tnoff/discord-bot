@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_bot.interfaces.broker_protocols import (
+from discord_bot.services.broker.interfaces.broker_protocols import (
     BrokerClient,
     BrokerEntry,
     BundleDispatchSink,
@@ -18,7 +18,7 @@ from discord_bot.interfaces.broker_protocols import (
     MediaBrokerBase,
     Zone,
 )
-from discord_bot.workers.media_bundle import BundleRenderer
+from discord_bot.services.broker.workers.media_bundle import BundleRenderer
 
 from tests.cli._image_deps import measure
 from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
@@ -502,7 +502,7 @@ def test_broker_protocols_does_not_import_sqlalchemy():
     boto3 is deliberately not asserted absent: delete_file keeps it, and this
     test would then be asserting a fix that has not happened.
     '''
-    packages = set(measure('discord_bot.interfaces.broker_protocols')['packages'])
+    packages = set(measure('discord_bot.services.broker.interfaces.broker_protocols')['packages'])
     assert 'sqlalchemy' not in packages, (
         'broker_protocols pulled sqlalchemy back into its import chain. Something '
         'in it now names a module under discord_bot.database or a client that does '

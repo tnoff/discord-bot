@@ -66,7 +66,7 @@ IMAGE_IMPORTS = {
     # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
     # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
     # not follow it out.
-    'discord_bot.cli.broker': frozenset({'boto3', 'dappertable'}),
+    'discord_bot.services.broker.cli.broker': frozenset({'boto3', 'dappertable'}),
     # Downloads (yt_dlp) and uploads finished media (boto3).
     'discord_bot.services.downloader.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
@@ -85,7 +85,7 @@ IMAGE_IMPORTS = {
 IMAGE_NAMES = {
     'discord_bot.cli.bot': 'discord-bot',
     'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
-    'discord_bot.cli.broker': 'discord-broker',
+    'discord_bot.services.broker.cli.broker': 'discord-broker',
     'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
     'discord_bot.cli.search': 'discord-search',
     'discord_bot.cli.database': 'discord-db',
@@ -102,7 +102,7 @@ IMAGE_NAMES = {
 IMAGE_DOCKERFILES = {
     'discord_bot.cli.bot': 'docker/Dockerfile',
     'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
-    'discord_bot.cli.broker': 'docker/Dockerfile.broker',
+    'discord_bot.services.broker.cli.broker': 'docker/Dockerfile.broker',
     'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_bot.cli.search': 'docker/Dockerfile.search',
     'discord_bot.cli.database': 'docker/Dockerfile.db',

@@ -13,7 +13,7 @@ from discord_bot.services.dispatcher.workers.message_dispatcher import (
 )
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import loop_heartbeat_observations
-from discord_bot.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
+from discord_bot.services.broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
 from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.core.types.fetched_message import FetchedMessage
 from discord_bot.core.types.dispatch_request import (

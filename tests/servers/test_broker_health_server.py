@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.servers.broker_health_server import BrokerHealthServer
+from discord_bot.services.broker.servers.broker_health_server import BrokerHealthServer
 
 
 def _server(ping):

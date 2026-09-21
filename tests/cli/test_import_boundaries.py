@@ -139,7 +139,7 @@ def test_extra_names_are_normalised_and_self_references_resolve():
 # serves it -- so it cannot be moved out of reach, which is exactly why it still
 # needs asserting.
 BOT_FORBIDDEN_MODULES = (
-    'discord_bot.servers.broker_server',
+    'discord_bot.services.broker.servers.broker_server',
 )
 
 

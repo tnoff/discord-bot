@@ -22,9 +22,9 @@ from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
-from discord_bot.workers.broker_registry import RedisBrokerRegistry
-from discord_bot.workers.media_bundle import BundleRenderer
-from discord_bot.workers.redis_broker import RedisBroker
+from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
+from discord_bot.services.broker.workers.media_bundle import BundleRenderer
+from discord_bot.services.broker.workers.redis_broker import RedisBroker
 
 
 class _YieldingRedis:

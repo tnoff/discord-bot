@@ -30,7 +30,7 @@ from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.utils.integrations.s3 import delete_file
 from discord_bot.core.utils.otel import async_otel_span_wrapper
-from discord_bot.workers.media_bundle import BundleRenderer, BundleState
+from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState
 
 logger = logging.getLogger(__name__)
 

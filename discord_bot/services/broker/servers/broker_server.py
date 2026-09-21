@@ -10,8 +10,8 @@ from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
 
-from discord_bot.workers.broker_metrics import BrokerMetricNaming
-from discord_bot.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
+from discord_bot.services.broker.workers.broker_metrics import BrokerMetricNaming
+from discord_bot.services.broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_bot.seams.broker.routes import broker as broker_routes
 from discord_bot.core.routes.route import Route
@@ -23,7 +23,7 @@ from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.types.search_resolution import SearchResolution
 from discord_bot.core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
-from discord_bot.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)
 
