@@ -55,7 +55,10 @@ class _FakeWorker:
         self.submit = AsyncMock()
         self.block_guild = AsyncMock(return_value=True)
         self.status_snapshot = AsyncMock(return_value=status or {
+            # failure_count is required: queue_metrics reads it with a bare
+            # subscript, so a snapshot without it KeyErrors on the bot side.
             'failure_summary': '0 failures in queue',
+            'failure_count': 0,
             'backoff_seconds_remaining': None,
             'queue_sizes': {},
         })
@@ -189,6 +192,7 @@ async def test_poller_refreshes_cached_values_from_status_endpoint():
     '''After the poller fires once the cached reads reflect the server's response.'''
     worker = _FakeWorker(status={
         'failure_summary': '1 failure in queue',
+        'failure_count': 0,
         'backoff_seconds_remaining': 42,
         'queue_sizes': {'7': 3, '12': 1},
     })
@@ -279,6 +283,7 @@ async def test_status_endpoint_returns_worker_snapshot():
     '''GET /downloads/status returns the worker's status_snapshot verbatim.'''
     worker = _FakeWorker(status={
         'failure_summary': '2 failures in queue',
+        'failure_count': 0,
         'backoff_seconds_remaining': 10,
         'queue_sizes': {'7': 3, '12': 1},
     })
@@ -497,6 +502,7 @@ async def test_status_poll_still_updates_the_cache_without_spans():
     '''Dropping the spans must not change what the poll actually does.'''
     _, server = _make_server(_FakeWorker(status={
         'failure_summary': '2 failures in queue',
+        'failure_count': 0,
         'backoff_seconds_remaining': 11,
         'queue_sizes': {'7': 5},
     }))
@@ -570,7 +576,7 @@ async def test_status_poller_is_untraced_by_default():
     ~99% of the bot's span volume, and every tick during a worker-pod reschedule
     also stamped an ERROR the method already handles by keeping its cached values.
     '''
-    worker = _FakeWorker(status={'failure_summary': 'ok', 'queue_sizes': {}})
+    worker = _FakeWorker(status={'failure_summary': 'ok', 'failure_count': 0, 'queue_sizes': {}})
     _, server = _make_server(worker)
     tracer, exporter = _recording_tracer()
     async with TestClient(TestServer(server.build_app())) as tc:
@@ -591,7 +597,7 @@ async def test_status_poller_is_traced_when_the_toggle_is_on():
     Asserted on exported spans rather than on the traced= kwarg, so the test
     fails if the flag is stored and then passed to the wrong place.
     '''
-    worker = _FakeWorker(status={'failure_summary': 'ok', 'queue_sizes': {}})
+    worker = _FakeWorker(status={'failure_summary': 'ok', 'failure_count': 0, 'queue_sizes': {}})
     _, server = _make_server(worker)
     tracer, exporter = _recording_tracer()
     async with TestClient(TestServer(server.build_app())) as tc:

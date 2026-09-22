@@ -14,6 +14,7 @@ from discord_bot.services.broker.workers.broker_metrics import BrokerMetricNamin
 from discord_bot.services.broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_bot.seams.broker.types import responses as broker_responses
 from discord_bot.core.routes.route import Route
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
@@ -174,7 +175,7 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.register_request', context=ctx, kind=SpanKind.SERVER):
             await self._broker.register_request(media_request)
-        return web.json_response({'status': 'ok'}, status=201)
+        return web.json_response(broker_responses.RegisterRequestResponse().model_dump(), status=201)
 
     async def _handle_update_status(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -185,7 +186,7 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.update_status', context=ctx, kind=SpanKind.SERVER):
             await self._broker.update_request_status(uuid, update)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.UpdateStatusResponse().model_dump())
 
     async def _handle_register_download(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -201,7 +202,7 @@ class BrokerHttpServer(AiohttpServerBase):
             if result.status.success and result.file_name is not None:
                 await self._broker.register_download_result(result)
             await self._result_queue.put(result)
-        return web.json_response({'status': 'ok'}, status=202)
+        return web.json_response(broker_responses.RegisterDownloadResponse().model_dump(), status=202)
 
     async def _handle_register_download_direct(self, request: web.Request) -> web.Response:
         '''POST /downloads/register — persist a MediaDownload built bot-side.'''
@@ -217,7 +218,7 @@ class BrokerHttpServer(AiohttpServerBase):
         media_download.file_size_bytes = body.get('file_size_bytes')
         with otel_span_wrapper('broker.register_download_direct', context=ctx, kind=SpanKind.SERVER):
             await self._broker.register_download(media_download)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.RegisterDownloadDirectResponse().model_dump())
 
     async def _handle_next_result(self, request: web.Request) -> web.Response:
         '''GET /results/next — pop the next bot-ready DownloadResult, or 204.
@@ -259,7 +260,7 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.register_search_result', context=ctx, kind=SpanKind.SERVER):
             await self._search_result_queue.put(resolution)
-        return web.json_response({'status': 'ok'}, status=202)
+        return web.json_response(broker_responses.RegisterSearchResultResponse().model_dump(), status=202)
 
     async def _handle_next_search_result(self, request: web.Request) -> web.Response:
         '''GET /search-results/next — pop the next bot-ready SearchResolution, or 204.
@@ -289,31 +290,32 @@ class BrokerHttpServer(AiohttpServerBase):
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
             result = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
         if result is None:
-            return web.json_response({'guild_file_path': None})
+            return web.json_response(broker_responses.CheckoutStagedResponse().model_dump())
         if result.s3_key:
-            return web.json_response({'s3_key': result.s3_key})
-        return web.json_response({'guild_file_path': str(result.local_path) if result.local_path else None})
+            return web.json_response(broker_responses.CheckoutS3Response(s3_key=result.s3_key).model_dump())
+        return web.json_response(broker_responses.CheckoutStagedResponse(
+            guild_file_path=str(result.local_path) if result.local_path else None).model_dump())
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.release', context=ctx, kind=SpanKind.SERVER):
             await self._broker.release(uuid)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.ReleaseResponse().model_dump())
 
     async def _handle_remove(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.remove', context=ctx, kind=SpanKind.SERVER):
             await self._broker.remove(uuid)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.RemoveResponse().model_dump())
 
     async def _handle_discard(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.discard', context=ctx, kind=SpanKind.SERVER):
             await self._broker.discard(uuid)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.DiscardResponse().model_dump())
 
     async def _handle_prefetch(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -327,7 +329,7 @@ class BrokerHttpServer(AiohttpServerBase):
         items = [_QueueItemProxy(uuid=u) for u in uuids]
         with otel_span_wrapper('broker.prefetch', context=ctx, kind=SpanKind.SERVER):
             await self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.PrefetchResponse().model_dump())
 
     async def _handle_check_cache(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -338,33 +340,32 @@ class BrokerHttpServer(AiohttpServerBase):
         with otel_span_wrapper('broker.check_cache', context=ctx, kind=SpanKind.SERVER):
             cached = await self._broker.check_cache(media_request)
         if cached is None:
-            return web.json_response({'hit': False})
-        return web.json_response({
-            'hit': True,
-            'download': {
-                'request': cached.media_request.model_dump(mode='json'),
-                'file_path': str(cached.file_path) if cached.file_path else None,
-                'file_size_bytes': cached.file_size_bytes,
-                'cache_hit': cached.cache_hit,
-                'ytdl_data': {
-                    'id': cached.id, 'title': cached.title,
-                    'webpage_url': cached.webpage_url, 'uploader': cached.uploader,
-                    'duration': cached.duration, 'extractor': cached.extractor,
-                },
-            },
-        })
+            return web.json_response(broker_responses.CheckCacheMissResponse().model_dump())
+        return web.json_response(broker_responses.CheckCacheHitResponse(
+            download=broker_responses.CachedDownload(
+                request=cached.media_request.model_dump(mode='json'),
+                file_path=str(cached.file_path) if cached.file_path else None,
+                file_size_bytes=cached.file_size_bytes,
+                cache_hit=cached.cache_hit,
+                ytdl_data=broker_responses.CachedYtdlData(
+                    id=cached.id, title=cached.title,
+                    webpage_url=cached.webpage_url, uploader=cached.uploader,
+                    duration=cached.duration, extractor=cached.extractor,
+                ),
+            ),
+        ).model_dump())
 
     async def _handle_cache_cleanup(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         with otel_span_wrapper('broker.cache_cleanup', context=ctx, kind=SpanKind.SERVER):
             removed = await self._broker.cache_cleanup()
-        return web.json_response({'removed': bool(removed)})
+        return web.json_response(broker_responses.CacheCleanupResponse(removed=bool(removed)).model_dump())
 
     async def _handle_get_cache_count(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         with otel_span_wrapper('broker.get_cache_count', context=ctx, kind=SpanKind.SERVER):
             count = await self._broker.get_cache_count()
-        return web.json_response({'count': int(count)})
+        return web.json_response(broker_responses.GetCacheCountResponse(count=int(count)).model_dump())
 
     async def _handle_create_bundle(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -380,27 +381,28 @@ class BrokerHttpServer(AiohttpServerBase):
                 guild_id, channel_id,
                 input_string=input_string, has_search_banner=has_search_banner,
             )
-        return web.json_response({'uuid': uuid}, status=201)
+        return web.json_response(broker_responses.CreateBundleResponse(uuid=uuid).model_dump(), status=201)
 
     async def _handle_finalize_bundle(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         bundle_uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.finalize_bundle', context=ctx, kind=SpanKind.SERVER):
             await self._broker.finalize_bundle(bundle_uuid)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.FinalizeBundleResponse().model_dump())
 
     async def _handle_delete_bundle(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         bundle_uuid = request.match_info['uuid']
         with otel_span_wrapper('broker.delete_bundle', context=ctx, kind=SpanKind.SERVER):
             await self._broker.delete_bundle(bundle_uuid)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.DeleteBundleResponse().model_dump())
 
     async def _handle_list_player_sessions(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
         with otel_span_wrapper('broker.list_player_sessions', context=ctx, kind=SpanKind.SERVER):
             sessions = await self._broker.list_player_sessions()
-        return web.json_response({'sessions': [s.model_dump(mode='json') for s in sessions]})
+        return web.json_response(broker_responses.ListPlayerSessionsResponse(
+            sessions=sessions).model_dump(mode='json'))
 
     async def _handle_save_player_session(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)
@@ -419,7 +421,7 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity()
         with otel_span_wrapper('broker.save_player_session', context=ctx, kind=SpanKind.SERVER):
             await self._broker.save_player_session(session)
-        return web.json_response({'status': 'ok'}, status=201)
+        return web.json_response(broker_responses.SavePlayerSessionResponse().model_dump(), status=201)
 
     async def _handle_delete_player_session(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
@@ -429,7 +431,7 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.delete_player_session', context=ctx, kind=SpanKind.SERVER):
             await self._broker.delete_player_session(guild_id)
-        return web.json_response({'status': 'ok'})
+        return web.json_response(broker_responses.DeletePlayerSessionResponse().model_dump())
 
     async def _handle_list_bundles_for_guild(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)
@@ -439,4 +441,4 @@ class BrokerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.list_bundles_for_guild', context=ctx, kind=SpanKind.SERVER):
             uuids = await self._broker.list_bundles_for_guild(guild_id)
-        return web.json_response({'uuids': uuids})
+        return web.json_response(broker_responses.ListBundlesForGuildResponse(uuids=uuids).model_dump())

@@ -23,6 +23,7 @@ from aiohttp import web
 from opentelemetry.trace import SpanKind
 
 from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
+from discord_bot.seams.queue_worker.types import responses as qw_responses
 from discord_bot.servers.base import AiohttpServerBase
 from discord_bot.types.playlist_add_request import parse_media_request
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked, QueueFull, submit_rejection_status
@@ -134,9 +135,10 @@ class QueueWorkerHttpServer(AiohttpServerBase):
                 span.set_attributes({AttributeNaming.SUBMIT_REJECTION.value: type(exc).__name__})
         if rejection is not None:
             return web.json_response(
-                {'status': 'rejected', 'reason': type(rejection).__name__, 'detail': str(rejection)},
+                qw_responses.SubmitRejectedResponse(
+                    reason=type(rejection).__name__, detail=str(rejection)).model_dump(),
                 status=submit_rejection_status(rejection))
-        return web.json_response({'status': 'ok'}, status=202)
+        return web.json_response(qw_responses.SubmitAcceptedResponse().model_dump(), status=202)
 
     async def _handle_clear(self, request: web.Request) -> web.Response:
         '''POST {prefix}/clear — drop pending requests for a guild.
@@ -168,10 +170,10 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         with otel_span_wrapper(f'{self.SPAN_PREFIX}.clear', context=ctx, kind=SpanKind.SERVER):
             dropped = await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve)
         return web.json_response(
-            {
-                'dropped': [mr.model_dump(mode='json') for mr in dropped],
-                'preserved_bundle_uuids': sorted(preserved_bundle_uuids),
-            },
+            qw_responses.ClearGuildResponse(
+                dropped=[mr.model_dump(mode='json') for mr in dropped],
+                preserved_bundle_uuids=sorted(preserved_bundle_uuids),
+            ).model_dump(),
             status=200,
         )
 
@@ -184,7 +186,7 @@ class QueueWorkerHttpServer(AiohttpServerBase):
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper(f'{self.SPAN_PREFIX}.block', context=ctx, kind=SpanKind.SERVER):
             await self._worker.block_guild(guild_id)
-        return web.json_response({'status': 'ok'}, status=200)
+        return web.json_response(qw_responses.BlockResponse().model_dump(), status=200)
 
     async def _handle_status(self, request: web.Request) -> web.Response:
         '''GET {prefix}/status — live queue/backoff/failure snapshot for the bot
@@ -202,4 +204,5 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         '''
         del request
         snapshot = await self._worker.status_snapshot()
-        return web.json_response(snapshot, status=200)
+        return web.json_response(
+            qw_responses.StatusSnapshotResponse.model_validate(snapshot).model_dump(), status=200)

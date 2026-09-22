@@ -23,7 +23,7 @@ than a description of where it ended up.
 every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,
 setuptools' `packages.find` — keeps working unchanged.
 
-**126 modules are homed and checked. 25 are not split
+**128 modules are homed and checked. 25 are not split
 yet** and are listed at the bottom. A further **86 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
@@ -34,11 +34,11 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_bot/core/` | 16 | all 6 |
-| `discord_bot/seams/broker/` | 5 | bot, broker, downloader, search |
+| `discord_bot/seams/broker/` | 6 | bot, broker, downloader, search |
 | `discord_bot/seams/database/` | 7 | bot, broker, db |
 | `discord_bot/seams/dispatch/` | 9 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
-| `discord_bot/seams/queue_worker/` | 6 | bot, downloader, search |
+| `discord_bot/seams/queue_worker/` | 7 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
 | `discord_bot/services/broker/` | 10 | broker |
 | `discord_bot/services/db/` | 14 | db |
@@ -74,13 +74,14 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.core.utils.otel`
 - `discord_bot.core.utils.process_metrics`
 
-### `discord_bot/seams/broker/` — 5, reached by bot, broker, downloader, search
+### `discord_bot/seams/broker/` — 6, reached by bot, broker, downloader, search
 
 - `discord_bot.seams.broker.clients.http_client_base`
 - `discord_bot.seams.broker.clients.seam_contract`
 - `discord_bot.seams.broker.routes.broker`
 - `discord_bot.seams.broker.types.checkout_result`
 - `discord_bot.seams.broker.types.player_session`
+- `discord_bot.seams.broker.types.responses`
 
 ### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
@@ -113,13 +114,14 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.media_search.types.media_search`
 - `discord_bot.seams.media_search.utils.integrations.common`
 
-### `discord_bot/seams/queue_worker/` — 6, reached by bot, downloader, search
+### `discord_bot/seams/queue_worker/` — 7, reached by bot, downloader, search
 
 - `discord_bot.seams.queue_worker.clients.http_broker_client`
 - `discord_bot.seams.queue_worker.clients.http_player_session`
 - `discord_bot.seams.queue_worker.routes.queue_worker`
 - `discord_bot.seams.queue_worker.types.clear_guild_result`
 - `discord_bot.seams.queue_worker.types.queue`
+- `discord_bot.seams.queue_worker.types.responses`
 - `discord_bot.seams.queue_worker.utils.failure_queue`
 
 ### `discord_bot/services/bot/` — 27, reached by bot
