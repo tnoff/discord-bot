@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
-from discord_bot.core.types.fetched_message import FetchedMessage
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 from discord_bot.core.types.media_request import MediaRequest, RetryInformation
 from discord_bot.types.playlist_add_request import PlaylistAddRequest, parse_media_request
 from discord_bot.core.types.search import SearchResult

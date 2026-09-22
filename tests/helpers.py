@@ -25,15 +25,15 @@ from discord_bot.services.db.clients.playlist_client import PlaylistClient
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.services.db.database import BASE
-from discord_bot.core.types.dispatch_request import (
+from discord_bot.seams.dispatch.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
     DeleteRequest,
 )
-from discord_bot.core.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
-from discord_bot.core.types.fetched_message import FetchedMessage
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 from discord_bot.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult

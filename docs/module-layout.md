@@ -23,7 +23,7 @@ than a description of where it ended up.
 every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,
 setuptools' `packages.find` — keeps working unchanged.
 
-**125 modules are homed and checked. 25 are not split
+**126 modules are homed and checked. 25 are not split
 yet** and are listed at the bottom. A further **86 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
@@ -33,10 +33,10 @@ own account.
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/core/` | 20 | all 6 |
+| `discord_bot/core/` | 16 | all 6 |
 | `discord_bot/seams/broker/` | 5 | bot, broker, downloader, search |
 | `discord_bot/seams/database/` | 7 | bot, broker, db |
-| `discord_bot/seams/dispatch/` | 4 | bot, broker, dispatcher |
+| `discord_bot/seams/dispatch/` | 9 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
 | `discord_bot/seams/queue_worker/` | 6 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
@@ -55,19 +55,15 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ## Homed
 
-### `discord_bot/core/` — 20, reached by all 6
+### `discord_bot/core/` — 16, reached by all 6
 
 - `discord_bot.core.cli._lib.common`
-- `discord_bot.core.clients.dispatch_client_base`
 - `discord_bot.core.cogs.music_helpers.common`
 - `discord_bot.core.cogs.schema`
 - `discord_bot.core.exceptions`
 - `discord_bot.core.routes.contract`
 - `discord_bot.core.routes.route`
 - `discord_bot.core.servers.health_server_base`
-- `discord_bot.core.types.dispatch_request`
-- `discord_bot.core.types.dispatch_result`
-- `discord_bot.core.types.fetched_message`
 - `discord_bot.core.types.media_request`
 - `discord_bot.core.types.search`
 - `discord_bot.core.utils.common`
@@ -96,11 +92,16 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.database.types.playlist`
 - `discord_bot.seams.database.types.video_cache`
 
-### `discord_bot/seams/dispatch/` — 4, reached by bot, broker, dispatcher
+### `discord_bot/seams/dispatch/` — 9, reached by bot, broker, dispatcher
 
+- `discord_bot.seams.dispatch.clients.dispatch_client_base`
 - `discord_bot.seams.dispatch.routes.dispatch`
+- `discord_bot.seams.dispatch.types.dispatch_request`
+- `discord_bot.seams.dispatch.types.dispatch_result`
+- `discord_bot.seams.dispatch.types.fetched_message`
 - `discord_bot.seams.dispatch.types.requests`
 - `discord_bot.seams.dispatch.types.responses`
+- `discord_bot.seams.dispatch.types.results`
 - `discord_bot.seams.dispatch.utils.dispatch_queue`
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search

@@ -10,9 +10,17 @@ for every route, that it serialises to the bytes the seam already sends, and
 that the 422 behaviour the retry ladder depends on is unchanged.
 '''
 import inspect
+import json
+from datetime import datetime
 
 import pytest
 from pydantic import BaseModel
+
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
+from discord_bot.seams.dispatch.types.results import (
+    ChannelHistoryResultBody, DispatchErrorDetailBody, DispatchErrorResultBody,
+    GuildEmojisResultBody,
+)
 
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.dispatch.types import requests, responses
@@ -119,3 +127,59 @@ def test_send_body_can_express_allow_404():
     assert requests.SendRequestBody(guild_id=1, channel_id=2, content='x').allow_404 is False
     assert requests.SendRequestBody(guild_id=1, channel_id=2, content='x',
                                     allow_404=True).allow_404 is True
+
+
+# ---------------------------------------------------------------------------
+# GET /dispatch/results/{request_id} -- the polymorphic body
+# ---------------------------------------------------------------------------
+
+def test_fetched_message_dumps_an_iso_string_not_a_datetime():
+    '''
+    The trap that would have shipped. `FetchedMessage.created_at` is a datetime;
+    without the field serializer `model_dump()` returns the datetime OBJECT,
+    `web.json_response` raises "Object of type datetime is not JSON
+    serializable", and it fails at runtime on a real fetch while every test
+    comparing model_dump() to a dict of datetimes passes.
+    '''
+    msg = FetchedMessage(id=9, content='hi',
+                         created_at=datetime(2026, 9, 21, 10, 0), author_bot=False)
+    dumped = msg.to_dict()
+    assert dumped['created_at'] == '2026-09-21T10:00:00'
+    assert isinstance(dumped['created_at'], str)
+    json.dumps(dumped)  # raises if anything in here is not JSON-safe
+
+
+def test_history_result_body_round_trips_the_stored_bytes():
+    '''The model replaces a dict literal, so its dump must equal that literal.'''
+    raw = {'guild_id': 1, 'channel_id': 2, 'after_message_id': None,
+           'messages': [{'id': 9, 'content': 'hi',
+                         'created_at': '2026-09-21T10:00:00', 'author_bot': False}]}
+    assert ChannelHistoryResultBody.model_validate(raw).model_dump() == raw
+
+
+def test_emojis_result_body_round_trips_the_stored_bytes():
+    raw = {'guild_id': 1, 'emojis': [{'id': 2, 'name': 'x', 'animated': False}]}
+    assert GuildEmojisResultBody.model_validate(raw).model_dump() == raw
+
+
+def test_error_detail_is_optional_because_of_rolling_deploys():
+    '''
+    `error_detail` was added after `error`, and
+    `DispatchRemoteError.from_payload` tolerates its absence on purpose -- "so a
+    bot talking to a not-yet-rolled dispatcher still gets the message". Requiring
+    it would turn every result stored by an older dispatcher into a validation
+    failure the moment a new bot pod rolled first.
+    '''
+    body = DispatchErrorResultBody.model_validate({'error': 'boom'})
+    assert body.error == 'boom' and body.error_detail is None
+
+
+def test_error_detail_keeps_status_and_code_untyped():
+    '''
+    `encode_error` fills these from `getattr(exc, 'status', None)`, so they are
+    whatever the exception carried. Narrowing them to int would 422 on an
+    exception type that happens to hold a string, and `is_not_found_error`
+    duck-types on `.status` for exactly that reason.
+    '''
+    body = DispatchErrorDetailBody(message='m', type='T', status='404', code=None)
+    assert body.status == '404' and body.code is None
