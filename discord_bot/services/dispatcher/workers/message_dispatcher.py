@@ -19,6 +19,9 @@ from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 from discord_bot.seams.dispatch.types.dispatch_request import DeleteRequest, SendRequest
 from discord_bot.seams.dispatch.types.dispatch_result import encode_error
+from discord_bot.seams.dispatch.types.results import (
+    ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
+)
 from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
 from discord_bot.core.utils.loop_health import LOOP_HEALTH
 from discord_bot.core.utils.otel import (async_otel_span_wrapper, create_observable_gauge,
@@ -771,7 +774,8 @@ class MessageDispatcher(DispatchClientBase):
                                   payload['channel_id'], payload['guild_id'], exc, exc_info=True)
                 # 'error' stays a plain string for wire compatibility; error_detail
                 # is what lets the caller tell a recoverable 404 from a real failure.
-                result = {'error': str(exc), 'error_detail': encode_error(exc)}
+                result = DispatchErrorResultBody(
+                    error=str(exc), error_detail=encode_error(exc)).model_dump()
             await self._work_queue.store_result(request_id, result)
             event = self._result_events.pop(request_id, None)
             if event:
@@ -788,7 +792,8 @@ class MessageDispatcher(DispatchClientBase):
                 # Intentional broad catch: same reasoning as _process_fetch_history.
                 self.logger.error('MessageDispatcher :: fetch emojis failed for server %s: %s',
                                   payload['guild_id'], exc, exc_info=True)
-                result = {'error': str(exc), 'error_detail': encode_error(exc)}
+                result = DispatchErrorResultBody(
+                    error=str(exc), error_detail=encode_error(exc)).model_dump()
             await self._work_queue.store_result(request_id, result)
             event = self._result_events.pop(request_id, None)
             if event:
@@ -815,21 +820,21 @@ class MessageDispatcher(DispatchClientBase):
             FetchedMessage(id=m.id, content=m.content, created_at=m.created_at, author_bot=m.author.bot)
             for m in messages
         ]
-        return {
-            'guild_id': int(payload['guild_id']),
-            'channel_id': int(payload['channel_id']),
-            'after_message_id': payload.get('after_message_id'),
-            'messages': [m.to_dict() for m in fetched],
-        }
+        return ChannelHistoryResultBody(
+            guild_id=int(payload['guild_id']),
+            channel_id=int(payload['channel_id']),
+            after_message_id=payload.get('after_message_id'),
+            messages=fetched,
+        ).model_dump()
 
     async def _dispatch_emojis_and_collect(self, payload: dict) -> dict:
         '''Execute a guild emoji fetch and return a JSON-safe result dict.'''
         guild = await self.bot.fetch_guild(int(payload['guild_id']))
         emojis = await guild.fetch_emojis()
-        return {
-            'guild_id': int(payload['guild_id']),
-            'emojis': [{'id': e.id, 'name': e.name, 'animated': e.animated} for e in emojis],
-        }
+        return GuildEmojisResultBody(
+            guild_id=int(payload['guild_id']),
+            emojis=[{'id': e.id, 'name': e.name, 'animated': e.animated} for e in emojis],
+        ).model_dump()
 
     # ------------------------------------------------------------------
     # Channel function factories

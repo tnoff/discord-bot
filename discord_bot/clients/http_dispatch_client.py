@@ -17,6 +17,9 @@ from discord_bot.seams.dispatch.types.requests import (
 from discord_bot.seams.dispatch.types.responses import (
     FetchEmojisResponse, FetchHistoryResponse,
 )
+from discord_bot.seams.dispatch.types.results import (
+    ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
+)
 from discord_bot.core.routes.route import Route
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
@@ -160,16 +163,36 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         request_id = await self._submit_fetch(dispatch_routes.FETCH_HISTORY, params,
                                               FetchHistoryResponse)
         payload = await self._poll_result(request_id)
-        if 'error' in payload:
-            raise DispatchRemoteError.from_payload(payload)
-        return payload
+        return self._checked_result(payload, ChannelHistoryResultBody)
 
     async def _do_fetch_emojis(self, params: dict) -> dict:
         request_id = await self._submit_fetch(dispatch_routes.FETCH_EMOJIS, params,
                                               FetchEmojisResponse)
         payload = await self._poll_result(request_id)
+        return self._checked_result(payload, GuildEmojisResultBody)
+
+    def _checked_result(self, payload: dict, model):
+        """
+        Validate a polled result body, then hand back the dict callers expect.
+
+        The polled body was the one response on this seam that reached a caller
+        UNVALIDATED: `_submit_fetch` checks its 202, but the 200 from
+        GET /dispatch/results/{id} went straight through to
+        `DispatchClientBase.decode_*`. So a db pod shipping a changed result
+        shape produced a KeyError deep in a cog rather than
+        `seam_response_invalid` with the peer's name on it -- the attribution
+        #953 built for every other seam, missing on this one.
+
+        Returns the raw dict rather than the model so `decode_history_result`
+        and the cog-facing DTOs are untouched: this adds a check, not a type.
+        """
         if 'error' in payload:
+            # Validated too. A malformed ERROR body is the case most likely to
+            # be wrong and least likely to be noticed, since it is already the
+            # unhappy path.
+            self._validate(DispatchErrorResultBody, payload)
             raise DispatchRemoteError.from_payload(payload)
+        self._validate(model, payload)
         return payload
 
     # ------------------------------------------------------------------
