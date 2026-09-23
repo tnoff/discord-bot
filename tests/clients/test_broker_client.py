@@ -462,6 +462,20 @@ class TestHttpBrokerClientCacheAndQueue:
             with pytest.raises(RuntimeError):
                 await hc.create_bundle(guild_id=1, channel_id=2)
 
+    async def test_cache_cleanup_returns_false_when_payload_missing(self):
+        """
+        A failed call reads as "nothing removed", not as an error.
+
+        This branch used to be folded into `bool(payload and payload.get(...))`.
+        Splitting it out so the response could be validated made it a real branch
+        with its own behaviour, and the seam contract is that an absent payload
+        is a failed call the caller already treats as absent -- not something to
+        raise on, and not something to validate.
+        """
+        hc = HttpBrokerClient('http://example.invalid')
+        with patch.object(hc, '_http', new=AsyncMock(return_value=None)):
+            assert await hc.cache_cleanup() is False
+
     async def test_get_cache_count_returns_zero_when_payload_missing(self):
         '''get_cache_count defaults to 0 when the broker returns no payload.'''
         hc = HttpBrokerClient('http://example.invalid')
