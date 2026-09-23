@@ -5,7 +5,7 @@ from typing import Callable, List
 from opentelemetry.trace import SpanKind
 
 from discord_bot.services.db.database import VideoCache
-from discord_bot.types.media_download import MediaDownload, media_download_attributes
+from discord_bot.core.types.media_download import MediaDownload, media_download_attributes
 from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 from discord_bot.services.db.cogs.music_helpers import database_functions

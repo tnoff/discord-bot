@@ -14,11 +14,11 @@ types/.  Re-exported from broker_protocols, so existing imports keep working.
 '''
 from typing import Protocol
 
-from discord_bot.interfaces.player_session_store import PlayerSessionClient
+from discord_bot.seams.broker.interfaces.player_session_store import PlayerSessionClient
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult
-from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
-from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.search_resolution import SearchResolution
+from discord_bot.core.types.download import DownloadResult, LifecycleStatusUpdate
+from discord_bot.core.types.media_download import MediaDownload
+from discord_bot.core.types.search_resolution import SearchResolution
 
 __all__ = ['BrokerClient']
 

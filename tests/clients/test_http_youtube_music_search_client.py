@@ -24,7 +24,7 @@ from discord_bot.services.bot.clients.youtube_music_search_client import HttpYou
 from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 
 

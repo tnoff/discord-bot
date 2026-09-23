@@ -20,9 +20,9 @@ from functools import partial
 from typing import Awaitable, Callable, Iterable
 
 from discord_bot.seams.broker.clients.http_client_base import start_seam_checks
-from discord_bot.clients.redis_client import RedisManager
+from discord_bot.core.clients.redis_client import RedisManager
 from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
-from discord_bot.servers.redis_health_server import RedisPingHealthServer
+from discord_bot.core.servers.redis_health_server import RedisPingHealthServer
 from discord_bot.core.utils.common import GeneralConfig
 from discord_bot.core.utils.loop_health import LOOP_HEALTH, LoopHealth
 from discord_bot.core.utils.otel import (METER_PROVIDER, MetricNaming, create_observable_gauge,

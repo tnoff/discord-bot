@@ -10,9 +10,9 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_bot.services.db.database import Playlist, PlaylistItem
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import LifecycleEvent
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.media_download import MediaDownload
+from discord_bot.core.types.download import LifecycleEvent
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
 from discord_bot.seams.database.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
 from discord_bot.core.types.search import SearchResult

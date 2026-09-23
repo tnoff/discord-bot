@@ -6,11 +6,11 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 import pytest
 
-from discord_bot.utils.integrations.s3 import upload_file, get_file, delete_file, ObjectStorageException
+from discord_bot.seams.broker.utils.integrations.s3 import upload_file, get_file, delete_file, ObjectStorageException
 
 @pytest.fixture
 def mock_s3_client():
-    with patch("discord_bot.utils.integrations.s3.client") as mock_client_constructor:
+    with patch("discord_bot.seams.broker.utils.integrations.s3.client") as mock_client_constructor:
         mock_client = MagicMock()
         mock_client_constructor.return_value = mock_client
         yield mock_client
@@ -96,7 +96,7 @@ def test_download_file_success(mock_s3_client, tmp_path): #pylint:disable=redefi
 
 def test_get_file_matching_etag_no_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
     '''No warning when ETag matches the computed MD5 of downloaded bytes'''
-    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    mock_logger = mocker.patch('discord_bot.seams.broker.utils.integrations.s3.logger')
     fake_data = b'downloaded content'
     correct_md5 = hashlib.md5(fake_data).hexdigest()
 
@@ -110,7 +110,7 @@ def test_get_file_matching_etag_no_warning(mock_s3_client, tmp_path, mocker): #p
 
 def test_get_file_mismatched_etag_logs_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
     '''Warning logged when ETag does not match computed MD5'''
-    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    mock_logger = mocker.patch('discord_bot.seams.broker.utils.integrations.s3.logger')
     fake_data = b'downloaded content'
     wrong_etag = 'deadbeef000000000000000000000000'
 
@@ -127,7 +127,7 @@ def test_get_file_mismatched_etag_logs_warning(mock_s3_client, tmp_path, mocker)
 
 def test_get_file_multipart_etag_no_warning(mock_s3_client, tmp_path, mocker): #pylint:disable=redefined-outer-name
     '''No warning for multipart ETags (contain a hyphen)'''
-    mock_logger = mocker.patch('discord_bot.utils.integrations.s3.logger')
+    mock_logger = mocker.patch('discord_bot.seams.broker.utils.integrations.s3.logger')
     fake_data = b'downloaded content'
 
     mock_body = MagicMock()

@@ -9,11 +9,11 @@ import json
 
 import redis.asyncio as aioredis
 
-from discord_bot.clients.redis_client import RedisManager
-from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
-from discord_bot.types.download import DownloadResult
-from discord_bot.types.search_resolution import SearchResolution
+from discord_bot.core.clients.redis_client import RedisManager
+from discord_bot.seams.dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
+from discord_bot.core.types.download import DownloadResult
+from discord_bot.core.types.search_resolution import SearchResolution
 from discord_bot.seams.dispatch.utils.dispatch_queue import RedisDispatchQueue
 
 BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'

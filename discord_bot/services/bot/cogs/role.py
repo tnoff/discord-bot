@@ -8,7 +8,7 @@ from discord.errors import NotFound
 from discord.ext.commands import Bot, Context, group
 from pydantic import BaseModel, Field, ValidationError as PydanticValidationError
 
-from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
+from discord_bot.core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.services.bot.cogs.common import CogHelperBase
 from discord_bot.core.exceptions import CogMissingRequiredArg
 from discord_bot.services.bot.utils.otel_command import command_wrapper

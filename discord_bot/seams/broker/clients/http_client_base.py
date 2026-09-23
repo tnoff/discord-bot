@@ -10,7 +10,7 @@ from discord_bot.seams.broker.clients.seam_contract import SeamContractCheck
 from discord_bot.core.exceptions import SeamResponseInvalid
 from discord_bot.core.routes.route import Route
 from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
-from discord_bot.utils.retry import async_retry_broker_command
+from discord_bot.core.utils.retry import async_retry_broker_command
 
 logger = logging.getLogger(__name__)
 

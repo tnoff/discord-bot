@@ -13,7 +13,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.core.servers.base import AiohttpServerBase
 from discord_bot.services.search.servers.composite_server import CompositeHttpServer
 
 

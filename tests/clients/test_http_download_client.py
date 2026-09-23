@@ -22,7 +22,7 @@ from discord_bot.services.bot.clients.http_queue_worker_client import _exception
 from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
 from discord_bot.core.types.search import SearchResult
 
@@ -475,7 +475,7 @@ async def test_status_poll_failure_emits_no_spans():
     tracer, exporter = _recording_tracer()
     client = HttpDownloadClient('http://127.0.0.1:1')
     with patch('discord_bot.core.utils.otel.TRACER', tracer):
-        with patch('discord_bot.utils.retry.async_sleep', new_callable=AsyncMock):
+        with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
             await client._poll_status_loop_once()  # pylint: disable=protected-access
     await client.close()
     assert _span_names(exporter) == []

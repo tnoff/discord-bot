@@ -15,7 +15,7 @@ from opentelemetry import trace
 
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
 from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_bot.seams.dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 from discord_bot.seams.dispatch.types.dispatch_request import DeleteRequest, SendRequest
 from discord_bot.seams.dispatch.types.dispatch_result import encode_error

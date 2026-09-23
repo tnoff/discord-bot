@@ -75,7 +75,7 @@ async def test_run_config_only_token(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -102,7 +102,7 @@ async def test_run_config_reject_list(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
 
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=guilds))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=guilds))
         runner = CliRunner()
         runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -124,7 +124,7 @@ async def test_run_config_no_reject_list(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         guilds = [FakeGuild()]
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=guilds))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=guilds))
         runner = CliRunner()
         runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -148,7 +148,7 @@ async def test_run_config_with_intents(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -596,7 +596,7 @@ def test_main_runner_no_event_loop(mocker):
                                       'database_http_url': 'http://localhost:8085'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert result.exception is None
@@ -641,7 +641,7 @@ async def test_main_with_otlp_enabled(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         _patch_otlp(mocker)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -674,7 +674,7 @@ async def test_main_with_otlp_retired_filter_keys_ignored(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         _patch_otlp(mocker)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -712,7 +712,7 @@ async def test_main_with_tracing_block(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         _patch_otlp(mocker)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -737,7 +737,7 @@ async def test_main_with_memory_profiling(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         mocker.patch('discord_bot.core.cli._lib.common.MemoryProfiler')
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -762,7 +762,7 @@ async def test_main_with_process_metrics(mocker):
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         mocker.patch('discord_bot.core.cli._lib.common.ProcessMetricsProfiler')
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -790,7 +790,7 @@ async def test_main_with_health_server_monitoring(mocker):
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
         mocker.patch('discord_bot.services.bot.cli.health.HealthServer', return_value=mock_hs)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
@@ -816,7 +816,7 @@ async def test_dispatcher_main_with_health_server(mocker):
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
         mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
-        mocker.patch('discord_bot.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        mocker.patch('discord_bot.core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         mocker.patch('discord_bot.services.dispatcher.cli.dispatcher.run_bot')
         runner = CliRunner()
         result = runner.invoke(dispatcher_main, [temp_config.name])

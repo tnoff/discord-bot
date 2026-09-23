@@ -5,7 +5,7 @@ dispatcher image installs only the base dependency set.
 """
 from typing import ClassVar
 
-from discord_bot.servers.redis_health_server import RedisPingHealthServer
+from discord_bot.core.servers.redis_health_server import RedisPingHealthServer
 
 
 class DispatchHealthServer(RedisPingHealthServer):

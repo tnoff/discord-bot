@@ -23,7 +23,7 @@ from opentelemetry import trace
 from discord.ext.commands import Context
 
 from discord_bot.core.utils.otel import async_otel_span_wrapper
-from discord_bot.utils.discord_context import command_span_attributes
+from discord_bot.core.utils.discord_context import command_span_attributes
 
 
 def command_wrapper(function):

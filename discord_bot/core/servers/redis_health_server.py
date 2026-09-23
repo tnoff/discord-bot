@@ -8,7 +8,7 @@ neither DispatchHealthServer nor BrokerHealthServer carries a duplicate copy
 health_server.py so it stays free of the sqlalchemy import the slim dispatcher
 and broker images don't want on the health path.
 '''
-from discord_bot.clients.redis_client import RedisManager
+from discord_bot.core.clients.redis_client import RedisManager
 from discord_bot.core.servers.health_server_base import HealthServerBase
 
 

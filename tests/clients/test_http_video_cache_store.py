@@ -29,7 +29,7 @@ from discord_bot.services.broker.clients.http_video_cache_store import HttpVideo
 from discord_bot.core.exceptions import DatabaseUnavailable
 from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
 from discord_bot.services.db.servers.database_server import DatabaseHttpServer
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry

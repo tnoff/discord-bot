@@ -21,10 +21,10 @@ from discord_bot.services.broker.interfaces.broker_protocols import (
     SearchResultQueue,
     MediaBrokerBase,
 )
-from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.core.types.download import DownloadResult, LifecycleStatusUpdate
+from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.seams.broker.types.player_session import PlayerSession
-from discord_bot.types.search_resolution import SearchResolution
+from discord_bot.core.types.search_resolution import SearchResolution
 from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG

@@ -33,7 +33,7 @@ from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.playlist_add_request import parse_media_request
+from discord_bot.core.types.playlist_add_request import parse_media_request
 from discord_bot.seams.queue_worker.types.queue import SUBMIT_REJECTION_BY_STATUS
 from discord_bot.core.utils.otel import async_otel_span_wrapper, AttributeNaming
 

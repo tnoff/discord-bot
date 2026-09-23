@@ -21,10 +21,10 @@ from discord_bot.services.downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
 from discord_bot.services.downloader.utils.audio import AudioProcessingError
 from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
-from discord_bot.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
+from discord_bot.core.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked

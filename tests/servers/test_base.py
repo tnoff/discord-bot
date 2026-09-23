@@ -13,7 +13,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.core.servers.base import AiohttpServerBase
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ class TestDrainWithInflight:
                     session.get('http://127.0.0.1:18106/slow')
                 )
                 await asyncio.sleep(0.1)
-                with caplog.at_level(logging.WARNING, logger='discord_bot.servers.base'):
+                with caplog.at_level(logging.WARNING, logger='discord_bot.core.servers.base'):
                     await asyncio.wait_for(server.drain_and_stop(timeout=0.2), timeout=2.0)
                 assert 'drain timeout reached' in caplog.text
                 slow_task.cancel()

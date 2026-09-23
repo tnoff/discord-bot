@@ -12,7 +12,7 @@ from asyncio import QueueEmpty
 import pytest
 
 from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.types.download import LifecycleEvent
+from discord_bot.core.types.download import LifecycleEvent
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
