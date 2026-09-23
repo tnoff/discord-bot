@@ -23,6 +23,10 @@ from opentelemetry.trace import SpanKind
 from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.seams.queue_worker.clients.http_player_session import HttpPlayerSessionMixin
 from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_bot.seams.broker.types.responses import (
+    CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
+    CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
+)
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult
 from discord_bot.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_bot.types.media_download import (MediaDownload, media_download_from_dict,
@@ -195,12 +199,17 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             data = await self._call_route(broker_routes.CHECKOUT, body, uuid=uuid)
             if not data:
                 return None
-            s3_key = data.get('s3_key')
-            if s3_key:
-                return CheckoutResult(s3_key=s3_key, bucket_name=self._bucket_name)
-            guild_file_path = data.get('guild_file_path')
-            if guild_file_path:
-                return CheckoutResult(local_path=Path(guild_file_path))
+            # Two models for one route, matching the two shapes the broker
+            # sends: an HA broker answers {'s3_key': ...} with no
+            # guild_file_path key at all. Validating the branch we took gives
+            # seam_response_invalid the peer's name when a shape drifts, instead
+            # of a silent None that reads as "nothing to check out".
+            if data.get('s3_key'):
+                checked = self._validate(CheckoutS3Response, data)
+                return CheckoutResult(s3_key=checked.s3_key, bucket_name=self._bucket_name)
+            staged = self._validate(CheckoutStagedResponse, data)
+            if staged.guild_file_path:
+                return CheckoutResult(local_path=Path(staged.guild_file_path))
             return None
 
     async def release(self, uuid: str) -> None:
@@ -249,14 +258,19 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
                 media_request.model_dump(mode='json'),
             )
         if not payload or not payload.get('hit'):
+            # A miss is `{'hit': False}` and needs no further shape; a falsy
+            # payload is a failed call the caller already treats as a miss.
             return None
-        return media_download_from_dict(payload['download'], media_request)
+        checked = self._validate(CheckCacheHitResponse, payload)
+        return media_download_from_dict(checked.download.model_dump(), media_request)
 
     async def cache_cleanup(self) -> bool:
         '''POST /cache/cleanup — broker evicts stale cache entries.'''
         async with async_otel_span_wrapper('broker.cache_cleanup', kind=SpanKind.CLIENT):
             payload = await self._call_route(broker_routes.CACHE_CLEANUP)
-        return bool(payload and payload.get('removed'))
+        if not payload:
+            return False
+        return bool(self._validate(CacheCleanupResponse, payload).removed)
 
     async def get_cache_count(self) -> int:
         '''GET /cache/count — current entry count in the broker's VideoCache.'''
@@ -264,7 +278,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             payload = await self._call_route(broker_routes.CACHE_COUNT)
         if not payload:
             return 0
-        return int(payload.get('count', 0))
+        return int(self._validate(GetCacheCountResponse, payload).count)
 
     async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
         '''POST /prefetch — sends UUIDs extracted from queue_items.'''
@@ -291,7 +305,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
                                              })
         if payload is None or 'uuid' not in payload:
             raise RuntimeError('broker create_bundle returned no uuid')
-        return payload['uuid']
+        return self._validate(CreateBundleResponse, payload).uuid
 
     async def finalize_bundle(self, bundle_uuid: str) -> None:
         '''POST /bundles/{uuid}/finalize.'''
