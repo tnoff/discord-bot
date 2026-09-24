@@ -13,20 +13,20 @@ from discord import PCMAudio
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 
-from discord_bot.common import DISCORD_MAX_MESSAGE_LENGTH
+from discord_bot.core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_bot.core.cogs.music_helpers.common import MultipleMutableType
 from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.types.media_download import MediaDownload, media_download_attributes
-from discord_bot.interfaces.broker_client_protocol import BrokerClient
+from discord_bot.core.types.media_download import MediaDownload, media_download_attributes
+from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
 from discord_bot.seams.broker.types.checkout_result import CheckoutResult
 from discord_bot.seams.queue_worker.types.queue import Queue
 from discord_bot.core.utils.common import return_loop_runner
 from discord_bot.core.utils.common import get_logger, LoggingConfig
-from discord_bot.utils.integrations.s3 import get_file
+from discord_bot.seams.broker.utils.integrations.s3 import get_file
 from discord_bot.core.utils.otel import async_otel_span_wrapper, span_links_from_context
-from discord_bot.utils.discord_context import DiscordContextNaming
+from discord_bot.core.utils.discord_context import DiscordContextNaming
 
 
 # Staging a track for playback (broker checkout + S3 fetch) happens between a

@@ -39,7 +39,6 @@ imported anything in ``VOCABULARY`` that it did not declare. A second test
 asserting that would be tautological, and a tautological test is worse than no
 test — it reads as coverage while checking nothing.
 '''
-import collections
 import json
 import os
 import re
@@ -47,8 +46,8 @@ import re
 import pytest
 
 from tests.cli._image_deps import (
-    CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
-    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, SEAMS_DIR, VOCABULARY, classify_modules,
+    ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
+    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, SEAMS_DIR, VOCABULARY,
     codeless_inits, declared_home, layout_violations, measure, measured_owners,
     render_closure, route_leaf, render_layout, render_table,
 )
@@ -191,9 +190,12 @@ def test_a_misplaced_module_is_actually_caught():
     assert len(images) == 6, f'expected six images, found {images}'
     all_six = set(images)
 
-    core_short = set(images[:5])
+    # A core module reached by ONE image. Five-of-six used to be the violation
+    # here; it is deliberately legal now -- core means shared, not all-six, and
+    # ALL_SIX is what guards the fanout instead. See
+    # test_the_all_six_set_is_exactly_declared.
     cases = {
-        f'{PACKAGE}.core.thing': core_short,
+        f'{PACKAGE}.core.thing': {'bot'},
         f'{PACKAGE}.services.bot.thing': {'bot', 'downloader'},
         f'{PACKAGE}.seams.database.thing': all_six,
         f'{PACKAGE}.seams.database.other': {'bot'},
@@ -207,6 +209,7 @@ def test_a_misplaced_module_is_actually_caught():
     # check above would pass by reporting everything.
     clean = {
         f'{PACKAGE}.core.thing': all_six,
+        f'{PACKAGE}.core.subset_shared': set(images[:4]),   # legal under the new rule
         f'{PACKAGE}.services.bot.thing': {'bot'},
         f'{PACKAGE}.seams.database.thing': {'bot', 'db'},
         f'{PACKAGE}.unsplit.thing': {'bot', 'db'},
@@ -305,60 +308,6 @@ def test_layout_doc_is_current():
     )
 
 
-def test_every_module_gets_at_most_one_home():
-    '''
-    No module is claimed by two folders, and every measured module is accounted for.
-
-    The partition is by owner set, so overlap would mean a module in two groups --
-    impossible by construction today, which is exactly why it is worth pinning. The
-    rules gain cases as the layout is argued about, and the property that must
-    survive every one of them is that a file has one home.
-
-    This and test_no_placed_module_is_a_codeless_package_init are now the only
-    callers of classify_modules(): step 6 moved the generated doc onto the
-    declared homes, and for a module that already has one the derived rule and
-    the tree agree by construction. The derivation is kept because it is still
-    the honest answer to "where would an unhomed module go", and it is still the
-    rule the remaining 25 will be argued about with. If those 25 are ever placed
-    it goes, and these two tests go with it.
-    '''
-    placed, unplaced, scaffolding = classify_modules()
-    homes = collections.Counter()
-    for _, modules in list(placed.values()) + list(unplaced.values()):
-        homes.update(modules)
-    homes.update(scaffolding)
-    duplicated = {m: c for m, c in homes.items() if c > 1}
-    assert not duplicated, f'modules claimed by more than one folder: {duplicated}'
-
-    measured = set()
-    for ep in IMAGE_IMPORTS:
-        measured |= set(measure(ep)['modules'])
-    measured.discard('discord_bot')
-    assert set(homes) == measured, (
-        f'layout and measurement disagree on the module set: {set(homes) ^ measured}'
-    )
-
-
-def test_no_placed_module_is_a_codeless_package_init():
-    """
-    A package `__init__.py` with no code is never given a home.
-
-    It has no position of its own -- it exists wherever its children live -- so
-    placing one by closure is a category error. `discord_bot/cogs/__init__.py`
-    reads as all-six because every image imports some cog, and it cannot move to
-    the core while `discord_bot/cogs/` still has to exist for the cogs that stay.
-
-    Pinned because the first version of the layout counted all ten of them as
-    core modules, which overstated the core by a third and would have moved ten
-    empty files into a folder where they meant nothing.
-    """
-    placed, unplaced, scaffolding = classify_modules()
-    assert scaffolding, 'no scaffolding found at all -- the detector matched nothing'
-    given_a_home = {m for _, modules in list(placed.values()) + list(unplaced.values())
-                    for m in modules}
-    assert not given_a_home & set(scaffolding), (
-        f'codeless package inits were given homes: {sorted(given_a_home & set(scaffolding))}'
-    )
 
 
 def test_seam_folders_are_named_by_exactly_one_route():
@@ -501,4 +450,36 @@ def test_every_module_is_claimed_by_some_image():
         f'modules no entrypoint reaches: {orphans}. They ship in every image and no '
         f'test exercises them through a real import chain. Delete them, or move them '
         f'under tests/ if they are doubles.'
+    )
+
+
+def test_the_all_six_set_is_exactly_declared():
+    '''
+    The fanout guard that replaced `core means all six`.
+
+    Placement and fanout used to be the same rule. Homing the last 25 modules
+    separated them: core now means SHARED, so a four-image module can live there
+    legitimately, and nothing in the placement rules notices a module becoming
+    all-six any more.
+
+    That mattered, because the all-six set is the one that forces six-image
+    rebuilds, and this project has already watched a module drift into it
+    unnoticed -- `utils/otel.py`, which took criterion 5 to get back out.
+
+    Equality, not containment, so it fails in both directions: a module arriving
+    is a new all-six dependency that should be argued for, and one leaving is
+    usually good news that still should not be discovered from a graph weeks
+    later.
+    '''
+    owners = measured_owners()
+    exempt = codeless_inits(owners)
+    measured = {m for m, images in owners.items()
+                if len(images) == len(IMAGE_NAMES) and m not in exempt}
+    assert measured, 'nothing is reached by all six -- the measurement is broken, not the tree'
+    assert measured == set(ALL_SIX), (
+        'the all-six set moved:\n'
+        f'  arrived: {sorted(measured - set(ALL_SIX))}\n'
+        f'  left:    {sorted(set(ALL_SIX) - measured)}\n'
+        'Every module here rebuilds all six images on every change. Update '
+        'ALL_SIX deliberately, not to make this pass.'
     )

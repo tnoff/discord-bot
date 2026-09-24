@@ -14,7 +14,7 @@ hands resolutions back to the bot through the broker.
 '''
 from pydantic import BaseModel
 
-from discord_bot.types.playlist_add_request import AnyMediaRequest
+from discord_bot.core.types.playlist_add_request import AnyMediaRequest
 
 
 class SearchResolution(BaseModel):

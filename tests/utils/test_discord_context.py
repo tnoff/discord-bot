@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 from discord.ext.commands import Context
 
-from discord_bot.utils.discord_context import DiscordContextNaming, command_span_attributes
+from discord_bot.core.utils.discord_context import DiscordContextNaming, command_span_attributes
 
 
 def _make_ctx():

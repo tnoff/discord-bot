@@ -1,7 +1,7 @@
 '''Tests for the async CircuitBreaker.'''
 import pytest
 
-from discord_bot.utils.circuit_breaker import (
+from discord_bot.core.utils.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerOpenError,
     CircuitState,

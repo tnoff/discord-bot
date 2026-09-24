@@ -37,7 +37,7 @@ from tempfile import TemporaryDirectory
 import click
 
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
-from discord_bot.clients.redis_client import RedisManager
+from discord_bot.core.clients.redis_client import RedisManager
 from discord_bot.services.downloader.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
 from discord_bot.core.utils.common import GeneralConfig, resolve_tracing_config
@@ -48,7 +48,7 @@ from discord_bot.services.downloader.workers.download_metrics import DownloadMet
 from discord_bot.services.downloader.workers.redis_download_worker import RedisDownloadWorker
 
 from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
-from discord_bot.cli._lib.worker_pod import (
+from discord_bot.core.cli._lib.worker_pod import (
     build_redis_health_server, drive_loop, require_broker_url, require_redis_manager,
     worker_pod_main_loop,
 )

@@ -7,7 +7,7 @@ telemetry distinguish it from the dispatcher's health server.
 '''
 from typing import ClassVar
 
-from discord_bot.servers.redis_health_server import RedisPingHealthServer
+from discord_bot.core.servers.redis_health_server import RedisPingHealthServer
 
 
 

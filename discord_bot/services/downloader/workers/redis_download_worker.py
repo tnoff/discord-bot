@@ -35,16 +35,16 @@ from datetime import datetime, timezone
 from time import time
 from typing import Callable, List
 
-from discord_bot.clients.redis_client import RedisManager
+from discord_bot.core.clients.redis_client import RedisManager
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.services.downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
-from discord_bot.types.download import DownloadErrorType, DownloadResult
+from discord_bot.core.types.download import DownloadErrorType, DownloadResult
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.playlist_add_request import parse_media_request
-from discord_bot.workers.redis_guild_queue import (
+from discord_bot.core.types.playlist_add_request import parse_media_request
+from discord_bot.core.workers.redis_guild_queue import (
     RedisGuildBlockMixin,
     build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
 )

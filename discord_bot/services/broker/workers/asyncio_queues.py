@@ -8,8 +8,8 @@ contention so acquire_lock always succeeds and release_lock does nothing.
 import asyncio
 import itertools
 
-from discord_bot.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
+from discord_bot.seams.dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
 
 class AsyncioBundleStore(BundleStore):

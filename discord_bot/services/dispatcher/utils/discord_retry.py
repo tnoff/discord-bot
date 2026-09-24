@@ -15,7 +15,7 @@ from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimi
 from opentelemetry.trace import SpanKind
 
 from discord_bot.core.utils.otel import async_otel_span_wrapper
-from discord_bot.utils.retry import (
+from discord_bot.core.utils.retry import (
     ACCEPTED, PROPAGATE, async_retry_broker_command, async_retry_command, run_retry_loop,
 )
 

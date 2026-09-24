@@ -23,8 +23,10 @@ than a description of where it ended up.
 every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,
 setuptools' `packages.find` — keeps working unchanged.
 
-**128 modules are homed and checked. 25 are not split
-yet** and are listed at the bottom. A further **86 are package
+**153 modules are homed and checked**, and as of 2026-09-22
+every module in the tree has a home — the seven flat top-level packages
+are retired and `discord_bot/` holds only `core/`, `seams/` and
+`services/`. A further **85 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -33,10 +35,10 @@ own account.
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/core/` | 16 | all 6 |
-| `discord_bot/seams/broker/` | 6 | bot, broker, downloader, search |
+| `discord_bot/core/` | 35 | all 6 |
+| `discord_bot/seams/broker/` | 9 | bot, broker, downloader, search |
 | `discord_bot/seams/database/` | 7 | bot, broker, db |
-| `discord_bot/seams/dispatch/` | 9 | bot, broker, dispatcher |
+| `discord_bot/seams/dispatch/` | 12 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
 | `discord_bot/seams/queue_worker/` | 7 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
@@ -45,7 +47,6 @@ own account.
 | `discord_bot/services/dispatcher/` | 5 | dispatcher |
 | `discord_bot/services/downloader/` | 8 | downloader |
 | `discord_bot/services/search/` | 13 | search |
-| *(not split yet)* | 25 | 8 packages, see below |
 
 **`broker` names both a seam and a pod, and they are not the same thing.**
 `discord_bot/seams/<x>/` holds what the other images use to *talk to* that pod —
@@ -55,33 +56,55 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ## Homed
 
-### `discord_bot/core/` — 16, reached by all 6
+### `discord_bot/core/` — 35, reached by all 6
 
 - `discord_bot.core.cli._lib.common`
+- `discord_bot.core.cli._lib.gateway`
+- `discord_bot.core.cli._lib.worker_pod`
+- `discord_bot.core.clients.http_dispatch_client`
+- `discord_bot.core.clients.http_store_base`
+- `discord_bot.core.clients.redis_client`
 - `discord_bot.core.cogs.music_helpers.common`
 - `discord_bot.core.cogs.schema`
+- `discord_bot.core.common`
 - `discord_bot.core.exceptions`
+- `discord_bot.core.interfaces.download_client_protocol`
 - `discord_bot.core.routes.contract`
 - `discord_bot.core.routes.route`
+- `discord_bot.core.servers.base`
 - `discord_bot.core.servers.health_server_base`
+- `discord_bot.core.servers.queue_worker_server`
+- `discord_bot.core.servers.redis_health_server`
+- `discord_bot.core.types.download`
+- `discord_bot.core.types.media_download`
 - `discord_bot.core.types.media_request`
+- `discord_bot.core.types.playlist_add_request`
 - `discord_bot.core.types.search`
+- `discord_bot.core.types.search_resolution`
+- `discord_bot.core.utils.circuit_breaker`
 - `discord_bot.core.utils.common`
+- `discord_bot.core.utils.discord_context`
 - `discord_bot.core.utils.discord_utils`
 - `discord_bot.core.utils.gc_census`
 - `discord_bot.core.utils.loop_health`
 - `discord_bot.core.utils.memory_profiler`
 - `discord_bot.core.utils.otel`
 - `discord_bot.core.utils.process_metrics`
+- `discord_bot.core.utils.retry`
+- `discord_bot.core.workers.queue_metrics`
+- `discord_bot.core.workers.redis_guild_queue`
 
-### `discord_bot/seams/broker/` — 6, reached by bot, broker, downloader, search
+### `discord_bot/seams/broker/` — 9, reached by bot, broker, downloader, search
 
 - `discord_bot.seams.broker.clients.http_client_base`
 - `discord_bot.seams.broker.clients.seam_contract`
+- `discord_bot.seams.broker.interfaces.broker_client_protocol`
+- `discord_bot.seams.broker.interfaces.player_session_store`
 - `discord_bot.seams.broker.routes.broker`
 - `discord_bot.seams.broker.types.checkout_result`
 - `discord_bot.seams.broker.types.player_session`
 - `discord_bot.seams.broker.types.responses`
+- `discord_bot.seams.broker.utils.integrations.s3`
 
 ### `discord_bot/seams/database/` — 7, reached by bot, broker, db
 
@@ -93,9 +116,11 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.database.types.playlist`
 - `discord_bot.seams.database.types.video_cache`
 
-### `discord_bot/seams/dispatch/` — 9, reached by bot, broker, dispatcher
+### `discord_bot/seams/dispatch/` — 12, reached by bot, broker, dispatcher
 
 - `discord_bot.seams.dispatch.clients.dispatch_client_base`
+- `discord_bot.seams.dispatch.interfaces.dispatch_protocols`
+- `discord_bot.seams.dispatch.interfaces.result_queue`
 - `discord_bot.seams.dispatch.routes.dispatch`
 - `discord_bot.seams.dispatch.types.dispatch_request`
 - `discord_bot.seams.dispatch.types.dispatch_result`
@@ -104,6 +129,7 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.dispatch.types.responses`
 - `discord_bot.seams.dispatch.types.results`
 - `discord_bot.seams.dispatch.utils.dispatch_queue`
+- `discord_bot.seams.dispatch.workers.redis_queues`
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search
 
@@ -219,77 +245,16 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.services.search.workers.search_metrics`
 - `discord_bot.services.search.workers.youtube_music_search_driver`
 
-## Not split yet
+## Nothing is unplaced
 
-25 modules across 8 top-level packages still sit
-where they always did. They are not a backlog of mechanical moves: **every
-one of them is a module the derived rule could not place**, which is why the
-split stopped here rather than running out of steam. Each is shared by more than
-one image and fewer than all, with no single route module to name a seam after —
-so giving it a home is a decision about what the sharing MEANS, and that is not
-the generator's to make.
+Every module in the tree has a declared home, and `NOT_YET_SPLIT` is empty.
+It is kept rather than deleted so that a NEW top-level package under
+`discord_bot/` fails the suite instead of quietly reopening the flat tree.
 
-Grouped by the set of images that reach them, because that is the grouping the
-decision turns on: modules sharing an owner set are the candidates for sharing a
-seam. The package each one sits in today is in its name.
-
-The package names are declared in `NOT_YET_SPLIT` and checked for equality, so a
-new top-level package fails the suite rather than quietly reopening the flat tree.
-
-### bot, broker, db, downloader, search — 1
-
-- `discord_bot.types.media_download`
-
-### bot, broker, dispatcher, downloader, search — 4
-
-- `discord_bot.types.download`
-- `discord_bot.types.playlist_add_request`
-- `discord_bot.types.search_resolution`
-- `discord_bot.utils.retry`
-
-### broker, db, dispatcher, downloader, search — 1
-
-- `discord_bot.servers.base`
-
-### broker, dispatcher, downloader, search — 2
-
-- `discord_bot.clients.redis_client`
-- `discord_bot.servers.redis_health_server`
-
-### bot, broker, downloader — 3
-
-- `discord_bot.interfaces.broker_client_protocol`
-- `discord_bot.interfaces.player_session_store`
-- `discord_bot.utils.integrations.s3`
-
-### bot, broker — 4
-
-- `discord_bot.clients.http_dispatch_client`
-- `discord_bot.clients.http_store_base`
-- `discord_bot.common`
-- `discord_bot.utils.circuit_breaker`
-
-### bot, db — 1
-
-- `discord_bot.utils.discord_context`
-
-### bot, dispatcher — 1
-
-- `discord_bot.cli._lib.gateway`
-
-### bot, downloader — 1
-
-- `discord_bot.interfaces.download_client_protocol`
-
-### broker, dispatcher — 3
-
-- `discord_bot.interfaces.dispatch_protocols`
-- `discord_bot.interfaces.result_queue`
-- `discord_bot.workers.redis_queues`
-
-### downloader, search — 4
-
-- `discord_bot.cli._lib.worker_pod`
-- `discord_bot.servers.queue_worker_server`
-- `discord_bot.workers.queue_metrics`
-- `discord_bot.workers.redis_guild_queue`
+**`core/` means shared, not all-six.** That changed on 2026-09-22 when the
+last 25 modules were placed: nineteen of them are infrastructure reached by
+two to five images — an HTTP server base the bot never serves from, Redis
+primitives the bot and db never touch — and a core that demanded all six had
+nowhere to put them. The fanout that rule used to protect is now guarded on
+its own by `ALL_SIX`, which is checked for equality so a module drifting into
+or out of the all-six set fails rather than being noticed later.

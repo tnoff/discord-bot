@@ -7,10 +7,10 @@ import pytest
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.core.exceptions import ExitEarlyException
 from discord_bot.services.bot.types.cleanup_reason import CleanupReason
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.core.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
-from discord_bot.utils.discord_context import DiscordContextNaming
+from discord_bot.core.utils.discord_context import DiscordContextNaming
 
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 

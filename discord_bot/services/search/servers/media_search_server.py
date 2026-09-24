@@ -34,7 +34,7 @@ from opentelemetry.trace import SpanKind
 from discord_bot.core.exceptions import MediaSearchError
 from discord_bot.seams.media_search.interfaces.media_search_protocols import MediaSearchClient
 from discord_bot.seams.media_search.routes import media_search as media_search_routes
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.core.servers.base import AiohttpServerBase
 from discord_bot.seams.media_search.types.media_search import MediaSearchErrorBody, MediaSearchResponse
 from discord_bot.core.utils.otel import otel_span_wrapper
 

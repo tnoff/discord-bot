@@ -34,7 +34,7 @@ from discord_bot.seams.dispatch.types.dispatch_request import (
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
 from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue

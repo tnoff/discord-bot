@@ -19,11 +19,11 @@ import logging
 from aiohttp import web
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanKind
-from discord_bot.interfaces.dispatch_protocols import WorkQueue
+from discord_bot.seams.dispatch.interfaces.dispatch_protocols import WorkQueue
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.dispatch.types import requests as dispatch_requests
 from discord_bot.seams.dispatch.types import responses as dispatch_responses
-from discord_bot.servers.base import AiohttpServerBase
+from discord_bot.core.servers.base import AiohttpServerBase
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
 from discord_bot.core.utils.otel import otel_span_wrapper
 

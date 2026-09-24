@@ -20,8 +20,8 @@ from discord_bot.core.utils.otel import loop_heartbeat_observations
 from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.core.types.search import SearchResult, SearchCollection
 from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.types.media_download import MediaDownload
-from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.core.types.media_download import MediaDownload
+from discord_bot.core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient

@@ -75,7 +75,7 @@ _PROBE = (
 _SERVER_PROBE = (
     'import importlib, inspect, json, sys; '
     'importlib.import_module({entrypoint!r}); '
-    'from discord_bot.servers.base import AiohttpServerBase; '
+    'from discord_bot.core.servers.base import AiohttpServerBase; '
     'skip = {{"discord_bot.core.routes.route", "discord_bot.core.routes.contract"}}; '
     'found = {{}}; '
     '[found.setdefault(obj.__name__, {{'

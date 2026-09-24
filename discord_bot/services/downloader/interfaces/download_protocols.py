@@ -38,8 +38,8 @@ from opentelemetry.trace import SpanKind
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from discord_bot.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.interfaces.download_client_protocol import (
+from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
+from discord_bot.core.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
@@ -53,12 +53,12 @@ __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult'
 from discord_bot.services.downloader.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.core.cogs.music_helpers.common import SearchType
 from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
-from discord_bot.types.download import (
+from discord_bot.core.types.download import (
     DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate,
     is_known_transient, normalize_ytdlp_error,
 )
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue, FailureStatus
-from discord_bot.utils.integrations.s3 import upload_file
+from discord_bot.seams.broker.utils.integrations.s3 import upload_file
 from discord_bot.services.downloader.utils.integrations.egress_probe import (
     cached_exit_attributes, cached_exit_hostname, PoolExitIpProbe, UNKNOWN_EXIT,
 )

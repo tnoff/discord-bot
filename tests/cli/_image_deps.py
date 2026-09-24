@@ -342,61 +342,13 @@ def _is_scaffolding(module: str) -> bool:
     return len(body) == 1 and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)
 
 
-def classify_modules():
-    '''
-    Assign every measured module the folder it would live in, from the closure.
-
-    Three rules, in order, and none of them consults a list of names:
-
-      * reached by every image            -> `discord_bot/core/`
-      * reached by exactly one            -> `discord_bot/services/<image>/`
-      * the group holds one route module  -> `discord_bot/seams/<route leaf>/`
-
-    Anything left is returned UNPLACED rather than filed somewhere plausible.
-    A generated layout that silently invents a home for the modules the rule
-    cannot reach would read as a finished answer, and the modules it could not
-    place are precisely the ones where the decision has to be made by a person.
-    '''
-    measured = {ep: measure(ep) for ep in IMAGE_IMPORTS}
-    owners = _owner_sets(measured)
-    total = len(IMAGE_NAMES)
-
-    groups = {}
-    for module, images in owners.items():
-        groups.setdefault(frozenset(images), []).append(module)
-
-    scaffolding = sorted(m for m in owners if _is_scaffolding(m))
-    scaffold_set = set(scaffolding)
-    groups = {images: [m for m in modules if m not in scaffold_set]
-              for images, modules in groups.items()}
-    groups = {images: modules for images, modules in groups.items() if modules}
-
-    placed, unplaced = {}, {}
-    for images, modules in groups.items():
-        if len(images) == total:
-            home = f'{PACKAGE}/core'
-        elif len(images) == 1:
-            home = f'{PACKAGE}/services/{next(iter(images))}'
-        else:
-            routes = [m for m in modules if route_leaf(m)]
-            # Exactly one: a group with two route modules names no single seam,
-            # and a group with none is a sharing pattern nobody has written a
-            # contract for yet. Both are honest UNPLACED answers.
-            home = f'{PACKAGE}/seams/{route_leaf(routes[0])}' if len(routes) == 1 else None
-        target = placed if home else unplaced
-        target[images] = (home, sorted(modules))
-    return placed, unplaced, scaffolding
-
-
-
-# ---------------------------------------------------------------------------
-# Criterion 7 step 6 -- the layout as a DECLARATION rather than a restatement.
-#
-# Everything above derives a module's home from the closure, which is why the
-# doc it generates could never fail: a layout computed FROM what imports what
-# agrees with what imports what by construction. The functions below read the
-# home a module actually has -- its path on disk -- and check the closure
-# against it. That check can fail, and the difference is the whole of step 6.
+# The DERIVED placement path used to live above this line: compute a module's
+# home from its closure. It was deleted on 2026-09-22 with the last 25 modules,
+# because a layout computed FROM what imports what agrees with what imports what
+# by construction, and once every module has a declared home there is nothing
+# left for it to decide. What follows reads the home a module actually has --
+# its path on disk -- and checks the closure against it. That check can fail,
+# which is the entire point of it.
 # ---------------------------------------------------------------------------
 
 CORE_DIR = 'core'
@@ -419,15 +371,43 @@ SERVICES_DIR = 'services'
 # every such PR edit a list here would be friction with no signal in it. What is
 # NOT honest is a new top-level package, because that is the split going
 # backwards.
-NOT_YET_SPLIT = frozenset({
-    'cli',
-    'clients',
-    'common',
-    'interfaces',
-    'servers',
-    'types',
-    'utils',
-    'workers',
+#: EMPTY as of 2026-09-22 -- all 25 were placed and the seven flat packages
+#: they lived in are retired. Kept as an equality-checked constant rather
+#: than deleted: a NEW top-level package under discord_bot/ now fails the
+#: suite instead of quietly reopening the flat tree.
+NOT_YET_SPLIT = frozenset()
+
+
+#: Every module reached by ALL SIX images, excluding codeless package inits.
+#:
+#: This is the guard that used to be implicit in "core means all six". Homing
+#: the last 25 modules on 2026-09-22 relaxed core to mean SHARED, which is the
+#: right PLACEMENT rule -- but the thing the old rule actually protected was the
+#: FANOUT: a module every image carries is one whose every change rebuilds every
+#: image, and criterion 7 named "a core that grows a tier-defining dependency"
+#: as the failure to watch for.
+#:
+#: Checked for EQUALITY, so it fails in both directions. A module ARRIVING is a
+#: new all-six dependency and should be argued for. One LEAVING is usually good
+#: news -- but drifting in unnoticed is exactly how `utils/otel.py` became a
+#: six-image rebuild trigger, and it took criterion 5 to get it back out.
+ALL_SIX = frozenset({
+    'discord_bot.core.cli._lib.common',
+    'discord_bot.core.cogs.music_helpers.common',
+    'discord_bot.core.cogs.schema',
+    'discord_bot.core.exceptions',
+    'discord_bot.core.routes.contract',
+    'discord_bot.core.routes.route',
+    'discord_bot.core.servers.health_server_base',
+    'discord_bot.core.types.media_request',
+    'discord_bot.core.types.search',
+    'discord_bot.core.utils.common',
+    'discord_bot.core.utils.discord_utils',
+    'discord_bot.core.utils.gc_census',
+    'discord_bot.core.utils.loop_health',
+    'discord_bot.core.utils.memory_profiler',
+    'discord_bot.core.utils.otel',
+    'discord_bot.core.utils.process_metrics',
 })
 
 
@@ -482,13 +462,13 @@ def layout_violations(owners, exempt=()) -> list:
             continue
         kind, name = home
         images = owners[module]
-        if kind == CORE_DIR and len(images) != total:
-            missing = sorted({short_name(ep) for ep in IMAGE_IMPORTS} - images)
+        if kind == CORE_DIR and len(images) < 2:
             violations.append(
-                f'{module} is in {PACKAGE}/{CORE_DIR}/ but {missing} do not reach it. '
-                f'The core is what every image carries; a module only some images '
-                f'reach is costing the rest their image size for nothing. Move it to '
-                f'a seam, or find what stopped importing it.'
+                f'{module} is in {PACKAGE}/{CORE_DIR}/ but only {sorted(images)} '
+                f'reaches it. The core is SHARED code -- a module exactly one image '
+                f'reaches is that pod\'s private code and belongs in its service '
+                f'folder. Note core no longer means all six: ALL_SIX is what guards '
+                f'the fanout this rule used to.'
             )
         elif kind == SERVICES_DIR and images != {name}:
             intruders = sorted(images - {name})
@@ -504,9 +484,9 @@ def layout_violations(owners, exempt=()) -> list:
             reached = sorted(images)
             violations.append(
                 f'{module} is in {PACKAGE}/{SEAMS_DIR}/{name}/ but is reached by '
-                f'{reached}. A seam is shared by some images and not all: reached by '
-                f'one, it belongs to that service; reached by all {total}, it belongs '
-                f'to the core.'
+                f'{reached}. A seam carries a contract between tiers: reached by '
+                f'one, it is that service\'s private code; reached by all {total}, '
+                f'nothing about it is tier-specific and it belongs in the core.'
             )
     return violations
 
@@ -574,8 +554,10 @@ def render_layout() -> str:
         'every path-keyed thing in the repo — the CI filter, the Dockerfile `COPY`s,',
         "setuptools' `packages.find` — keeps working unchanged.",
         '',
-        f'**{homed_count} modules are homed and checked. {unsplit_count} are not split',
-        f'yet** and are listed at the bottom. A further **{len(exempt)} are package',
+        f'**{homed_count} modules are homed and checked**, and as of 2026-09-22',
+        'every module in the tree has a home — the seven flat top-level packages',
+        'are retired and `discord_bot/` holds only `core/`, `seams/` and',
+        f'`services/`. A further **{len(exempt)} are package',
         '`__init__.py` files that declare no code**; they are exempt, because an init\'s',
         "fanout is its children's rather than its own, and every child is checked on its",
         'own account.',
@@ -589,8 +571,9 @@ def render_layout() -> str:
         reached = set().union(*(owners[m] for m in homes[folder]))
         label = f'all {total}' if reached == every_image else ', '.join(sorted(reached))
         lines.append(f'| `{folder}/` | {len(homes[folder])} | {label} |')
-    lines.append(f'| *(not split yet)* | {unsplit_count} | '
-                 f'{len(unsplit_packages)} packages, see below |')
+    if unsplit_count:
+        lines.append(f'| *(not split yet)* | {unsplit_count} | '
+                     f'{len(unsplit_packages)} packages, see below |')
 
     # A seam takes its name from a route, and a route may be named after the pod
     # it talks TO, so the same word can name both. Derived rather than written
@@ -618,27 +601,50 @@ def render_layout() -> str:
         lines += [f'- `{m}`' for m in sorted(homes[folder])]
         lines.append('')
 
-    lines += [
-        '## Not split yet',
-        '',
-        f'{unsplit_count} modules across {len(unsplit_packages)} top-level packages still sit',
-        'where they always did. They are not a backlog of mechanical moves: **every',
-        'one of them is a module the derived rule could not place**, which is why the',
-        'split stopped here rather than running out of steam. Each is shared by more than',
-        'one image and fewer than all, with no single route module to name a seam after —',
-        'so giving it a home is a decision about what the sharing MEANS, and that is not',
-        "the generator's to make.",
-        '',
-        'Grouped by the set of images that reach them, because that is the grouping the',
-        'decision turns on: modules sharing an owner set are the candidates for sharing a',
-        'seam. The package each one sits in today is in its name.',
-        '',
-        'The package names are declared in `NOT_YET_SPLIT` and checked for equality, so a',
-        'new top-level package fails the suite rather than quietly reopening the flat tree.',
-        '',
-    ]
-    for images in sorted(unsplit, key=lambda s: (-len(s), sorted(s))):
-        lines += [f'### {", ".join(sorted(images))} — {len(unsplit[images])}', '']
-        lines += [f'- `{m}`' for m in sorted(unsplit[images])]
-        lines.append('')
+    # The whole section is conditional now. It used to be unconditional and
+    # rendered "0 modules across 0 top-level packages still sit where they always
+    # did", with three paragraphs explaining a decision that no longer exists --
+    # a generated doc's hand-written prose going stale in the one way the tables
+    # cannot, which is the third time this project has logged that shape.
+    if unsplit:
+        lines += [
+            '## Not split yet',
+            '',
+            f'{unsplit_count} modules across {len(unsplit_packages)} top-level packages still sit',
+            'where they always did. They are not a backlog of mechanical moves: **every',
+            'one of them is a module the derived rule could not place**, which is why the',
+            'split stopped here rather than running out of steam. Each is shared by more than',
+            'one image and fewer than all, with no single route module to name a seam after —',
+            'so giving it a home is a decision about what the sharing MEANS, and that is not',
+            "the generator's to make.",
+            '',
+            'Grouped by the set of images that reach them, because that is the grouping the',
+            'decision turns on: modules sharing an owner set are the candidates for sharing a',
+            'seam. The package each one sits in today is in its name.',
+            '',
+            'The package names are declared in `NOT_YET_SPLIT` and checked for equality, so a',
+            'new top-level package fails the suite rather than quietly reopening the flat tree.',
+            '',
+        ]
+        for images in sorted(unsplit, key=lambda s: (-len(s), sorted(s))):
+            lines += [f'### {", ".join(sorted(images))} — {len(unsplit[images])}', '']
+            lines += [f'- `{m}`' for m in sorted(unsplit[images])]
+            lines.append('')
+    else:
+        lines += [
+            '## Nothing is unplaced',
+            '',
+            'Every module in the tree has a declared home, and `NOT_YET_SPLIT` is empty.',
+            'It is kept rather than deleted so that a NEW top-level package under',
+            f'`{PACKAGE}/` fails the suite instead of quietly reopening the flat tree.',
+            '',
+            '**`core/` means shared, not all-six.** That changed on 2026-09-22 when the',
+            'last 25 modules were placed: nineteen of them are infrastructure reached by',
+            'two to five images — an HTTP server base the bot never serves from, Redis',
+            'primitives the bot and db never touch — and a core that demanded all six had',
+            'nowhere to put them. The fanout that rule used to protect is now guarded on',
+            'its own by `ALL_SIX`, which is checked for equality so a module drifting into',
+            'or out of the all-six set fails rather than being noticed later.',
+            '',
+        ]
     return '\n'.join(lines)

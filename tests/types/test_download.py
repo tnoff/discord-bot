@@ -1,7 +1,7 @@
 '''
 Tests for the DownloadResult model, in particular the ytdlp_data projection.
 '''
-from discord_bot.types.download import (
+from discord_bot.core.types.download import (
     YTDLP_DATA_KEYS,
     DownloadErrorType,
     DownloadResult,

@@ -15,7 +15,7 @@ from discord.ext.commands import Bot
 
 from discord_bot.services.bot.clients.database_stores import build_http_stores
 from discord_bot.seams.broker.clients.http_client_base import start_seam_checks
-from discord_bot.clients.http_dispatch_client import HttpDispatchClient
+from discord_bot.core.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.services.bot.cogs.error import CommandErrorHandler
 from discord_bot.core.exceptions import DiscordBotException
 from discord_bot.core.utils.common import GeneralConfig
@@ -25,7 +25,7 @@ from discord_bot.core.cli._lib.common import (
     setup_observability, register_on_ready,
     parse_and_validate_config, require_discord_token,
 )
-from discord_bot.cli._lib.gateway import build_bot
+from discord_bot.core.cli._lib.gateway import build_bot
 from discord_bot.services.bot.cli._lib.cog_registry import POSSIBLE_COGS
 from discord_bot.services.bot.cli.health import setup_health_server
 

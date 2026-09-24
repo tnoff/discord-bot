@@ -89,7 +89,7 @@ from discord_bot.seams.database.types.playlist import (
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
-from discord_bot.types.media_download import MediaDownload
+from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 

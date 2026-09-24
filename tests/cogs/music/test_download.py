@@ -15,8 +15,8 @@ from discord_bot.core.exceptions import ExitEarlyException
 
 from discord_bot.services.downloader.interfaces import download_protocols
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_bot.types.playlist_add_request import PlaylistAddRequest
+from discord_bot.core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.core.cogs.music_helpers.common import SearchType
 

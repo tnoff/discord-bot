@@ -22,9 +22,9 @@ from discord_bot.seams.dispatch.types.results import (
 )
 from discord_bot.core.routes.route import Route
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
-from discord_bot.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from discord_bot.core.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
-from discord_bot.utils.retry import async_retry_broker_command
+from discord_bot.core.utils.retry import async_retry_broker_command
 from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
 from discord_bot.core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 
