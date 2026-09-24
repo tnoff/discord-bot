@@ -38,12 +38,12 @@ from discord_bot.core.types.media_download import MediaDownload
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
-from discord_bot.services.search.utils.integrations import youtube_music
 from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient
 from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
+from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
@@ -318,7 +318,11 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
     '''
     worker = AsyncioYoutubeMusicSearchWorker(
         cog.logging_config,
-        client or youtube_music.YoutubeMusicClient(),
+        # Defaults to a STUB, not a live client. This line read
+        # `client or youtube_music.YoutubeMusicClient()`, which gave all 65
+        # callers a real YouTube Music client -- see
+        # tests/fakes/stub_youtube_music_client.py for what that cost.
+        client or StubYoutubeMusicClient(),
         FailureQueue(
             max_size=cog.config.download.failure_tracking_max_size,
             max_age_seconds=cog.config.download.failure_tracking_max_age_seconds,
