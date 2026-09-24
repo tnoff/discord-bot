@@ -37,6 +37,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from tests.cli._roots import root_of
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOSURE_PATH = 'docs/image-closure.json'
 
@@ -53,8 +55,19 @@ DB_ONLY_FILES = ('alembic.ini',)
 
 
 def module_for(path: str) -> str | None:
-    '''`discord_bot/a/b.py` -> `discord_bot.a.b`; None if not a first-party module.'''
-    if not path.startswith('discord_bot/') or not path.endswith('.py'):
+    '''`discord_bot/a/b.py` -> `discord_bot.a.b`; None if not a first-party module.
+
+    The root is looked up in `_roots.ROOTS` rather than spelled `discord_bot/`
+    here, because criterion 8 hoists each folder to its own top-level package
+    and a path this does not recognise contributes NO images -- which builds
+    nothing, silently, for exactly the files a migration is moving. Both
+    spellings answer while the tree is half-moved.
+
+    An UNDECLARED root is still None, and that is the case the equality check on
+    ROOTS covers: recognising any `*/**.py` would make `scripts/foo.py` an
+    orphan and fail CI on a file that should build nothing.
+    '''
+    if root_of(path) is None or not path.endswith('.py'):
         return None
     module = path[: -len('.py')].replace('/', '.')
     if module.endswith('.__init__'):
@@ -63,7 +76,14 @@ def module_for(path: str) -> str | None:
 
 
 def extra_closure(extras: dict, name: str, seen: set | None = None) -> set:
-    '''Every extra `name` pulls in, following `discord_bot[...]` self-references.'''
+    '''Every extra `name` pulls in, following `discord_bot[...]` self-references.
+
+    `discord_bot[` here is the DISTRIBUTION name in pyproject, not an import
+    root, which is why criterion 8 step 1 leaves it alone: the extras stop being
+    extras at step 5, when each service package gets its own pyproject and its
+    own `dependencies`. Changing it now would key this on a distribution that
+    does not exist yet.
+    '''
     seen = set() if seen is None else seen
     if name in seen or name not in extras:
         return seen

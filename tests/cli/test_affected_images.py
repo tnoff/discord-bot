@@ -11,13 +11,15 @@ to look like today, so a regression would change the fixture and the expectation
 together and assert nothing.
 '''
 import json
+from fnmatch import fnmatch
 
 import pytest
 
 from tests.cli._affected_images import (
     affected, extra_closure, images_for_pyproject, module_for,
 )
-from tests.cli._image_deps import CLOSURE_DOC
+from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
+from tests.cli._roots import LEGACY_ROOT, ROOTS
 
 
 CLOSURE = {'images': [
@@ -59,6 +61,23 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
     ('discord_bot/seams/database/routes.py', 'discord_bot.seams.database.routes'),
     ('discord_bot/services/bot/cogs/music.py', 'discord_bot.services.bot.cogs.music'),
     ('discord_bot/services/downloader/__init__.py', 'discord_bot.services.downloader'),
+    # The criterion 8 roots, which nothing on disk uses yet. They are here
+    # BEFORE the move for the reason step 1 exists: a path this does not
+    # recognise contributes no images, so the first moved file would build
+    # nothing and say nothing. Both spellings answer for the whole migration.
+    ('discord_core/utils/otel.py', 'discord_core.utils.otel'),
+    ('discord_core/__init__.py', 'discord_core'),
+    ('discord_seam_dispatch/clients/http_dispatch_client.py',
+     'discord_seam_dispatch.clients.http_dispatch_client'),
+    ('discord_seam_queue_worker/workers/redis_guild_queue.py',
+     'discord_seam_queue_worker.workers.redis_guild_queue'),
+    ('discord_gateway/cogs/music.py', 'discord_gateway.cogs.music'),
+    ('discord_db/database.py', 'discord_db.database'),
+    ('discord_downloader/__init__.py', 'discord_downloader'),
+    # An UNDECLARED root is not first-party. Recognising any `*/**.py` would
+    # make scripts/foo.py an orphan and fail CI on a file that builds nothing.
+    ('discord_notathing/x.py', None),
+    ('discord_bot.py', None),
 ])
 def test_module_for(path, expected):
     '''Paths map to module names, and non-modules map to nothing.'''
@@ -235,3 +254,94 @@ def test_generated_closure_covers_every_image_the_matrix_needs():
         assert image['dockerfile'], image
         assert image['modules'], f'{image["image"]} claims no modules'
         assert 'discord_bot' in image['modules']
+
+
+def test_every_declared_root_matches_release_yml_glob():
+    """`release.yml`'s `case` glob has to recognise every declared root.
+
+    It is a single boolean gating all six pushes, and a path it does not match
+    sets `image=false`: no release build, no error, nothing published. That is
+    the 2026-09-04 finding's shape -- a green run that shipped nothing for four
+    days because nothing was looking -- and it is the one path-keyed reader in
+    this repo whose failure mode is silence rather than an orphan.
+
+    Asserted against the pattern in the workflow rather than against a copy of
+    it here, so the two cannot drift.
+    """
+    workflow = (REPO_ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8')
+    patterns = [line.strip().rstrip(')').strip()
+                for line in workflow.splitlines()
+                if line.strip().endswith(')') and 'pyproject.toml|VERSION' in line]
+    assert len(patterns) == 1, f'expected one image-input case arm, found {patterns}'
+    arms = patterns[0].split('|')
+    assert len(arms) > 3, f'the case arm stopped looking like a glob list: {arms}'
+    for root in sorted(ROOTS):
+        path = f'{root}/anything.py'
+        assert any(fnmatch(path, arm) for arm in arms), (
+            f'release.yml would not build for a change to {path}.\n'
+            f'  case arms: {arms}\n'
+            'A root the release filter does not match publishes nothing, silently.'
+        )
+
+
+def test_the_declared_roots_are_exactly_the_packages_on_disk():
+    """Every import root in the tree is declared, and every declared one is real
+    or still to come.
+
+    This is what keeps `module_for` honest. It recognises a fixed set rather
+    than any top-level directory, so a root that appears on disk WITHOUT being
+    declared is not first-party to the filter -- its files contribute no images
+    and build nothing. Equality in the on-disk direction is the check that
+    cannot be satisfied by the migration quietly not happening.
+
+    The other direction is deliberately NOT equality while the migration runs:
+    twelve of the thirteen roots do not exist yet, which is the point of
+    declaring them a step early.
+    """
+    on_disk = {entry.name for entry in REPO_ROOT.iterdir()
+               if entry.is_dir() and (entry / '__init__.py').is_file()
+               and not entry.name.startswith(('.', 'test'))}
+    undeclared = on_disk - ROOTS
+    assert not undeclared, (
+        f'these importable top-level packages are not declared in _roots.py: '
+        f'{sorted(undeclared)}\n'
+        'module_for() does not recognise them, so a change to a file inside one '
+        'builds no images and reports nothing. Add them to ROOTS.'
+    )
+    assert LEGACY_ROOT in on_disk, 'the legacy root vanished -- this test stopped checking anything'
+
+
+def test_the_tox_gates_cover_every_root_on_disk():
+    """pylint, bandit and coverage have to name every import root that exists.
+
+    NOT on the criterion 8 step 1 list, and it belongs there. `tox.ini` runs
+    `pylint discord_bot/`, `bandit -r discord_bot/` and `pytest
+    --cov=discord_bot`, all three keyed on the root by name. The moment a
+    package is hoisted out of `discord_bot/`, all three go on passing while
+    covering strictly less -- and the coverage one is the worst of them, because
+    `--cov-fail-under=99` stays green against a shrinking denominator. A gate
+    that quietly stops measuring the thing it guards is the failure this project
+    has logged five times under other names.
+
+    Asserted against roots that EXIST rather than all declared ones, so this
+    stays green through step 1 -- where nothing has moved -- and fails on the
+    first PR that hoists a package without widening the gates.
+    """
+    tox = (REPO_ROOT / 'tox.ini').read_text(encoding='utf-8')
+    on_disk = sorted(root for root in ROOTS if (REPO_ROOT / root / '__init__.py').is_file())
+    assert on_disk, 'no declared root exists on disk -- this test stopped checking anything'
+
+    gates = {
+        'pylint': [line for line in tox.splitlines() if 'pylint' in line and '.pylintrc.test' not in line],
+        'bandit': [line for line in tox.splitlines() if 'bandit -r' in line],
+        'coverage': [line for line in tox.splitlines() if '--cov=' in line],
+    }
+    for name, lines in gates.items():
+        assert lines, f'no {name} invocation found in tox.ini -- the gate or this test moved'
+        text = ' '.join(lines)
+        missing = [root for root in on_disk if root not in text]
+        assert not missing, (
+            f'tox.ini\'s {name} gate does not cover {missing}.\n'
+            f'  {text.strip()}\n'
+            'It would keep passing while measuring less than the whole tree.'
+        )

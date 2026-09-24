@@ -52,6 +52,9 @@ from tests.cli._image_deps import (
     codeless_inits, declared_home, layout_violations, measure, measured_owners,
     render_closure, route_leaf, render_layout, render_table,
 )
+from tests.cli._roots import (
+    CORE_ROOT, LEGACY_ROOT, ROOTS, SEAM_ROOTS, SERVICE_ROOTS, canonical, home_of,
+)
 
 
 @pytest.mark.parametrize('entrypoint', sorted(IMAGE_IMPORTS))
@@ -474,7 +477,7 @@ def test_the_all_six_set_is_exactly_declared():
     '''
     owners = measured_owners()
     exempt = codeless_inits(owners)
-    measured = {m for m, images in owners.items()
+    measured = {canonical(m) for m, images in owners.items()
                 if len(images) == len(IMAGE_NAMES) and m not in exempt}
     assert measured, 'nothing is reached by all six -- the measurement is broken, not the tree'
     assert measured == set(ALL_SIX), (
@@ -558,3 +561,85 @@ def test_the_core_does_not_import_a_seam():
         f'generic, the thing it imports is what is misplaced: that is how '
         f'`http_client_base` and `seam_contract` came to sit in seams/broker/.'
     )
+
+
+@pytest.mark.parametrize('module, home', [
+    # Criterion 7, on disk today.
+    (f'{LEGACY_ROOT}.core.utils.otel', ('core', None)),
+    (f'{LEGACY_ROOT}.seams.dispatch.clients.http_dispatch_client', ('seams', 'dispatch')),
+    (f'{LEGACY_ROOT}.services.bot.cogs.music', ('services', 'bot')),
+    # Criterion 8, not on disk yet. Same homes, different spelling -- which is
+    # the whole claim step 1 makes: the layout rules do not care which root a
+    # module sits under, so they keep working through a half-moved tree.
+    (f'{CORE_ROOT}.utils.otel', ('core', None)),
+    (f'{SEAM_ROOTS["dispatch"]}.clients.http_dispatch_client', ('seams', 'dispatch')),
+    (f'{SERVICE_ROOTS["bot"]}.cogs.music', ('services', 'bot')),
+    (CORE_ROOT, ('core', None)),
+    # No home: the umbrella package, the aggregating folders that do not survive
+    # the move, and anything outside a declared root.
+    (LEGACY_ROOT, None),
+    (f'{LEGACY_ROOT}.seams', None),
+    ('tests.cli.helpers', None),
+])
+def test_home_of_reads_both_spellings(module, home):
+    '''A module's folder is readable before and after its root is hoisted.'''
+    assert home_of(module) == home
+
+
+def test_canonical_maps_every_measured_module_onto_a_criterion_8_root():
+    '''Canonicalisation is total over the real tree, and stable.
+
+    Total, because `ALL_SIX` is written in the criterion 8 spelling and compared
+    against canonicalised measurements -- a module that failed to map would be
+    silently absent from that comparison rather than loudly wrong. Stable,
+    because half the tree will already be in the target spelling partway through
+    the migration and canonicalising twice must not move it again.
+    '''
+    owners = measured_owners()
+    assert owners, 'nothing measured -- this test stopped checking anything'
+    mapped = 0
+    for module in owners:
+        once = canonical(module)
+        assert canonical(once) == once, f'{module} -> {once} is not stable'
+        if home_of(module) is not None:
+            assert once.split('.')[0] != LEGACY_ROOT, (
+                f'{module} has a home but does not canonicalise off the legacy root'
+            )
+            assert once.split('.')[0] in ROOTS, f'{once} is not under a declared root'
+            mapped += 1
+    assert mapped > 100, f'only {mapped} modules canonicalised -- the mapping stopped matching'
+
+
+def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
+    '''The three rules catch the same contradictions after the roots are hoisted.
+
+    The same constructed cases as test_a_misplaced_module_is_actually_caught,
+    respelled. Run against a hand-built owner map rather than the tree, because
+    no file has moved yet and a rule that can only be exercised against the live
+    tree can only be observed passing -- which here would mean "passes because
+    the spelling it was given does not exist".
+    '''
+    images = sorted(short for short in (n.replace('discord-', '') for n in IMAGE_NAMES.values()))
+    all_six = set(images)
+
+    cases = {
+        f'{CORE_ROOT}.thing': {'bot'},
+        f'{SERVICE_ROOTS["bot"]}.thing': {'bot', 'downloader'},
+        f'{SEAM_ROOTS["database"]}.thing': all_six,
+        f'{SEAM_ROOTS["database"]}.other': {'bot'},
+    }
+    for module, reached in cases.items():
+        found = layout_violations({module: reached})
+        assert len(found) == 1, f'{module} reached by {sorted(reached)} produced {found}'
+        assert module in found[0]
+        assert LEGACY_ROOT not in found[0], (
+            f'the diagnostic still names the legacy root: {found[0]}'
+        )
+
+    clean = {
+        f'{CORE_ROOT}.thing': all_six,
+        f'{CORE_ROOT}.subset_shared': set(images[:4]),
+        f'{SERVICE_ROOTS["bot"]}.thing': {'bot'},
+        f'{SEAM_ROOTS["database"]}.thing': {'bot', 'db'},
+    }
+    assert not layout_violations(clean), 'the respelled rules report a clean map as broken'

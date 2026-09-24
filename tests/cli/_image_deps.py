@@ -15,6 +15,11 @@ import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
 import sys
 from pathlib import Path
 
+from tests.cli._roots import (
+    CORE_DIR, LEGACY_ROOT, MODULE_PREFIXES, ROOTS, SEAMS_DIR, SERVICES_DIR,
+    folder_of, home_of,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OWNERSHIP_DOC = REPO_ROOT / 'docs' / 'image-dependencies.md'
 CLOSURE_DOC = REPO_ROOT / 'docs' / 'image-closure.json'
@@ -129,9 +134,10 @@ def _measure_cached(entrypoint: str) -> str:
         'import importlib, json, sys; '
         f'importlib.import_module({entrypoint!r}); '
         f'vocab = {list(VOCABULARY)!r}; '
+        f'roots = {MODULE_PREFIXES!r}; '
         'print(json.dumps({'
         '"packages": sorted(m for m in vocab if m in sys.modules), '
-        '"modules": sorted(m for m in sys.modules if m.startswith("discord_bot."))'
+        '"modules": sorted(m for m in sys.modules if m.startswith(roots))'
         '}))'
     )
 
@@ -260,7 +266,7 @@ def render_closure() -> str:
             'entrypoint': ep,
             'dockerfile': IMAGE_DOCKERFILES[ep],
             'extra': short_name(ep),
-            'modules': sorted(set(measured[ep]['modules']) | {'discord_bot'}),
+            'modules': sorted(set(measured[ep]['modules']) | _roots_reached(measured[ep])),
         })
     images.sort(key=lambda i: i['image'])
     doc = {
@@ -290,14 +296,37 @@ def route_leaf(module: str) -> str | None:
     parts = module.split('.')
     return parts[-1] if len(parts) > 1 and parts[-2] == ROUTE_PACKAGE else None
 
-# The split keeps `discord_bot` as the single import root and puts the layout
+# CRITERION 7 kept `discord_bot` as the single import root and put the layout
 # INSIDE it, rather than hoisting libs/ and services/ to the repo root. That is
-# what makes the move invisible to everything keyed on a path: the CI filter's
+# what made the move invisible to everything keyed on a path: the CI filter's
 # `discord_bot/` prefix, every Dockerfile COPY, and setuptools' packages.find
-# all keep working through a half-moved tree, and no part of the package becomes
+# all kept working through a half-moved tree, and no part of the package became
 # an __init__-less directory that setuptools would treat as a namespace package
 # -- the trap pyproject.toml already documents for alembic/.
-PACKAGE = 'discord_bot'
+#
+# CRITERION 8 hoists them after all, so each folder can be published on its own,
+# and buys back the namespace-package trap by giving each one a DISTINCT root
+# rather than making `discord_bot` a namespace. The roots live in _roots.py,
+# which `_affected_images` can also import; this name survives only as the
+# legacy spelling used in diagnostics.
+PACKAGE = LEGACY_ROOT
+
+
+def _roots_reached(measurement: dict) -> set:
+    """The bare import roots an image's measured modules sit under.
+
+    This used to be a literal `{'discord_bot'}` unioned into every image, so a
+    change to the root `__init__.py` rebuilt all six. That was right while there
+    was one root. Criterion 8 gives each folder its own, and unioning them all
+    would rebuild every image on a change to `discord_gateway/__init__.py` -- a
+    file only the bot has. Deriving it keeps the property and drops the special
+    case: every image reaches modules under `discord_bot` today, so all six
+    still claim it, and a per-pod root will be claimed by its pod alone.
+
+    The probe filters on prefixes with trailing dots, so bare roots never appear
+    in the measurement and have to be added back here.
+    """
+    return {module.split('.')[0] for module in measurement['modules']} & ROOTS
 
 
 def _owner_sets(measured):
@@ -306,12 +335,12 @@ def _owner_sets(measured):
     owners = {}
     for image, modules in module_sets.items():
         for module in modules:
-            # The root package is excluded deliberately. render_closure() unions
-            # it into every image so a change to __init__.py rebuilds all six,
-            # but it is the package root itself -- it has no home to be assigned
-            # in a layout that keeps discord_bot/ as the root and nests the
-            # classes beneath it.
-            if module == 'discord_bot':
+            # A bare root with no home is excluded deliberately: `discord_bot`
+            # is the umbrella package itself, and under criterion 7's layout it
+            # has no folder to be assigned. A bare criterion 8 root DOES have
+            # one -- `discord_core` is the core -- so it is checked normally and
+            # exempted, if at all, for being a codeless init like any other.
+            if home_of(module) is None and module in ROOTS:
                 continue
             owners.setdefault(module, set()).add(image)
     return owners
@@ -351,10 +380,6 @@ def _is_scaffolding(module: str) -> bool:
 # which is the entire point of it.
 # ---------------------------------------------------------------------------
 
-CORE_DIR = 'core'
-SEAMS_DIR = 'seams'
-SERVICES_DIR = 'services'
-
 # Top-level packages under discord_bot/ that criterion 7 has not split yet.
 # DECLARED, not derived, and checked for equality rather than containment: a
 # derived version of this set is the same tautology step 6 exists to escape,
@@ -387,43 +412,47 @@ NOT_YET_SPLIT = frozenset()
 #: image, and criterion 7 named "a core that grows a tier-defining dependency"
 #: as the failure to watch for.
 #:
+#: WRITTEN IN THE CRITERION 8 SPELLING, deliberately, while the tree is still
+#: in criterion 7's. The measurement is canonicalised before it is compared, so
+#: a module's identity here survives the move that changes its path -- which is
+#: the thing this set is about. The other direction works equally well today and
+#: leaves a rewrite plus a direction flip to do at the end; this way the end
+#: state is already written and finishing the migration deletes code.
+#:
 #: Checked for EQUALITY, so it fails in both directions. A module ARRIVING is a
 #: new all-six dependency and should be argued for. One LEAVING is usually good
 #: news -- but drifting in unnoticed is exactly how `utils/otel.py` became a
 #: six-image rebuild trigger, and it took criterion 5 to get it back out.
 ALL_SIX = frozenset({
-    'discord_bot.core.cli._lib.common',
-    'discord_bot.core.cogs.music_helpers.common',
-    'discord_bot.core.cogs.schema',
-    'discord_bot.core.exceptions',
-    'discord_bot.core.routes.contract',
-    'discord_bot.core.routes.route',
-    'discord_bot.core.servers.health_server_base',
-    'discord_bot.core.types.media_request',
-    'discord_bot.core.types.search',
-    'discord_bot.core.utils.common',
-    'discord_bot.core.utils.discord_utils',
-    'discord_bot.core.utils.gc_census',
-    'discord_bot.core.utils.loop_health',
-    'discord_bot.core.utils.memory_profiler',
-    'discord_bot.core.utils.otel',
-    'discord_bot.core.utils.process_metrics',
+    'discord_core.cli._lib.common',
+    'discord_core.cogs.music_helpers.common',
+    'discord_core.cogs.schema',
+    'discord_core.exceptions',
+    'discord_core.routes.contract',
+    'discord_core.routes.route',
+    'discord_core.servers.health_server_base',
+    'discord_core.types.media_request',
+    'discord_core.types.search',
+    'discord_core.utils.common',
+    'discord_core.utils.discord_utils',
+    'discord_core.utils.gc_census',
+    'discord_core.utils.loop_health',
+    'discord_core.utils.memory_profiler',
+    'discord_core.utils.otel',
+    'discord_core.utils.process_metrics',
 })
 
 
 def declared_home(module: str) -> tuple | None:
     """The folder a module actually lives in: `('core', None)`, `('seams', 'database')`.
 
-    None for a module that criterion 7 has not homed yet. Read from the dotted
-    path, so this is a fact about the tree rather than about the closure -- which
-    is what lets the two be compared at all.
+    Read from the dotted path, so this is a fact about the tree rather than about
+    the closure -- which is what lets the two be compared at all. Delegates to
+    `_roots.home_of`, which answers for BOTH the criterion 7 spelling
+    (`discord_bot.core.x`) and the criterion 8 one (`discord_core.x`), so the
+    layout rules keep working through a half-moved tree.
     """
-    parts = module.split('.')
-    if len(parts) >= 2 and parts[1] == CORE_DIR:
-        return (CORE_DIR, None)
-    if len(parts) >= 3 and parts[1] in (SEAMS_DIR, SERVICES_DIR):
-        return (parts[1], parts[2])
-    return None
+    return home_of(module)
 
 
 def measured_owners() -> dict:
@@ -464,7 +493,7 @@ def layout_violations(owners, exempt=()) -> list:
         images = owners[module]
         if kind == CORE_DIR and len(images) < 2:
             violations.append(
-                f'{module} is in {PACKAGE}/{CORE_DIR}/ but only {sorted(images)} '
+                f'{module} is in {folder_of(module)}/ but only {sorted(images)} '
                 f'reaches it. The core is SHARED code -- a module exactly one image '
                 f'reaches is that pod\'s private code and belongs in its service '
                 f'folder. Note core no longer means all six: ALL_SIX is what guards '
@@ -473,7 +502,7 @@ def layout_violations(owners, exempt=()) -> list:
         elif kind == SERVICES_DIR and images != {name}:
             intruders = sorted(images - {name})
             violations.append(
-                f'{module} is in {PACKAGE}/{SERVICES_DIR}/{name}/ but {intruders} '
+                f'{module} is in {folder_of(module)}/ but {intruders} '
                 f'reach it too. A service folder is that pod\'s private code. Either '
                 f'an in-process tier came back, or something annotated against a '
                 f'concrete type where the client Protocol was meant -- which is how '
@@ -483,7 +512,7 @@ def layout_violations(owners, exempt=()) -> list:
         elif kind == SEAMS_DIR and (len(images) < 2 or len(images) == total):
             reached = sorted(images)
             violations.append(
-                f'{module} is in {PACKAGE}/{SEAMS_DIR}/{name}/ but is reached by '
+                f'{module} is in {folder_of(module)}/ but is reached by '
                 f'{reached}. A seam carries a contract between tiers: reached by '
                 f'one, it is that service\'s private code; reached by all {total}, '
                 f'nothing about it is tier-specific and it belongs in the core.'
