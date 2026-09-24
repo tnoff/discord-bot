@@ -24,7 +24,7 @@ import logging
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
+from discord_bot.core.clients.http_client_base import HttpClientMixin
 from discord_bot.seams.database.types.database_wire import DatabaseResponse
 from discord_bot.core.utils.otel import async_otel_span_wrapper
 

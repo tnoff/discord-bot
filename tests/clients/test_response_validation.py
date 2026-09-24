@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from discord_bot.seams.broker.clients.http_client_base import HttpClientMixin
+from discord_bot.core.clients.http_client_base import HttpClientMixin
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.core.exceptions import SeamResponseInvalid
 
@@ -143,7 +143,7 @@ def test_the_counter_is_labelled_per_seam(monkeypatch):
     '''Attribution has to reach Mimir, not only the log line.'''
     recorded = []
     monkeypatch.setattr(
-        'discord_bot.seams.broker.clients.http_client_base._RESPONSE_INVALID_COUNTER',
+        'discord_bot.core.clients.http_client_base._RESPONSE_INVALID_COUNTER',
         type('_C', (), {'add': lambda _self, amount, attrs: recorded.append((amount, attrs))})())
     with pytest.raises(SeamResponseInvalid):
         _Double().parse(_Body, {})

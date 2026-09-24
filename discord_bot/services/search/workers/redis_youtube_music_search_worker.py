@@ -41,7 +41,7 @@ from discord_bot.seams.media_search.interfaces.youtube_music_search_protocols im
 from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.core.types.playlist_add_request import parse_media_request
 from discord_bot.core.exceptions import YoutubeMusicRetryException
-from discord_bot.core.workers.redis_guild_queue import (
+from discord_bot.seams.queue_worker.workers.redis_guild_queue import (
     RedisGuildBlockMixin,
     build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
 )

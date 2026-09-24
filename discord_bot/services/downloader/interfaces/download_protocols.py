@@ -39,7 +39,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.core.interfaces.download_client_protocol import (
+from discord_bot.seams.queue_worker.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
