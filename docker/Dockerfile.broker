@@ -17,13 +17,21 @@ RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
 RUN groupadd -g 1000 discord && \
     useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
 
-COPY discord_bot/ "${APPDIR}/discord_bot/"
 # No alembic/ or alembic.ini. Unlike the bot image (one builder stage, one
 # runtime stage) this one is single-stage, so ${APPDIR} IS the shipped
 # filesystem: 88 KB of migration scripts were riding along in the image with
 # no alembic to run them from the moment #927 dropped [database]. The size is
 # beside the point -- the files claimed a capability the image doesn't have.
-COPY pyproject.toml VERSION "${APPDIR}/"
+# ---- dependency layer: keyed on pyproject.toml alone ----
+# VERSION is deliberately NOT copied here. It is bumped by essentially every MR
+# (the changelog.d workflow), so including it busts this layer on every change
+# and the expensive install re-runs for a version string. Measured on the
+# dispatcher before and after this split: 24.4s -> 9.6s on a VERSION-only bump.
+#
+# setuptools resolves the version via `[tool.setuptools.dynamic]` and will not
+# build without the file, so a STUB package and a placeholder VERSION satisfy
+# the dependency resolve. The real ones arrive in the source layer below.
+COPY pyproject.toml "${APPDIR}/"
 
 # Installs [broker], not [bot]: boto3 for the S3 checkout and dappertable for
 # bundle rendering. NOT SQLAlchemy, asyncpg or alembic -- the video-cache
@@ -41,8 +49,21 @@ RUN apt-get update && \
         apt-get install -y --no-install-recommends heaptrack; \
     fi && \
     rm -rf /var/lib/apt/lists/* && \
+    mkdir -p "${APPDIR}/discord_bot" && \
+    : > "${APPDIR}/discord_bot/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/VERSION" && \
     pip install "${APPDIR}[broker]" && \
+    pip uninstall -y discord_bot && \
     apt-get remove -y git && apt-get autoremove -y
+
+# ---- source layer: the actual package ----
+# --no-deps because the layer above already resolved every third-party
+# requirement. The stub is UNINSTALLED up there rather than overwritten here:
+# leaving it produced both a discord_bot-0.0.0.dist-info and the real one, and
+# `importlib.metadata.version()` resolved to the 0.0.0.
+COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY VERSION "${APPDIR}/"
+RUN pip install --no-deps "${APPDIR}[broker]"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
