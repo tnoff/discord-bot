@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **85 are package
+`services/`. A further **87 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -35,12 +35,12 @@ own account.
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/core/` | 35 | all 6 |
-| `discord_bot/seams/broker/` | 9 | bot, broker, downloader, search |
-| `discord_bot/seams/database/` | 7 | bot, broker, db |
-| `discord_bot/seams/dispatch/` | 12 | bot, broker, dispatcher |
+| `discord_bot/core/` | 32 | all 6 |
+| `discord_bot/seams/broker/` | 7 | bot, broker, downloader, search |
+| `discord_bot/seams/database/` | 8 | bot, broker, db |
+| `discord_bot/seams/dispatch/` | 13 | bot, broker, dispatcher |
 | `discord_bot/seams/media_search/` | 6 | bot, search |
-| `discord_bot/seams/queue_worker/` | 7 | bot, downloader, search |
+| `discord_bot/seams/queue_worker/` | 10 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
 | `discord_bot/services/broker/` | 10 | broker |
 | `discord_bot/services/db/` | 14 | db |
@@ -56,24 +56,22 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ## Homed
 
-### `discord_bot/core/` — 35, reached by all 6
+### `discord_bot/core/` — 32, reached by all 6
 
 - `discord_bot.core.cli._lib.common`
 - `discord_bot.core.cli._lib.gateway`
 - `discord_bot.core.cli._lib.worker_pod`
-- `discord_bot.core.clients.http_dispatch_client`
-- `discord_bot.core.clients.http_store_base`
+- `discord_bot.core.clients.http_client_base`
 - `discord_bot.core.clients.redis_client`
+- `discord_bot.core.clients.seam_contract`
 - `discord_bot.core.cogs.music_helpers.common`
 - `discord_bot.core.cogs.schema`
 - `discord_bot.core.common`
 - `discord_bot.core.exceptions`
-- `discord_bot.core.interfaces.download_client_protocol`
 - `discord_bot.core.routes.contract`
 - `discord_bot.core.routes.route`
 - `discord_bot.core.servers.base`
 - `discord_bot.core.servers.health_server_base`
-- `discord_bot.core.servers.queue_worker_server`
 - `discord_bot.core.servers.redis_health_server`
 - `discord_bot.core.types.download`
 - `discord_bot.core.types.media_download`
@@ -92,12 +90,9 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.core.utils.process_metrics`
 - `discord_bot.core.utils.retry`
 - `discord_bot.core.workers.queue_metrics`
-- `discord_bot.core.workers.redis_guild_queue`
 
-### `discord_bot/seams/broker/` — 9, reached by bot, broker, downloader, search
+### `discord_bot/seams/broker/` — 7, reached by bot, broker, downloader, search
 
-- `discord_bot.seams.broker.clients.http_client_base`
-- `discord_bot.seams.broker.clients.seam_contract`
 - `discord_bot.seams.broker.interfaces.broker_client_protocol`
 - `discord_bot.seams.broker.interfaces.player_session_store`
 - `discord_bot.seams.broker.routes.broker`
@@ -106,8 +101,9 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.broker.types.responses`
 - `discord_bot.seams.broker.utils.integrations.s3`
 
-### `discord_bot/seams/database/` — 7, reached by bot, broker, db
+### `discord_bot/seams/database/` — 8, reached by bot, broker, db
 
+- `discord_bot.seams.database.clients.http_store_base`
 - `discord_bot.seams.database.interfaces.database_protocols`
 - `discord_bot.seams.database.routes.database`
 - `discord_bot.seams.database.types.database_wire`
@@ -116,9 +112,10 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.database.types.playlist`
 - `discord_bot.seams.database.types.video_cache`
 
-### `discord_bot/seams/dispatch/` — 12, reached by bot, broker, dispatcher
+### `discord_bot/seams/dispatch/` — 13, reached by bot, broker, dispatcher
 
 - `discord_bot.seams.dispatch.clients.dispatch_client_base`
+- `discord_bot.seams.dispatch.clients.http_dispatch_client`
 - `discord_bot.seams.dispatch.interfaces.dispatch_protocols`
 - `discord_bot.seams.dispatch.interfaces.result_queue`
 - `discord_bot.seams.dispatch.routes.dispatch`
@@ -140,15 +137,18 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.seams.media_search.types.media_search`
 - `discord_bot.seams.media_search.utils.integrations.common`
 
-### `discord_bot/seams/queue_worker/` — 7, reached by bot, downloader, search
+### `discord_bot/seams/queue_worker/` — 10, reached by bot, downloader, search
 
 - `discord_bot.seams.queue_worker.clients.http_broker_client`
 - `discord_bot.seams.queue_worker.clients.http_player_session`
+- `discord_bot.seams.queue_worker.interfaces.download_client_protocol`
 - `discord_bot.seams.queue_worker.routes.queue_worker`
+- `discord_bot.seams.queue_worker.servers.queue_worker_server`
 - `discord_bot.seams.queue_worker.types.clear_guild_result`
 - `discord_bot.seams.queue_worker.types.queue`
 - `discord_bot.seams.queue_worker.types.responses`
 - `discord_bot.seams.queue_worker.utils.failure_queue`
+- `discord_bot.seams.queue_worker.workers.redis_guild_queue`
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 

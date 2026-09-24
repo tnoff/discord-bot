@@ -40,6 +40,7 @@ asserting that would be tautological, and a tautological test is worse than no
 test — it reads as coverage while checking nothing.
 '''
 import json
+import ast
 import os
 import re
 
@@ -482,4 +483,78 @@ def test_the_all_six_set_is_exactly_declared():
         f'  left:    {sorted(set(ALL_SIX) - measured)}\n'
         'Every module here rebuilds all six images on every change. Update '
         'ALL_SIX deliberately, not to make this pass.'
+    )
+
+
+def _runtime_imports(path, prefix):
+    """Modules under `prefix` that `path` imports AT RUNTIME.
+
+    AST rather than substring, and `if TYPE_CHECKING:` blocks are skipped on
+    purpose: an annotation-only import creates no runtime dependency, pip never
+    has to resolve it, and the measured closure cannot see it either. That is
+    not a loophole -- it is exactly the fix discord-bot #976 applied to
+    `core/cli/_lib/common.py`, which dropped four modules out of every image by
+    moving one annotation-only import under TYPE_CHECKING. A rule that called
+    that a violation would be arguing against the thing it is meant to protect.
+    """
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    guarded = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If):
+            test = node.test
+            name = getattr(test, 'id', None) or getattr(test, 'attr', None)
+            if name == 'TYPE_CHECKING':
+                for inner in node.body:
+                    for sub in ast.walk(inner):
+                        guarded.add(id(sub))
+    found = []
+    for node in ast.walk(tree):
+        if id(node) in guarded:
+            continue
+        if isinstance(node, ast.ImportFrom) and (node.module or '').startswith(prefix):
+            found.append(node.module)
+        elif isinstance(node, ast.Import):
+            found += [a.name for a in node.names if a.name.startswith(prefix)]
+    return found
+
+
+def test_the_core_does_not_import_a_seam():
+    '''
+    The dependency direction: seams may import the core, never the reverse.
+
+    This is the rule placement alone cannot express. `core/` means SHARED and
+    `seams/<x>/` means CONTRACT, and both are legal at the same fanout -- so
+    nothing in `layout_violations` notices a core module reaching UP into a
+    seam. Six were, after the last 25 modules were placed on owner-set
+    arithmetic rather than on meaning.
+
+    It matters most under the packaging split this is heading for: `core` is the
+    distribution every pod depends on, so a core-to-seam import makes
+    `discord-core` depend on `discord-seam-dispatch`, and every pod installing
+    core drags in a seam it may have no route to. That inverts what the split is
+    for.
+
+    Asserted in BOTH directions, because a rule about a direction proves nothing
+    if traffic has quietly stopped flowing the other way too.
+    '''
+    core = REPO_ROOT / PACKAGE / 'core'
+    seams = REPO_ROOT / PACKAGE / SEAMS_DIR
+    assert core.is_dir() and seams.is_dir(), 'core/ or seams/ is missing'
+
+    upward = [str(p.relative_to(REPO_ROOT)) for p in sorted(seams.rglob('*.py'))
+              if _runtime_imports(p, f'{PACKAGE}.core')]
+    assert upward, (
+        'no seam imports the core -- the detector is broken, or the layout has '
+        'changed shape so completely that this rule needs rewriting rather than '
+        'passing quietly'
+    )
+    downward = {str(p.relative_to(REPO_ROOT)): _runtime_imports(p, f'{PACKAGE}.{SEAMS_DIR}')
+                for p in sorted(core.rglob('*.py'))
+                if _runtime_imports(p, f'{PACKAGE}.{SEAMS_DIR}')}
+    assert not downward, (
+        f'these core modules import a seam at runtime, which inverts the '
+        f'dependency: {downward}. A core module that needs a seam is contract '
+        f'code in the wrong folder -- move it to the seam. If it is genuinely '
+        f'generic, the thing it imports is what is misplaced: that is how '
+        f'`http_client_base` and `seam_contract` came to sit in seams/broker/.'
     )

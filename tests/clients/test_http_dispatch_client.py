@@ -17,7 +17,7 @@ from discord_bot.seams.dispatch.types.dispatch_request import (
 from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
 from discord_bot.seams.dispatch.types.responses import FetchHistoryResponse
-from discord_bot.core.clients.http_dispatch_client import HttpDispatchClient
+from discord_bot.seams.dispatch.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.core.utils.otel import AttributeNaming
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
@@ -294,7 +294,7 @@ async def test_http_returns_none_for_non_json_response(mocker):
 async def test_post_failure_logs_error_and_does_not_raise(mocker):
     '''_post swallows and logs exceptions so fire-and-forget callers are not affected.'''
     mocker.patch(
-        'discord_bot.core.clients.http_dispatch_client.async_retry_broker_command',
+        'discord_bot.seams.dispatch.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
     )
     client = HttpDispatchClient('http://localhost:9999')
@@ -306,7 +306,7 @@ async def test_post_failure_logs_error_and_does_not_raise(mocker):
 @pytest.mark.asyncio
 async def test_poll_result_raises_dispatch_remote_error_on_timeout(mocker):
     '''_poll_result raises DispatchRemoteError after _POLL_TIMEOUT elapses with no result.'''
-    mocker.patch('discord_bot.core.clients.http_dispatch_client._POLL_TIMEOUT', 0)
+    mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._POLL_TIMEOUT', 0)
     _, server = _make_setup()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
@@ -317,7 +317,7 @@ async def test_poll_result_raises_dispatch_remote_error_on_timeout(mocker):
 @pytest.mark.asyncio
 async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
     '''_poll_result retries with backoff (lines 194-195) when the result is not yet ready.'''
-    mocker.patch('discord_bot.core.clients.http_dispatch_client._POLL_INTERVAL_BASE', 0)
+    mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._POLL_INTERVAL_BASE', 0)
 
     result_store: dict = {}
 
@@ -351,9 +351,9 @@ async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
 async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
     '''_post with breaker OPEN logs + records breaker_open metric but does not propagate.'''
     from discord_bot.core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
-    breaker = mocker.patch('discord_bot.core.clients.http_dispatch_client._BREAKER')
+    breaker = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     # Must not raise — fire-and-forget contract
     await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
@@ -365,9 +365,9 @@ async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
 async def test_submit_fetch_when_breaker_open_propagates(mocker):
     '''_submit_fetch propagates CircuitBreakerOpenError so awaitable callers see the failure.'''
     from discord_bot.core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
-    breaker = mocker.patch('discord_bot.core.clients.http_dispatch_client._BREAKER')
+    breaker = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(CircuitBreakerOpenError):
         await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1},  # pylint: disable=protected-access
@@ -379,7 +379,7 @@ async def test_submit_fetch_when_breaker_open_propagates(mocker):
 @pytest.mark.asyncio
 async def test_post_success_records_metric(mocker):
     '''A successful _post call records a success result on the request counter.'''
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     dispatcher, server = _make_setup()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)
@@ -393,10 +393,10 @@ async def test_post_success_records_metric(mocker):
 async def test_post_underlying_failure_records_failure_metric(mocker):
     '''A non-breaker exception path records outcome=failure and stays silent (fire-and-forget).'''
     mocker.patch(
-        'discord_bot.core.clients.http_dispatch_client.async_retry_broker_command',
+        'discord_bot.seams.dispatch.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
     )
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     await client._post(dispatch_routes.SEND, {'guild_id': 1, 'channel_id': 2, 'content': 'hi'})  # pylint: disable=protected-access
     await client.close()
@@ -407,10 +407,10 @@ async def test_post_underlying_failure_records_failure_metric(mocker):
 async def test_submit_fetch_underlying_failure_records_failure_metric_and_propagates(mocker):
     '''_submit_fetch records outcome=failure and propagates non-breaker exceptions.'''
     mocker.patch(
-        'discord_bot.core.clients.http_dispatch_client.async_retry_broker_command',
+        'discord_bot.seams.dispatch.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('connection refused'),
     )
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(RuntimeError, match='connection refused'):
         await client._submit_fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': 1},  # pylint: disable=protected-access
@@ -423,9 +423,9 @@ async def test_submit_fetch_underlying_failure_records_failure_metric_and_propag
 async def test_poll_result_when_breaker_open_propagates(mocker):
     '''_poll_result propagates CircuitBreakerOpenError + records breaker_open metric.'''
     from discord_bot.core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
-    breaker = mocker.patch('discord_bot.core.clients.http_dispatch_client._BREAKER')
+    breaker = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(CircuitBreakerOpenError):
         await client._poll_result('any-id')  # pylint: disable=protected-access
@@ -437,10 +437,10 @@ async def test_poll_result_when_breaker_open_propagates(mocker):
 async def test_poll_result_underlying_failure_records_failure_metric_and_propagates(mocker):
     '''_poll_result records outcome=failure and propagates non-breaker exceptions.'''
     mocker.patch(
-        'discord_bot.core.clients.http_dispatch_client.async_retry_broker_command',
+        'discord_bot.seams.dispatch.clients.http_dispatch_client.async_retry_broker_command',
         side_effect=RuntimeError('boom'),
     )
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     client = HttpDispatchClient('http://localhost:9999')
     with pytest.raises(RuntimeError, match='boom'):
         await client._poll_result('any-id')  # pylint: disable=protected-access
@@ -457,8 +457,8 @@ async def test_poll_result_timeout_records_timeout_metric(mocker):
     also the one left spelling its label key by hand after the others moved to
     the enum.
     '''
-    mocker.patch('discord_bot.core.clients.http_dispatch_client._POLL_TIMEOUT', 0)
-    counter = mocker.patch('discord_bot.core.clients.http_dispatch_client._REQUEST_COUNTER')
+    mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._POLL_TIMEOUT', 0)
+    counter = mocker.patch('discord_bot.seams.dispatch.clients.http_dispatch_client._REQUEST_COUNTER')
     _, server = _make_setup()
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpDispatchClient(str(tc.make_url('')), session=tc.session)

@@ -25,7 +25,7 @@ than copied into each. See clients/http_store_base and types/database_wire.
 '''
 import logging
 
-from discord_bot.core.clients.http_store_base import HttpStoreBase
+from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
 from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
 from discord_bot.core.utils.discord_context import DiscordContextNaming
 from discord_bot.seams.database.routes import database as database_routes

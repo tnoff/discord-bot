@@ -32,7 +32,7 @@ is racy across processes with a network hop in the gap.
 import logging
 from typing import List
 
-from discord_bot.core.clients.http_store_base import HttpStoreBase
+from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
 from discord_bot.seams.database.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
