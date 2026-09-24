@@ -35,12 +35,46 @@ class SimpleServer(AiohttpServerBase):
         app.router.add_get('/slow', self._handle_slow)
         return app
 
+    @property
+    def inflight(self) -> int:
+        '''Requests currently in flight, as `drain_and_stop` counts them.
+
+        Exposed here rather than reached into from the tests: this is the
+        subclass, so reading the inherited counter is its business, and the
+        tests get a name instead of a `# pylint: disable=protected-access` or a
+        `getattr` that dodges the linter while hiding what it wants.
+        '''
+        return self._active_requests
+
     async def _handle_ping(self, _request: web.Request) -> web.Response:
         return web.Response(text='pong')
 
     async def _handle_slow(self, _request: web.Request) -> web.Response:
         await self.slow_release.wait()
         return web.Response(text='done')
+
+
+async def _wait_for_inflight(server, timeout: float = 5.0) -> None:
+    '''Poll until the server actually has a request in flight.
+
+    These three tests used `await asyncio.sleep(0.1)  # let request reach the
+    handler`, which is a guess rather than a wait. When a loaded runner does not
+    deliver the request inside 100ms there is nothing in flight, drain_and_stop
+    finds zero active requests, returns cleanly, and the test asserting a drain
+    TIMEOUT fails with no timeout to find. That is what failed tox 3.11 while
+    3.13 passed on the same commit.
+
+    `SimpleServer.inflight` is the same counter drain_and_stop loops on, so
+    waiting on it waits for exactly the condition under test rather than for a
+    duration that usually correlates with it.
+    '''
+    deadline = asyncio.get_event_loop().time() + timeout
+    while server.inflight == 0:
+        if asyncio.get_event_loop().time() >= deadline:
+            raise AssertionError(
+                'no request reached the handler within '
+                f'{timeout}s -- the test cannot observe a drain without one')
+        await asyncio.sleep(0.005)
 
 
 async def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
@@ -247,7 +281,7 @@ class TestDrainWithInflight:
                 slow_task = asyncio.create_task(
                     session.get('http://127.0.0.1:18104/slow')
                 )
-                await asyncio.sleep(0.1)  # let request reach the handler
+                await _wait_for_inflight(server)
 
                 drain_task = asyncio.create_task(server.drain_and_stop(timeout=5.0))
                 await asyncio.sleep(0.05)
@@ -278,7 +312,7 @@ class TestDrainWithInflight:
                 slow_task = asyncio.create_task(
                     session.get('http://127.0.0.1:18105/slow')
                 )
-                await asyncio.sleep(0.1)
+                await _wait_for_inflight(server)
                 # Key assertion: drain_and_stop returns despite the blocked in-flight request.
                 await asyncio.wait_for(server.drain_and_stop(timeout=0.2), timeout=2.0)
                 slow_task.cancel()
@@ -304,7 +338,7 @@ class TestDrainWithInflight:
                 slow_task = asyncio.create_task(
                     session.get('http://127.0.0.1:18106/slow')
                 )
-                await asyncio.sleep(0.1)
+                await _wait_for_inflight(server)
                 with caplog.at_level(logging.WARNING, logger='discord_bot.core.servers.base'):
                     await asyncio.wait_for(server.drain_and_stop(timeout=0.2), timeout=2.0)
                 assert 'drain timeout reached' in caplog.text
