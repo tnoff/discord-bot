@@ -89,10 +89,19 @@ jobs:
           fi
           FILES="$(git diff --name-only "${BEFORE}" "${AFTER}")"
           MATCH=false
+          # `discord_*/` rather than `discord_bot/`: criterion 8 hoists each folder
+          # to its own top-level package (discord_core, discord_gateway,
+          # discord_seam_dispatch, ...), and a root this does not match sets
+          # image=false -- no release build, silently, which is the 2026-09-04
+          # shape where a green run published nothing for four days. The prefix
+          # glob over-matches rather than under-matches on purpose: an extra
+          # build costs minutes, a missed one ships nothing. The declared roots
+          # live in tests/cli/_roots.py and a test asserts every one of them
+          # matches this pattern.
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             case "$f" in
-              discord_bot/*|alembic/*|alembic.ini|docker/*|pyproject.toml|VERSION)
+              discord_*/*|alembic/*|alembic.ini|docker/*|pyproject.toml|VERSION)
                 MATCH=true; break ;;
             esac
           done <<< "${FILES}"
