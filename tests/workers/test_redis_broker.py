@@ -16,7 +16,8 @@ from discord_core.types.search import SearchResult
 
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.seams.database.types.video_cache import VideoCacheEntry
+from discord_seam_database.types.video_cache import VideoCacheEntry
+
 from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.services.broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict

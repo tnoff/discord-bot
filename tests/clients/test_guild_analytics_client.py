@@ -5,8 +5,9 @@ from functools import partial
 import pytest
 from sqlalchemy import select
 
-from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore
-from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
+from discord_seam_database.interfaces.database_protocols import GuildAnalyticsStore
+from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
+
 from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_bot.services.db.database import Guild, GuildVideoAnalytics
 

@@ -30,7 +30,8 @@ from discord_seam_broker.interfaces.player_session_store import PlayerSessionSto
 from discord_seam_broker.types.checkout_result import CheckoutResult
 from discord_seam_broker.utils.integrations.s3 import delete_file
 
-from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
+from discord_seam_database.interfaces.database_protocols import VideoCacheStore
+
 from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState
 

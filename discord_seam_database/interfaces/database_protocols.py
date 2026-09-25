@@ -84,15 +84,15 @@ from typing import List, Protocol, runtime_checkable
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 
-from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
-from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
-from discord_bot.seams.database.types.playlist import (
+from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
+from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_seam_database.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
-from discord_bot.seams.database.types.video_cache import VideoCacheEntry
+from discord_seam_database.types.video_cache import VideoCacheEntry
 
 
 @runtime_checkable
