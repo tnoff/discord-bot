@@ -44,9 +44,9 @@ from discord_core.types.media_download import (MediaDownload, media_download_fro
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import MusicMediaDownloadNaming
 
-from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
-from discord_bot.seams.database.routes import database as database_routes
-from discord_bot.seams.database.types.video_cache import VideoCacheEntry
+from discord_seam_database.clients.http_store_base import HttpStoreBase
+from discord_seam_database.routes import database as database_routes
+from discord_seam_database.types.video_cache import VideoCacheEntry
 
 logger = logging.getLogger(__name__)
 

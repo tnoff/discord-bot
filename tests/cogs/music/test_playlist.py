@@ -13,7 +13,8 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.database.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
+from discord_seam_database.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
+
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem

@@ -27,9 +27,9 @@ import logging
 
 from discord_core.utils.discord_context import DiscordContextNaming
 
-from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
-from discord_bot.seams.database.routes import database as database_routes
-from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
+from discord_seam_database.clients.http_store_base import HttpStoreBase
+from discord_seam_database.routes import database as database_routes
+from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
 
 logger = logging.getLogger(__name__)
 

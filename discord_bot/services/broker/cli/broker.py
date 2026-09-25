@@ -42,7 +42,8 @@ from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.redis_client import RedisManager
 from discord_core.utils.common import GeneralConfig
 
-from discord_bot.seams.database.types.video_cache import MusicCacheConfig
+from discord_seam_database.types.video_cache import MusicCacheConfig
+
 from discord_bot.seams.dispatch.clients.http_dispatch_client import HttpDispatchClient
 from discord_bot.seams.dispatch.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 from discord_bot.services.broker.clients.http_video_cache_store import HttpVideoCacheStore

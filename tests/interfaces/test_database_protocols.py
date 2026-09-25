@@ -9,13 +9,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from discord_bot.seams.database.interfaces.database_protocols import (
+from discord_seam_database.interfaces.database_protocols import (
     GuildAnalyticsStore,
     MarkovStore,
     PlaylistStore,
     VideoCacheStore,
 )
-from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from tests.cli._image_deps import measure
 
@@ -33,7 +33,7 @@ def test_database_protocols_imports_no_third_party_package():
     there is no package this module has any business importing. The eventual
     HttpMarkovStore will import aiohttp -- in its own module, not this one.
     '''
-    packages = set(measure('discord_bot.seams.database.interfaces.database_protocols')['packages'])
+    packages = set(measure('discord_seam_database.interfaces.database_protocols')['packages'])
     assert not packages, (
         f'database_protocols pulled {sorted(packages)} into its import chain. A '
         'method signature here probably names an ORM model or a concrete client; '

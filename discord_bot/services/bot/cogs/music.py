@@ -41,9 +41,10 @@ from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, ca
 from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
-from discord_bot.seams.database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
-from discord_bot.seams.database.types.video_cache import MusicCacheConfig
+from discord_seam_database.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
+from discord_seam_database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
+from discord_seam_database.types.video_cache import MusicCacheConfig
+
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.seams.queue_worker.interfaces.download_client_protocol import (

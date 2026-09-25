@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **84 are package
+`services/`. A further **83 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -103,14 +103,14 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/database/` — 8, reached by bot, broker, db
 
-- `discord_bot.seams.database.clients.http_store_base`
-- `discord_bot.seams.database.interfaces.database_protocols`
-- `discord_bot.seams.database.routes.database`
-- `discord_bot.seams.database.types.database_wire`
-- `discord_bot.seams.database.types.guild_analytics`
-- `discord_bot.seams.database.types.markov`
-- `discord_bot.seams.database.types.playlist`
-- `discord_bot.seams.database.types.video_cache`
+- `discord_seam_database.clients.http_store_base`
+- `discord_seam_database.interfaces.database_protocols`
+- `discord_seam_database.routes.database`
+- `discord_seam_database.types.database_wire`
+- `discord_seam_database.types.guild_analytics`
+- `discord_seam_database.types.markov`
+- `discord_seam_database.types.playlist`
+- `discord_seam_database.types.video_cache`
 
 ### `discord_bot/seams/dispatch/` — 13, reached by bot, broker, dispatcher
 

@@ -73,6 +73,7 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY discord_core/ "${APPDIR}/discord_core/"
+COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[db]" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \

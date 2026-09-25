@@ -19,8 +19,9 @@ from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 
-from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
-from discord_bot.seams.database.types.markov import MarkovMessageWrite
+from discord_seam_database.interfaces.database_protocols import MarkovStore
+from discord_seam_database.types.markov import MarkovMessageWrite
+
 from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
 from discord_bot.services.bot.cogs.common import CogHelperBase

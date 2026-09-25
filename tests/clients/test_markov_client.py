@@ -5,8 +5,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
-from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_seam_database.interfaces.database_protocols import MarkovStore
+from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
+
 from discord_bot.services.db.clients.markov_client import MarkovClient
 from discord_bot.services.db.database import MarkovChannel, MarkovRelation
 
