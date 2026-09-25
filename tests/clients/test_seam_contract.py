@@ -20,7 +20,7 @@ from discord_core.clients.seam_contract import (DEFAULT_GRACE_SECONDS, GAUGE_REG
                                                PeerContractStatus, SeamContractCheck)
 from discord_core.routes import contract
 
-from discord_bot.seams.broker.routes import broker as broker_routes
+from discord_seam_broker.routes import broker as broker_routes
 
 
 class _Clock:

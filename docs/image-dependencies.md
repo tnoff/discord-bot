@@ -23,11 +23,11 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 | image | first-party modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 139 | 36 |
+| `discord-bot` | 138 | 36 |
 | `discord-dispatcher` | 64 | 10 |
-| `discord-broker` | 101 | 16 |
-| `discord-downloader` | 86 | 15 |
-| `discord-search` | 94 | 20 |
+| `discord-broker` | 100 | 16 |
+| `discord-downloader` | 85 | 15 |
+| `discord-search` | 93 | 20 |
 | `discord-db` | 62 | 22 |
 
 ## How shared the tree is
@@ -39,11 +39,11 @@ Modules by how many of the 6 entrypoints import them:
 | 1 of 6 | 119 |
 | 2 of 6 | 33 |
 | 3 of 6 | 42 |
-| 4 of 6 | 11 |
+| 4 of 6 | 10 |
 | 5 of 6 | 7 |
 | 6 of 6 | 26 |
 
-119 of 238 modules (50%) are imported by two or more entrypoints but not all 6.
+118 of 237 modules (49%) are imported by two or more entrypoints but not all 6.
 
 This section used to end "which is why this stays one package with per-image
 extras", on the grounds that one distribution per tier would force every shared

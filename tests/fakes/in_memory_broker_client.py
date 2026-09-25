@@ -19,7 +19,8 @@ from discord_core.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.types.player_session import PlayerSession
+
 from discord_bot.services.broker.interfaces.broker_protocols import (
     CheckoutResult,
     DownloadResultQueue,

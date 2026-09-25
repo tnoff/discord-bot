@@ -38,8 +38,9 @@ from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 
-from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
+from discord_seam_broker.types.player_session import PlayerSession
+
 from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
 from discord_bot.seams.database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_bot.seams.database.types.video_cache import MusicCacheConfig

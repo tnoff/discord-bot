@@ -18,8 +18,8 @@ from discord_core.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_bot.seams.broker.interfaces.player_session_store import PlayerSessionClient
-from discord_bot.seams.broker.types.checkout_result import CheckoutResult
+from discord_seam_broker.interfaces.player_session_store import PlayerSessionClient
+from discord_seam_broker.types.checkout_result import CheckoutResult
 
 __all__ = ['BrokerClient']
 
