@@ -7,7 +7,7 @@ a trivial concrete subclass round-trips.
 '''
 import pytest
 
-from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue
+from discord_seam_dispatch.interfaces.result_queue import DownloadResultQueue
 
 
 def test_download_result_queue_is_abstract():

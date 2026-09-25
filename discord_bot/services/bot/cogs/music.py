@@ -45,6 +45,8 @@ from discord_seam_database.interfaces.database_protocols import GuildAnalyticsSt
 from discord_seam_database.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_seam_database.types.video_cache import MusicCacheConfig
 
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+
 from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_seam_queue_worker.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
@@ -52,7 +54,6 @@ from discord_seam_queue_worker.interfaces.download_client_protocol import (
 from discord_seam_queue_worker.types.queue import PutsBlocked
 from discord_seam_queue_worker.types.queue import Queue
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.services.bot.clients.youtube_music_search_client import (

@@ -3,8 +3,8 @@ import asyncio
 
 import pytest
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, RESULT_QUEUE_MAX_SIZE
-from discord_bot.seams.dispatch.types.dispatch_request import (
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase, RESULT_QUEUE_MAX_SIZE
+from discord_seam_dispatch.types.dispatch_request import (
     DeleteRequest,
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
@@ -120,7 +120,7 @@ def test_deliver_enqueues_when_room():
 
 def test_deliver_drops_and_logs_when_full(mocker):
     '''_deliver drops (and warns) instead of blocking/leaking when the queue is full.'''
-    mock_logger = mocker.patch('discord_bot.seams.dispatch.clients.dispatch_client_base.logger')
+    mock_logger = mocker.patch('discord_seam_dispatch.clients.dispatch_client_base.logger')
     client = _ConcreteClient()
     q = asyncio.Queue(maxsize=1)
     q.put_nowait('first')

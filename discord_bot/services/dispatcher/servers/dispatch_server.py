@@ -22,11 +22,11 @@ from opentelemetry.trace import SpanKind
 from discord_core.servers.base import AiohttpServerBase
 from discord_core.utils.otel import otel_span_wrapper
 
-from discord_bot.seams.dispatch.interfaces.dispatch_protocols import WorkQueue
-from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.dispatch.types import requests as dispatch_requests
-from discord_bot.seams.dispatch.types import responses as dispatch_responses
-from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
+from discord_seam_dispatch.interfaces.dispatch_protocols import WorkQueue
+from discord_seam_dispatch.routes import dispatch as dispatch_routes
+from discord_seam_dispatch.types import requests as dispatch_requests
+from discord_seam_dispatch.types import responses as dispatch_responses
+from discord_seam_dispatch.utils.dispatch_queue import dispatch_request_id
 
 logger = logging.getLogger(__name__)
 

@@ -65,6 +65,7 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY discord_core/ "${APPDIR}/discord_core/"
+COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
 COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
 COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"

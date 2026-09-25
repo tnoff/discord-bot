@@ -7,8 +7,8 @@ from discord_core.exceptions import CogMissingRequiredArg
 from discord_core.utils.common import get_logger, LoggingConfig
 from discord_core.utils.otel import capture_span_context
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
-from discord_bot.seams.dispatch.types.dispatch_request import (
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_seam_dispatch.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,

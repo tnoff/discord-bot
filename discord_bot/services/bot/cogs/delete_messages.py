@@ -14,8 +14,9 @@ from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_core.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult
+
 from discord_bot.services.bot.cogs.common import CogHelperBase
 
 # Default for deleting messages after X days

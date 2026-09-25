@@ -7,7 +7,7 @@ from discord_core.types.media_request import MediaRequest, RetryInformation
 from discord_core.types.playlist_add_request import PlaylistAddRequest, parse_media_request
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
+from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
 from tests.helpers import fake_context, fake_source_dict  # noqa: F401  # pylint: disable=unused-import
 

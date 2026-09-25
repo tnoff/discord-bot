@@ -5,7 +5,8 @@ from pydantic import BaseModel
 
 from discord_core.exceptions import CogMissingRequiredArg
 
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+
 from discord_bot.services.bot.clients.database_stores import DatabaseStores
 from discord_bot.services.bot.cogs.common import CogHelperBase
 

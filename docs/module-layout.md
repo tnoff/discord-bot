@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **82 are package
+`services/`. A further **80 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -114,19 +114,19 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/dispatch/` — 13, reached by bot, broker, dispatcher
 
-- `discord_bot.seams.dispatch.clients.dispatch_client_base`
-- `discord_bot.seams.dispatch.clients.http_dispatch_client`
-- `discord_bot.seams.dispatch.interfaces.dispatch_protocols`
-- `discord_bot.seams.dispatch.interfaces.result_queue`
-- `discord_bot.seams.dispatch.routes.dispatch`
-- `discord_bot.seams.dispatch.types.dispatch_request`
-- `discord_bot.seams.dispatch.types.dispatch_result`
-- `discord_bot.seams.dispatch.types.fetched_message`
-- `discord_bot.seams.dispatch.types.requests`
-- `discord_bot.seams.dispatch.types.responses`
-- `discord_bot.seams.dispatch.types.results`
-- `discord_bot.seams.dispatch.utils.dispatch_queue`
-- `discord_bot.seams.dispatch.workers.redis_queues`
+- `discord_seam_dispatch.clients.dispatch_client_base`
+- `discord_seam_dispatch.clients.http_dispatch_client`
+- `discord_seam_dispatch.interfaces.dispatch_protocols`
+- `discord_seam_dispatch.interfaces.result_queue`
+- `discord_seam_dispatch.routes.dispatch`
+- `discord_seam_dispatch.types.dispatch_request`
+- `discord_seam_dispatch.types.dispatch_result`
+- `discord_seam_dispatch.types.fetched_message`
+- `discord_seam_dispatch.types.requests`
+- `discord_seam_dispatch.types.responses`
+- `discord_seam_dispatch.types.results`
+- `discord_seam_dispatch.utils.dispatch_queue`
+- `discord_seam_dispatch.workers.redis_queues`
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search
 

@@ -19,14 +19,15 @@ from discord_core.utils.otel import (async_otel_span_wrapper, create_observable_
                                      DispatchNaming, loop_heartbeat_observations, METER_PROVIDER, MetricNaming,
                                      span_links_from_context)
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
-from discord_bot.seams.dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.seams.dispatch.types.dispatch_request import DeleteRequest, SendRequest
-from discord_bot.seams.dispatch.types.dispatch_result import encode_error
-from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
-from discord_bot.seams.dispatch.types.results import (
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_seam_dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_seam_dispatch.types.dispatch_request import DeleteRequest, SendRequest
+from discord_seam_dispatch.types.dispatch_result import encode_error
+from discord_seam_dispatch.types.fetched_message import FetchedMessage
+from discord_seam_dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
 )
+
 from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
 
 

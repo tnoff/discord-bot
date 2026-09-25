@@ -11,23 +11,23 @@ from discord_core.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpe
 from discord_core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 from discord_core.utils.retry import async_retry_broker_command
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
-from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.dispatch.types.dispatch_request import (
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_seam_dispatch.routes import dispatch as dispatch_routes
+from discord_seam_dispatch.types.dispatch_request import (
     DeleteRequest,
     SendRequest,
 )
-from discord_bot.seams.dispatch.types.requests import (
+from discord_seam_dispatch.types.requests import (
     DeleteRequestBody, RemoveMutableRequestBody, SendRequestBody,
     UpdateMutableChannelRequestBody, UpdateMutableRequestBody,
 )
-from discord_bot.seams.dispatch.types.responses import (
+from discord_seam_dispatch.types.responses import (
     FetchEmojisResponse, FetchHistoryResponse,
 )
-from discord_bot.seams.dispatch.types.results import (
+from discord_seam_dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
 )
-from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
+from discord_seam_dispatch.utils.dispatch_queue import dispatch_request_id
 
 logger = logging.getLogger(__name__)
 

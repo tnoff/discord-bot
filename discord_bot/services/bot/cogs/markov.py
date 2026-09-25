@@ -22,8 +22,9 @@ from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, Me
 from discord_seam_database.interfaces.database_protocols import MarkovStore
 from discord_seam_database.types.markov import MarkovMessageWrite
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
+
 from discord_bot.services.bot.cogs.common import CogHelperBase
 from discord_bot.services.bot.utils.otel_command import command_wrapper
 
