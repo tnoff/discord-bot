@@ -40,7 +40,7 @@ from discord_core.utils.otel import (
     async_otel_span_wrapper, capture_span_context, span_links_from_context,
 )
 
-from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_seam_media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 # Span name is deliberately the cog's old one ('music' + the loop name) rather
 # than a pod-flavoured rename: the same logical operation moved processes at the

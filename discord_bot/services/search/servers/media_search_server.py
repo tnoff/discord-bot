@@ -35,9 +35,9 @@ from discord_core.exceptions import MediaSearchError
 from discord_core.servers.base import AiohttpServerBase
 from discord_core.utils.otel import otel_span_wrapper
 
-from discord_bot.seams.media_search.interfaces.media_search_protocols import MediaSearchClient
-from discord_bot.seams.media_search.routes import media_search as media_search_routes
-from discord_bot.seams.media_search.types.media_search import MediaSearchErrorBody, MediaSearchResponse
+from discord_seam_media_search.interfaces.media_search_protocols import MediaSearchClient
+from discord_seam_media_search.routes import media_search as media_search_routes
+from discord_seam_media_search.types.media_search import MediaSearchErrorBody, MediaSearchResponse
 
 logger = logging.getLogger(__name__)
 

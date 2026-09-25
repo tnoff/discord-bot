@@ -40,6 +40,7 @@ carry a ``ROUTES`` group whose prefix matches the client's exactly.
 import json
 
 from tests.cli._image_deps import IMAGE_NAMES, REPO_ROOT, run_probe
+from tests.cli._roots import MODULE_PREFIXES
 
 TOPOLOGY_DOC = REPO_ROOT / 'docs' / 'seam-topology.md'
 
@@ -49,12 +50,13 @@ TOPOLOGY_DOC = REPO_ROOT / 'docs' / 'seam-topology.md'
 _PROBE = (
     'import importlib, inspect, json, sys; '
     'importlib.import_module({entrypoint!r}); '
+    'roots = {roots!r}; '
     'found = {{}}; '
     '[found.setdefault(obj.__name__, {{'
     '"seam": obj.SEAM, "module": name, '
     '"prefix": getattr(obj, "ROUTE_PREFIX", "") or "", '
     '"routes": sorted(r.method + " " + r.template for r in obj.ROUTES_CALLED)}}) '
-    'for name in sorted(sys.modules) if name.startswith("discord_bot.") '
+    'for name in sorted(sys.modules) if name.startswith(roots) '
     'for _a, obj in sorted(vars(sys.modules[name]).items()) '
     'if inspect.isclass(obj) and getattr(obj, "__module__", None) == name '
     'and getattr(obj, "SEAM", None) and getattr(obj, "ROUTES_CALLED", ())]; '
@@ -72,19 +74,27 @@ _PROBE = (
 # per-image-code-split moved a seam: `routes/database.py` becomes
 # `seams/database/routes/database.py`, and the database seam silently vanished
 # from the measured topology while every test still passed on the others.
+#
+# The PACKAGE prefix was the same bug one level up and survived that fix, because
+# there was only one root to spell. Criterion 8 gives each folder its own, and
+# `discord_bot.` stopped matching `discord_seam_media_search.` -- so both probes
+# now take the declared prefixes rather than naming a root. This one failed
+# loudly (three tests) because the topology is asserted against a checked-in doc;
+# the shape of the bug is still a silent under-report.
 _SERVER_PROBE = (
     'import importlib, inspect, json, sys; '
     'importlib.import_module({entrypoint!r}); '
     'from discord_core.servers.base import AiohttpServerBase; '
     'skip = {{"discord_core.routes.route", "discord_core.routes.contract"}}; '
+    'roots = {roots!r}; '
     'found = {{}}; '
     '[found.setdefault(obj.__name__, {{'
     '"seams": sorted({{v.__name__.rsplit(".", 1)[1] '
     'for v in vars(sys.modules[name]).values() if inspect.ismodule(v) '
-    'and v.__name__.startswith("discord_bot.") and v.__name__ not in skip '
+    'and v.__name__.startswith(roots) and v.__name__ not in skip '
     'and v.__name__.split(".")[-2:-1] == ["routes"]}}), '
     '"prefix": getattr(getattr(obj, "ROUTES", None), "prefix", "")}}) '
-    'for name in sorted(sys.modules) if name.startswith("discord_bot.") '
+    'for name in sorted(sys.modules) if name.startswith(roots) '
     'for _a, obj in sorted(vars(sys.modules[name]).items()) '
     'if inspect.isclass(obj) and getattr(obj, "__module__", None) == name '
     'and issubclass(obj, AiohttpServerBase) and obj is not AiohttpServerBase]; '
@@ -94,7 +104,7 @@ _SERVER_PROBE = (
 
 def measure(entrypoint: str) -> dict:
     '''Seam-speaking clients reachable from `entrypoint`, keyed by class name.'''
-    return json.loads(run_probe(_PROBE.format(entrypoint=entrypoint)))
+    return json.loads(run_probe(_PROBE.format(entrypoint=entrypoint, roots=MODULE_PREFIXES)))
 
 
 def measure_servers(entrypoint: str) -> dict:
@@ -105,7 +115,8 @@ def measure_servers(entrypoint: str) -> dict:
     and ``CompositeHttpServer`` (a wrapper that owns no routes of its own) fall
     out without either being named here.
     '''
-    found = json.loads(run_probe(_SERVER_PROBE.format(entrypoint=entrypoint)))
+    found = json.loads(run_probe(_SERVER_PROBE.format(entrypoint=entrypoint,
+                                                      roots=MODULE_PREFIXES)))
     return {name: info for name, info in found.items() if info['seams']}
 
 

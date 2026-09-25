@@ -12,8 +12,8 @@ from discord_core.exceptions import (
 from discord_core.types.search import SearchResult, SearchCollection
 from discord_core.utils.otel import async_otel_span_wrapper, MediaRequestNaming
 
-from discord_bot.seams.media_search.interfaces.media_search_protocols import MediaSearchClient
-from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
+from discord_seam_media_search.interfaces.media_search_protocols import MediaSearchClient
+from discord_seam_media_search.utils.integrations.common import YOUTUBE_SHORT_PREFIX, YOUTUBE_VIDEO_PREFIX
 
 SPOTIFY_PLAYLIST_REGEX = r'^https://open.spotify.com/playlist/(?P<playlist_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
 SPOTIFY_ALBUM_REGEX = r'^https://open.spotify.com/album/(?P<album_id>([a-zA-Z0-9]+))(?P<extra_query>(\?[a-zA-Z0-9=&_-]+)?)(?P<shuffle>( *shuffle)?)'
