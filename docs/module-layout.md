@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **85 are package
+`services/`. A further **84 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -93,13 +93,13 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/broker/` — 7, reached by bot, broker, downloader, search
 
-- `discord_bot.seams.broker.interfaces.broker_client_protocol`
-- `discord_bot.seams.broker.interfaces.player_session_store`
-- `discord_bot.seams.broker.routes.broker`
-- `discord_bot.seams.broker.types.checkout_result`
-- `discord_bot.seams.broker.types.player_session`
-- `discord_bot.seams.broker.types.responses`
-- `discord_bot.seams.broker.utils.integrations.s3`
+- `discord_seam_broker.interfaces.broker_client_protocol`
+- `discord_seam_broker.interfaces.player_session_store`
+- `discord_seam_broker.routes.broker`
+- `discord_seam_broker.types.checkout_result`
+- `discord_seam_broker.types.player_session`
+- `discord_seam_broker.types.responses`
+- `discord_seam_broker.utils.integrations.s3`
 
 ### `discord_bot/seams/database/` — 8, reached by bot, broker, db
 

@@ -22,9 +22,10 @@ from discord_core.utils.common import return_loop_runner
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
 
-from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.seams.broker.types.checkout_result import CheckoutResult
-from discord_bot.seams.broker.utils.integrations.s3 import get_file
+from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
+from discord_seam_broker.types.checkout_result import CheckoutResult
+from discord_seam_broker.utils.integrations.s3 import get_file
+
 from discord_bot.seams.queue_worker.types.queue import Queue
 from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem

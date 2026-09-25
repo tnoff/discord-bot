@@ -19,9 +19,10 @@ from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
 
-from discord_bot.seams.broker.routes import broker as broker_routes
-from discord_bot.seams.broker.types import responses as broker_responses
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.routes import broker as broker_routes
+from discord_seam_broker.types import responses as broker_responses
+from discord_seam_broker.types.player_session import PlayerSession
+
 from discord_bot.services.broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue

@@ -25,10 +25,11 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_bot.seams.broker.interfaces.broker_client_protocol import BrokerClient
-from discord_bot.seams.broker.interfaces.player_session_store import PlayerSessionStore
-from discord_bot.seams.broker.types.checkout_result import CheckoutResult
-from discord_bot.seams.broker.utils.integrations.s3 import delete_file
+from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
+from discord_seam_broker.interfaces.player_session_store import PlayerSessionStore
+from discord_seam_broker.types.checkout_result import CheckoutResult
+from discord_seam_broker.utils.integrations.s3 import delete_file
+
 from discord_bot.seams.database.interfaces.database_protocols import VideoCacheStore
 from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState

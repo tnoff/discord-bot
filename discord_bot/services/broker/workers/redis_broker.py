@@ -15,8 +15,9 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import parse_media_request
 
-from discord_bot.seams.broker.types.player_session import PlayerSession
-from discord_bot.seams.broker.utils.integrations.s3 import delete_file
+from discord_seam_broker.types.player_session import PlayerSession
+from discord_seam_broker.utils.integrations.s3 import delete_file
+
 from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState

@@ -14,7 +14,8 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.types.player_session import PlayerSession
+
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry

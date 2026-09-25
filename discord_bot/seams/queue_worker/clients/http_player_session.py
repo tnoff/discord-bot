@@ -18,8 +18,8 @@ from opentelemetry.trace import SpanKind
 
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_bot.seams.broker.routes import broker as broker_routes
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.routes import broker as broker_routes
+from discord_seam_broker.types.player_session import PlayerSession
 
 # A broker that 404s a session route is running a build from before the route
 # existed.  The bot and broker pods roll independently, so this is an expected

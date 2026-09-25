@@ -26,7 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from discord_bot.seams.broker.types.player_session import PlayerSession
+from discord_seam_broker.types.player_session import PlayerSession
 
 
 class _Ok(BaseModel):

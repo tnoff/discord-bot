@@ -76,6 +76,7 @@ RUN apt-get update && \
 # of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY discord_core/ "${APPDIR}/discord_core/"
+COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[downloader]" && \
     rm -rf "${APPDIR}" /root/.cache
