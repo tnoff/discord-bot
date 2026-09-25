@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from discord_core.exceptions import MediaSearchError
 
-from discord_bot.seams.media_search.types.catalog import CatalogResponse
+from discord_seam_media_search.types.catalog import CatalogResponse
 
 
 class MediaSearchErrorBody(BaseModel):

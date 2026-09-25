@@ -652,3 +652,41 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
         f'{SEAM_ROOTS["database"]}.thing': {'bot', 'db'},
     }
     assert not layout_violations(clean), 'the respelled rules report a clean map as broken'
+
+
+def test_every_dockerfile_copies_the_roots_its_image_reaches():
+    """An image's Dockerfile must COPY every import root that image reaches.
+
+    This gap opens with the first root that is not universal.
+    `discord_seam_media_search` is reached by the bot and search only, so the
+    other four Dockerfiles correctly do not name it -- and the failure mode of
+    getting that wrong is the worst available: `packages.find` simply does not
+    find the absent package, `pip install` succeeds, the image builds green, and
+    the container dies on import in production. CI never sees it.
+
+    Derived from the measured closure rather than a hand-written map of which
+    image needs which root, because that map is exactly what goes stale when a
+    module moves between folders.
+    """
+    closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
+    assert closure['images'], 'no images in the closure -- this test checks nothing'
+    for image in closure['images']:
+        dockerfile = REPO_ROOT / image['dockerfile']
+        assert dockerfile.is_file(), f'{image["image"]}: {dockerfile} is missing'
+        text = dockerfile.read_text(encoding='utf-8')
+        needed = {m.split('.')[0] for m in image['modules']} & ROOTS
+        assert needed, f'{image["image"]} reaches no declared root -- the closure is wrong'
+        missing = sorted(root for root in needed if f'COPY {root}/' not in text)
+        assert not missing, (
+            f'{image["dockerfile"]} does not COPY {missing}, which '
+            f'{image["image"]} reaches. The image would build green and fail on '
+            'import at container start -- packages.find does not error on an '
+            'absent package.'
+        )
+        # And the converse, so the COPYs do not quietly become universal again.
+        extra = sorted(root for root in ROOTS - needed if f'COPY {root}/' in text)
+        assert not extra, (
+            f'{image["dockerfile"]} COPYs {extra}, which {image["image"]} does '
+            'not reach. Shipping a root an image has no route to is what the '
+            'packaging split exists to stop.'
+        )

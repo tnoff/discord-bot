@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **86 are package
+`services/`. A further **85 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -130,12 +130,12 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/media_search/` — 6, reached by bot, search
 
-- `discord_bot.seams.media_search.interfaces.media_search_protocols`
-- `discord_bot.seams.media_search.interfaces.youtube_music_search_protocols`
-- `discord_bot.seams.media_search.routes.media_search`
-- `discord_bot.seams.media_search.types.catalog`
-- `discord_bot.seams.media_search.types.media_search`
-- `discord_bot.seams.media_search.utils.integrations.common`
+- `discord_seam_media_search.interfaces.media_search_protocols`
+- `discord_seam_media_search.interfaces.youtube_music_search_protocols`
+- `discord_seam_media_search.routes.media_search`
+- `discord_seam_media_search.types.catalog`
+- `discord_seam_media_search.types.media_search`
+- `discord_seam_media_search.utils.integrations.common`
 
 ### `discord_bot/seams/queue_worker/` — 10, reached by bot, downloader, search
 

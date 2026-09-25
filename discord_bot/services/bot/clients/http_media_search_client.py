@@ -26,9 +26,9 @@ from discord_core.clients.http_client_base import HttpClientMixin
 from discord_core.routes.route import Route
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_bot.seams.media_search.routes import media_search as media_search_routes
-from discord_bot.seams.media_search.types.catalog import CatalogResponse
-from discord_bot.seams.media_search.types.media_search import MediaSearchResponse
+from discord_seam_media_search.routes import media_search as media_search_routes
+from discord_seam_media_search.types.catalog import CatalogResponse
+from discord_seam_media_search.types.media_search import MediaSearchResponse
 
 logger = logging.getLogger(__name__)
 

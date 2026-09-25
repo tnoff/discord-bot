@@ -334,7 +334,6 @@ def test_the_tox_gates_cover_every_root_on_disk():
     gates = {
         'pylint': [line for line in tox.splitlines() if 'pylint' in line and '.pylintrc.test' not in line],
         'bandit': [line for line in tox.splitlines() if 'bandit -r' in line],
-        'coverage': [line for line in tox.splitlines() if '--cov=' in line],
     }
     for name, lines in gates.items():
         assert lines, f'no {name} invocation found in tox.ini -- the gate or this test moved'
@@ -345,3 +344,26 @@ def test_the_tox_gates_cover_every_root_on_disk():
             f'  {text.strip()}\n'
             'It would keep passing while measuring less than the whole tree.'
         )
+
+    # Coverage is covered by CONSTRUCTION rather than by enumeration, which is
+    # strictly better: pyproject's source root is the repo, so a new package is
+    # measured the moment it exists and no list can fall behind.
+    #
+    # Enumerating `--cov=<root>` also had a second cost that only shows at more
+    # than one root. Coverage writes one <source> per root and strips the
+    # matching root off each filename, so `discord_core/utils/otel.py` is
+    # recorded as `utils/otel.py`; diff-cover then reconstructs the path by
+    # testing each <source>, and a name under several roots resolves to the
+    # first that exists. Measured at the media_search move: four names collided
+    # and coverage.xml held one entry for each instead of three.
+    assert '--cov=' not in tox, (
+        'tox.ini enumerates --cov=<root> again. That makes coverage.xml ambiguous '
+        'for any filename present under more than one root, and diff-cover then '
+        'reports the wrong file. Use bare --cov with pyproject\'s source root.'
+    )
+    assert '--cov ' in tox or tox.rstrip().endswith('--cov'), 'no --cov invocation in tox.ini'
+    pyproject = (REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8')
+    assert '[tool.coverage.run]' in pyproject and 'source = ["."]' in pyproject, (
+        'pyproject no longer sets a single repo-rooted coverage source, so '
+        'tox.ini\'s bare --cov measures nothing in particular.'
+    )

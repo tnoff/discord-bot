@@ -4,8 +4,9 @@ from opentelemetry.trace import SpanKind
 
 from discord_core.utils.otel import otel_span_wrapper
 
-from discord_bot.seams.media_search.types.catalog import CatalogResponse, CatalogItem
-from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_seam_media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+
 from discord_bot.services.search.utils.integrations.third_party_naming import ThirdPartyNaming
 
 class YoutubeClient():
