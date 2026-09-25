@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **83 are package
+`services/`. A further **82 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -139,16 +139,16 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/seams/queue_worker/` — 10, reached by bot, downloader, search
 
-- `discord_bot.seams.queue_worker.clients.http_broker_client`
-- `discord_bot.seams.queue_worker.clients.http_player_session`
-- `discord_bot.seams.queue_worker.interfaces.download_client_protocol`
-- `discord_bot.seams.queue_worker.routes.queue_worker`
-- `discord_bot.seams.queue_worker.servers.queue_worker_server`
-- `discord_bot.seams.queue_worker.types.clear_guild_result`
-- `discord_bot.seams.queue_worker.types.queue`
-- `discord_bot.seams.queue_worker.types.responses`
-- `discord_bot.seams.queue_worker.utils.failure_queue`
-- `discord_bot.seams.queue_worker.workers.redis_guild_queue`
+- `discord_seam_queue_worker.clients.http_broker_client`
+- `discord_seam_queue_worker.clients.http_player_session`
+- `discord_seam_queue_worker.interfaces.download_client_protocol`
+- `discord_seam_queue_worker.routes.queue_worker`
+- `discord_seam_queue_worker.servers.queue_worker_server`
+- `discord_seam_queue_worker.types.clear_guild_result`
+- `discord_seam_queue_worker.types.queue`
+- `discord_seam_queue_worker.types.responses`
+- `discord_seam_queue_worker.utils.failure_queue`
+- `discord_seam_queue_worker.workers.redis_guild_queue`
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 

@@ -53,11 +53,12 @@ from discord_core.utils.otel import (
 from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
 from discord_seam_broker.utils.integrations.s3 import upload_file
 
-from discord_bot.seams.queue_worker.interfaces.download_client_protocol import (
+from discord_seam_queue_worker.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
-from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue, FailureStatus
+from discord_seam_queue_worker.types.clear_guild_result import ClearGuildResult
+from discord_seam_queue_worker.utils.failure_queue import FailureQueue, FailureStatus
+
 from discord_bot.services.downloader.utils.audio import edit_audio_file, AudioProcessingError
 from discord_bot.services.downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,

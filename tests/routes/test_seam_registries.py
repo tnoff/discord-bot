@@ -20,8 +20,9 @@ from discord_seam_database.routes import database as database_routes
 
 from discord_seam_media_search.routes import media_search as media_search_routes
 
+from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
+
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore

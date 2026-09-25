@@ -12,9 +12,10 @@ fronts the same shape, so this module only supplies the routes/labels that diffe
 import logging
 from typing import ClassVar
 
-from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
-from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
-from discord_bot.seams.queue_worker.servers.queue_worker_server import QueueWorkerHttpServer
+from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
+from discord_seam_queue_worker.routes.queue_worker import QueueWorkerRoutes
+from discord_seam_queue_worker.servers.queue_worker_server import QueueWorkerHttpServer
+
 from discord_bot.services.downloader.workers.redis_download_worker import RedisDownloadWorker
 
 logger = logging.getLogger(__name__)

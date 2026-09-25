@@ -27,9 +27,9 @@ from discord_core.types.playlist_add_request import parse_media_request
 from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
 
-from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
-from discord_bot.seams.queue_worker.types import responses as qw_responses
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked, QueueFull, submit_rejection_status
+from discord_seam_queue_worker.routes.queue_worker import QueueWorkerRoutes
+from discord_seam_queue_worker.types import responses as qw_responses
+from discord_seam_queue_worker.types.queue import PutsBlocked, QueueFull, submit_rejection_status
 
 logger = logging.getLogger(__name__)
 

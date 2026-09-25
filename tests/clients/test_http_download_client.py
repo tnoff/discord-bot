@@ -22,7 +22,8 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
+from discord_seam_queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
+
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_queue_worker_client import _exception_detail
 from discord_bot.services.downloader.servers.download_server import DownloadHttpServer

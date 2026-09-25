@@ -19,14 +19,15 @@ from discord_core.types.search_resolution import SearchResolution
 from discord_seam_broker.types.checkout_result import CheckoutResult
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.seams.dispatch.interfaces.result_queue import SearchResultQueue
 # The span-churn assertions patch the span wrapper where HttpBrokerClient uses
 # it, which is its own module now (clients/http_broker_client.py) — the split
 # that keeps the search pod's import chain free of sqlalchemy/boto3.  The class
 # itself is still re-exported from clients/broker_client.py, so the import below
 # and every other test here are unchanged.
-from discord_bot.seams.queue_worker.clients import http_broker_client as http_broker_client_module
-from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_seam_queue_worker.clients import http_broker_client as http_broker_client_module
+from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+
+from discord_bot.seams.dispatch.interfaces.result_queue import SearchResultQueue
 from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 

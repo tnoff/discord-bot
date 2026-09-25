@@ -26,7 +26,8 @@ from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
 from discord_seam_broker.types.checkout_result import CheckoutResult
 from discord_seam_broker.utils.integrations.s3 import get_file
 
-from discord_bot.seams.queue_worker.types.queue import Queue
+from discord_seam_queue_worker.types.queue import Queue
+
 from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
 
